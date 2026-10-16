@@ -76,7 +76,8 @@ export class CronStore {
 export interface SchedulerOptions {
   harness: Harness;
   store: CronStore;
-  defaultModel: ModelRef;
+  /** Model for jobs without their own; a function is read at each run (the UI can change it). */
+  defaultModel: ModelRef | (() => ModelRef);
   /** Max time one run may take before it is aborted and logged as error. Default 30 min. */
   runTimeoutMs?: number;
   log?: (msg: string) => void;
@@ -143,7 +144,8 @@ export class Scheduler {
   private async execute(job: Job, run: Run) {
     const { store, harness } = this.o;
     try {
-      const model = job.model ?? this.o.defaultModel;
+      const d = this.o.defaultModel;
+      const model = job.model ?? (typeof d === "function" ? d() : d);
       const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model } }, context);
       const sub = await conv.submit({ type: "input", content: job.prompt, requestId: `cron-${job.id}-${run.slot}` }, context);
       store.attach(run.id, String(conv.id), String(sub.id));

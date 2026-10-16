@@ -14,7 +14,8 @@
     "verify:skills": "tsx src/verify-skills.ts",
     "verify:improve": "tsx src/verify-improve.ts",
     "verify:runtime": "tsx src/verify-runtime.ts",
-    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web",
+    "verify:providers": "tsx src/verify-providers.ts",
+    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers",
     "verify:web": "tsx src/verify-web.ts"
   },
   "keywords": [],

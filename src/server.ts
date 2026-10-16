@@ -7,6 +7,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { Children } from "./delegate.js";
+import type { ProviderManager } from "./providers.js";
 import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
@@ -21,6 +22,8 @@ export interface ServerOptions {
   agent?: Parameters<Harness["createConversation"]>[0]["agent"];
   /** Optional subsystems; their endpoints answer 404 "disabled" when absent. */
   models?: Models;
+  /** Provider connections (API keys, subscription logins, custom endpoints) and the default model. */
+  providers?: ProviderManager;
   store?: CronStore;
   scheduler?: Scheduler;
   memory?: MemoryStore;
@@ -84,6 +87,8 @@ export function createApp(opts: ServerOptions) {
   });
 
   const getConv = async (id: string) => harness.conversation(id as never, context);
+  /** Agent choices for a new conversation; the default model comes from the provider manager when present. */
+  const baseAgent = () => ({ ...(opts.agent ?? {}), ...(opts.providers && { model: opts.providers.defaultModel() }) });
 
   // ---- sessions ----
   app.get("/v1/sessions", async (c) => {
@@ -104,7 +109,8 @@ export function createApp(opts: ServerOptions) {
 
   app.post("/v1/sessions", async (c) => {
     const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; instructions?: string; cwd?: string };
-    const agent = { ...(opts.agent ?? {}), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(b.cwd && { cwd: b.cwd }) };
+    if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
+    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(b.cwd && { cwd: b.cwd }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
     return c.json({ id: conv.id }, 201);
   });
@@ -213,7 +219,7 @@ export function createApp(opts: ServerOptions) {
   app.post("/v1/chat", async (c) => {
     const b = await c.req.json().catch(() => ({})) as { message?: string; sessionId?: string; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" };
     let id = b.sessionId;
-    if (!id) id = (await harness.createConversation({ ownership: { kind: "ownerless" }, agent: opts.agent }, context)).id as unknown as string;
+    if (!id) id = (await harness.createConversation({ ownership: { kind: "ownerless" }, agent: baseAgent() }, context)).id as unknown as string;
     return send(c, id, { content: b.message, requestId: b.requestId, whenBusy: b.whenBusy });
   });
 
@@ -244,12 +250,60 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- models ----
-  app.get("/v1/models", (c) => {
+  // Models of connected providers only (plus the default, so a session never shows an unknown value).
+  app.get("/v1/models", async (c) => {
     if (!opts.models) return err(c, 404, "disabled");
-    const cur = opts.agent?.model ?? null;
-    const list = opts.models.getModels(cur?.provider).map((m) => ({ provider: m.provider, id: m.id, name: m.name, reasoning: m.reasoning, input: m.input, contextWindow: m.contextWindow }));
+    const cur = (opts.providers?.defaultModel() ?? opts.agent?.model) ?? null;
+    const avail = opts.providers ? [...await opts.models.getAvailable()] : [...opts.models.getModels(cur?.provider)];
+    if (cur && !avail.some((m) => m.provider === cur.provider && m.id === cur.modelId)) {
+      const m = opts.models.getModel(cur.provider, cur.modelId); if (m) avail.unshift(m);
+    }
+    const list = avail.map((m) => ({ provider: m.provider, id: m.id, name: m.name, reasoning: m.reasoning, input: m.input, contextWindow: m.contextWindow }));
     return c.json({ default: cur, models: list });
   });
+  app.put("/v1/models/default", async (c) => {
+    if (!opts.providers) return err(c, 404, "disabled");
+    const b = await c.req.json().catch(() => ({})) as { provider?: string; modelId?: string };
+    try { opts.providers.setDefaultModel({ provider: String(b.provider ?? ""), modelId: String(b.modelId ?? "") }); return c.json({ ok: true, default: opts.providers.defaultModel() }); }
+    catch (e) { return err(c, 400, (e as Error).message); }
+  });
+
+  // ---- providers: API keys, subscription (OAuth) logins, custom OpenAI/Anthropic-compatible endpoints ----
+  const prov = (c: HonoContext) => (opts.providers ? undefined : err(c, 404, "providers disabled"));
+  const attempt = async (c: HonoContext, fn: () => Promise<unknown>, status: 200 | 201 = 200) => {
+    try { return c.json((await fn()) ?? { ok: true }, status); } catch (e) { return err(c, 400, (e as Error).message); }
+  };
+  app.get("/v1/providers", async (c) => prov(c) ?? c.json({ providers: await opts.providers!.list(), default: opts.providers!.defaultModel() }));
+  app.put("/v1/providers/:id/key", async (c) => {
+    const no = prov(c); if (no) return no;
+    const b = await c.req.json().catch(() => ({})) as { key?: string };
+    return attempt(c, () => opts.providers!.setApiKey(c.req.param("id"), String(b.key ?? "")));
+  });
+  app.delete("/v1/providers/:id/credential", async (c) => prov(c) ?? attempt(c, () => opts.providers!.logout(c.req.param("id"))));
+  app.post("/v1/providers/custom", async (c) => {
+    const no = prov(c); if (no) return no;
+    const b = await c.req.json().catch(() => ({}));
+    return attempt(c, () => opts.providers!.addCustom(b as never), 201);
+  });
+  app.delete("/v1/providers/custom/:id", async (c) => prov(c) ?? attempt(c, () => opts.providers!.removeCustom(c.req.param("id"))));
+  app.post("/v1/providers/:id/login", async (c) => {
+    const no = prov(c); if (no) return no;
+    const b = await c.req.json().catch(() => ({})) as { type?: string };
+    const type = b.type === "api_key" ? "api_key" : "oauth";
+    try { return c.json(opts.providers!.startLogin(c.req.param("id"), type), 201); } catch (e) { return err(c, 400, (e as Error).message); }
+  });
+  app.get("/v1/logins/:id", (c) => {
+    const no = prov(c); if (no) return no;
+    const l = opts.providers!.getLogin(c.req.param("id"));
+    return l ? c.json(l) : err(c, 404, "no such login");
+  });
+  app.post("/v1/logins/:id/answer", async (c) => {
+    const no = prov(c); if (no) return no;
+    const b = await c.req.json().catch(() => ({})) as { seq?: number; value?: string };
+    try { opts.providers!.answerLogin(c.req.param("id"), Number(b.seq), String(b.value ?? "")); return c.json({ ok: true }); }
+    catch (e) { return err(c, 409, (e as Error).message); }
+  });
+  app.delete("/v1/logins/:id", (c) => { const no = prov(c); if (no) return no; opts.providers!.cancelLogin(c.req.param("id")); return c.json({ ok: true }); });
 
   // ---- cron ----
   const cron = (c: HonoContext) => (opts.store ? undefined : err(c, 404, "cron disabled"));

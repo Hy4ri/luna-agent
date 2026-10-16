@@ -17,7 +17,7 @@ if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1" && !token) {
 const rt = await startRuntime(cfg);
 const app = createApp({
   harness: rt.harness, token, agent: { model: rt.model },
-  models: rt.models, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs,
+  models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs,
 });
 const server = serve({ fetch: app.fetch, hostname: host, port }, (i) =>
   console.log(`luna listening on http://${i.address}:${i.port} provider=${cfg.provider} data=${cfg.dataDir} extensions=${cfg.extensions.join(",")} mcp=${rt.mcp.connections.map((c) => c.name).join(",") || "none"} auth=${token ? "on" : "off"}`));

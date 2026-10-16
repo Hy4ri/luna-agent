@@ -3,7 +3,7 @@
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type Models } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
 import { createRegistry, type Extension } from "@earendil-works/pi-durable";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import type { LunaConfig } from "./config.js";
@@ -12,6 +12,7 @@ import { Delegate } from "./delegate.js";
 import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { installMcpServers } from "./mcp.js";
+import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
@@ -23,15 +24,16 @@ export const IMPROVE_PROMPT =
   "listing the key steps. 4) Answer with what was applied or blocked and why.";
 
 export interface RuntimeOptions {
-  /** Override the model catalog (tests). Default: built from config.provider. */
-  models?: Models;
+  /** Override the model catalog (tests). Default: built-in providers + <dataDir>/auth.json credentials. */
+  models?: MutableModels;
   model?: ModelRef;
   log?: (msg: string) => void;
   fetch?: typeof fetch;
 }
 
-function buildModels(cfg: LunaConfig): Promise<{ models: Models; model: ModelRef }> | { models: Models; model: ModelRef } {
-  const models = createModels();
+/** Models backed by <dataDir>/auth.json. The faux provider is registered only when config selects it. */
+function buildModels(cfg: LunaConfig): { models: MutableModels; model: ModelRef } {
+  const models = createModels({ credentials: new FileCredentialStore(join(cfg.dataDir, "auth.json")) });
   if (cfg.provider === "faux") {
     const faux = fauxProvider();
     faux.setResponses(Array.from({ length: 1000 }, (_, i) => fauxAssistantMessage([fauxText(`faux reply #${i + 1}`)])));
@@ -39,11 +41,7 @@ function buildModels(cfg: LunaConfig): Promise<{ models: Models; model: ModelRef
     const m = faux.getModel();
     return { models, model: { provider: m.provider, modelId: m.id } };
   }
-  return (async () => {
-    if (cfg.provider === "anthropic") models.setProvider((await import("@earendil-works/pi-ai/providers/anthropic")).anthropicProvider());
-    else models.setProvider((await import("@earendil-works/pi-ai/providers/openai")).openaiProvider());
-    return { models, model: { provider: cfg.provider, modelId: cfg.model! } };
-  })();
+  return { models, model: { provider: cfg.provider, modelId: cfg.model! } };
 }
 
 export type Runtime = Awaited<ReturnType<typeof startRuntime>>;
@@ -53,7 +51,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const on = (e: LunaConfig["extensions"][number]) => cfg.extensions.includes(e);
   mkdirSync(join(cfg.dataDir, "skills"), { recursive: true });
 
-  const built = o.models ? { models: o.models, model: o.model! } : await buildModels(cfg);
+  const built = o.models ? { models: o.models, model: o.model! } : buildModels(cfg);
+  // Adds the built-in and custom providers; the default model saved in the UI wins over config.
+  const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch });
   const registry = createRegistry();
 
   // MCP first, so their (deferred) tools are in the registry before the harness resumes old runs.
@@ -90,7 +90,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("cron")) {
     const notifyUrl = cfg.cron.notifyUrl;
     scheduler = new Scheduler({
-      harness, store: store!, defaultModel: built.model, log,
+      harness, store: store!, defaultModel: () => providers.defaultModel(), log,
       ...(cfg.cron.runTimeoutMinutes ? { runTimeoutMs: cfg.cron.runTimeoutMinutes * 60_000 } : {}),
       onFinish: notifyUrl ? (job, run) => deliverRun(notifyUrl, job, run, o.fetch) : undefined,
     });
@@ -102,6 +102,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     config: cfg,
     harness,
     models: built.models,
+    providers,
     memory: memory || undefined,
     skillDirs: on("skills") ? cfg.allSkillDirs : undefined,
     model: built.model,
@@ -109,6 +110,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     scheduler,
     mcp,
     async close() {
+      providers.close();
       await scheduler?.stop();
       await harness.close(context).catch(() => {});
       await mcp.close();

@@ -93,6 +93,7 @@
   <div id="nav">
     <button data-panel="agents">Subagents</button><button data-panel="cron">Cron</button>
     <button data-panel="memory">Memory</button><button data-panel="skills">Skills</button>
+    <button data-panel="providers">Providers</button>
   </div>
 </aside>
 <main id="main">
@@ -265,7 +266,7 @@ const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 async function loadModels() {
   try { const r = await json("/v1/models"); modelList = r.models; defaultModel = r.default; } catch { modelList = []; }
   const sel = $("model"); sel.replaceChildren();
-  for (const m of modelList) sel.append(h("option", { value: m.provider + "/" + m.id }, m.name || m.id));
+  for (const m of modelList) sel.append(h("option", { value: m.provider + "/" + m.id }, m.provider + " · " + (m.name || m.id)));
   sel.disabled = modelList.length < 2;
   const t = $("think"); t.replaceChildren(...LEVELS.map((l) => h("option", { value: l }, "think: " + l)));
 }
@@ -499,6 +500,49 @@ const panels = {
       h("div", { class: "row" }, h("button", { onclick: async () => { try { await post("/v1/memory", { content: content.value, key: key.value.trim() || undefined }); content.value = ""; key.value = ""; load(); } catch (e) { toast(body, e.message); } } }, "Save"))), q, list);
     load();
   },
+  async providers(body) {
+    const r = await json("/v1/providers").catch((e) => ({ error: e.message }));
+    if (r.error) return body.append(h("p", { class: "muted" }, r.error));
+    const cur = r.default ? r.default.provider + "/" + r.default.modelId : "";
+    // default model (connected providers only)
+    const dsel = h("select", {}, ...modelList.map((m) => h("option", { value: m.provider + "/" + m.id }, m.provider + " · " + (m.name || m.id))));
+    if (cur && ![...dsel.options].some((o) => o.value === cur)) dsel.append(h("option", { value: cur }, cur));
+    dsel.value = cur;
+    body.append(h("div", { class: "card grid" }, h("b", {}, "Default model for new sessions and cron"),
+      h("div", { class: "row" }, dsel, h("button", { onclick: async () => { const [provider, ...rest] = dsel.value.split("/"); try { await post("/v1/models/default", { provider, modelId: rest.join("/") }, "PUT"); await loadModels(); toast(body, "default saved"); } catch (e) { toast(body, e.message); } } }, "Save"))));
+    const builtin = r.providers.filter((p) => !p.custom && p.id !== "faux");
+    const custom = r.providers.filter((p) => p.custom);
+    const card = (p) => {
+      const key = h("input", { type: "password", placeholder: "API key", autocomplete: "off" });
+      const status = p.connected ? h("span", { class: "pill ok" }, (p.via === "oauth" ? "subscription" : "key") + (p.source ? " · " + p.source : "")) : h("span", { class: "pill" }, p.error ? "error" : "not connected");
+      return h("div", { class: "card grid" },
+        h("div", { class: "row" }, h("b", { class: "grow" }, p.name), status, h("span", { class: "muted" }, p.models + " models")),
+        p.error ? h("pre", {}, p.error) : null,
+        p.oauth ? h("div", { class: "row" }, h("button", { onclick: async () => { try { loginBox(body, await post(`/v1/providers/${p.id}/login`, { type: "oauth" })); } catch (e) { toast(body, e.message); } } }, p.oauth.label || (p.oauth.subscription ? "Sign in with subscription" : "Sign in")), h("span", { class: "muted" }, p.oauth.name)) : null,
+        p.apiKey ? h("div", { class: "row" }, key, h("button", { onclick: async () => { try { await post(`/v1/providers/${p.id}/key`, { key: key.value }, "PUT"); key.value = ""; await loadModels(); refresh(); } catch (e) { toast(body, e.message); } } }, "Save key")) : null,
+        p.connected && p.source && /stored|OAuth/i.test(p.source) ? h("div", { class: "row" }, h("button", { onclick: async () => { if (confirm(`Remove the stored ${p.name} credential?`)) { await api(`/v1/providers/${p.id}/credential`, { method: "DELETE" }); await loadModels(); refresh(); } } }, "Disconnect")) : null,
+        p.id === "anthropic" && p.oauth ? h("div", { class: "muted" }, "Note: Anthropic bills third-party apps on a Pro/Max login as extra usage, not plan limits. Check claude.ai/settings/usage.") : null);
+    };
+    body.append(h("b", {}, "Providers"), ...builtin.map(card));
+    // custom
+    const cid = h("input", { placeholder: "id, e.g. local-llama" }), cname = h("input", { placeholder: "display name (optional)" });
+    const capi = h("select", {}, h("option", { value: "openai-completions" }, "OpenAI-compatible (chat completions)"), h("option", { value: "openai-responses" }, "OpenAI Responses API"), h("option", { value: "anthropic-messages" }, "Anthropic-compatible (messages)"));
+    const curl = h("input", { placeholder: "base URL, e.g. http://192.168.1.10:8080/v1" }), ckey = h("input", { type: "password", placeholder: "API key (blank for none)", autocomplete: "off" });
+    const cmodels = h("input", { placeholder: "model ids, comma separated (blank: auto-detect via /models)" });
+    body.append(h("b", {}, "Custom API"), ...custom.map((p) => h("div", { class: "card grid" },
+      h("div", { class: "row" }, h("b", { class: "grow" }, p.name), h("span", { class: "pill " + (p.connected ? "ok" : "") }, p.def.api), h("span", { class: "muted" }, p.models + " models"),
+        h("button", { onclick: async () => { if (confirm(`Remove provider ${p.id}?`)) { try { await api(`/v1/providers/custom/${p.id}`, { method: "DELETE" }); await loadModels(); refresh(); } catch (e) { toast(body, e.message); } } } }, "Remove")),
+      h("div", { class: "muted" }, p.def.baseUrl + " · " + p.def.models.map((m) => m.id).join(", ")))),
+      h("div", { class: "card grid" }, h("b", {}, "Add custom provider"), cid, cname, capi, curl, ckey, cmodels,
+        h("div", { class: "row" }, h("button", { onclick: async (ev) => {
+          ev.target.disabled = true;
+          try {
+            const models = cmodels.value.split(",").map((s) => s.trim()).filter(Boolean);
+            await post("/v1/providers/custom", { id: cid.value.trim(), name: cname.value.trim(), api: capi.value, baseUrl: curl.value.trim(), key: ckey.value, models });
+            await loadModels(); refresh();
+          } catch (e) { toast(body, e.message); ev.target.disabled = false; }
+        } }, "Add"))));
+  },
   async skills(body) {
     const r = await json("/v1/skills").catch((e) => ({ error: e.message }));
     if (r.error) return body.append(h("p", { class: "muted" }, r.error));
@@ -513,9 +557,47 @@ const panels = {
     }
   },
 };
+// ---- providers panel ----
+function loginBox(body, login) {
+  // Drives one interactive login: shows auth URLs / device codes / progress and answers prompts.
+  const box = h("div", { class: "card grid" });
+  body.prepend(box);
+  let seen = -1, stop = false;
+  const render = (l) => {
+    box.replaceChildren(h("div", { class: "row" }, h("b", { class: "grow" }, "Login: " + l.providerId), h("span", { class: "pill " + (l.status === "done" ? "ok" : l.status === "running" ? "" : "error") }, l.status),
+      l.status === "running" ? h("button", { onclick: async () => { stop = true; await api(`/v1/logins/${l.id}`, { method: "DELETE" }); refresh(); } }, "Cancel") : null));
+    for (const e of l.events) {
+      if (e.type === "auth_url") box.append(h("div", {}, h("a", { href: e.url, target: "_blank", rel: "noopener noreferrer" }, "Open sign-in page ↗"), e.instructions ? h("div", { class: "muted" }, e.instructions) : null));
+      else if (e.type === "device_code") box.append(h("div", {}, "Code ", h("b", {}, e.userCode), " at ", h("a", { href: e.verificationUri, target: "_blank", rel: "noopener noreferrer" }, e.verificationUri)));
+      else box.append(h("div", { class: "muted" }, e.message));
+    }
+    if (l.error) box.append(h("pre", {}, l.error));
+    const p = l.prompt;
+    if (p) {
+      const send = async (v) => { try { await post(`/v1/logins/${l.id}/answer`, { seq: p.seq, value: v }); } catch (e) { toast(body, e.message); } };
+      box.append(h("div", { class: "muted" }, p.message));
+      if (p.type === "select") box.append(h("div", { class: "row" }, ...p.options.map((o) => h("button", { title: o.description || "", onclick: () => send(o.id) }, o.label))));
+      else {
+        const inp = h("input", { type: p.type === "secret" ? "password" : "text", placeholder: p.placeholder || "" });
+        box.append(inp, h("div", { class: "row" }, h("button", { onclick: () => send(inp.value) }, "Submit")));
+        if (p.type === "manual_code") box.append(h("div", { class: "muted" }, "On another device the browser cannot reach the callback. After you sign in, copy the final URL from the address bar (or the code shown) and paste it here."));
+      }
+    }
+  };
+  const tick = async () => {
+    if (stop || currentPanel !== "providers") return;
+    const l = await json(`/v1/logins/${login.id}`).catch(() => null);
+    if (!l) return;
+    const sig = JSON.stringify([l.status, l.events.length, l.prompt?.seq, l.error]);
+    if (sig !== seen) { seen = sig; render(l); }
+    if (l.status === "running") setTimeout(tick, 1000);
+    else { await loadModels(); if (l.status === "done") setTimeout(refresh, 800); }
+  };
+  render(login); tick();
+}
 const panelState = {};
 let currentPanel = null;
-const TITLES = { session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills" };
+const TITLES = { session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers" };
 async function openPanel(name) {
   currentPanel = name;
   $("ptitle").textContent = TITLES[name];

@@ -27,7 +27,8 @@ export const ConfigSchema = z
     dataDir: z.string().default("~/.luna"),
     /** Default working directory for tools. */
     cwd: z.string().optional(),
-    provider: z.enum(["faux", "anthropic", "openai"]).default("faux"),
+    /** Fallback provider id (faux or any built-in, e.g. anthropic, openai, openrouter). A default model saved in the web UI wins. */
+    provider: z.string().regex(/^[a-z0-9-]{1,40}$/).default("faux"),
     model: z.string().optional(),
     extensions: z.array(z.enum(BUILTIN_EXTENSIONS)).default([...BUILTIN_EXTENSIONS]),
     /** Extra skill dirs, scanned after <dataDir>/skills. */
