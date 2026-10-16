@@ -68,6 +68,7 @@ export class CronStore {
       : this.db.prepare("SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT ?").all(jobId, limit);
     return q.map((r) => this.run(r));
   }
+  getRun(id: number): Run | undefined { const r = this.db.prepare("SELECT * FROM runs WHERE id=?").get(id); return r ? this.run(r) : undefined; }
   unfinished(): Run[] { return this.db.prepare("SELECT * FROM runs WHERE status='running' ORDER BY id").all().map((r) => this.run(r)); }
   close() { this.db.close(); }
 }
@@ -79,6 +80,8 @@ export interface SchedulerOptions {
   /** Max time one run may take before it is aborted and logged as error. Default 30 min. */
   runTimeoutMs?: number;
   log?: (msg: string) => void;
+  /** Called once per finished run (ok or error), e.g. to deliver the result. Errors are logged, never thrown. */
+  onFinish?: (job: Job | undefined, run: Run) => void | Promise<void>;
 }
 
 const MAX_TIMER = 2 ** 31 - 1;
@@ -87,14 +90,24 @@ export class Scheduler {
   private timer: NodeJS.Timeout | undefined;
   private inflight = new Set<Promise<void>>();
   private stopped = true;
-  private o: Required<SchedulerOptions>;
-  constructor(o: SchedulerOptions) { this.o = { runTimeoutMs: 30 * 60_000, log: () => {}, ...o }; }
+  private o: Required<Omit<SchedulerOptions, "onFinish">> & Pick<Required<SchedulerOptions>, "onFinish">;
+  constructor(o: SchedulerOptions) { this.o = { runTimeoutMs: 30 * 60_000, log: () => {}, onFinish: () => {}, ...o }; }
+
+  /** Re-arm the timer after jobs change (e.g. the model added a job). */
+  rearm() { this.arm(); }
+
+  private async notify(runId: number) {
+    const run = this.o.store.getRun(runId);
+    if (!run || run.status === "running") return;
+    try { await this.o.onFinish(this.o.store.getJob(run.jobId), run); }
+    catch (e) { this.o.log(`onFinish for run ${runId} failed: ${errText(e)}`); }
+  }
 
   /** Recover runs interrupted by a crash, then start the tick loop. */
   async start() {
     this.stopped = false;
     this.o.harness.resume();
-    for (const r of this.o.store.unfinished()) this.track(this.recover(r));
+    for (const r of this.o.store.unfinished()) this.track(this.recover(r).then(() => this.notify(r.id)));
     this.arm();
   }
 
@@ -120,12 +133,12 @@ export class Scheduler {
     if (this.stopped) return;
     for (const job of this.o.store.dueJobs(now)) {
       const run = this.o.store.claim(job, now);
-      if (run) this.track(this.execute(job, run));
+      if (run) this.track(this.execute(job, run).then(() => this.notify(run.id)));
     }
     this.arm();
   }
 
-  private track(p: Promise<void>) { this.inflight.add(p); p.finally(() => this.inflight.delete(p)); }
+  private track(p: Promise<void>) { this.inflight.add(p); void p.finally(() => this.inflight.delete(p)); }
 
   private async execute(job: Job, run: Run) {
     const { store, harness } = this.o;

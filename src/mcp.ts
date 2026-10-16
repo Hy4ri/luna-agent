@@ -1,14 +1,19 @@
-// MCP client bridge: connect stdio / SSE MCP servers, expose their tools as pi-durable extensions.
+// MCP client bridge: connect stdio / Streamable HTTP / SSE MCP servers, expose their tools as pi-durable extensions.
+// Only servers listed in config run. Stdio servers get a minimal environment (PATH, HOME, ...) plus their own `env`,
+// never the daemon's full environment, so API keys and LUNA_TOKEN do not leak into third-party processes.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { defineExtension, defineTool, type Extension, type Registry } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 
-export type McpServerConfig =
-  | { name: string; transport: "stdio"; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
-  | { name: string; transport: "sse"; url: string; headers?: Record<string, string> };
+type Common = { name: string; enabled?: boolean; /** Tools hidden until tool_search loads them. Default true. */ defer?: boolean };
+export type McpServerConfig = Common & (
+  | { transport: "stdio"; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
+  | { transport: "http" | "sse"; url: string; headers?: Record<string, string> }
+);
 
 export interface McpConnection {
   readonly name: string;
@@ -18,6 +23,7 @@ export interface McpConnection {
 }
 
 const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+const CALL_TIMEOUT_MS = 10 * 60_000;
 
 function makeTransport(cfg: McpServerConfig): Transport {
   if (cfg.transport === "stdio") {
@@ -25,12 +31,14 @@ function makeTransport(cfg: McpServerConfig): Transport {
       command: cfg.command,
       args: cfg.args,
       cwd: cfg.cwd,
-      env: cfg.env ? ({ ...process.env, ...cfg.env } as Record<string, string>) : undefined,
+      env: { ...getDefaultEnvironment(), ...(cfg.env ?? {}) },
       stderr: "ignore",
     });
   }
   const headers = cfg.headers;
-  return new SSEClientTransport(new URL(cfg.url), headers ? { requestInit: { headers }, eventSourceInit: { fetch: (u, i) => fetch(u, { ...i, headers: { ...(i?.headers as any), ...headers } }) } } : undefined);
+  const requestInit = headers ? { headers } : undefined;
+  if (cfg.transport === "http") return new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit });
+  return new SSEClientTransport(new URL(cfg.url), headers ? { requestInit, eventSourceInit: { fetch: (u, i) => fetch(u, { ...i, headers: { ...(i?.headers as any), ...headers } }) } } : undefined);
 }
 
 /** Connect one MCP server, list its tools, and wrap them as an Extension `mcp-<name>` with tools `<name>__<tool>`. */
@@ -47,13 +55,15 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
     } while (cursor);
 
     const prefix = sanitize(cfg.name);
+    const defer = cfg.defer ?? true;
     const registered = tools.map((t) =>
       defineTool({
         name: `${prefix}__${sanitize(t.name)}`,
-        description: t.description ?? `MCP tool ${t.name} from ${cfg.name}`,
+        description: `[mcp:${cfg.name}] ${t.description ?? t.name}`,
         parameters: Type.Unsafe<Record<string, unknown>>(t.inputSchema ?? { type: "object", properties: {} }),
+        ...(defer ? { deferred: true as const } : {}),
         async execute(args, _api, context) {
-          const res: any = await client.callTool({ name: t.name, arguments: args }, undefined, { signal: context.abortSignal });
+          const res: any = await client.callTool({ name: t.name, arguments: args }, undefined, { signal: context.abortSignal, timeout: CALL_TIMEOUT_MS });
           const content: any[] = Array.isArray(res.content) ? res.content : [{ type: "text", text: JSON.stringify(res.structuredContent ?? res) }];
           const output = content.map((c) =>
             c.type === "text" ? { type: "text" as const, text: String(c.text) }
@@ -76,11 +86,12 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
   }
 }
 
-/** Connect all servers and install each as an extension in `registry`. A failing server is reported, not fatal. */
+/** Connect enabled servers and install each as an extension in `registry`. A failing server is reported, not fatal. */
 export async function installMcpServers(registry: Registry, configs: McpServerConfig[]) {
   const connections: McpConnection[] = [];
   const failures: { name: string; error: string }[] = [];
   for (const cfg of configs) {
+    if (cfg.enabled === false) continue;
     try {
       const c = await connectMcpServer(cfg);
       registry.install(c.extension);

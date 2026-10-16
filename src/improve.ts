@@ -104,7 +104,7 @@ export interface ImproverOptions {
   historyDir?: string;
   /** Named benchmarks the model may reference by name. */
   benchmarks?: Record<string, Benchmark>;
-  /** Allow the model to supply a shell command as benchmark. Default true. */
+  /** Allow the model to supply a shell command as benchmark. Default false: it runs arbitrary shell. */
   allowCommandBenchmarks?: boolean;
 }
 
@@ -200,7 +200,7 @@ const text = (t: string, isError = false) => ({ output: [{ type: "text" as const
 /** Tools: inspect_runs, extract_lessons, skill_propose, skill_rollback. */
 export function createImproveExtension(imp: SkillImprover, o: Pick<ImproverOptions, "benchmarks" | "allowCommandBenchmarks"> = {}) {
   const named = o.benchmarks ?? {};
-  const allowCmd = o.allowCommandBenchmarks ?? true;
+  const allowCmd = o.allowCommandBenchmarks ?? false;
   const inspect = defineTool({
     name: "inspect_runs",
     description: "List recent past runs (scheduled jobs etc.) with status and error/output text, newest first.",

@@ -1,0 +1,71 @@
+// Terminal chat client for a running daemon. Streams answers over SSE.
+// Usage: luna-chat [--session <id>] [message...]   (no message: interactive; /new starts a session, /quit exits)
+// Env: LUNA_URL (default http://127.0.0.1:8787), LUNA_TOKEN.
+import { createInterface } from "node:readline/promises";
+
+const base = (process.env.LUNA_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
+const auth: Record<string, string> = process.env.LUNA_TOKEN ? { authorization: `Bearer ${process.env.LUNA_TOKEN}` } : {};
+
+const args = process.argv.slice(2);
+let session: string | undefined;
+const si = args.indexOf("--session");
+if (si >= 0) { session = args[si + 1]; args.splice(si, 2); }
+
+async function newSession(): Promise<string> {
+  const r = await fetch(`${base}/v1/sessions`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "{}" });
+  if (!r.ok) throw new Error(`create session: ${r.status} ${await r.text()}`);
+  return String(((await r.json()) as { id: unknown }).id);
+}
+
+/** Send one message and print streamed text and tool activity. */
+async function send(id: string, content: string) {
+  const r = await fetch(`${base}/v1/sessions/${id}/messages?stream=1`, {
+    method: "POST", headers: { ...auth, "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ content }),
+  });
+  if (!r.ok || !r.body) throw new Error(`send: ${r.status} ${await r.text()}`);
+  let buf = "", printed = false;
+  const dec = new TextDecoder();
+  for await (const chunk of r.body as any as AsyncIterable<Uint8Array>) {
+    buf += dec.decode(chunk, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+      const ev = /^event: (.*)$/m.exec(frame)?.[1];
+      const data = frame.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+      if (!ev || !data) continue;
+      let e: any; try { e = JSON.parse(data); } catch { continue; }
+      if (ev === "message_update") {
+        for (const c of e.changes ?? []) if (c.type === "text_delta") { process.stdout.write(c.delta); printed = true; }
+      }
+      else if (ev === "tool_execution_start") process.stderr.write(`\n  [tool] ${e.toolName}\n`);
+      else if (ev === "done") {
+        if (e.status !== "done") process.stderr.write(`\n[${e.status}${e.reason ? `: ${e.reason}` : ""}]\n`);
+        else if (!printed && e.answer) process.stdout.write(e.answer);
+        process.stdout.write("\n");
+        return;
+      }
+    }
+  }
+  process.stdout.write("\n");
+}
+
+try {
+  session ??= await newSession();
+  if (args.length) {
+    await send(session, args.join(" "));
+  } else {
+    console.error(`session ${session} (/new, /quit)`);
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    for (;;) {
+      const line = (await rl.question("> ").catch(() => "/quit")).trim();
+      if (!line) continue;
+      if (line === "/quit") break;
+      if (line === "/new") { session = await newSession(); console.error(`session ${session}`); continue; }
+      await send(session, line).catch((e) => console.error(String(e)));
+    }
+    rl.close();
+  }
+} catch (e) {
+  console.error((e as Error).message);
+  process.exitCode = 1;
+}

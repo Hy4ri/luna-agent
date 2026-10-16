@@ -1,0 +1,49 @@
+{
+  "dataDir": "~/.luna",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-5",
+  "extensions": [
+    "coding",
+    "memory",
+    "skills",
+    "delegate",
+    "cron",
+    "improve",
+    "tool-search"
+  ],
+  "skillDirs": [],
+  "mcpServers": [
+    {
+      "name": "fs",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/home/m57/Projects"
+      ],
+      "enabled": false
+    },
+    {
+      "name": "remote",
+      "transport": "http",
+      "url": "https://example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer CHANGE_ME"
+      },
+      "enabled": false
+    }
+  ],
+  "cron": {
+    "notifyUrl": "https://ntfy.sh/your-topic",
+    "runTimeoutMinutes": 30
+  },
+  "improve": {
+    "schedule": "0 3 * * *",
+    "allowCommandBenchmarks": false
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8787
+  }
+}

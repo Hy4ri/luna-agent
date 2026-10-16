@@ -26,7 +26,19 @@ export function parseFrontmatter(src: string): { data: Record<string, string | s
   if (!m) return { data: {}, body: src };
   const data: Record<string, string | string[]> = {};
   let listKey: string | undefined;
+  // Block scalar (`key: >` folded or `key: |` literal): indented lines that follow belong to it.
+  let block: { key: string; fold: boolean; lines: string[] } | undefined;
+  const endBlock = () => {
+    if (!block) return;
+    const ls = block.lines.map((l) => l.trim());
+    data[block.key] = (block.fold ? ls.join(" ").replace(/\s+/g, " ") : ls.join("\n")).trim();
+    block = undefined;
+  };
   for (const line of m[1]!.split(/\r?\n/)) {
+    if (block) {
+      if (/^\s+\S/.test(line) || line.trim() === "") { block.lines.push(line); continue; }
+      endBlock();
+    }
     const item = /^\s+-\s+(.*)$/.exec(line);
     if (item && listKey) {
       (data[listKey] as string[]).push(unquote(item[1]!));
@@ -36,7 +48,10 @@ export function parseFrontmatter(src: string): { data: Record<string, string | s
     if (!kv) continue;
     const [, key, raw] = kv;
     const val = raw!.trim();
-    if (val === "") {
+    if (/^[>|][+-]?$/.test(val)) {
+      block = { key: key!, fold: val.startsWith(">"), lines: [] };
+      listKey = undefined;
+    } else if (val === "") {
       data[key!] = [];
       listKey = key;
     } else if (val.startsWith("[") && val.endsWith("]")) {
@@ -47,6 +62,7 @@ export function parseFrontmatter(src: string): { data: Record<string, string | s
       listKey = undefined;
     }
   }
+  endBlock();
   return { data, body: m[2]! };
 }
 
