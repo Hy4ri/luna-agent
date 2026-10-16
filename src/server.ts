@@ -2,6 +2,7 @@
 import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { watchEvents } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 
@@ -32,10 +33,13 @@ export function createApp(opts: ServerOptions) {
     return err(c, 500, (e as Error).message ?? String(e));
   });
 
-  // ---- health (unauthenticated) ----
+  // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
+  const page = readFileSync(new URL("./web/index.html", import.meta.url), "utf8");
+  app.get("/", (c) => c.html(page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer" }));
   app.get("/health", async (c) => {
+    if (opts.token) return c.json({ ok: true, auth: true }); // no internals without the token
     const inspection = await harness.inspect(context);
-    return c.json({ ok: true, uptimeMs: Date.now() - started, live: inspection as unknown });
+    return c.json({ ok: true, auth: false, uptimeMs: Date.now() - started, live: inspection as unknown });
   });
 
   // ---- auth ----
@@ -51,8 +55,19 @@ export function createApp(opts: ServerOptions) {
 
   // ---- sessions ----
   app.get("/v1/sessions", async (c) => {
-    const page = await harness.commit((tx) => tx.scanConversations({ order: "descending" }, 100), context);
-    return c.json({ sessions: page.items.map((r) => ({ id: r.id, parent: r.parent ?? null })) });
+    // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
+    const sessions = await harness.commit(async (tx) => {
+      const page = await tx.scanConversations({ order: "descending" }, 100);
+      const out: { id: unknown; parent: unknown; title: string }[] = [];
+      for (const r of page.items) {
+        const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
+        if (head.some((e) => e.kind === "delegate.child")) continue;
+        const user = head.find((e) => e.kind === "pi.user");
+        out.push({ id: r.id, parent: r.parent ?? null, title: textOf(user).replace(/\s+/g, " ").slice(0, 60) });
+      }
+      return out;
+    }, context);
+    return c.json({ sessions });
   });
 
   app.post("/v1/sessions", async (c) => {

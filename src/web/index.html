@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111318">
+<title>Luna</title>
+<style>
+  :root { --bg:#111318; --panel:#181b22; --line:#262a33; --fg:#e6e8ec; --dim:#8b919c; --acc:#b6a0ff; --err:#ff7a7a; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  body { display:flex; height:100dvh; }
+  button, input, textarea { font:inherit; color:inherit; }
+  button { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button:disabled { opacity:.4; cursor:default; }
+  #side { width:240px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); }
+  #side header { padding:12px; display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  #side h1 { margin:0; font-size:16px; color:var(--acc); }
+  #sessions { flex:1; overflow:auto; }
+  #sessions button { display:block; width:100%; text-align:left; border:0; border-radius:0; border-bottom:1px solid var(--line); background:none; padding:10px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #sessions button.on { background:var(--bg); color:var(--acc); }
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #top { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); }
+  #top .title { flex:1; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #menu { display:none; }
+  #log { flex:1; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:780px; width:100%; margin:0 auto; white-space:pre-wrap; word-wrap:break-word; }
+  .msg.user { width:auto; max-width:min(780px, 85%); margin:0 max(0px, calc((100% - 780px) / 2)) 0 auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
+  .msg.assistant { padding:0 2px; }
+  .msg.err { color:var(--err); }
+  .tool { max-width:780px; width:100%; margin:0 auto; font:12px/1.4 ui-monospace, monospace; color:var(--dim); }
+  .tool summary { cursor:pointer; }
+  .tool pre { margin:4px 0 0; padding:8px; background:var(--panel); border-radius:6px; overflow:auto; max-height:300px; white-space:pre-wrap; }
+  pre.code { background:var(--panel); padding:8px; border-radius:6px; overflow:auto; white-space:pre; font:13px/1.4 ui-monospace, monospace; }
+  #form { display:flex; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
+  #input { flex:1; resize:none; overflow-y:auto; scrollbar-width:none; max-height:40vh; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 10px; outline:none; }
+  #input:focus { border-color:var(--acc); }
+  #login { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:var(--bg); }
+  #login form { display:flex; flex-direction:column; gap:10px; width:min(320px, 90vw); }
+  #login input { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .status { color:var(--dim); font-size:12px; }
+  @media (max-width: 720px) {
+    #side { position:fixed; inset:0 30% 0 0; z-index:5; transform:translateX(-100%); transition:transform .15s; }
+    #side.open { transform:none; }
+    #menu { display:inline-block; }
+  }
+</style>
+</head>
+<body>
+<aside id="side">
+  <header><h1>Luna</h1><button id="new">New</button></header>
+  <div id="sessions"></div>
+</aside>
+<main id="main">
+  <div id="top"><button id="menu">☰</button><span class="title" id="title">no session</span><span class="status" id="status"></span><button id="stop" disabled>Stop</button></div>
+  <div id="log"></div>
+  <form id="form"><textarea id="input" rows="1" placeholder="Message Luna"></textarea><button id="send">Send</button></form>
+</main>
+<div id="login"><form id="loginForm"><b>Luna token</b><input id="token" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN"><button>Connect</button><span class="status" id="loginErr"></span></form></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem("luna.token") || "";
+let session = localStorage.getItem("luna.session") || null;
+let busy = false;
+
+const api = async (path, opts = {}) => {
+  const headers = { "content-type": "application/json", ...(opts.headers || {}) };
+  if (token) headers.authorization = "Bearer " + token;
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401) { showLogin("token rejected"); throw new Error("unauthorized"); }
+  return r;
+};
+const json = async (path, opts) => { const r = await api(path, opts); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText); return r.json(); };
+
+function showLogin(err) { $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
+$("loginForm").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); localStorage.setItem("luna.token", token); $("login").style.display = "none"; boot(); };
+
+// ---- rendering (textContent only: no HTML injection from model output) ----
+function textBlocks(content) {
+  if (typeof content === "string") return content;
+  return (content || []).filter((c) => c.type === "text").map((c) => c.text).join("");
+}
+function addMsg(role, text) {
+  const d = document.createElement("div");
+  d.className = "msg " + role;
+  renderText(d, text);
+  $("log").append(d);
+  scroll();
+  return d;
+}
+// Fenced code blocks get their own <pre>; everything else stays plain text.
+function renderText(el, text) {
+  el.replaceChildren();
+  const parts = String(text).split(/```[^\n]*\n?/);
+  parts.forEach((p, i) => {
+    if (i % 2) { const pre = document.createElement("pre"); pre.className = "code"; pre.textContent = p.replace(/\n$/, ""); el.append(pre); }
+    else if (p) el.append(document.createTextNode(p));
+  });
+}
+function addTool(name, args, output, isError) {
+  const d = document.createElement("details");
+  d.className = "tool";
+  const s = document.createElement("summary");
+  s.textContent = (isError ? "✗ " : "⚙ ") + name;
+  const pre = document.createElement("pre");
+  pre.textContent = (args ? "args: " + JSON.stringify(args, null, 1) + "\n" : "") + (output ? "\n" + output : "");
+  d.append(s, pre);
+  $("log").append(d);
+  scroll();
+  return { el: d, pre, s };
+}
+function scroll() { const l = $("log"); if (l.scrollHeight - l.scrollTop - l.clientHeight < 200) l.scrollTop = l.scrollHeight; }
+
+// ---- sessions ----
+async function loadSessions() {
+  const { sessions } = await json("/v1/sessions");
+  const box = $("sessions");
+  box.replaceChildren();
+  for (const s of sessions) {
+    const b = document.createElement("button");
+    b.textContent = s.title || "session " + s.id;
+    b.title = b.textContent;
+    if (String(s.id) === String(session)) b.className = "on";
+    b.onclick = () => { openSession(s.id); $("side").classList.remove("open"); };
+    box.append(b);
+  }
+}
+async function openSession(id) {
+  session = String(id);
+  localStorage.setItem("luna.session", session);
+  $("log").replaceChildren();
+  const s = await json(`/v1/sessions/${id}?limit=500`);
+  $("title").textContent = "session " + id + (s.agent.model ? " · " + s.agent.model.modelId : "");
+  const pending = new Map(); // toolCallId -> tool view
+  for (const e of [...s.entries].reverse()) {
+    const m = (e.model || [])[0];
+    if (!m) continue;
+    if (m.role === "user") addMsg("user", textBlocks(m.content));
+    else if (m.role === "assistant") {
+      const t = textBlocks(m.content);
+      if (t) addMsg("assistant", t);
+      for (const c of m.content || []) if (c.type === "toolCall") pending.set(c.id, addTool(c.name, c.arguments));
+      if (m.stopReason === "error" && m.errorMessage) addMsg("err", m.errorMessage);
+    } else if (m.role === "toolResult") {
+      const v = pending.get(m.toolCallId);
+      const out = textBlocks(m.content);
+      if (v) { v.pre.textContent += "\n" + out; if (m.isError) v.s.textContent = "✗ " + m.toolName; }
+      else addTool(m.toolName || "tool", null, out, m.isError);
+    }
+  }
+  $("log").scrollTop = $("log").scrollHeight;
+  loadSessions().catch(() => {});
+}
+$("new").onclick = async () => {
+  const { id } = await json("/v1/sessions", { method: "POST", body: "{}" });
+  await openSession(id);
+  $("side").classList.remove("open");
+  $("input").focus();
+};
+$("menu").onclick = () => $("side").classList.toggle("open");
+
+// ---- send + stream ----
+function setBusy(b, label) { busy = b; $("send").disabled = b; $("stop").disabled = !b; $("status").textContent = label || ""; }
+$("stop").onclick = () => session && api(`/v1/sessions/${session}/abort`, { method: "POST" });
+
+async function send(text) {
+  if (!session) { const { id } = await json("/v1/sessions", { method: "POST", body: "{}" }); session = String(id); localStorage.setItem("luna.session", session); $("title").textContent = "session " + id; }
+  addMsg("user", text);
+  setBusy(true, "thinking…");
+  let cur = null, curText = "";
+  const tools = new Map();
+  try {
+    const r = await api(`/v1/sessions/${session}/messages?stream=1`, { method: "POST", headers: { accept: "text/event-stream" }, body: JSON.stringify({ content: text, whenBusy: "steer" }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = /^event: (.*)$/m.exec(frame)?.[1];
+        const data = frame.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+        if (!ev || !data) continue;
+        let e; try { e = JSON.parse(data); } catch { continue; }
+        if (ev === "message_start") { cur = null; curText = ""; }
+        else if (ev === "message_update") {
+          for (const c of e.changes || []) if (c.type === "text_delta") {
+            curText += c.delta;
+            if (!cur) cur = addMsg("assistant", "");
+            renderText(cur, curText); scroll();
+            setBusy(true, "writing…");
+          }
+        } else if (ev === "message_end") { cur = null; curText = ""; }
+        else if (ev === "tool_execution_start") { tools.set(e.toolCallId, addTool(e.toolName, e.args)); setBusy(true, "running " + e.toolName + "…"); }
+        else if (ev === "tool_execution_update" && e.output) {
+          const v = tools.get(e.toolCallId);
+          if (v && "set" in e.output) v.pre.textContent = e.output.set;
+          else if (v && e.output.append) v.pre.textContent += e.output.append;
+        } else if (ev === "tool_execution_end") {
+          const v = tools.get(e.toolCallId);
+          const m = e.entry?.model?.[0];
+          if (v && m) { v.pre.textContent += "\n" + textBlocks(m.content); if (m.isError) v.s.textContent = "✗ " + e.toolName; }
+          setBusy(true, "thinking…");
+        } else if (ev === "done") {
+          if (e.status !== "done") addMsg("err", e.status + (e.reason ? ": " + e.reason : "") + (e.detail ? "\n" + (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : ""));
+          else if (!cur && !$("log").lastElementChild?.classList.contains("assistant") && e.answer) addMsg("assistant", e.answer);
+        }
+      }
+    }
+  } catch (err) {
+    if (err.message !== "unauthorized") addMsg("err", String(err.message || err));
+  } finally {
+    setBusy(false);
+    loadSessions().catch(() => {});
+  }
+}
+
+const input = $("input");
+const grow = () => { input.style.height = "auto"; input.style.height = Math.max(input.scrollHeight + 2, 38) + "px"; };
+input.addEventListener("input", grow);
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(max-width: 720px)").matches) { e.preventDefault(); $("form").requestSubmit(); } });
+$("form").onsubmit = (e) => {
+  e.preventDefault();
+  const t = input.value.trim();
+  if (!t || busy) return;
+  input.value = ""; grow();
+  send(t);
+};
+
+async function boot() {
+  try {
+    const h = await (await fetch("/health")).json();
+    if (h.auth && !token) return showLogin();
+    await loadSessions();
+    if (session) await openSession(session).catch(() => { session = null; localStorage.removeItem("luna.session"); });
+  } catch (e) { if (e.message !== "unauthorized") $("status").textContent = String(e.message || e); }
+}
+boot();
+</script>
+</body>
+</html>
