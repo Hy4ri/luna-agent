@@ -11,7 +11,7 @@ const NOTE = "delegate.child"; // marker entry written into every child: { task,
 
 type ChildRow = { id: number; spawnKey: string; task: string };
 /** The children this conversation spawned. A fork starts with none of its parent's children. */
-const Children = defineDoc<{ children: ChildRow[] }>({
+export const Children = defineDoc<{ children: ChildRow[] }>({
   kind: "luna.delegate.children",
   version: 1,
   scope: "conversation",

@@ -3,8 +3,13 @@ import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { watchEvents } from "@earendil-works/pi-durable";
-import { context } from "./luna.js";
+import type { Models } from "@earendil-works/pi-ai";
+import { UsageDoc, watchEvents } from "@earendil-works/pi-durable";
+import { bodyLimit } from "hono/body-limit";
+import { Children } from "./delegate.js";
+import { context, type MemoryStore } from "./luna.js";
+import type { CronStore, Scheduler } from "./scheduler.js";
+import { linkedFiles, scanSkills } from "./skills.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
@@ -14,7 +19,30 @@ export interface ServerOptions {
   token?: string;
   /** Default agent choices for new sessions (model etc). */
   agent?: Parameters<Harness["createConversation"]>[0]["agent"];
+  /** Optional subsystems; their endpoints answer 404 "disabled" when absent. */
+  models?: Models;
+  store?: CronStore;
+  scheduler?: Scheduler;
+  memory?: MemoryStore;
+  skillDirs?: string[];
 }
+
+type Input = string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
+const IMAGE_MIME = /^image\/(png|jpeg|gif|webp)$/;
+/** Validate message content: a string, or text/image blocks (max 8 images, base64 data). */
+function parseInput(v: unknown): Input | string {
+  if (typeof v === "string") return v.trim() ? v : "content is empty";
+  if (!Array.isArray(v) || !v.length) return "content (string or block array) required";
+  let images = 0;
+  for (const b of v) {
+    if (b?.type === "text" && typeof b.text === "string") continue;
+    if (b?.type === "image" && typeof b.data === "string" && IMAGE_MIME.test(b.mimeType) && /^[A-Za-z0-9+/=]+$/.test(b.data)) { images++; continue; }
+    return "invalid content block (text, or image with png/jpeg/gif/webp base64 data)";
+  }
+  if (images > 8) return "at most 8 images per message";
+  return v as Input;
+}
+const STATIC: Record<string, string> = { "/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -36,6 +64,10 @@ export function createApp(opts: ServerOptions) {
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
   const page = readFileSync(new URL("./web/index.html", import.meta.url), "utf8");
   app.get("/", (c) => c.html(page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer" }));
+  for (const [path, type] of Object.entries(STATIC)) {
+    const body = readFileSync(new URL("./web" + path, import.meta.url));
+    app.get(path, (c) => c.body(body, 200, { "content-type": type, "cache-control": "no-cache" }));
+  }
   app.get("/health", async (c) => {
     if (opts.token) return c.json({ ok: true, auth: true }); // no internals without the token
     const inspection = await harness.inspect(context);
@@ -83,11 +115,44 @@ export function createApp(opts: ServerOptions) {
     const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 500);
     const page = await conv.entries({ order: "descending" }, limit, undefined, context);
     const a = await conv.agent(context);
+    const usage = await harness.snapshot(UsageDoc, conv.id, context).catch(() => undefined);
+    const kids = await harness.snapshot(Children, conv.id, context).catch(() => undefined);
     return c.json({
       id: conv.id,
-      agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, tools: a.tools.map((t) => t.name) },
+      agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
+      usage: usage ?? null,
+      children: kids?.children ?? [],
       entries: page.items,
     });
+  });
+
+  // Change a session's model, thinking level or instructions. null resets a field to the default.
+  app.patch("/v1/sessions/:id", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string } | null; thinkingLevel?: string | null; instructions?: string | null };
+    if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
+    if (b.thinkingLevel && !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
+    await conv.configure({
+      ...(b.model !== undefined && { model: b.model }),
+      ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }),
+      ...(b.instructions !== undefined && { instructions: b.instructions || null }),
+    }, context);
+    return c.json({ ok: true });
+  });
+
+  app.post("/v1/sessions/:id/reset", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    await conv.reset(undefined, context);
+    return c.json({ ok: true });
+  });
+
+  app.post("/v1/sessions/:id/compact", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const task = await conv.compact(undefined, context);
+    return c.json({ ok: true, taskId: task }, 202);
   });
 
   app.post("/v1/sessions/:id/abort", async (c) => {
@@ -100,10 +165,12 @@ export function createApp(opts: ServerOptions) {
   // ---- messages ----
   // Non-streaming (default): waits for the answer and returns it.
   // Streaming (?stream=1 or Accept: text/event-stream): SSE of agent events until the submission settles.
-  const send = async (c: HonoContext, sessionId: string, body: { content?: string; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" }) => {
+  const send = async (c: HonoContext, sessionId: string, body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" }) => {
     const conv = await getConv(sessionId);
     if (!conv) return err(c, 404, "no such session");
-    if (typeof body.content !== "string" || !body.content) return err(c, 400, "content (string) required");
+    const content = parseInput(body.content);
+    if (typeof content === "string" && typeof body.content !== "string") return err(c, 400, content);
+    if (typeof body.content === "string" && !body.content.trim()) return err(c, 400, "content (string) required");
     const wantsStream = c.req.query("stream") === "1" || (c.req.header("accept") ?? "").includes("text/event-stream");
     const settle = async (sub: Awaited<ReturnType<typeof conv.submit>>) => {
       const s = await sub.wait(context);
@@ -114,7 +181,7 @@ export function createApp(opts: ServerOptions) {
     };
 
     if (!wantsStream) {
-      const sub = await conv.submit({ type: "input", content: body.content, requestId: body.requestId, whenBusy: body.whenBusy }, context);
+      const sub = await conv.submit({ type: "input", content: content as Input, requestId: body.requestId, whenBusy: body.whenBusy }, context);
       return c.json(await settle(sub));
     }
     return streamSSE(c, async (stream) => {
@@ -127,7 +194,7 @@ export function createApp(opts: ServerOptions) {
         for (const e of events) await stream.writeSSE({ event: (e as { type: string }).type, data: JSON.stringify(e) });
       });
       try {
-        const sub = await conv.submit({ type: "input", content: body.content!, requestId: body.requestId, whenBusy: body.whenBusy }, context);
+        const sub = await conv.submit({ type: "input", content: content as Input, requestId: body.requestId, whenBusy: body.whenBusy }, context);
         await stream.writeSSE({ event: "submitted", data: JSON.stringify({ submissionId: sub.id }) });
         const result = await Promise.race([settle(sub), done.then(() => null)]);
         if (result) {
@@ -140,7 +207,7 @@ export function createApp(opts: ServerOptions) {
     });
   };
 
-  app.post("/v1/sessions/:id/messages", async (c) => send(c, c.req.param("id"), await c.req.json().catch(() => ({}))));
+  app.post("/v1/sessions/:id/messages", bodyLimit({ maxSize: 32 * 1024 * 1024, onError: (c) => err(c, 400, "message too large (32 MB max)") }), async (c) => send(c, c.req.param("id"), await c.req.json().catch(() => ({}))));
 
   // Convenience: create-or-reuse session in one call. {message, sessionId?}
   app.post("/v1/chat", async (c) => {
@@ -174,6 +241,68 @@ export function createApp(opts: ServerOptions) {
     const a = await root.agent(context);
     const shape = (t: { name: string; description?: string; parameters?: unknown }) => ({ name: t.name, description: t.description ?? "", parameters: t.parameters ?? null });
     return c.json({ tools: a.tools.map(shape), deferred: a.deferred.map(shape) });
+  });
+
+  // ---- models ----
+  app.get("/v1/models", (c) => {
+    if (!opts.models) return err(c, 404, "disabled");
+    const cur = opts.agent?.model ?? null;
+    const list = opts.models.getModels(cur?.provider).map((m) => ({ provider: m.provider, id: m.id, name: m.name, reasoning: m.reasoning, input: m.input, contextWindow: m.contextWindow }));
+    return c.json({ default: cur, models: list });
+  });
+
+  // ---- cron ----
+  const cron = (c: HonoContext) => (opts.store ? undefined : err(c, 404, "cron disabled"));
+  app.get("/v1/cron", (c) => cron(c) ?? c.json({ jobs: opts.store!.listJobs(), runs: opts.store!.runs(undefined, 50) }));
+  app.post("/v1/cron", async (c) => {
+    const no = cron(c); if (no) return no;
+    const b = await c.req.json().catch(() => ({})) as { name?: string; expr?: string; prompt?: string };
+    if (!b.name || !b.expr || !b.prompt) return err(c, 400, "name, expr and prompt required");
+    if (opts.store!.listJobs().some((j) => j.name === b.name)) return err(c, 409, "a job with that name exists");
+    try { const job = opts.store!.addJob(b.name, b.expr, b.prompt); opts.scheduler?.rearm(); return c.json(job, 201); }
+    catch (e) { return err(c, 400, (e as Error).message); }
+  });
+  app.patch("/v1/cron/:id", async (c) => {
+    const no = cron(c); if (no) return no;
+    const b = await c.req.json().catch(() => ({})) as { enabled?: boolean };
+    if (typeof b.enabled !== "boolean") return err(c, 400, "enabled (boolean) required");
+    try { opts.store!.setEnabled(Number(c.req.param("id")), b.enabled); opts.scheduler?.rearm(); return c.json({ ok: true }); }
+    catch (e) { return err(c, 404, (e as Error).message); }
+  });
+  app.delete("/v1/cron/:id", (c) => {
+    const no = cron(c); if (no) return no;
+    const id = Number(c.req.param("id"));
+    if (!opts.store!.getJob(id)) return err(c, 404, "no such job");
+    opts.store!.removeJob(id); opts.scheduler?.rearm();
+    return c.json({ ok: true });
+  });
+
+  // ---- memory ----
+  app.get("/v1/memory", (c) => {
+    if (!opts.memory) return err(c, 404, "memory disabled");
+    return c.json({ items: opts.memory.recall(c.req.query("q") ?? "", { limit: 50, includeArchived: c.req.query("archived") === "1" }) });
+  });
+  app.post("/v1/memory", async (c) => {
+    if (!opts.memory) return err(c, 404, "memory disabled");
+    const b = await c.req.json().catch(() => ({})) as { content?: string; key?: string; tags?: string[] };
+    try { return c.json(opts.memory.remember({ content: b.content ?? "", key: b.key || undefined, tags: b.tags }), 201); }
+    catch (e) { return err(c, 400, (e as Error).message); }
+  });
+  app.delete("/v1/memory/:id", (c) => {
+    if (!opts.memory) return err(c, 404, "memory disabled");
+    return opts.memory.forget(Number(c.req.param("id"))) ? c.json({ ok: true }) : err(c, 404, "no such memory");
+  });
+
+  // ---- skills (read-only; the model edits them through skill_propose) ----
+  app.get("/v1/skills", (c) => {
+    if (!opts.skillDirs) return err(c, 404, "skills disabled");
+    return c.json({ skills: scanSkills(opts.skillDirs).map((s) => ({ name: s.name, description: s.description, tools: s.tools, path: s.path })) });
+  });
+  app.get("/v1/skills/:name", (c) => {
+    if (!opts.skillDirs) return err(c, 404, "skills disabled");
+    const s = scanSkills(opts.skillDirs).find((x) => x.name === c.req.param("name"));
+    if (!s) return err(c, 404, "no such skill");
+    return c.json({ name: s.name, description: s.description, tools: s.tools, path: s.path, body: s.body, files: linkedFiles(s) });
   });
 
   // ---- webhooks: POST any payload into a session as an input ----

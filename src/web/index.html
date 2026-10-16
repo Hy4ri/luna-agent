@@ -4,46 +4,85 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#111318">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Luna</title>
 <style>
-  :root { --bg:#111318; --panel:#181b22; --line:#262a33; --fg:#e6e8ec; --dim:#8b919c; --acc:#b6a0ff; --err:#ff7a7a; }
+  :root { --bg:#111318; --panel:#181b22; --line:#262a33; --fg:#e6e8ec; --dim:#8b919c; --acc:#b6a0ff; --err:#ff7a7a; --ok:#7fd99a; }
   * { box-sizing: border-box; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
   body { display:flex; height:100dvh; }
-  button, input, textarea { font:inherit; color:inherit; }
-  button { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
+  button, input, textarea, select { font:inherit; color:inherit; }
+  button, select { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
   button:hover { border-color:var(--acc); }
   button:disabled { opacity:.4; cursor:default; }
-  #side { width:240px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); }
+  input, textarea { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 9px; outline:none; }
+  input:focus, textarea:focus { border-color:var(--acc); }
+  a { color:var(--acc); }
+  #side { width:250px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); }
   #side header { padding:12px; display:flex; gap:8px; align-items:center; justify-content:space-between; }
   #side h1 { margin:0; font-size:16px; color:var(--acc); }
   #sessions { flex:1; overflow:auto; }
   #sessions button { display:block; width:100%; text-align:left; border:0; border-radius:0; border-bottom:1px solid var(--line); background:none; padding:10px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #sessions button.on { background:var(--bg); color:var(--acc); }
+  #nav { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:10px; border-top:1px solid var(--line); }
   #main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  #top { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); }
-  #top .title { flex:1; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #top { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  #top .title { flex:1; min-width:80px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #model { max-width:220px; }
   #menu { display:none; }
   #log { flex:1; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
-  .msg { max-width:780px; width:100%; margin:0 auto; white-space:pre-wrap; word-wrap:break-word; }
-  .msg.user { width:auto; max-width:min(780px, 85%); margin:0 max(0px, calc((100% - 780px) / 2)) 0 auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
-  .msg.assistant { padding:0 2px; }
-  .msg.err { color:var(--err); }
+  .msg { max-width:780px; width:100%; margin:0 auto; word-wrap:break-word; }
+  .msg.user { width:auto; max-width:min(780px, 85%); margin:0 max(0px, calc((100% - 780px) / 2)) 0 auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px; white-space:pre-wrap; }
+  .msg.err { color:var(--err); white-space:pre-wrap; }
+  .msg img.att { max-width:220px; max-height:220px; border-radius:6px; display:block; margin:4px 0; }
+  .md > :first-child { margin-top:0; } .md > :last-child { margin-bottom:0; }
+  .md p { margin:.5em 0; } .md ul, .md ol { margin:.4em 0; padding-left:1.4em; }
+  .md h1, .md h2, .md h3, .md h4 { margin:.8em 0 .3em; line-height:1.25; } .md h1 { font-size:1.3em; } .md h2 { font-size:1.15em; } .md h3, .md h4 { font-size:1.05em; }
+  .md blockquote { margin:.5em 0; padding-left:10px; border-left:3px solid var(--line); color:var(--dim); }
+  .md code { background:var(--panel); padding:1px 4px; border-radius:4px; font:.9em ui-monospace, monospace; }
+  .md table { border-collapse:collapse; margin:.5em 0; display:block; overflow:auto; } .md th, .md td { border:1px solid var(--line); padding:4px 8px; }
+  .md hr { border:0; border-top:1px solid var(--line); }
+  .codewrap { position:relative; }
+  .codewrap button { position:absolute; top:4px; right:4px; padding:2px 8px; font-size:12px; opacity:.7; }
+  pre.code { background:var(--panel); padding:8px; border-radius:6px; overflow:auto; white-space:pre; font:13px/1.4 ui-monospace, monospace; margin:.5em 0; }
   .tool { max-width:780px; width:100%; margin:0 auto; font:12px/1.4 ui-monospace, monospace; color:var(--dim); }
   .tool summary { cursor:pointer; }
   .tool pre { margin:4px 0 0; padding:8px; background:var(--panel); border-radius:6px; overflow:auto; max-height:300px; white-space:pre-wrap; }
-  pre.code { background:var(--panel); padding:8px; border-radius:6px; overflow:auto; white-space:pre; font:13px/1.4 ui-monospace, monospace; }
-  #form { display:flex; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
-  #input { flex:1; resize:none; overflow-y:auto; scrollbar-width:none; max-height:40vh; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 10px; outline:none; }
-  #input:focus { border-color:var(--acc); }
-  #login { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:var(--bg); }
-  #login form { display:flex; flex-direction:column; gap:10px; width:min(320px, 90vw); }
-  #login input { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .tool a { cursor:pointer; }
+  #atts { display:flex; gap:6px; padding:0 12px; flex-wrap:wrap; }
+  #atts:empty { display:none; }
+  #atts div { position:relative; } #atts img { height:56px; border-radius:6px; display:block; }
+  #atts button { position:absolute; top:-6px; right:-6px; padding:0 6px; border-radius:50%; font-size:12px; }
+  #form { display:flex; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); align-items:flex-end; }
+  #input { flex:1; resize:none; overflow-y:auto; scrollbar-width:none; max-height:40vh; border-radius:10px; }
+  #file { display:none; }
+  #usage { color:var(--dim); font-size:12px; }
   .status { color:var(--dim); font-size:12px; }
+  #login { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:var(--bg); z-index:20; }
+  #login form { display:flex; flex-direction:column; gap:10px; width:min(320px, 90vw); }
+  /* panels */
+  #panel { position:fixed; inset:0; z-index:10; display:none; background:rgba(0,0,0,.5); }
+  #panel.open { display:flex; justify-content:flex-end; }
+  #panel > div { width:min(560px, 100vw); height:100%; background:var(--bg); border-left:1px solid var(--line); display:flex; flex-direction:column; }
+  #panel header { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  #panel header b { flex:1; }
+  #pbody { flex:1; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:var(--panel); }
+  .card .row { display:flex; gap:8px; align-items:center; }
+  .card .row .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .card pre { white-space:pre-wrap; margin:6px 0 0; font:12px/1.4 ui-monospace, monospace; color:var(--dim); max-height:240px; overflow:auto; }
+  .muted { color:var(--dim); font-size:12px; }
+  .pill { font-size:11px; padding:1px 6px; border-radius:10px; border:1px solid var(--line); }
+  .pill.ok { color:var(--ok); } .pill.error { color:var(--err); } .pill.running { color:var(--acc); }
+  .grid { display:grid; gap:6px; }
   @media (max-width: 720px) {
-    #side { position:fixed; inset:0 30% 0 0; z-index:5; transform:translateX(-100%); transition:transform .15s; }
+    #side { position:fixed; inset:0 25% 0 0; z-index:5; transform:translateX(-100%); transition:transform .15s; }
     #side.open { transform:none; }
     #menu { display:inline-block; }
+    #model { max-width:150px; }
   }
 </style>
 </head>
@@ -51,19 +90,42 @@
 <aside id="side">
   <header><h1>Luna</h1><button id="new">New</button></header>
   <div id="sessions"></div>
+  <div id="nav">
+    <button data-panel="agents">Subagents</button><button data-panel="cron">Cron</button>
+    <button data-panel="memory">Memory</button><button data-panel="skills">Skills</button>
+  </div>
 </aside>
 <main id="main">
-  <div id="top"><button id="menu">☰</button><span class="title" id="title">no session</span><span class="status" id="status"></span><button id="stop" disabled>Stop</button></div>
+  <div id="top">
+    <button id="menu" aria-label="menu">☰</button>
+    <span class="title" id="title">no session</span>
+    <select id="model" title="model"></select>
+    <select id="think" title="thinking level"></select>
+    <button id="more" title="session actions">⋯</button>
+    <button id="stop" disabled>Stop</button>
+  </div>
   <div id="log"></div>
-  <form id="form"><textarea id="input" rows="1" placeholder="Message Luna"></textarea><button id="send">Send</button></form>
+  <div id="atts"></div>
+  <form id="form">
+    <button type="button" id="attach" title="attach image">＋</button>
+    <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
+    <textarea id="input" rows="1" placeholder="Message Luna"></textarea>
+    <button id="send">Send</button>
+  </form>
+  <div class="status" style="padding:0 12px 6px;display:flex;gap:10px"><span id="status"></span><span id="usage"></span></div>
 </main>
+<div id="panel"><div><header><b id="ptitle"></b><button id="pclose">Close</button></header><div id="pbody"></div></div></div>
 <div id="login"><form id="loginForm"><b>Luna token</b><input id="token" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN"><button>Connect</button><span class="status" id="loginErr"></span></form></div>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
+const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === "class") e.className = v; else if (k.startsWith("on")) e[k] = v; else if (v !== undefined && v !== null) e.setAttribute(k, v); } e.append(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false)); return e; };
 let token = localStorage.getItem("luna.token") || "";
 let session = localStorage.getItem("luna.session") || null;
 let busy = false;
+let attachments = []; // { mimeType, data, url }
+let modelList = [];
+let defaultModel = null;
 
 const api = async (path, opts = {}) => {
   const headers = { "content-type": "application/json", ...(opts.headers || {}) };
@@ -73,58 +135,150 @@ const api = async (path, opts = {}) => {
   return r;
 };
 const json = async (path, opts) => { const r = await api(path, opts); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText); return r.json(); };
+const post = (path, body, method = "POST") => json(path, { method, body: JSON.stringify(body ?? {}) });
 
 function showLogin(err) { $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
 $("loginForm").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); localStorage.setItem("luna.token", token); $("login").style.display = "none"; boot(); };
 
-// ---- rendering (textContent only: no HTML injection from model output) ----
+// ---- markdown: builds DOM nodes only (never innerHTML), links limited to http(s)/mailto ----
+function inline(text) {
+  const out = [];
+  const re = /(`+)([\s\S]*?)\1|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|_([^_\s][^_]*)_|~~([^~]+)~~|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<)]+)/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(document.createTextNode(text.slice(last, m.index)));
+    if (m[1]) out.push(h("code", {}, m[2]));
+    else if (m[3] || m[4]) out.push(h("strong", {}, ...inline(m[3] || m[4])));
+    else if (m[5] || m[6]) out.push(h("em", {}, ...inline(m[5] || m[6])));
+    else if (m[7]) out.push(h("del", {}, ...inline(m[7])));
+    else if (m[8]) out.push(safeLink(m[9], inline(m[8])));
+    else if (m[10]) out.push(safeLink(m[10], [m[10]]));
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(document.createTextNode(text.slice(last)));
+  return out;
+}
+function safeLink(href, kids) {
+  if (!/^(https?:|mailto:)/i.test(href)) return h("span", {}, ...kids);
+  return h("a", { href, target: "_blank", rel: "noopener noreferrer" }, ...kids);
+}
+function codeBlock(code) {
+  const pre = h("pre", { class: "code" }, code);
+  const btn = h("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(code); btn.textContent = "copied"; setTimeout(() => (btn.textContent = "copy"), 1200); } }, "copy");
+  return h("div", { class: "codewrap" }, pre, btn);
+}
+function markdown(src) {
+  const frag = document.createDocumentFragment();
+  const lines = String(src).replace(/\r\n/g, "\n").split("\n");
+  let i = 0, para = [];
+  const flush = () => { if (para.length) { frag.append(h("p", {}, ...inline(para.join("\n")))); para = []; } };
+  while (i < lines.length) {
+    const l = lines[i];
+    let m;
+    if ((m = /^\s*(```|~~~)/.exec(l))) {
+      flush();
+      const fence = m[1], body = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith(fence)) body.push(lines[i++]);
+      i++; frag.append(codeBlock(body.join("\n"))); continue;
+    }
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(l))) { flush(); frag.append(h("h" + Math.min(m[1].length, 4), {}, ...inline(m[2]))); i++; continue; }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(l)) { flush(); frag.append(h("hr")); i++; continue; }
+    if (/^\s*>/.test(l)) {
+      flush(); const q = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ""));
+      const bq = h("blockquote"); bq.append(markdown(q.join("\n"))); frag.append(bq); continue;
+    }
+    if (/^\s*([-*+]|\d+[.)])\s+/.test(l)) {
+      flush();
+      const ordered = /^\s*\d/.test(l), list = h(ordered ? "ol" : "ul");
+      while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) {
+        const item = [lines[i++].replace(/^\s*([-*+]|\d+[.)])\s+/, "")];
+        while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) item.push(lines[i++].trim());
+        const li = h("li"); li.append(...inline(item.join("\n"))); list.append(li);
+      }
+      frag.append(list); continue;
+    }
+    if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+      flush();
+      const cells = (s) => s.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const table = h("table"), head = h("tr");
+      for (const c of cells(l)) head.append(h("th", {}, ...inline(c)));
+      table.append(head); i += 2;
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { const tr = h("tr"); for (const c of cells(lines[i++])) tr.append(h("td", {}, ...inline(c))); table.append(tr); }
+      frag.append(table); continue;
+    }
+    if (!l.trim()) { flush(); i++; continue; }
+    para.push(l); i++;
+  }
+  flush();
+  return frag;
+}
+
+// ---- transcript rendering ----
 function textBlocks(content) {
   if (typeof content === "string") return content;
   return (content || []).filter((c) => c.type === "text").map((c) => c.text).join("");
 }
-function addMsg(role, text) {
-  const d = document.createElement("div");
-  d.className = "msg " + role;
-  renderText(d, text);
-  $("log").append(d);
-  scroll();
-  return d;
+function scroll(force) { const l = $("log"); if (force || l.scrollHeight - l.scrollTop - l.clientHeight < 200) l.scrollTop = l.scrollHeight; }
+function addUser(content) {
+  const d = h("div", { class: "msg user" });
+  if (typeof content === "string") d.append(content);
+  else for (const c of content || []) {
+    if (c.type === "text") d.append(c.text);
+    else if (c.type === "image") d.append(h("img", { class: "att", src: `data:${c.mimeType};base64,${c.data}`, alt: "attachment" }));
+  }
+  $("log").append(d); scroll(true); return d;
 }
-// Fenced code blocks get their own <pre>; everything else stays plain text.
-function renderText(el, text) {
-  el.replaceChildren();
-  const parts = String(text).split(/```[^\n]*\n?/);
-  parts.forEach((p, i) => {
-    if (i % 2) { const pre = document.createElement("pre"); pre.className = "code"; pre.textContent = p.replace(/\n$/, ""); el.append(pre); }
-    else if (p) el.append(document.createTextNode(p));
-  });
-}
+function addAssistant(text) { const d = h("div", { class: "msg assistant md" }); d.append(markdown(text)); $("log").append(d); scroll(); return d; }
+function setAssistant(d, text) { d.replaceChildren(markdown(text)); }
+function addErr(text) { const d = h("div", { class: "msg err" }, text); $("log").append(d); scroll(); return d; }
 function addTool(name, args, output, isError) {
-  const d = document.createElement("details");
-  d.className = "tool";
-  const s = document.createElement("summary");
-  s.textContent = (isError ? "✗ " : "⚙ ") + name;
-  const pre = document.createElement("pre");
-  pre.textContent = (args ? "args: " + JSON.stringify(args, null, 1) + "\n" : "") + (output ? "\n" + output : "");
-  d.append(s, pre);
-  $("log").append(d);
-  scroll();
-  return { el: d, pre, s };
+  const s = h("summary", {}, (isError ? "✗ " : "⚙ ") + name);
+  const pre = h("pre", {}, (args ? "args: " + JSON.stringify(args, null, 1) + "\n" : "") + (output ? "\n" + output : ""));
+  const d = h("details", { class: "tool" }, s, pre);
+  $("log").append(d); scroll();
+  return { el: d, pre, s, name };
 }
-function scroll() { const l = $("log"); if (l.scrollHeight - l.scrollTop - l.clientHeight < 200) l.scrollTop = l.scrollHeight; }
+// Link a delegate_task spawn result to the child session.
+function linkChild(view, out) {
+  const m = view.name === "delegate_task" && /spawned child (\d+)/.exec(out || "");
+  if (m) view.s.append(" ", h("a", { onclick: (e) => { e.preventDefault(); openSession(m[1]); } }, "→ child " + m[1]));
+}
+function finishTool(view, m) {
+  const out = textBlocks(m.content);
+  view.pre.textContent += "\n" + out;
+  if (m.isError) view.s.textContent = "✗ " + view.name;
+  linkChild(view, out);
+}
+
+// ---- usage ----
+function showUsage(u) {
+  if (!u?.models) { $("usage").textContent = ""; return; }
+  let inT = 0, outT = 0, cost = 0;
+  for (const v of Object.values(u.models)) { inT += v.input + (v.cacheRead || 0) + (v.cacheWrite || 0); outT += v.output; cost += v.cost?.total || 0; }
+  $("usage").textContent = `${(inT / 1000).toFixed(1)}k in · ${(outT / 1000).toFixed(1)}k out${cost ? " · $" + cost.toFixed(4) : ""}`;
+}
+
+// ---- models / thinking ----
+const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+async function loadModels() {
+  try { const r = await json("/v1/models"); modelList = r.models; defaultModel = r.default; } catch { modelList = []; }
+  const sel = $("model"); sel.replaceChildren();
+  for (const m of modelList) sel.append(h("option", { value: m.provider + "/" + m.id }, m.name || m.id));
+  sel.disabled = modelList.length < 2;
+  const t = $("think"); t.replaceChildren(...LEVELS.map((l) => h("option", { value: l }, "think: " + l)));
+}
+$("model").onchange = async () => { if (!session) return; const [provider, ...rest] = $("model").value.split("/"); await post(`/v1/sessions/${session}`, { model: { provider, modelId: rest.join("/") } }, "PATCH").catch((e) => addErr(e.message)); };
+$("think").onchange = async () => { if (!session) return; await post(`/v1/sessions/${session}`, { thinkingLevel: $("think").value }, "PATCH").catch((e) => addErr(e.message)); };
 
 // ---- sessions ----
 async function loadSessions() {
   const { sessions } = await json("/v1/sessions");
-  const box = $("sessions");
-  box.replaceChildren();
+  const box = $("sessions"); box.replaceChildren();
   for (const s of sessions) {
-    const b = document.createElement("button");
-    b.textContent = s.title || "session " + s.id;
-    b.title = b.textContent;
-    if (String(s.id) === String(session)) b.className = "on";
-    b.onclick = () => { openSession(s.id); $("side").classList.remove("open"); };
-    box.append(b);
+    const b = h("button", { class: String(s.id) === String(session) ? "on" : "", onclick: () => { openSession(s.id); $("side").classList.remove("open"); } }, s.title || "session " + s.id);
+    b.title = b.textContent; box.append(b);
   }
 }
 async function openSession(id) {
@@ -132,51 +286,86 @@ async function openSession(id) {
   localStorage.setItem("luna.session", session);
   $("log").replaceChildren();
   const s = await json(`/v1/sessions/${id}?limit=500`);
-  $("title").textContent = "session " + id + (s.agent.model ? " · " + s.agent.model.modelId : "");
-  const pending = new Map(); // toolCallId -> tool view
+  $("title").textContent = "session " + id;
+  const cur = s.agent.model || defaultModel;
+  if (cur) { const v = cur.provider + "/" + cur.modelId; if (![...$("model").options].some((o) => o.value === v)) $("model").append(h("option", { value: v }, cur.modelId)); $("model").value = v; }
+  $("think").value = s.agent.thinkingLevel || "off";
+  showUsage(s.usage);
+  const pending = new Map();
   for (const e of [...s.entries].reverse()) {
+    if (e.kind === "pi.reset") { addErr("— context reset —").className = "msg muted"; continue; }
+    if (e.kind === "pi.compaction") { addErr("— earlier messages compacted —").className = "msg muted"; continue; }
     const m = (e.model || [])[0];
     if (!m) continue;
-    if (m.role === "user") addMsg("user", textBlocks(m.content));
+    if (m.role === "user") addUser(m.content);
     else if (m.role === "assistant") {
       const t = textBlocks(m.content);
-      if (t) addMsg("assistant", t);
+      if (t) addAssistant(t);
       for (const c of m.content || []) if (c.type === "toolCall") pending.set(c.id, addTool(c.name, c.arguments));
-      if (m.stopReason === "error" && m.errorMessage) addMsg("err", m.errorMessage);
+      if (m.stopReason === "error" && m.errorMessage) addErr(m.errorMessage);
     } else if (m.role === "toolResult") {
       const v = pending.get(m.toolCallId);
-      const out = textBlocks(m.content);
-      if (v) { v.pre.textContent += "\n" + out; if (m.isError) v.s.textContent = "✗ " + m.toolName; }
-      else addTool(m.toolName || "tool", null, out, m.isError);
+      if (v) finishTool(v, m); else addTool(m.toolName || "tool", null, textBlocks(m.content), m.isError);
     }
   }
-  $("log").scrollTop = $("log").scrollHeight;
+  scroll(true);
   loadSessions().catch(() => {});
 }
-$("new").onclick = async () => {
-  const { id } = await json("/v1/sessions", { method: "POST", body: "{}" });
+async function newSession() {
+  const { id } = await post("/v1/sessions", {});
   await openSession(id);
-  $("side").classList.remove("open");
-  $("input").focus();
-};
+  return id;
+}
+$("new").onclick = async () => { await newSession(); $("side").classList.remove("open"); $("input").focus(); };
 $("menu").onclick = () => $("side").classList.toggle("open");
+$("more").onclick = () => openPanel("session");
+
+// ---- attachments ----
+$("attach").onclick = () => $("file").click();
+$("file").onchange = async () => {
+  for (const f of $("file").files) await addAttachment(f);
+  $("file").value = "";
+};
+document.addEventListener("paste", async (e) => { for (const it of e.clipboardData?.items || []) if (it.type.startsWith("image/")) { e.preventDefault(); await addAttachment(it.getAsFile()); } });
+async function addAttachment(file) {
+  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return addErr("only png, jpeg, gif and webp images can be attached");
+  if (attachments.length >= 8) return addErr("at most 8 images per message");
+  const blob = await shrink(file);
+  const data = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(",")[1]); fr.readAsDataURL(blob); });
+  attachments.push({ mimeType: blob.type, data, url: URL.createObjectURL(blob) });
+  renderAtts();
+}
+// Downscale big photos to 2000px max so uploads stay small; GIFs pass through.
+async function shrink(file) {
+  if (file.type === "image/gif") return file;
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp || Math.max(bmp.width, bmp.height) <= 2000) return file;
+  const k = 2000 / Math.max(bmp.width, bmp.height);
+  const c = h("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise((r) => c.toBlob((b) => r(b || file), "image/jpeg", 0.88));
+}
+function renderAtts() {
+  $("atts").replaceChildren(...attachments.map((a, i) => h("div", {}, h("img", { src: a.url, alt: "attachment" }), h("button", { type: "button", onclick: () => { URL.revokeObjectURL(a.url); attachments.splice(i, 1); renderAtts(); } }, "×"))));
+}
 
 // ---- send + stream ----
 function setBusy(b, label) { busy = b; $("send").disabled = b; $("stop").disabled = !b; $("status").textContent = label || ""; }
 $("stop").onclick = () => session && api(`/v1/sessions/${session}/abort`, { method: "POST" });
 
-async function send(text) {
-  if (!session) { const { id } = await json("/v1/sessions", { method: "POST", body: "{}" }); session = String(id); localStorage.setItem("luna.session", session); $("title").textContent = "session " + id; }
-  addMsg("user", text);
+async function send(text, atts) {
+  if (!session) await newSession();
+  const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map((a) => ({ type: "image", data: a.data, mimeType: a.mimeType }))] : text;
+  addUser(content);
   setBusy(true, "thinking…");
   let cur = null, curText = "";
   const tools = new Map();
   try {
-    const r = await api(`/v1/sessions/${session}/messages?stream=1`, { method: "POST", headers: { accept: "text/event-stream" }, body: JSON.stringify({ content: text, whenBusy: "steer" }) });
+    const r = await api(`/v1/sessions/${session}/messages?stream=1`, { method: "POST", headers: { accept: "text/event-stream" }, body: JSON.stringify({ content, whenBusy: "steer" }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = "", pendingRender = false;
+    const render = () => { pendingRender = false; if (cur) { setAssistant(cur, curText); scroll(); } };
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -192,32 +381,34 @@ async function send(text) {
         else if (ev === "message_update") {
           for (const c of e.changes || []) if (c.type === "text_delta") {
             curText += c.delta;
-            if (!cur) cur = addMsg("assistant", "");
-            renderText(cur, curText); scroll();
+            if (!cur) cur = addAssistant("");
+            if (!pendingRender) { pendingRender = true; requestAnimationFrame(render); }
             setBusy(true, "writing…");
-          }
-        } else if (ev === "message_end") { cur = null; curText = ""; }
+          } else if (c.type === "thinking_delta") setBusy(true, "thinking…");
+        } else if (ev === "message_end") { render(); cur = null; curText = ""; }
         else if (ev === "tool_execution_start") { tools.set(e.toolCallId, addTool(e.toolName, e.args)); setBusy(true, "running " + e.toolName + "…"); }
         else if (ev === "tool_execution_update" && e.output) {
           const v = tools.get(e.toolCallId);
           if (v && "set" in e.output) v.pre.textContent = e.output.set;
           else if (v && e.output.append) v.pre.textContent += e.output.append;
         } else if (ev === "tool_execution_end") {
-          const v = tools.get(e.toolCallId);
-          const m = e.entry?.model?.[0];
-          if (v && m) { v.pre.textContent += "\n" + textBlocks(m.content); if (m.isError) v.s.textContent = "✗ " + e.toolName; }
+          const v = tools.get(e.toolCallId), m = e.entry?.model?.[0];
+          if (v && m) finishTool(v, m);
           setBusy(true, "thinking…");
-        } else if (ev === "done") {
-          if (e.status !== "done") addMsg("err", e.status + (e.reason ? ": " + e.reason : "") + (e.detail ? "\n" + (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : ""));
-          else if (!cur && !$("log").lastElementChild?.classList.contains("assistant") && e.answer) addMsg("assistant", e.answer);
+        } else if (ev === "usage_changed" && e.usage) showUsage(e.usage);
+        else if (ev === "done") {
+          render();
+          if (e.status !== "done") addErr(e.status + (e.reason ? ": " + e.reason : "") + (e.detail ? "\n" + (typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail)) : ""));
+          else if (!$("log").lastElementChild?.classList.contains("assistant") && e.answer) addAssistant(e.answer);
         }
       }
     }
   } catch (err) {
-    if (err.message !== "unauthorized") addMsg("err", String(err.message || err));
+    if (err.message !== "unauthorized") addErr(String(err.message || err));
   } finally {
     setBusy(false);
     loadSessions().catch(() => {});
+    json(`/v1/sessions/${session}?limit=1`).then((s) => showUsage(s.usage)).catch(() => {});
   }
 }
 
@@ -228,19 +419,131 @@ input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey 
 $("form").onsubmit = (e) => {
   e.preventDefault();
   const t = input.value.trim();
-  if (!t || busy) return;
+  if ((!t && !attachments.length) || busy) return;
+  const atts = attachments; attachments = []; renderAtts();
   input.value = ""; grow();
-  send(t);
+  send(t, atts);
 };
+
+// ---- panels ----
+const panels = {
+  async session(body) {
+    if (!session) return body.append(h("p", { class: "muted" }, "Open a session first."));
+    const s = await json(`/v1/sessions/${session}?limit=1`);
+    const ta = h("textarea", { rows: 5, placeholder: "Extra instructions for this session (system prompt addition)" });
+    ta.value = s.agent.instructions || "";
+    body.append(
+      h("div", { class: "card grid" }, h("b", {}, "Instructions"), ta,
+        h("div", { class: "row" }, h("button", { onclick: async () => { await post(`/v1/sessions/${session}`, { instructions: ta.value }, "PATCH"); toast(body, "saved"); } }, "Save"))),
+      h("div", { class: "card grid" }, h("b", {}, "Context"),
+        h("div", { class: "row" },
+          h("button", { onclick: async () => { await post(`/v1/sessions/${session}/compact`); toast(body, "compaction started"); } }, "Compact"),
+          h("button", { onclick: async () => { if (confirm("Start a fresh context? History stays stored.")) { await post(`/v1/sessions/${session}/reset`); closePanel(); openSession(session); } } }, "Reset context")),
+        h("span", { class: "muted" }, "cwd: " + (s.agent.cwd || "(default)"))),
+      h("div", { class: "card" }, h("b", {}, `Tools (${s.agent.tools.length})`), h("pre", {}, s.agent.tools.join(", "))),
+    );
+  },
+  async agents(body) {
+    if (!session) return body.append(h("p", { class: "muted" }, "Open a session first."));
+    const s = await json(`/v1/sessions/${session}?limit=1`);
+    if (!s.children.length) return body.append(h("p", { class: "muted" }, "This session has not spawned subagents. Ask Luna to delegate with delegate_task."));
+    for (const c of s.children) {
+      const st = await json(`/v1/sessions/${c.id}?limit=1`).catch(() => null);
+      body.append(h("div", { class: "card" }, h("div", { class: "row" },
+        h("span", { class: "grow" }, `#${c.id} `, c.task),
+        h("button", { onclick: () => { closePanel(); openSession(c.id); } }, "Open"),
+        h("button", { onclick: async () => { await api(`/v1/sessions/${c.id}/abort`, { method: "POST" }); toast(body, "stopped " + c.id); } }, "Stop")),
+        st?.usage ? h("span", { class: "muted" }, Object.keys(st.usage.models).join(", ")) : null));
+    }
+  },
+  async cron(body) {
+    const r = await json("/v1/cron").catch((e) => ({ error: e.message }));
+    if (r.error) return body.append(h("p", { class: "muted" }, r.error));
+    const name = h("input", { placeholder: "name" }), expr = h("input", { placeholder: "0 9 * * *  or  @daily" }), prompt = h("textarea", { rows: 3, placeholder: "Self-contained prompt for each run" });
+    body.append(h("div", { class: "card grid" }, h("b", {}, "New job"), name, expr, prompt,
+      h("div", { class: "row" }, h("button", { onclick: async () => { try { await post("/v1/cron", { name: name.value.trim(), expr: expr.value.trim(), prompt: prompt.value.trim() }); refresh(); } catch (e) { toast(body, e.message); } } }, "Create"))));
+    for (const j of r.jobs) {
+      body.append(h("div", { class: "card" },
+        h("div", { class: "row" }, h("b", { class: "grow" }, j.name), h("span", { class: "muted" }, j.expr),
+          h("button", { onclick: async () => { await post(`/v1/cron/${j.id}`, { enabled: !j.enabled }, "PATCH"); refresh(); } }, j.enabled ? "Disable" : "Enable"),
+          h("button", { onclick: async () => { if (confirm(`Delete job "${j.name}" and its runs?`)) { await api(`/v1/cron/${j.id}`, { method: "DELETE" }); refresh(); } } }, "Delete")),
+        h("div", { class: "muted" }, j.enabled ? "next: " + (j.nextRun ? new Date(j.nextRun).toLocaleString() : "—") : "disabled"),
+        h("pre", {}, j.prompt)));
+    }
+    if (r.runs.length) body.append(h("b", {}, "Recent runs"));
+    for (const run of r.runs) {
+      const job = r.jobs.find((j) => j.id === run.jobId);
+      body.append(h("div", { class: "card" },
+        h("div", { class: "row" }, h("span", { class: "pill " + run.status }, run.status), h("span", { class: "grow" }, job?.name || "job " + run.jobId), h("span", { class: "muted" }, new Date(run.startedAt).toLocaleString()),
+          run.conversationId ? h("button", { onclick: () => { closePanel(); openSession(run.conversationId); } }, "Open") : null),
+        (run.output || run.error) ? h("pre", {}, (run.error || run.output).slice(0, 2000)) : null));
+    }
+  },
+  async memory(body) {
+    const q = h("input", { placeholder: "search", value: panelState.q || "" });
+    const list = h("div", { class: "grid" });
+    const load = async () => {
+      panelState.q = q.value;
+      const r = await json("/v1/memory?q=" + encodeURIComponent(q.value)).catch((e) => ({ error: e.message }));
+      list.replaceChildren();
+      if (r.error) return list.append(h("p", { class: "muted" }, r.error));
+      if (!r.items.length) list.append(h("p", { class: "muted" }, "Nothing stored."));
+      for (const m of r.items) list.append(h("div", { class: "card" },
+        h("div", { class: "row" }, h("span", { class: "pill" }, m.kind), h("b", { class: "grow" }, m.key || "#" + m.id), h("span", { class: "muted" }, new Date(m.updated).toLocaleDateString()),
+          h("button", { onclick: async () => { if (confirm("Forget this?")) { await api(`/v1/memory/${m.id}`, { method: "DELETE" }); load(); } } }, "Forget")),
+        h("pre", {}, m.content)));
+    };
+    q.oninput = () => { clearTimeout(q.t); q.t = setTimeout(load, 250); };
+    const key = h("input", { placeholder: "key (optional, e.g. user.timezone)" }), content = h("textarea", { rows: 2, placeholder: "fact or note" });
+    body.append(h("div", { class: "card grid" }, h("b", {}, "Remember"), key, content,
+      h("div", { class: "row" }, h("button", { onclick: async () => { try { await post("/v1/memory", { content: content.value, key: key.value.trim() || undefined }); content.value = ""; key.value = ""; load(); } catch (e) { toast(body, e.message); } } }, "Save"))), q, list);
+    load();
+  },
+  async skills(body) {
+    const r = await json("/v1/skills").catch((e) => ({ error: e.message }));
+    if (r.error) return body.append(h("p", { class: "muted" }, r.error));
+    if (!r.skills.length) body.append(h("p", { class: "muted" }, "No skills yet. Luna creates them with skill_propose, or drop SKILL.md files into the skills directory."));
+    for (const s of r.skills) {
+      const pre = h("pre", { hidden: "" });
+      const card = h("div", { class: "card" },
+        h("div", { class: "row" }, h("b", { class: "grow" }, s.name),
+          h("button", { onclick: async () => { if (pre.hidden) { const d = await json("/v1/skills/" + encodeURIComponent(s.name)); pre.textContent = d.body + (d.files.length ? "\n\nfiles: " + d.files.join(", ") : ""); } pre.hidden = !pre.hidden; } }, "View")),
+        h("div", { class: "muted" }, s.description), s.tools.length ? h("div", { class: "muted" }, "tools: " + s.tools.join(", ")) : null, pre);
+      body.append(card);
+    }
+  },
+};
+const panelState = {};
+let currentPanel = null;
+const TITLES = { session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills" };
+async function openPanel(name) {
+  currentPanel = name;
+  $("ptitle").textContent = TITLES[name];
+  $("panel").classList.add("open");
+  $("side").classList.remove("open");
+  await refresh();
+}
+async function refresh() {
+  const body = $("pbody"); body.replaceChildren();
+  try { await panels[currentPanel](body); } catch (e) { if (e.message !== "unauthorized") body.append(h("p", { class: "msg err" }, e.message)); }
+}
+function closePanel() { $("panel").classList.remove("open"); currentPanel = null; }
+function toast(body, text) { const t = h("div", { class: "muted" }, text); body.prepend(t); setTimeout(() => t.remove(), 2500); }
+$("pclose").onclick = closePanel;
+$("panel").onclick = (e) => { if (e.target === $("panel")) closePanel(); };
+for (const b of document.querySelectorAll("[data-panel]")) b.onclick = () => openPanel(b.dataset.panel);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
 
 async function boot() {
   try {
-    const h = await (await fetch("/health")).json();
-    if (h.auth && !token) return showLogin();
+    const hl = await (await fetch("/health")).json();
+    if (hl.auth && !token) return showLogin();
+    await loadModels();
     await loadSessions();
     if (session) await openSession(session).catch(() => { session = null; localStorage.removeItem("luna.session"); });
   } catch (e) { if (e.message !== "unauthorized") $("status").textContent = String(e.message || e); }
 }
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) navigator.serviceWorker.register("/sw.js").catch(() => {});
 boot();
 </script>
 </body>

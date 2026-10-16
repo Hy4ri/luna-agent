@@ -101,6 +101,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   return {
     config: cfg,
     harness,
+    models: built.models,
+    memory: memory || undefined,
+    skillDirs: on("skills") ? cfg.allSkillDirs : undefined,
     model: built.model,
     store,
     scheduler,
