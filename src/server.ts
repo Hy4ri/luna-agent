@@ -4,6 +4,7 @@ import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import type { Models } from "@earendil-works/pi-ai";
 import { UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
@@ -55,7 +56,7 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript", "/icon.svg": "image/svg+xml" };
+const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -85,6 +86,8 @@ export function createApp(opts: ServerOptions) {
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
   const page = readFileSync(new URL("./web/index.html", import.meta.url), "utf8");
   app.get("/", (c) => c.html(page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer" }));
+  const swCode = stripTypeScriptTypes(readFileSync(new URL("./web/sw.ts", import.meta.url), "utf8"));
+  app.get("/sw.js", (c) => c.body(swCode, 200, { "content-type": "text/javascript", "cache-control": "no-cache" }));
   for (const [path, type] of Object.entries(STATIC)) {
     const body = readFileSync(new URL("./web" + path, import.meta.url));
     app.get(path, (c) => c.body(body, 200, { "content-type": type, "cache-control": "no-cache" }));
