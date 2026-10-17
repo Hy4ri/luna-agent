@@ -12,13 +12,23 @@ export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cr
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 
 const name = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/, "1-40 letters, digits, _ or -");
-const common = { name, enabled: z.boolean().optional(), defer: z.boolean().optional() };
+const common = { name, enabled: z.boolean().optional(), defer: z.boolean().optional(), timeoutMs: z.number().int().positive().optional() };
 const headers = z.record(z.string(), z.string()).optional();
 export const McpServerSchema = z.discriminatedUnion("transport", [
   z.strictObject({ ...common, transport: z.literal("stdio"), command: z.string().min(1), args: z.array(z.string()).optional(), env: z.record(z.string(), z.string()).optional(), cwd: z.string().optional() }),
   z.strictObject({ ...common, transport: z.literal("http"), url: z.url(), headers }),
   z.strictObject({ ...common, transport: z.literal("sse"), url: z.url(), headers }),
 ]);
+export const CustomProviderSchema = z.strictObject({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/), name: z.string().min(1),
+  api: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]),
+  baseUrl: z.url().refine(u => /^https?:/.test(u), "HTTP(S) URL required"),
+  models: z.array(z.strictObject({ id: z.string().min(1), name: z.string().optional(),
+    contextWindow: z.number().int().min(1000).optional(), maxTokens: z.number().int().min(1000).optional(),
+    reasoning: z.boolean().optional(), vision: z.boolean().optional(),
+  })).min(1),
+});
+const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const cronExpr = z.string().refine((e) => { try { parseCron(e); return true; } catch { return false; } }, "invalid cron expression");
 
 export const ConfigSchema = z
@@ -27,9 +37,16 @@ export const ConfigSchema = z
     dataDir: z.string().default("~/.luna"),
     /** Default working directory for tools. */
     cwd: z.string().optional(),
-    /** Fallback provider id (faux or any built-in, e.g. anthropic, openai, openrouter). A default model saved in the web UI wins. */
+    /** Default provider id (faux, a built-in provider, or a custom provider). */
     provider: z.string().regex(/^[a-z0-9-]{1,40}$/).default("faux"),
     model: z.string().optional(),
+    thinkingLevel: thinking.optional(),
+    instructions: z.string().optional(),
+    providers: z.array(CustomProviderSchema).default([]),
+    subagents: z.strictObject({
+      provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
+      thinkingLevel: thinking.optional(), cwd: z.string().optional(),
+    }).prefault({}),
     extensions: z.array(z.enum(BUILTIN_EXTENSIONS)).default([...BUILTIN_EXTENSIONS]),
     /** Extra skill dirs, scanned after <dataDir>/skills. */
     skillDirs: z.array(z.string()).default([]),
@@ -39,6 +56,10 @@ export const ConfigSchema = z
     server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787) }).prefault({}),
   })
   .superRefine((c, ctx) => {
+    if (!!c.subagents.provider !== !!c.subagents.model) ctx.addIssue({ code: "custom", path: ["subagents"], message: "provider and model must be set together" });
+    if (new Set(c.providers.map(p => p.id)).size !== c.providers.length) ctx.addIssue({ code: "custom", path: ["providers"], message: "duplicate provider id" });
+    const builtinProviders = ["faux", "claude-cli", "anthropic", "openai", "github-copilot", "openrouter", "google", "xai", "deepseek", "groq", "mistral"];
+    if (c.providers.some(p => builtinProviders.includes(p.id))) ctx.addIssue({ code: "custom", path: ["providers"], message: "custom provider id conflicts with a built-in provider" });
     const seen = new Set<string>();
     for (const s of c.mcpServers) {
       if (seen.has(s.name)) ctx.addIssue({ code: "custom", path: ["mcpServers"], message: `duplicate MCP server name "${s.name}"` });
@@ -50,7 +71,7 @@ export const ConfigSchema = z
     if (c.provider !== "faux" && !c.model) ctx.addIssue({ code: "custom", path: ["model"], message: `model is required for provider ${c.provider}` });
   });
 
-export type LunaConfig = z.output<typeof ConfigSchema> & { /** Resolved: <dataDir>/skills first, then skillDirs. */ allSkillDirs: string[] };
+export type LunaConfig = z.output<typeof ConfigSchema> & { /** Resolved: <dataDir>/skills first, then skillDirs. */ allSkillDirs: string[]; configPath?: string };
 export type McpServerConfig = LunaConfig["mcpServers"][number];
 
 const expand = (p: string, base: string) => {
@@ -77,6 +98,7 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
   return {
     ...c,
     dataDir,
+    subagents: { ...c.subagents, ...(c.subagents.cwd ? { cwd: expand(c.subagents.cwd, base) } : {}) },
     cwd: c.cwd ? expand(c.cwd, base) : undefined,
     skillDirs: c.skillDirs.map((d) => expand(d, base)),
     allSkillDirs: [join(dataDir, "skills"), ...c.skillDirs.map((d) => expand(d, base))],
@@ -89,9 +111,9 @@ export function loadConfig(path = process.env.LUNA_CONFIG): LunaConfig {
   const file = resolve(path ?? "luna.config.json");
   if (!existsSync(file)) {
     if (path) throw new Error(`config not found: ${file}`);
-    return parseConfig({});
+    return { ...parseConfig({}), configPath: file };
   }
   let raw: unknown;
   try { raw = JSON.parse(readFileSync(file, "utf8")); } catch (e) { throw new Error(`${file}: ${(e as Error).message}`); }
-  return parseConfig(raw, dirname(file));
+  return { ...parseConfig(raw, dirname(file)), configPath: file };
 }

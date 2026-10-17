@@ -1,0 +1,71 @@
+# User settings
+
+Luna reads `luna.config.json` from its launch directory. Set `LUNA_CONFIG` to use another file.
+An explicit path must exist. Without an explicit path, startup creates the default file if necessary.
+Use `luna.config.example.json` as an example.
+
+Open **Settings** in the Web UI to edit the same file. Every config field has a form control.
+Main and subagent thinking selectors are independent. Subagents can also inherit the parent thinking level.
+Other fields are grouped into expandable sections. Provider models, MCP arguments, environment variables,
+headers, and skill directories have add/remove controls. No JSON editing is required.
+Click **Save settings** to write changes. **Reload** discards unsaved edits and reads the file again.
+The Providers and MCP panels also write this file, not separate settings files.
+
+## Fields
+
+- `provider`, `model`: default model for new sessions and cron runs.
+- `thinkingLevel`, `instructions`: defaults for new chat sessions.
+- `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.
+- `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` overrides.
+  Set both provider and model, or omit both to inherit the parent model.
+  Normal and forked children use these defaults. Children cannot delegate further.
+- `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
+  `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
+- `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `server`: runtime settings.
+
+Relative paths use the config file's directory. `~` expands to the user's home directory.
+
+## Applying changes
+
+Model, thinking, instruction, and subagent defaults apply to new sessions or children.
+Existing sessions retain their selected model and settings.
+Provider and MCP panel operations apply live.
+Other Settings form changes need a restart, including provider definitions and MCP connections.
+The UI shows a restart notice. Provider and MCP mutations are blocked until that restart.
+This prevents an old in-memory connection list from overwriting saved settings.
+
+Environment variables still override the file: `LUNA_DATA`, `LUNA_CWD`, `LUNA_PROVIDER`,
+`LUNA_MODEL`, `LUNA_HOST`, and `LUNA_PORT`. Settings lists active override names.
+
+## Validation and credentials
+
+Unknown keys, invalid values, duplicate names, and incomplete subagent model selections are rejected.
+Writes use a temporary file and atomic rename, with file permissions `0600`.
+A revision check rejects stale Web UI saves. Reload and reconcile your changes before retrying.
+
+API keys and OAuth tokens remain in the protected credential store (`auth.json`).
+`LUNA_TOKEN` remains an environment secret. Neither is returned by the settings API.
+MCP environment values, headers, and URLs with query strings or credentials are hidden in Settings.
+Keep the `<secret: unchanged>` marker to retain a saved value, or replace it to change the value.
+Do not put secrets in instructions or command arguments.
+
+## Migration
+
+On first startup with the old config format (no `providers` field), Luna imports custom providers
+and the UI default from `<dataDir>/providers.json`. The old UI default retains its former precedence.
+It merges servers from `<dataDir>/mcp.json`; existing config entries win name conflicts.
+The resulting config includes `providers`, so later starts do not repeat migration.
+Old files remain unchanged as backups. Runtime credential storage is not moved.
+
+Conversations, jobs, memory, and other application data remain in their databases.
+They are not user configuration.
+
+## Browser verification
+
+Run `verify:settings-ui` with an installed Playwright and Chromium. For example:
+
+```sh
+LUNA_PLAYWRIGHT_PATH=/path/to/playwright pnpm run verify:settings-ui
+```
+
+The test uses isolated config files, databases, and a faux model. It does not call an external AI provider.

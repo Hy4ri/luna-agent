@@ -10,6 +10,7 @@ import { AskDoc, checkAnswer } from "./ask.js";
 import { Children } from "./delegate.js";
 import { GoalDoc } from "./goal.js";
 import type { McpManager } from "./mcp.js";
+import type { SettingsStore } from "./settings.js";
 import type { ProviderManager } from "./providers.js";
 import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
@@ -20,6 +21,7 @@ type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
 export interface ServerOptions {
   harness: Harness;
+  settings?: SettingsStore;
   /** Bearer token for /v1/*. When unset, auth is off (daemon then binds loopback only). */
   token?: string;
   /** Default agent choices for new sessions (model etc). */
@@ -51,7 +53,7 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-const STATIC: Record<string, string> = { "/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript", "/icon.svg": "image/svg+xml" };
+const STATIC: Record<string, string> = { "/settings.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -94,7 +96,32 @@ export function createApp(opts: ServerOptions) {
 
   const getConv = async (id: string) => harness.conversation(id as never, context);
   /** Agent choices for a new conversation; the default model comes from the provider manager when present. */
-  const baseAgent = () => ({ ...(opts.agent ?? {}), ...(opts.providers && { model: opts.providers.defaultModel() }) });
+  const baseAgent = () => {
+    const c = opts.settings?.resolved();
+    return { ...(opts.agent ?? {}), ...(opts.providers && { model: opts.providers.defaultModel() }),
+      ...(c?.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}),
+      ...(c?.instructions ? { instructions: c.instructions } : {}) };
+  };
+
+  app.get("/v1/settings", c => opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"));
+  app.put("/v1/settings", async c => {
+    if (!opts.settings) return err(c, 404, "settings disabled");
+    try {
+      const b = await c.req.json();
+      if (!b || typeof b !== "object" || !b.config || typeof b.revision !== "string") return err(c, 400, "config and revision required");
+      // Main and child defaults must name an available model when changed.
+      const old = opts.settings.read();
+      for (const [next, prev] of [[b.config, old], [b.config.subagents ?? {}, old.subagents]]) {
+        if (old.providers.some(p => p.id === next.provider) && !b.config.providers?.some((p: { id: string }) => p.id === next.provider)) return err(c, 400, "Select another default before removing its provider");
+        if (next.provider && next.model && (next.provider !== prev.provider || next.model !== prev.model) && !opts.models?.getModel(next.provider, next.model)) {
+          const custom = b.config.providers?.find((p: {id: string}) => p.id === next.provider);
+          if (!custom?.models?.some((m: {id: string}) => m.id === next.model)) return err(c, 400, "unknown default model");
+        }
+      }
+      opts.settings.replace(b.config, b.revision);
+      return c.json(opts.settings.view());
+    } catch (e) { return err(c, (e as Error).message.includes("Reload before") ? 409 : 400, (e as Error).message); }
+  });
 
   // ---- sessions ----
   app.get("/v1/sessions", async (c) => {
@@ -355,7 +382,7 @@ export function createApp(opts: ServerOptions) {
     try { opts.providers!.answerLogin(c.req.param("id"), Number(b.seq), String(b.value ?? "")); return c.json({ ok: true }); }
     catch (e) { return err(c, 409, (e as Error).message); }
   });
-  // ---- MCP servers: config-file ones are read-only, ones added here are saved in <dataDir>/mcp.json ----
+  // ---- MCP servers: daemon mutations use the shared settings file ----
   const mcpOff = (c: HonoContext) => (opts.mcp ? undefined : err(c, 404, "mcp disabled"));
   app.get("/v1/mcp", (c) => mcpOff(c) ?? c.json({ servers: opts.mcp!.list() }));
   app.post("/v1/mcp", async (c) => mcpOff(c) ?? attempt(c, async () => opts.mcp!.add(await c.req.json().catch(() => ({}))), 201));

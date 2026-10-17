@@ -1,6 +1,7 @@
 // Model providers: built-in pi-ai providers (API key and subscription OAuth logins), user-added custom
 // OpenAI/Anthropic-compatible endpoints, a persistent credential store, and the default model.
-// Files under dataDir: auth.json (credentials, mode 0600), providers.json (custom providers, default model, device id).
+// Runtime settings use SettingsStore. Standalone users retain the legacy providers.json adapter.
+// Credentials remain in auth.json (mode 0600); generated OAuth device identity is not user configuration.
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import type { ModelRef } from "./scheduler.js";
+import type { SettingsStore } from "./settings.js";
 import { claudeCliProvider } from "./claude-cli.js";
 
 /** Built-in providers offered in the UI. Each brings its own catalog, API-key auth and (where supported) OAuth login. */
@@ -134,6 +136,7 @@ const LOGIN_TTL_MS = 15 * 60_000;
 
 export interface ProviderManagerOptions {
   dataDir: string;
+  settings?: SettingsStore;
   /** Use this Models collection (tests) instead of a new one backed by <dataDir>/auth.json. */
   models?: MutableModels;
   /** Model used when no default was saved from the UI (from config). */
@@ -143,6 +146,7 @@ export interface ProviderManagerOptions {
 
 export class ProviderManager {
   readonly models: MutableModels;
+  private settings?: SettingsStore;
   private file: string;
   private state: ProvidersFile;
   private logins = new Map<string, LoginState>();
@@ -150,21 +154,30 @@ export class ProviderManager {
   private fetchImpl: typeof fetch;
 
   constructor(o: ProviderManagerOptions) {
+    this.settings = o.settings;
     this.file = join(o.dataDir, "providers.json");
     this.state = this.load();
     this.fallback = o.fallbackModel;
     this.fetchImpl = o.fetch ?? fetch;
     this.models = o.models ?? createModels({ credentials: new FileCredentialStore(join(o.dataDir, "auth.json")) });
     for (const make of BUILTIN_PROVIDERS) { const p = make(); if (!this.models.getProvider(p.id)) this.models.setProvider(p); }
-    for (const def of this.state.custom) this.models.setProvider(customProvider(def));
+    for (const def of this.state.custom) {
+      if (this.models.getProvider(def.id)) throw new Error(`provider ${def.id} conflicts with a built-in provider`);
+      this.models.setProvider(customProvider(def));
+    }
   }
 
   private load(): ProvidersFile {
+    if (this.settings) return { custom: this.settings.read().providers };
     if (!existsSync(this.file)) return { custom: [] };
     try { const s = JSON.parse(readFileSync(this.file, "utf8")) as ProvidersFile; return { ...s, custom: s.custom ?? [] }; }
     catch (e) { throw new Error(`${this.file}: ${(e as Error).message}`); }
   }
   private save() {
+    if (this.settings) {
+      this.settings.update(s => { s.providers = this.state.custom; });
+      return;
+    }
     const tmp = this.file + ".tmp";
     writeFileSync(tmp, JSON.stringify(this.state, null, 2), { mode: 0o600 });
     renameSync(tmp, this.file);
@@ -172,11 +185,19 @@ export class ProviderManager {
 
   // ---- default model ----
   defaultModel(): ModelRef {
+    if (this.settings) {
+      const c = this.settings.resolved();
+      return c.model ? { provider: c.provider, modelId: c.model } : this.fallback;
+    }
     const d = this.state.defaultModel;
     return d && this.models.getModel(d.provider, d.modelId) ? d : this.fallback;
   }
   setDefaultModel(ref: ModelRef) {
     if (!this.models.getModel(ref.provider, ref.modelId)) throw new Error("unknown model");
+    if (this.settings) {
+      this.settings.update(s => { s.provider = ref.provider; s.model = ref.modelId; });
+      return;
+    }
     this.state.defaultModel = { provider: ref.provider, modelId: ref.modelId };
     this.save();
   }
@@ -229,6 +250,7 @@ export class ProviderManager {
 
   // ---- custom providers ----
   async addCustom(input: { id?: unknown; name?: unknown; api?: unknown; baseUrl?: unknown; key?: unknown; models?: unknown }) {
+    this.settings?.assertMutable();
     const id = String(input.id ?? "").trim().toLowerCase();
     if (!ID_RE.test(id)) throw new Error("id: lowercase letters, digits and -, max 40");
     if (this.models.getProvider(id)) throw new Error(`provider ${id} already exists`);
@@ -262,8 +284,11 @@ export class ProviderManager {
   }
 
   async removeCustom(id: string) {
+    this.settings?.assertMutable();
     const i = this.state.custom.findIndex((c) => c.id === id);
     if (i < 0) throw new Error("not a custom provider");
+    if (this.settings && this.settings.read().subagents.provider === id) throw new Error("Provider is selected as the subagent default");
+    if (this.settings && this.settings.read().provider === id) throw new Error("Select another main default model before removing this provider");
     this.state.custom.splice(i, 1);
     if (this.state.defaultModel?.provider === id) delete this.state.defaultModel;
     this.save();
@@ -329,6 +354,11 @@ export class ProviderManager {
     for (const [id, l] of this.logins) if (now - l.updated > LOGIN_TTL_MS) { this.cancelLogin(id); this.logins.delete(id); }
   }
   private deviceId() {
+    if (this.settings) {
+      const file = this.file.replace("providers.json", "oauth-device-id");
+      if (existsSync(file)) return readFileSync(file, "utf8").trim();
+      const id = randomUUID(); writeFileSync(file, id, { mode: 0o600 }); return id;
+    }
     if (!this.state.deviceId) { this.state.deviceId = randomUUID(); this.save(); }
     return this.state.deviceId;
   }

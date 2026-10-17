@@ -3,138 +3,266 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#111318">
+<meta name="theme-color" content="#171a19">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Luna</title>
 <style>
-  :root { --bg:#111318; --panel:#181b22; --line:#262a33; --fg:#e6e8ec; --dim:#8b919c; --acc:#b6a0ff; --err:#ff7a7a; --ok:#7fd99a; }
-  * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
-  body { display:flex; height:100dvh; }
-  button, input, textarea, select { font:inherit; color:inherit; }
-  button, select { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
-  button:hover { border-color:var(--acc); }
-  button:disabled { opacity:.4; cursor:default; }
-  input, textarea { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 9px; outline:none; }
-  input:focus, textarea:focus { border-color:var(--acc); }
-  a { color:var(--acc); }
-  #side { width:250px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); }
-  #side header { padding:12px; display:flex; gap:8px; align-items:center; justify-content:space-between; }
-  #side h1 { margin:0; font-size:16px; color:var(--acc); }
-  #sessions { flex:1; overflow:auto; }
-  #sessions button { display:block; width:100%; text-align:left; border:0; border-radius:0; border-bottom:1px solid var(--line); background:none; padding:10px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #sessions button.on { background:var(--bg); color:var(--acc); }
-  #nav { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:10px; border-top:1px solid var(--line); }
-  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  #top { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  #top .title { flex:1; min-width:80px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #model { max-width:220px; }
+  :root { color-scheme:dark; --bg:#171a19; --panel:#202422; --raised:#292e2b; --line:#353c37; --fg:#eef1ed; --dim:#a3ada5; --acc:#b5d9ad; --err:#ffa6a0; --ok:#b5d9ad; --radius:14px; }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  body { display:flex; height:100dvh; overflow:hidden; }
+  button,input,textarea,select { font:inherit; color:inherit; min-width:0; }
+  button,select { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:9px 13px; cursor:pointer; min-height:44px; }
+  button { transition:background .15s,border-color .15s; }
+  button:hover:not(:disabled) { background:var(--raised); border-color:#667563; }
+  button:disabled { opacity:.45; cursor:default; }
+  input,textarea { background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:10px 12px; outline:none; width:100%; }
+  input[type=checkbox],input[type=radio] { width:20px; height:20px; flex:none; accent-color:var(--acc); }
+  input:focus,textarea:focus { border-color:var(--acc); }
+  :focus-visible { outline:2px solid var(--acc); outline-offset:3px; }
+  a { color:var(--acc); text-underline-offset:3px; }
+  button svg,.brand svg { width:20px; height:20px; flex:none; vertical-align:middle; }
+  .icon-button { width:44px; padding:10px; flex:none; display:inline-flex; align-items:center; justify-content:center; }
+  .eyebrow { font-size:11px; font-weight:650; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
+  #side { width:272px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; background:#121513; padding:20px 14px 14px; gap:18px; overflow-y:auto; }
+  #side header { display:flex; align-items:center; justify-content:space-between; padding:0 8px; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand svg { color:var(--acc); width:27px; height:27px; }
+  #side h1 { margin:0; font-size:20px; font-weight:600; letter-spacing:-.04em; }
+  #side-close { display:none; }
+  #new { display:flex; align-items:center; gap:10px; background:var(--acc); border-color:var(--acc); color:#182416; font-weight:600; width:100%; }
+  #new:hover { background:#c7e7c0; }
+  .history { min-height:140px; flex:1 0 140px; display:flex; flex-direction:column; gap:9px; overflow:hidden; }
+  .history .eyebrow { padding:0 10px; }
+  #search { min-height:42px; font-size:13px; background:transparent; }
+  #sessions { flex:1; overflow:auto; scrollbar-width:thin; }
+  #sessions button { display:block; width:100%; text-align:left; border:1px solid transparent; border-radius:8px; background:none; padding:9px 11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--dim); font-size:14px; margin-bottom:3px; }
+  #sessions button.on { background:var(--panel); color:var(--fg); border-color:var(--line); }
+  #sessions .muted { padding:10px; }
+  #nav { flex:none; display:grid; gap:3px; border-top:1px solid var(--line); padding-top:14px; }
+  #nav .eyebrow { padding:0 10px 6px; }
+  #nav button { background:none; border-color:transparent; display:flex; align-items:center; gap:12px; text-align:left; padding:7px 10px; font-size:14px; color:var(--dim); }
+  #nav button:hover { color:var(--fg); }
+  #nav button svg { width:18px; height:18px; }
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; position:relative; }
+  #top { display:flex; align-items:center; gap:12px; padding:16px 28px; border-bottom:1px solid var(--line); min-height:79px; }
+  .heading { flex:1; min-width:0; }
+  #title { display:block; font-weight:600; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:15px; }
+  .heading .muted { font-size:12px; }
+  #controls { display:flex; align-items:center; gap:8px; }
+  #controls label { display:flex; flex-direction:column; gap:3px; }
+  #controls label > span { font-size:10px; color:var(--dim); line-height:1; }
+  #model { max-width:240px; }
+  #controls select { border:0; background:transparent; font-size:12px; padding:4px 24px 4px 0; min-height:28px; }
   #menu { display:none; }
-  #log { flex:1; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
-  .msg { max-width:780px; width:100%; margin:0 auto; word-wrap:break-word; }
-  .msg.user { width:auto; max-width:min(780px, 85%); margin:0 max(0px, calc((100% - 780px) / 2)) 0 auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px; white-space:pre-wrap; }
-  .msg.err { color:var(--err); white-space:pre-wrap; }
-  .msg img.att { max-width:220px; max-height:220px; border-radius:6px; display:block; margin:4px 0; }
+  #stop { color:var(--err); }
+  #stop:disabled { display:none; }
+  #log { flex:1; min-height:0; overflow:auto; padding:32px max(28px,calc((100% - 800px)/2)); display:flex; flex-direction:column; gap:24px; scrollbar-width:thin; scroll-padding:24px; }
+  #welcome { margin:auto; max-width:480px; text-align:center; padding:32px 0; }
+  #welcome .welcome-mark { display:inline-flex; padding:16px; border:1px solid var(--line); border-radius:20px; color:var(--acc); margin-bottom:20px; }
+  #welcome svg { width:32px; height:32px; }
+  #welcome h2 { font-size:clamp(25px,4vw,34px); line-height:1.25; letter-spacing:-.04em; font-weight:500; margin:0 0 12px; }
+  #welcome p { color:var(--dim); margin:0; font-size:14px; }
+  .msg { width:100%; min-width:0; word-wrap:break-word; overflow-wrap:anywhere; }
+  .msg.assistant::before { content:"Luna"; display:block; font-size:11px; font-weight:650; letter-spacing:.06em; color:var(--acc); margin-bottom:10px; }
+  .msg.user { align-self:flex-end; width:auto; max-width:88%; background:var(--raised); border:1px solid var(--line); border-radius:18px 18px 4px 18px; padding:12px 18px; white-space:pre-wrap; }
+  .msg.err { color:var(--err); white-space:pre-wrap; border-left:2px solid var(--err); padding-left:14px; }
+  .msg img.att { max-width:min(300px,100%); max-height:280px; border-radius:10px; display:block; margin:8px 0; }
   .md > :first-child { margin-top:0; } .md > :last-child { margin-bottom:0; }
-  .md p { margin:.5em 0; } .md ul, .md ol { margin:.4em 0; padding-left:1.4em; }
-  .md h1, .md h2, .md h3, .md h4 { margin:.8em 0 .3em; line-height:1.25; } .md h1 { font-size:1.3em; } .md h2 { font-size:1.15em; } .md h3, .md h4 { font-size:1.05em; }
-  .md blockquote { margin:.5em 0; padding-left:10px; border-left:3px solid var(--line); color:var(--dim); }
-  .md code { background:var(--panel); padding:1px 4px; border-radius:4px; font:.9em ui-monospace, monospace; }
-  .md table { border-collapse:collapse; margin:.5em 0; display:block; overflow:auto; } .md th, .md td { border:1px solid var(--line); padding:4px 8px; }
-  .md hr { border:0; border-top:1px solid var(--line); }
-  .codewrap { position:relative; }
-  .codewrap button { position:absolute; top:4px; right:4px; padding:2px 8px; font-size:12px; opacity:.7; }
-  pre.code { background:var(--panel); padding:8px; border-radius:6px; overflow:auto; white-space:pre; font:13px/1.4 ui-monospace, monospace; margin:.5em 0; }
-  .tool { max-width:780px; width:100%; margin:0 auto; font:12px/1.4 ui-monospace, monospace; color:var(--dim); }
-  .tool summary { cursor:pointer; }
-  .tool pre { margin:4px 0 0; padding:8px; background:var(--panel); border-radius:6px; overflow:auto; max-height:300px; white-space:pre-wrap; }
-  .tool a { cursor:pointer; }
-  #atts { display:flex; gap:6px; padding:0 12px; flex-wrap:wrap; }
+  .md p { margin:.7em 0; } .md ul,.md ol { margin:.5em 0; padding-left:1.5em; }
+  .md h1,.md h2,.md h3,.md h4 { margin:1em 0 .4em; line-height:1.3; letter-spacing:-.02em; }
+  .md h1 { font-size:1.5em; } .md h2 { font-size:1.3em; } .md h3,.md h4 { font-size:1.1em; }
+  .md blockquote { margin:.7em 0; padding-left:16px; border-left:3px solid var(--line); color:var(--dim); }
+  .md code { background:var(--raised); padding:2px 5px; border-radius:5px; font:.88em ui-monospace,monospace; }
+  .md table { border-collapse:collapse; margin:.8em 0; display:block; overflow:auto; max-width:100%; }
+  .md th,.md td { border:1px solid var(--line); padding:8px 12px; text-align:left; }
+  .md th { background:var(--panel); }
+  .md hr { border:0; border-top:1px solid var(--line); margin:24px 0; }
+  .codewrap { position:relative; min-width:0; }
+  .codewrap button { position:absolute; top:6px; right:6px; padding:4px 10px; font-size:11px; min-height:32px; }
+  pre.code { background:#111512; border:1px solid var(--line); padding:48px 16px 16px; border-radius:12px; overflow:auto; white-space:pre; font:13px/1.6 ui-monospace,monospace; margin:.8em 0; }
+  .tool { width:100%; min-width:0; font:12px/1.6 ui-monospace,monospace; color:var(--dim); border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  .tool summary { cursor:pointer; padding:10px 14px; overflow-wrap:anywhere; }
+  .tool pre { margin:0; padding:14px; border-top:1px solid var(--line); overflow:auto; max-height:300px; white-space:pre-wrap; overflow-wrap:anywhere; }
+  #compose { padding:12px max(28px,calc((100% - 800px)/2)) max(12px,env(safe-area-inset-bottom)); background:var(--bg); }
+  #composer { border:1px solid #505b51; background:var(--panel); border-radius:18px; box-shadow:0 8px 30px #0002; }
+  #composer:focus-within { border-color:var(--acc); }
+  #atts { display:flex; gap:10px; padding:12px 14px 0; flex-wrap:wrap; }
   #atts:empty { display:none; }
-  #atts div { position:relative; } #atts img { height:56px; border-radius:6px; display:block; }
-  #atts button { position:absolute; top:-6px; right:-6px; padding:0 6px; border-radius:50%; font-size:12px; }
-  #form { display:flex; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); align-items:flex-end; }
-  #input { flex:1; resize:none; overflow-y:auto; scrollbar-width:none; max-height:40vh; border-radius:10px; }
+  #atts div { position:relative; } #atts img { height:60px; border-radius:8px; display:block; }
+  #atts button { position:absolute; top:-6px; right:-6px; padding:0; width:28px; min-height:28px; border-radius:50%; font-size:16px; }
+  #form { display:flex; flex-wrap:wrap; gap:8px; padding:12px; align-items:flex-end; }
+  #input { width:100%; flex:1 0 100%; min-height:48px; resize:none; overflow-y:auto; scrollbar-width:thin; max-height:25dvh; border:0; background:transparent; border-radius:0; padding:4px 4px 12px; outline:none; }
+  #input:focus-visible { outline:none; }
+  #attach { background:transparent; border-color:transparent; color:var(--dim); }
+  .compose-hint { flex:1; align-self:center; color:var(--dim); font-size:11px; }
+  #send { background:var(--acc); color:#182416; border-color:var(--acc); display:flex; align-items:center; gap:9px; font-weight:600; }
+  #send:hover:not(:disabled) { background:#c7e7c0; }
   #file { display:none; }
-  #usage { color:var(--dim); font-size:12px; }
-  .status { color:var(--dim); font-size:12px; }
-  #login { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:var(--bg); z-index:20; }
-  #login form { display:flex; flex-direction:column; gap:10px; width:min(320px, 90vw); }
-  /* panels */
-  #panel { position:fixed; inset:0; z-index:10; display:none; background:rgba(0,0,0,.5); }
+  #statusbar { display:flex; justify-content:space-between; gap:12px; padding:8px 5px 0; min-height:27px; }
+  #usage,.status { color:var(--dim); font-size:11px; }
+  #status { display:flex; align-items:center; gap:7px; }
+  #status:not(:empty)::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--acc); flex:none; }
+  #jump { position:absolute; right:24px; bottom:225px; border-radius:50%; background:var(--raised); box-shadow:0 3px 12px #0005; }
+  #login { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:var(--bg); z-index:20; padding:24px; }
+  #login form { display:flex; flex-direction:column; gap:18px; width:min(380px,100%); padding:28px; background:var(--panel); border:1px solid var(--line); border-radius:20px; }
+  #login h2 { font-size:24px; margin:0; letter-spacing:-.03em; }
+  #login p { margin:0; color:var(--dim); font-size:13px; }
+  #login button { background:var(--acc); color:#182416; font-weight:600; }
+  #panel { position:fixed; inset:0; z-index:10; display:none; background:#0008; backdrop-filter:blur(3px); }
   #panel.open { display:flex; justify-content:flex-end; }
-  #panel > div { width:min(560px, 100vw); height:100%; background:var(--bg); border-left:1px solid var(--line); display:flex; flex-direction:column; }
-  #panel header { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
-  #panel header b { flex:1; }
-  #pbody { flex:1; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
-  .card { border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:var(--panel); }
-  .card .row { display:flex; gap:8px; align-items:center; }
-  .card .row .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
-  .card pre { white-space:pre-wrap; margin:6px 0 0; font:12px/1.4 ui-monospace, monospace; color:var(--dim); max-height:240px; overflow:auto; }
+  #panel > div { width:min(620px,100%); height:100%; background:var(--bg); border-left:1px solid var(--line); display:flex; flex-direction:column; box-shadow:-20px 0 80px #0003; }
+  #panel header { display:flex; align-items:center; gap:14px; padding:22px 24px; border-bottom:1px solid var(--line); }
+  #panel header .heading { flex:1; }
+  #ptitle { font-size:21px; font-weight:550; letter-spacing:-.025em; }
+  #pdesc { color:var(--dim); font-size:12px; margin:4px 0 0; }
+  #pbody { flex:1; min-height:0; overflow:auto; padding:24px 24px max(24px,env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:18px; overflow-wrap:anywhere; }
+  #pbody > * { flex-shrink:0; }
+  #pbody input,#pbody textarea,#pbody select { font-size:14px; }
+  #pbody select { width:100%; max-width:100%; }
+  #pbody .field-label { display:grid; gap:6px; min-width:0; flex:1; color:var(--dim); font-size:12px; }
+  .card { border:1px solid var(--line); border-radius:var(--radius); padding:18px; background:var(--panel); min-width:0; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .row .grow { flex:1; min-width:100px; overflow-wrap:anywhere; }
+  .row > input:not([type=checkbox]):not([type=radio]),.row > select { flex:1; width:0; min-width:120px; }
+  .card pre { white-space:pre-wrap; margin:10px 0 0; font:12px/1.6 ui-monospace,monospace; color:var(--dim); max-height:280px; overflow:auto; overflow-wrap:anywhere; }
   .muted { color:var(--dim); font-size:12px; }
-  .pill { font-size:11px; padding:1px 6px; border-radius:10px; border:1px solid var(--line); }
+  .pill { font-size:11px; padding:3px 9px; border-radius:20px; border:1px solid var(--line); }
   .pill.ok { color:var(--ok); } .pill.error { color:var(--err); } .pill.running { color:var(--acc); }
-  .grid { display:grid; gap:6px; }
-  #extras { padding:0 12px; display:flex; flex-direction:column; gap:6px; }
+  .grid { display:grid; gap:12px; min-width:0; }
+  #extras { padding:0 max(28px,calc((100% - 800px)/2)); display:flex; flex-direction:column; gap:8px; max-height:35dvh; overflow:auto; }
   #extras:empty { display:none; }
-  #extras > * { max-width:780px; width:100%; margin:0 auto; }
-  #extras .opt { display:flex; gap:8px; align-items:flex-start; padding:4px 0; cursor:pointer; }
+  #extras .opt { display:flex; gap:12px; align-items:flex-start; padding:10px; border:1px solid var(--line); border-radius:9px; cursor:pointer; }
+  #extras .opt:has(input:checked) { border-color:var(--acc); background:#b5d9ad0a; }
   #extras .opt input { margin-top:4px; }
-  #extras .todo { font:13px/1.5 ui-monospace, monospace; }
+  #extras .todo { font-size:13px; }
   #extras .todo .done { color:var(--dim); text-decoration:line-through; }
-  @media (max-width: 720px) {
-    #side { position:fixed; inset:0 25% 0 0; z-index:5; transform:translateX(-100%); transition:transform .15s; }
-    #side.open { transform:none; }
-    #menu { display:inline-block; }
-    #model { max-width:150px; }
+  #shade { display:none; }
+  @media (min-width:1600px) { #side { width:300px; } }
+  @media (max-width:1000px) { #side { width:240px; } #top { padding:16px 20px; } #model { max-width:180px; } }
+  @media (max-width:760px) {
+    #side { position:fixed; inset:0 auto 0 0; width:min(320px,88vw); z-index:6; transform:translateX(-100%); transition:transform .18s ease; padding-top:max(20px,env(safe-area-inset-top)); }
+    #side.open { transform:none; box-shadow:20px 0 80px #0008; }
+    #shade.open { display:block; position:fixed; inset:0; background:#0009; z-index:5; border:0; border-radius:0; }
+    #menu,#side-close { display:inline-flex; }
+    #top { flex-wrap:wrap; gap:6px 10px; padding:10px 14px; padding-top:max(10px,env(safe-area-inset-top)); }
+    .heading .muted { display:none; }
+    #controls { order:3; width:100%; border-top:1px solid var(--line); margin-top:4px; padding-top:9px; gap:16px; }
+    #controls label { min-width:0; } #controls label:first-child { flex:1; }
+    #model { max-width:100%; width:100%; }
+    #controls select { font-size:12px; min-height:44px; }
+    .codewrap button { min-height:44px; }
+    #log { padding:24px 18px; gap:22px; }
+    #compose { padding:8px 12px max(8px,env(safe-area-inset-bottom)); }
+    #form { padding:10px; }
+    #input { font-size:16px; max-height:24dvh; }
+    .compose-hint { visibility:hidden; }
+    #statusbar { flex-wrap:wrap; gap:2px 10px; }
+    #usage { font-size:10px; }
+    #extras { padding:0 12px; }
+    #panel header { padding:16px; padding-top:max(16px,env(safe-area-inset-top)); }
+    #pbody { padding:18px 16px max(18px,env(safe-area-inset-bottom)); }
+    #pbody input,#pbody textarea,#pbody select { font-size:16px; }
+    .card { padding:14px; }
+    #jump { right:18px; bottom:210px; }
+    .msg.user { max-width:94%; padding:11px 15px; }
   }
+  @media (max-height:500px) { #top { padding-top:6px; padding-bottom:6px; } #controls { padding-top:3px; } #compose { padding-top:4px; } #input { min-height:32px; } #statusbar { display:none; } #welcome { padding:10px 0; } #welcome .welcome-mark { display:none; } }
+  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; scroll-behavior:auto !important; } }
 </style>
 </head>
 <body>
-<aside id="side">
-  <header><h1>Luna</h1><button id="new">New</button></header>
-  <div id="sessions"></div>
-  <div id="nav">
-    <button data-panel="agents">Subagents</button><button data-panel="cron">Cron</button>
-    <button data-panel="memory">Memory</button><button data-panel="skills">Skills</button>
-    <button data-panel="providers">Providers</button><button data-panel="mcp">MCP</button>
-  </div>
+<aside id="side" aria-label="Workspace">
+  <header><div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z"/></svg><h1>Luna</h1></div><button id="side-close" class="icon-button" aria-label="Close navigation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></header>
+  <button id="new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> New conversation</button>
+  <section class="history" aria-label="Conversation history">
+    <div class="eyebrow">Conversations</div>
+    <input id="search" type="search" placeholder="Find a conversation" aria-label="Find a conversation" autocomplete="off">
+    <div id="sessions"></div>
+  </section>
+  <nav id="nav" aria-label="Workspace tools">
+    <div class="eyebrow">Workspace</div>
+    <button data-panel="agents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><path d="M14 6h4v8M6 10v8h8"/></svg>Subagents</button>
+    <button data-panel="cron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Scheduled jobs</button>
+    <button data-panel="memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5c3-2 5-2 8 0 3-2 5-2 8 0v15c-3-2-5-2-8 0-3-2-5-2-8 0ZM12 5v15"/></svg>Memory</button>
+    <button data-panel="skills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></svg>Skills</button>
+    <button data-panel="providers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg>Model providers</button>
+    <button data-panel="mcp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-12 0ZM12 17v4"/></svg>MCP servers</button>
+    <button data-panel="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>Settings</button>
+  </nav>
 </aside>
+<button id="shade" aria-label="Close navigation" tabindex="-1"></button>
 <main id="main">
-  <div id="top">
-    <button id="menu" aria-label="menu">☰</button>
-    <span class="title" id="title">no session</span>
-    <select id="model" title="model"></select>
-    <select id="think" title="thinking level"></select>
-    <button id="more" title="session actions">⋯</button>
-    <button id="stop" disabled>Stop</button>
+  <header id="top">
+    <button id="menu" class="icon-button" aria-label="Open navigation" aria-controls="side" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <div class="heading"><span id="title">New conversation</span><span class="muted">Luna workspace</span></div>
+    <div id="controls">
+      <label><span>Model</span><select id="model" aria-label="Model"></select></label>
+      <label><span>Thinking</span><select id="think" aria-label="Thinking level"></select></label>
+    </div>
+    <button id="stop" disabled>Stop response</button>
+    <button id="more" class="icon-button" title="Conversation settings" aria-label="Conversation settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+  </header>
+  <div id="log" role="region" aria-label="Conversation" tabindex="0"></div>
+  <button id="jump" class="icon-button" aria-label="Scroll to latest message" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+  <div id="extras" aria-label="Tasks and questions"></div>
+  <div id="compose">
+    <div id="composer">
+      <div id="atts" aria-label="Attached images"></div>
+      <form id="form">
+        <textarea id="input" rows="1" placeholder="Message Luna…" aria-label="Message Luna"></textarea>
+        <button type="button" id="attach" class="icon-button" title="Attach images" aria-label="Attach images"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L12 3"/></svg></button>
+        <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
+        <span class="compose-hint">Enter to send · Shift + Enter for a new line</span>
+        <button id="send" type="submit">Send <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+      </form>
+    </div>
+    <div id="statusbar"><span class="status" id="status" role="status"></span><span id="usage" aria-label="Token usage"></span></div>
   </div>
-  <div id="log"></div>
-  <div id="extras"></div>
-  <div id="atts"></div>
-  <form id="form">
-    <button type="button" id="attach" title="attach image">＋</button>
-    <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
-    <textarea id="input" rows="1" placeholder="Message Luna"></textarea>
-    <button id="send">Send</button>
-  </form>
-  <div class="status" style="padding:0 12px 6px;display:flex;gap:10px"><span id="status"></span><span id="usage"></span></div>
 </main>
-<div id="panel"><div><header><b id="ptitle"></b><button id="pclose">Close</button></header><div id="pbody"></div></div></div>
-<div id="login"><form id="loginForm"><b>Luna token</b><input id="token" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN"><button>Connect</button><span class="status" id="loginErr"></span></form></div>
+<div id="panel"><div role="dialog" aria-modal="true" aria-labelledby="ptitle" aria-describedby="pdesc" tabindex="-1"><header><div class="heading"><b id="ptitle"></b><p id="pdesc"></p></div><button id="pclose" class="icon-button" aria-label="Close panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></header><div id="pbody"></div></div></div>
+<div id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle"><form id="loginForm"><div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z"/></svg><h2 id="loginTitle">Connect to Luna</h2></div><p>Enter your server token to open your workspace.</p><label class="grid">Server token<input id="token" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" required></label><button>Connect</button><span class="status" id="loginErr" role="alert"></span></form></div>
+<script src="/settings.js"></script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === "class") e.className = v; else if (k.startsWith("on")) e[k] = v; else if (v !== undefined && v !== null) e.setAttribute(k, v); } e.append(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false)); return e; };
+const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === "class") e.className = v; else if (k.startsWith("on")) e[k] = v; else if (v !== undefined && v !== null) e.setAttribute(k, v); } if ((tag === "input" || tag === "textarea") && props.placeholder && !props["aria-label"]) e.setAttribute("aria-label", props.placeholder); e.append(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false)); return e; };
 let token = localStorage.getItem("luna.token") || "";
 let session = localStorage.getItem("luna.session") || null;
 let busy = false;
 let attachments = []; // { mimeType, data, url }
 let modelList = [];
 let defaultModel = null;
+let sessionList = [];
+let returnFocus = null;
+const MOBILE = "(max-width: 760px)";
+function setDrawer(open) {
+  $("side").classList.toggle("open", open);
+  $("shade").classList.toggle("open", open);
+  $("menu").setAttribute("aria-expanded", String(open));
+  const mobile = matchMedia(MOBILE).matches;
+  $("side").inert = !!currentPanel || (mobile && !open);
+  $("main").inert = !!currentPanel || (mobile && open);
+  if (mobile && open) $("side-close").focus();
+  else if (mobile) $("menu").focus();
+}
+matchMedia(MOBILE).addEventListener("change", () => setDrawer(false));
+$("side-close").onclick = () => setDrawer(false);
+$("shade").onclick = () => setDrawer(false);
+function showWelcome() {
+  if ($("log").children.length) return;
+  $("log").append(h("section", { id: "welcome" },
+    h("div", { class: "welcome-mark", "aria-hidden": "true" }, document.querySelector(".brand svg").cloneNode(true)),
+    h("h2", {}, "What are we working on?"),
+    h("p", {}, "Start a conversation, or pick up where you left off.", h("br"), "Your tools and settings are in the workspace menu.")));
+}
+function clearWelcome() { $("welcome")?.remove(); }
+$("log").addEventListener("scroll", () => { const l = $("log"); $("jump").hidden = l.scrollHeight - l.scrollTop - l.clientHeight < 200; });
+$("jump").onclick = () => scroll(true);
 
 const api = async (path, opts = {}) => {
   const headers = { "content-type": "application/json", ...(opts.headers || {}) };
@@ -146,8 +274,8 @@ const api = async (path, opts = {}) => {
 const json = async (path, opts) => { const r = await api(path, opts); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText); return r.json(); };
 const post = (path, body, method = "POST") => json(path, { method, body: JSON.stringify(body ?? {}) });
 
-function showLogin(err) { $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
-$("loginForm").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); localStorage.setItem("luna.token", token); $("login").style.display = "none"; boot(); };
+function showLogin(err) { closePanel(); setDrawer(false); $("main").inert = true; $("side").inert = true; $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
+$("loginForm").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); localStorage.setItem("luna.token", token); $("login").style.display = "none"; setDrawer(false); boot(); };
 
 // ---- markdown: builds DOM nodes only (never innerHTML), links limited to http(s)/mailto ----
 function inline(text) {
@@ -231,6 +359,7 @@ function textBlocks(content) {
 }
 function scroll(force) { const l = $("log"); if (force || l.scrollHeight - l.scrollTop - l.clientHeight < 200) l.scrollTop = l.scrollHeight; }
 function addUser(content) {
+  clearWelcome();
   const d = h("div", { class: "msg user" });
   if (typeof content === "string") d.append(content);
   else for (const c of content || []) {
@@ -239,11 +368,12 @@ function addUser(content) {
   }
   $("log").append(d); scroll(true); return d;
 }
-function addAssistant(text) { const d = h("div", { class: "msg assistant md" }); d.append(markdown(text)); $("log").append(d); scroll(); return d; }
+function addAssistant(text) { clearWelcome(); const d = h("div", { class: "msg assistant md" }); d.append(markdown(text)); $("log").append(d); scroll(); return d; }
 function setAssistant(d, text) { d.replaceChildren(markdown(text)); }
-function addErr(text) { const d = h("div", { class: "msg err" }, text); $("log").append(d); scroll(); return d; }
+function addErr(text) { clearWelcome(); const d = h("div", { class: "msg err" }, text); $("log").append(d); scroll(); return d; }
 function addTool(name, args, output, isError) {
-  const s = h("summary", {}, (isError ? "✗ " : "⚙ ") + name);
+  clearWelcome();
+  const s = h("summary", {}, (isError ? "Failed · " : "Tool · ") + name);
   const pre = h("pre", {}, (args ? "args: " + JSON.stringify(args, null, 1) + "\n" : "") + (output ? "\n" + output : ""));
   const d = h("details", { class: "tool" }, s, pre);
   $("log").append(d); scroll();
@@ -257,7 +387,7 @@ function linkChild(view, out) {
 function finishTool(view, m) {
   const out = textBlocks(m.content);
   view.pre.textContent += "\n" + out;
-  if (m.isError) view.s.textContent = "✗ " + view.name;
+  if (m.isError) view.s.textContent = "Failed · " + view.name;
   linkChild(view, out);
 }
 
@@ -276,26 +406,37 @@ async function loadModels() {
   const sel = $("model"); sel.replaceChildren();
   for (const m of modelList) sel.append(h("option", { value: m.provider + "/" + m.id }, m.provider + " · " + (m.name || m.id)));
   sel.disabled = modelList.length < 2;
-  const t = $("think"); t.replaceChildren(...LEVELS.map((l) => h("option", { value: l }, "think: " + l)));
+  const t = $("think"); t.replaceChildren(...LEVELS.map((l) => h("option", { value: l }, l === "off" ? "Off" : l.charAt(0).toUpperCase() + l.slice(1))));
 }
 $("model").onchange = async () => { if (!session) return; const [provider, ...rest] = $("model").value.split("/"); await post(`/v1/sessions/${session}`, { model: { provider, modelId: rest.join("/") } }, "PATCH").catch((e) => addErr(e.message)); };
 $("think").onchange = async () => { if (!session) return; await post(`/v1/sessions/${session}`, { thinkingLevel: $("think").value }, "PATCH").catch((e) => addErr(e.message)); };
 
 // ---- sessions ----
 async function loadSessions() {
-  const { sessions } = await json("/v1/sessions");
+  const r = await json("/v1/sessions");
+  sessionList = r.sessions;
+  const active = sessionList.find(s => String(s.id) === String(session));
+  if (active?.title) $("title").textContent = active.title;
+  renderSessions();
+}
+function renderSessions() {
   const box = $("sessions"); box.replaceChildren();
-  for (const s of sessions) {
-    const b = h("button", { class: String(s.id) === String(session) ? "on" : "", onclick: () => { openSession(s.id); $("side").classList.remove("open"); } }, s.title || "session " + s.id);
+  const query = $("search").value.trim().toLowerCase();
+  const shown = sessionList.filter(s => (s.title || "Conversation " + s.id).toLowerCase().includes(query));
+  for (const s of shown) {
+    const active = String(s.id) === String(session);
+    const b = h("button", { class: active ? "on" : "", "aria-current": active ? "page" : null, onclick: () => { setDrawer(false); openSession(s.id).catch(e => addErr(e.message)); } }, s.title || "Conversation " + s.id);
     b.title = b.textContent; box.append(b);
   }
+  if (!shown.length) box.append(h("p", { class: "muted" }, query ? "No matching conversations." : "Your conversations will appear here."));
 }
+$("search").oninput = renderSessions;
 async function openSession(id) {
   session = String(id);
   localStorage.setItem("luna.session", session);
   $("log").replaceChildren(); $("extras").replaceChildren();
   const s = await json(`/v1/sessions/${id}?limit=500`);
-  $("title").textContent = "session " + id;
+  $("title").textContent = sessionList.find(s => String(s.id) === String(id))?.title || "Conversation " + id;
   const cur = s.agent.model || defaultModel;
   if (cur) { const v = cur.provider + "/" + cur.modelId; if (![...$("model").options].some((o) => o.value === v)) $("model").append(h("option", { value: v }, cur.modelId)); $("model").value = v; }
   $("think").value = s.agent.thinkingLevel || "off";
@@ -318,6 +459,7 @@ async function openSession(id) {
       if (v) finishTool(v, m); else addTool(m.toolName || "tool", null, textBlocks(m.content), m.isError);
     }
   }
+  showWelcome();
   scroll(true);
   loadSessions().catch(() => {});
 }
@@ -326,8 +468,8 @@ async function newSession() {
   await openSession(id);
   return id;
 }
-$("new").onclick = async () => { await newSession(); $("side").classList.remove("open"); $("input").focus(); };
-$("menu").onclick = () => $("side").classList.toggle("open");
+$("new").onclick = async () => { try { await newSession(); setDrawer(false); $("input").focus(); } catch (e) { addErr(e.message); } };
+$("menu").onclick = () => setDrawer(!$("side").classList.contains("open"));
 $("more").onclick = () => openPanel("session");
 
 // ---- attachments ----
@@ -356,11 +498,11 @@ async function shrink(file) {
   return new Promise((r) => c.toBlob((b) => r(b || file), "image/jpeg", 0.88));
 }
 function renderAtts() {
-  $("atts").replaceChildren(...attachments.map((a, i) => h("div", {}, h("img", { src: a.url, alt: "attachment" }), h("button", { type: "button", onclick: () => { URL.revokeObjectURL(a.url); attachments.splice(i, 1); renderAtts(); } }, "×"))));
+  $("atts").replaceChildren(...attachments.map((a, i) => h("div", {}, h("img", { src: a.url, alt: "attachment" }), h("button", { type: "button", "aria-label": "Remove attached image " + (i + 1), onclick: () => { URL.revokeObjectURL(a.url); attachments.splice(i, 1); renderAtts(); } }, "×"))));
 }
 
 // ---- send + stream ----
-function setBusy(b, label) { busy = b; $("send").disabled = b; $("stop").disabled = !b; $("status").textContent = label || ""; }
+function setBusy(b, label) { busy = b; $("send").disabled = b; $("stop").disabled = !b; $("status").textContent = label || "Ready"; }
 $("stop").onclick = () => session && api(`/v1/sessions/${session}/abort`, { method: "POST" });
 
 async function send(text, atts) {
@@ -429,7 +571,7 @@ async function send(text, atts) {
 const input = $("input");
 const grow = () => { input.style.height = "auto"; input.style.height = Math.max(input.scrollHeight + 2, 38) + "px"; };
 input.addEventListener("input", grow);
-input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(max-width: 720px)").matches) { e.preventDefault(); $("form").requestSubmit(); } });
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia(MOBILE).matches) { e.preventDefault(); $("form").requestSubmit(); } });
 $("form").onsubmit = (e) => {
   e.preventDefault();
   const t = input.value.trim();
@@ -460,7 +602,7 @@ function renderExtras(s) {
     const done = todos.filter((t) => t.status === "completed").length;
     const mark = { pending: "○", in_progress: "◐", completed: "✓" };
     box.append(h("details", { class: "card todo", open: "" }, h("summary", { class: "muted" }, `Todos ${done}/${todos.length}`),
-      ...todos.map((t) => h("div", { class: t.status === "completed" ? "done" : "" }, `${mark[t.status] || "·"} #${t.id} ${t.subject}${t.status === "in_progress" && t.activeForm ? " — " + t.activeForm : ""}${t.blockedBy?.length ? "  ⛓ " + t.blockedBy.map((i) => "#" + i).join(",") : ""}`))));
+      ...todos.map((t) => h("div", { class: t.status === "completed" ? "done" : "" }, `${mark[t.status] || "·"} #${t.id} ${t.subject}${t.status === "in_progress" && t.activeForm ? " — " + t.activeForm : ""}${t.blockedBy?.length ? " · Blocked by " + t.blockedBy.map((i) => "#" + i).join(",") : ""}`))));
   }
   for (const q of s.questions || []) box.append(keep.find((f) => f.dataset.ask === q.callId) || askForm(q));
 }
@@ -510,6 +652,9 @@ function askForm(p) {
 
 // ---- panels ----
 const panels = {
+  async settings(body) {
+    await renderSettings(body, { h, json, post, loadModels, getModels: () => modelList });
+  },
   async session(body) {
     if (!session) return body.append(h("p", { class: "muted" }, "Open a session first."));
     const s = await json(`/v1/sessions/${session}?limit=1`);
@@ -719,26 +864,64 @@ function loginBox(body, login) {
   };
   render(login); tick();
 }
+const DESCRIPTIONS = {
+  settings: "Model defaults and runtime configuration.", session: "Instructions, context, and tools for this conversation.",
+  agents: "Delegated work in this conversation.", cron: "Manage scheduled prompts and inspect recent runs.",
+  memory: "Search, save, and remove persistent facts.", skills: "Browse the instructions available to Luna.",
+  providers: "Connect accounts and choose your default model.", mcp: "Connect external tools and manage their access."
+};
 const panelState = {};
 let currentPanel = null;
-const TITLES = { session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers", mcp: "MCP servers" };
+const TITLES = { settings: "Settings", session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers", mcp: "MCP servers" };
 async function openPanel(name) {
+  returnFocus = document.activeElement;
+  setDrawer(false);
   currentPanel = name;
+  $("pdesc").textContent = DESCRIPTIONS[name];
   $("ptitle").textContent = TITLES[name];
   $("panel").classList.add("open");
-  $("side").classList.remove("open");
+  $("side").inert = true; $("main").inert = true;
+  $("pclose").focus();
   await refresh();
 }
 async function refresh() {
   const body = $("pbody"); body.replaceChildren();
-  try { await panels[currentPanel](body); } catch (e) { if (e.message !== "unauthorized") body.append(h("p", { class: "msg err" }, e.message)); }
+  const name = currentPanel;
+  const content = h("div", { class: "grid" });
+  body.append(h("p", { class: "muted", role: "status" }, "Loading…"));
+  try {
+    await panels[name](content);
+    if (currentPanel !== name) return;
+    for (const field of content.querySelectorAll("input[placeholder],textarea[placeholder],select")) {
+      if (field.closest("label") || field.type === "hidden") continue;
+      const text = field.getAttribute("aria-label") || field.placeholder || ({ http: "Transport", "openai-completions": "API format" }[field.value]) || "Model";
+      const label = h("label", { class: "field-label" }, h("span", {}, text));
+      field.before(label); label.append(field);
+    }
+    body.replaceChildren(...content.children);
+  } catch (e) { if (e.message !== "unauthorized") body.append(h("p", { class: "msg err" }, e.message)); }
 }
-function closePanel() { $("panel").classList.remove("open"); currentPanel = null; }
+function closePanel() {
+  if (!currentPanel) return;
+  $("panel").classList.remove("open"); currentPanel = null;
+  $("main").inert = false; $("side").inert = matchMedia(MOBILE).matches;
+  if (returnFocus?.isConnected && !returnFocus.closest("[inert]")) returnFocus.focus();
+  else $("menu").offsetParent ? $("menu").focus() : $("more").focus();
+}
 function toast(body, text) { const t = h("div", { class: "muted" }, text); body.prepend(t); setTimeout(() => t.remove(), 2500); }
 $("pclose").onclick = closePanel;
 $("panel").onclick = (e) => { if (e.target === $("panel")) closePanel(); };
 for (const b of document.querySelectorAll("[data-panel]")) b.onclick = () => openPanel(b.dataset.panel);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { if (currentPanel) closePanel(); else if ($("side").classList.contains("open")) setDrawer(false); }
+  if (e.key !== "Tab") return;
+  const root = $("login").style.display === "flex" ? $("login") : currentPanel ? $("panel") : matchMedia(MOBILE).matches && $("side").classList.contains("open") ? $("side") : null;
+  if (!root) return;
+  const items = [...root.querySelectorAll('button:not(:disabled),input,textarea,select,a[href],[tabindex="0"]')].filter(el => el.offsetParent !== null && !el.disabled);
+  const first = items[0], last = items.at(-1);
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+});
 
 async function boot() {
   try {
@@ -746,10 +929,14 @@ async function boot() {
     if (hl.auth && !token) return showLogin();
     await loadModels();
     await loadSessions();
-    if (session) await openSession(session).catch(() => { session = null; localStorage.removeItem("luna.session"); });
+    if (session) await openSession(session).catch(() => { session = null; localStorage.removeItem("luna.session"); $("title").textContent = "New conversation"; });
+    showWelcome();
+    if (!busy) $("status").textContent = "Ready";
   } catch (e) { if (e.message !== "unauthorized") $("status").textContent = String(e.message || e); }
 }
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) navigator.serviceWorker.register("/sw.js").catch(() => {});
+setDrawer(false);
+showWelcome();
 boot();
 </script>
 </body>

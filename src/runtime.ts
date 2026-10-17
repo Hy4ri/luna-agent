@@ -6,10 +6,11 @@ import { join } from "node:path";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
 import { createRegistry, defineExtension, section, type Extension } from "@earendil-works/pi-durable";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
+import { SettingsStore } from "./settings.js";
 import type { LunaConfig } from "./config.js";
 import { createAskExtension } from "./ask.js";
 import { createCronExtension, deliverRun } from "./cron-tools.js";
-import { Delegate } from "./delegate.js";
+import { createDelegateExtension } from "./delegate.js";
 import { createGoalExtension } from "./goal.js";
 import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
@@ -51,13 +52,15 @@ function buildModels(cfg: LunaConfig): { models: MutableModels; model: ModelRef 
 export type Runtime = Awaited<ReturnType<typeof startRuntime>>;
 
 export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
+  const settings = cfg.configPath ? new SettingsStore(cfg.configPath, cfg.dataDir) : undefined;
+  if (settings) cfg = { ...settings.resolved(), configPath: settings.path };
   const log = o.log ?? ((m: string) => console.error(m));
   const on = (e: LunaConfig["extensions"][number]) => cfg.extensions.includes(e);
   mkdirSync(join(cfg.dataDir, "skills"), { recursive: true });
 
   const built = o.models ? { models: o.models, model: o.model! } : buildModels(cfg);
-  // Adds the built-in and custom providers; the default model saved in the UI wins over config.
-  const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch });
+  // Register built-in and configured providers. File-backed runtimes share one settings store.
+  const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch, settings });
   if (!o.models) {
     const refreshed = await built.models.refresh({ providers: ["claude-cli"], allowNetwork: true });
     for (const [id, error] of refreshed.errors) log(`models ${id}: ${error.message}`);
@@ -65,7 +68,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const registry = createRegistry();
 
   // MCP first, so their (deferred) tools are in the registry before the harness resumes old runs.
-  const mcp = new McpManager(registry, cfg.mcpServers, join(cfg.dataDir, "mcp.json"));
+  const mcp = new McpManager(registry, cfg.mcpServers, join(cfg.dataDir, "mcp.json"), settings);
   await mcp.start();
   for (const f of mcp.failures) log(`mcp ${f.name}: failed to start: ${f.error}`);
   for (const c of mcp.connections) log(`mcp ${c.name}: ${c.toolNames.length} tools`);
@@ -88,7 +91,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       }).join("\n\n");
     return text || undefined;
   })] }));
-  if (on("delegate")) extensions.push(Delegate);
+  if (on("delegate")) extensions.push(createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm()));
   if (on("improve")) {
     const imp = new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)] });
@@ -137,6 +140,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
 
   return {
     config: cfg,
+    settings,
     harness,
     models: built.models,
     providers,

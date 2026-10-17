@@ -45,5 +45,12 @@
   "server": {
     "host": "127.0.0.1",
     "port": 8787
+  },
+  "thinkingLevel": "medium",
+  "providers": [],
+  "subagents": {
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "thinkingLevel": "low"
   }
 }

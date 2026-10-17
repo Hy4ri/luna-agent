@@ -9,9 +9,10 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { defineExtension, defineTool, type Extension, type Registry } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import type { SettingsStore } from "./settings.js";
 import { McpServerSchema } from "./config.js";
 
-type Common = { name: string; enabled?: boolean; /** Tools hidden until tool_search loads them. Default true. */ defer?: boolean };
+type Common = { name: string; enabled?: boolean; timeoutMs?: number; /** Tools hidden until tool_search loads them. Default true. */ defer?: boolean };
 export type McpServerConfig = Common & (
   | { transport: "stdio"; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
   | { transport: "http" | "sse"; url: string; headers?: Record<string, string> }
@@ -65,7 +66,7 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
         parameters: Type.Unsafe<Record<string, unknown>>(t.inputSchema ?? { type: "object", properties: {} }),
         ...(defer ? { deferred: true as const } : {}),
         async execute(args, _api, context) {
-          const res: any = await client.callTool({ name: t.name, arguments: args }, undefined, { signal: context.abortSignal, timeout: CALL_TIMEOUT_MS });
+          const res: any = await client.callTool({ name: t.name, arguments: args }, undefined, { signal: context.abortSignal, timeout: cfg.timeoutMs ?? CALL_TIMEOUT_MS });
           const content: any[] = Array.isArray(res.content) ? res.content : [{ type: "text", text: JSON.stringify(res.structuredContent ?? res) }];
           const output = content.map((c) =>
             c.type === "text" ? { type: "text" as const, text: String(c.text) }
@@ -122,15 +123,16 @@ export interface McpServerInfo {
 }
 
 /**
- * Owns every MCP connection. Servers from the config file are fixed; servers added in the web UI are saved to
- * `file` (mode 0600, they may hold tokens) and connect or disconnect live by installing or removing their extension.
+ * Owns every MCP connection. The daemon saves all servers through SettingsStore.
+ * Without a store, standalone callers retain fixed servers and the legacy web-server file.
  */
 export class McpManager {
   private conns = new Map<string, McpConnection>();
   private errors = new Map<string, string>();
   private web: McpServerConfig[] = [];
 
-  constructor(private registry: Registry, private fixed: McpServerConfig[], private file?: string) {
+  constructor(private registry: Registry, private fixed: McpServerConfig[], private file?: string, private settings?: SettingsStore) {
+    if (settings) { this.web = settings.resolved().mcpServers; this.fixed = []; return; }
     if (file && existsSync(file)) {
       try { this.web = (JSON.parse(readFileSync(file, "utf8")).servers ?? []).map((s: unknown) => McpServerSchema.parse(s)); }
       catch (e) { throw new Error(`${file}: ${(e as Error).message}`); }
@@ -168,6 +170,7 @@ export class McpManager {
   }
 
   private save() {
+    if (this.settings) { this.settings.update(s => { s.mcpServers = this.web; }); return; }
     if (!this.file) return;
     const tmp = this.file + ".tmp";
     writeFileSync(tmp, JSON.stringify({ servers: this.web }, null, 2), { mode: 0o600 });
@@ -196,6 +199,7 @@ export class McpManager {
 
   /** Validate, connect, then save. A server that cannot connect is not saved. */
   async add(input: unknown): Promise<McpServerInfo> {
+    this.settings?.assertMutable();
     const r = McpServerSchema.safeParse(input);
     if (!r.success) throw new Error(r.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "));
     const cfg = r.data;
@@ -214,6 +218,7 @@ export class McpManager {
   }
 
   async setEnabled(name: string, enabled: boolean) {
+    this.settings?.assertMutable();
     const i = this.webServer(name);
     const next = { ...this.web[i]!, enabled } as McpServerConfig;
     if (enabled) await this.connect(next); else await this.disconnect(name);
@@ -223,6 +228,7 @@ export class McpManager {
   }
 
   async remove(name: string) {
+    this.settings?.assertMutable();
     const i = this.webServer(name);
     await this.disconnect(name);
     this.web.splice(i, 1);
