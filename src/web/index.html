@@ -54,6 +54,27 @@
   #nav button { background:none; border-color:transparent; display:flex; align-items:center; gap:12px; text-align:left; padding:7px 10px; font-size:14px; color:var(--dim); }
   #nav button:hover { color:var(--fg); }
   #nav button svg { width:18px; height:18px; }
+  #cron-screen { flex:1; min-width:0; min-height:0; overflow:auto; padding:28px max(24px,calc((100% - 1320px)/2)); overflow-wrap:anywhere; }
+  #cron-screen > header > .grow { flex:1; }
+  #cron-screen > header { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
+  #cron-screen h1 { margin:0; font-size:26px; font-weight:600; letter-spacing:-.03em; }
+  #cron-screen h2 { margin:0; font-size:19px; }
+  #cron-screen h3 { margin:0; font-size:16px; }
+  #cron-screen nav, .cron-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:22px; }
+  #cron-screen button[aria-selected="true"], #nav button[aria-current="page"] { border-color:var(--acc); color:var(--acc); background:var(--panel); }
+  #cron-screen label { display:grid; gap:6px; min-width:0; color:var(--dim); font-size:13px; }
+  #cron-screen label input,#cron-screen label textarea,#cron-screen label select { color:var(--fg); font-size:14px; }
+  #cron-screen textarea { resize:vertical; min-height:110px; }
+  #cron-screen details > summary { cursor:pointer; padding:10px 0; }
+  #cron-screen .card { margin-bottom:12px; }
+  #cron-screen .md { overflow-wrap:anywhere; }
+  #cron-screen .md pre { max-height:none; color:var(--fg); }
+  #cron-screen .md p { white-space:pre-wrap; }
+  #cron-screen .cron-error { color:var(--err); }
+  #cron-screen .cron-unread { border-left:3px solid var(--acc); }
+  #cron-screen .cron-content { display:grid; gap:16px; }
+  #cron-menu { display:none; }
+  @media (max-width:760px) { #cron-screen { padding:16px 14px max(20px,env(safe-area-inset-bottom)); } #cron-menu { display:inline-flex; } #cron-screen label input,#cron-screen label textarea,#cron-screen label select { font-size:16px; } }
   #main { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; position:relative; }
   #top { display:flex; align-items:center; gap:12px; padding:16px 28px; border-bottom:1px solid var(--line); min-height:79px; }
   .heading { flex:1; min-width:0; }
@@ -210,7 +231,7 @@
   <nav id="nav" aria-label="Workspace tools">
     <div class="eyebrow">Workspace</div>
     <button data-panel="agents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><path d="M14 6h4v8M6 10v8h8"/></svg>Subagents</button>
-    <button data-panel="cron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Scheduled jobs</button>
+    <button data-panel="cron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Cron <span id="cron-unread" class="pill" hidden aria-label="Unread cron reports"></span></button>
     <button data-panel="memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5c3-2 5-2 8 0 3-2 5-2 8 0v15c-3-2-5-2-8 0-3-2-5-2-8 0ZM12 5v15"/></svg>Memory</button>
     <button data-panel="skills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></svg>Skills</button>
     <button data-panel="providers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg>Model providers</button>
@@ -250,10 +271,12 @@
     <div id="statusbar"><span class="status" id="status" role="status"></span><span id="usage" aria-label="Token usage"></span></div>
   </div>
 </main>
+<main id="cron-screen" hidden aria-label="Cron"></main>
 <div id="panel"><div role="dialog" aria-modal="true" aria-labelledby="ptitle" aria-describedby="pdesc" tabindex="-1"><header><div class="heading"><b id="ptitle"></b><p id="pdesc"></p></div><button id="pclose" class="icon-button" aria-label="Close panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></header><div id="pbody"></div></div></div>
 <div id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle"><form id="loginForm"><div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z"/></svg><h2 id="loginTitle">Connect to Luna</h2></div><p>Enter your server token to open your workspace.</p><label class="grid">Server token<input id="token" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" required></label><button>Connect</button><span class="status" id="loginErr" role="alert"></span></form></div>
 <script src="/settings.js"></script>
 <script src="/sync.js"></script>
+<script src="/cron.js"></script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -267,6 +290,8 @@ let defaultModel = null;
 let sessionList = [];
 let returnFocus = null;
 const MOBILE = "(max-width: 760px)";
+let cronOpen = false;
+let cronScreen;
 function setDrawer(open) {
   $("side").classList.toggle("open", open);
   $("shade").classList.toggle("open", open);
@@ -274,8 +299,9 @@ function setDrawer(open) {
   const mobile = matchMedia(MOBILE).matches;
   $("side").inert = !!currentPanel || (mobile && !open);
   $("main").inert = !!currentPanel || (mobile && open);
+  $("cron-screen").inert = !!currentPanel || (mobile && open);
   if (mobile && open) $("side-close").focus();
-  else if (mobile) $("menu").focus();
+  else if (mobile) (cronOpen ? $("cron-menu") : $("menu"))?.focus();
 }
 matchMedia(MOBILE).addEventListener("change", () => setDrawer(false));
 $("side-close").onclick = () => setDrawer(false);
@@ -301,7 +327,7 @@ const api = async (path, opts = {}) => {
 const json = async (path, opts) => { const r = await api(path, opts); if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).error || r.statusText), { status: r.status }); return r.json(); };
 const post = (path, body, method = "POST") => json(path, { method, body: JSON.stringify(body ?? {}) });
 
-function showLogin(err) { activeFeed?.stop(); listFeed?.stop(); closePanel(); setDrawer(false); $("main").inert = true; $("side").inert = true; $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
+function showLogin(err) { if (cronOpen) { cronScreen.close(); cronOpen = false; $("cron-screen").hidden = true; $("main").hidden = false; } activeFeed?.stop(); listFeed?.stop(); closePanel(); setDrawer(false); $("main").inert = true; $("side").inert = true; $("cron-screen").inert = true; $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
 $("loginForm").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); localStorage.setItem("luna.token", token); $("login").style.display = "none"; setDrawer(false); boot(); };
 
 // ---- markdown: builds DOM nodes only (never innerHTML), links limited to http(s)/mailto ----
@@ -691,6 +717,7 @@ function onSessionEvent(type, e, epoch) {
   updateRunControls();
 }
 async function openSession(id) {
+  if (cronOpen) closeCronScreen();
   saveDraft(); detachView();
   session = String(id); localStorage.setItem("luna.session", session); sessionStorage.setItem("luna.session", session);
   const sid = session, epoch = viewEpoch;
@@ -1042,30 +1069,6 @@ const panels = {
         st?.usage ? h("span", { class: "muted" }, Object.keys(st.usage.models).join(", ")) : null));
     }
   },
-  async cron(body) {
-    const r = await json("/v1/cron").catch((e) => ({ error: e.message }));
-    if (r.error) return body.append(h("p", { class: "muted" }, r.error));
-    const name = h("input", { placeholder: "name" }), expr = h("input", { placeholder: "0 9 * * *  or  @daily" }), prompt = h("textarea", { rows: 3, placeholder: "Self-contained prompt for each run" });
-    body.append(h("div", { class: "card grid" }, h("b", {}, "New job"), name, expr, prompt,
-      h("div", { class: "row" }, h("button", { onclick: async () => { try { await post("/v1/cron", { name: name.value.trim(), expr: expr.value.trim(), prompt: prompt.value.trim() }); refresh(); } catch (e) { toast(body, e.message); } } }, "Create"))));
-    for (const j of r.jobs) {
-      body.append(h("div", { class: "card" },
-        h("div", { class: "row" }, h("b", { class: "grow" }, j.name), h("span", { class: "muted" }, j.expr),
-          h("button", { onclick: async () => { try { await post(`/v1/cron/${j.id}/run`, {}); refresh(); } catch (e) { toast(body, e.message); } } }, "Run now"),
-          h("button", { onclick: async () => { await post(`/v1/cron/${j.id}`, { enabled: !j.enabled }, "PATCH"); refresh(); } }, j.enabled ? "Disable" : "Enable"),
-          h("button", { onclick: async () => { if (confirm(`Delete job "${j.name}" and its runs?`)) { await api(`/v1/cron/${j.id}`, { method: "DELETE" }); refresh(); } } }, "Delete")),
-        h("div", { class: "muted" }, j.enabled ? "next: " + (j.nextRun ? new Date(j.nextRun).toLocaleString() : "—") : "disabled"),
-        h("pre", {}, j.prompt)));
-    }
-    if (r.runs.length) body.append(h("b", {}, "Recent runs"));
-    for (const run of r.runs) {
-      const job = r.jobs.find((j) => j.id === run.jobId);
-      body.append(h("div", { class: "card" },
-        h("div", { class: "row" }, h("span", { class: "pill " + run.status }, run.status), h("span", { class: "grow" }, job?.name || "job " + run.jobId), h("span", { class: "muted" }, new Date(run.startedAt).toLocaleString()),
-          run.conversationId ? h("button", { onclick: () => { closePanel(); openSession(run.conversationId); } }, "Open") : null),
-        (run.output || run.error) ? h("pre", {}, (run.error || run.output).slice(0, 2000)) : null));
-    }
-  },
   async memory(body) {
     const q = h("input", { placeholder: "search", value: panelState.q || "" });
     const list = h("div", { class: "grid" });
@@ -1236,6 +1239,7 @@ const panelState = {};
 let currentPanel = null;
 const TITLES = { conversation: "Manage conversation", settings: "Settings", projects: "Projects", board: "Project board", session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers", mcp: "MCP servers" };
 async function openPanel(name) {
+  if (name === "cron") { closePanel(); return openCronScreen(); }
   returnFocus = document.activeElement;
   setDrawer(false);
   currentPanel = name; boardEditing = false;
@@ -1243,7 +1247,7 @@ async function openPanel(name) {
   $("pdesc").textContent = DESCRIPTIONS[name];
   $("ptitle").textContent = TITLES[name];
   $("panel").classList.add("open");
-  $("side").inert = true; $("main").inert = true;
+  $("side").inert = true; $("main").inert = true; $("cron-screen").inert = true;
   $("pclose").focus();
   await refresh();
 }
@@ -1267,8 +1271,9 @@ async function refresh() {
 function closePanel() {
   if (!currentPanel) return;
   $("panel").classList.remove("open"); currentPanel = null;
-  $("main").inert = false; $("side").inert = matchMedia(MOBILE).matches;
+  $("main").inert = false; $("cron-screen").inert = false; $("side").inert = matchMedia(MOBILE).matches;
   if (returnFocus?.isConnected && !returnFocus.closest("[inert]")) returnFocus.focus();
+  else if (cronOpen) $("cron-menu")?.focus();
   else $("menu").offsetParent ? $("menu").focus() : $("more").focus();
 }
 function toast(body, text) { const t = h("div", { class: "muted" }, text); body.prepend(t); setTimeout(() => t.remove(), 2500); }
@@ -1286,6 +1291,49 @@ document.addEventListener("keydown", (e) => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
 });
 
+// Cron is a page, not a modal panel. Chat stays attached while the page is open.
+function closeCronScreen() {
+  if (!cronOpen) return;
+  cronOpen = false; cronScreen.close();
+  $("cron-screen").hidden = true; $("main").hidden = false;
+  document.querySelector('[data-panel="cron"]').removeAttribute("aria-current");
+  if (location.hash === "#cron") history.replaceState(null, "", location.pathname + location.search);
+  setDrawer(false);
+}
+function openCronScreen() {
+  if ($("login").style.display === "flex") return;
+  closePanel();
+  setDrawer(false); cronOpen = true;
+  $("main").hidden = true; $("cron-screen").hidden = false;
+  document.querySelector('[data-panel="cron"]').setAttribute("aria-current", "page");
+  if (location.hash !== "#cron") location.hash = "cron";
+  cronScreen.open();
+}
+cronScreen = window.createCronScreen({
+  root: $("cron-screen"), h, json, post, markdown,
+  onClose: () => { closeCronScreen(); $("input").focus(); },
+  onUnread: count => { const badge = $("cron-unread"); badge.hidden = !count; badge.textContent = String(count); },
+  onContinue: async run => {
+    // Create a new conversation but do not submit the report or start a model call.
+    const id = await newSession();
+    if (String(id) !== session) throw new Error("Conversation changed. Open the report again to continue.");
+    closeCronScreen();
+    $("input").value = `Discuss this Cron report.\nJob: ${run.jobName}\nRun: #${run.id}\nFinished: ${new Date(run.endedAt || run.startedAt).toISOString()}\nStatus: ${run.status}\n\n${[run.output, run.error ? "Error: " + run.error : null].filter(Boolean).join("\n\n") || "(No output)"}\n\n`;
+    grow(); saveDraft(); $("input").focus();
+  },
+});
+// Keep the mobile navigation available on the full page without duplicating the workspace.
+const cronMenu = h("button", { id: "cron-menu", class: "icon-button", "aria-label": "Open navigation", "aria-controls": "side", onclick: () => setDrawer(true) });
+cronMenu.append(document.querySelector("#menu svg").cloneNode(true));
+// Renderer may replace its content when switching tabs. Restore the navigation button in its header.
+new MutationObserver(() => {
+  if (cronOpen && !cronMenu.isConnected) {
+    const header = $("cron-screen").querySelector("header");
+    if (header) header.prepend(cronMenu);
+  }
+}).observe($("cron-screen"), { childList: true, subtree: true });
+window.addEventListener("hashchange", () => { if (location.hash === "#cron") { if (!cronOpen) openCronScreen(); } else closeCronScreen(); });
+
 async function boot() {
   $("send").disabled = true;
   try {
@@ -1296,6 +1344,8 @@ async function boot() {
     await loadSessions();
     if (session) await openSession(session); else restoreDraft();
     startListFeed(); showWelcome(); updateRunControls();
+    cronScreen.refreshBadge();
+    if (location.hash === "#cron") openCronScreen();
   } catch (e) { if (e.message !== "unauthorized") $("status").textContent = String(e.message || e); }
 }
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) navigator.serviceWorker.register("/sw.js").catch(() => {});
