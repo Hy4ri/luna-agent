@@ -1,5 +1,5 @@
 // The validated config schema supplies every field. No second settings model is stored in the UI.
-async function renderSettings(body, { h, json, post, loadModels, getModels }) {
+async function renderSettings(body, { h, json, post, loadModels, getModels, onSaved }) {
   await loadModels();
   let saved = await json("/v1/settings");
   let draft = structuredClone(saved.config);
@@ -14,10 +14,11 @@ async function renderSettings(body, { h, json, post, loadModels, getModels }) {
     host: "Host", port: "Port", id: "ID", name: "Name", api: "API format", baseUrl: "Base URL", models: "Models",
     contextWindow: "Context window (tokens)", maxTokens: "Maximum output tokens", reasoning: "Reasoning support", vision: "Image support",
     transport: "Transport", command: "Command", args: "Arguments", env: "Environment variables", url: "URL", headers: "Headers",
+    compaction: "Automatic compaction", triggerPercent: "Context trigger (%)",
     enabled: "Enabled", defer: "Defer tools until search", timeoutMs: "Tool-call timeout (milliseconds)",
   };
   const additions = { providers: "provider", models: "model", mcpServers: "MCP server", skillDirs: "skill directory", args: "argument", env: "environment variable", headers: "header" };
-  const label = path => typeof path.at(-1) === "number" ? (additions[path.at(-2)] || "Item") + " " + (path.at(-1) + 1) : path.join(".") === "thinkingLevel" ? "Main thinking level"
+  const label = path => path.join(".") === "compaction.enabled" ? "Enable automatic compaction" : typeof path.at(-1) === "number" ? (additions[path.at(-2)] || "Item") + " " + (path.at(-1) + 1) : path.join(".") === "thinkingLevel" ? "Main thinking level"
     : path.join(".") === "subagents.thinkingLevel" ? "Subagent thinking level" : titles[path.at(-1)] || path.at(-1);
   const get = path => path.reduce((value, key) => value?.[key], draft);
   function set(path, value) {
@@ -57,6 +58,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels }) {
     form.append(child);
     for (const key of Object.keys(props).filter(k => !["provider", "model", "thinkingLevel", "instructions", "subagents"].includes(k))) {
       const section = h("details", { class: "card grid", "data-section": key }, h("summary", {}, titles[key] || key), field(props[key], [key], (saved.schema.required || []).includes(key)));
+      if (key === "compaction") section.append(h("p", { class: "muted" }, "Applies live to existing sessions. Running tool calls finish first; pending work waits for compaction, then resumes. A finished turn stays idle. Emergency overflow recovery stays enabled."));
       if (open.has(key)) section.open = true;
       form.append(section);
     }
@@ -185,8 +187,8 @@ async function renderSettings(body, { h, json, post, loadModels, getModels }) {
     save.disabled = true; form.inert = true; reload.disabled = true;
     try {
       saved = await post("/v1/settings", { config: draft, revision: saved.revision }, "PUT");
-      draft = structuredClone(saved.config); await loadModels(); redraw();
-      status.textContent = saved.restartRequired ? "Saved. Restart Luna to apply runtime changes." : "Settings saved. New sessions and subagents use the new defaults.";
+      draft = structuredClone(saved.config); await loadModels(); redraw(); onSaved?.();
+      status.textContent = saved.restartRequired ? "Saved. Restart Luna to apply runtime changes." : "Settings saved. Compaction changes apply now. New sessions and subagents use the new defaults.";
     } catch (e) { status.textContent = e.message; }
     finally { save.disabled = false; form.inert = false; reload.disabled = false; }
   } }, "Save settings");
@@ -198,7 +200,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels }) {
     finally { reload.disabled = false; }
   });
   function notice() {
-    status.textContent = saved.restartRequired ? "Saved. Restart Luna to apply runtime changes." : "Model defaults apply to new sessions and subagents. Other changes need a restart.";
+    status.textContent = saved.restartRequired ? "Saved. Restart Luna to apply runtime changes." : "Compaction changes apply live. Model defaults apply to new sessions and subagents. Other changes need a restart.";
   }
   body.append(h("p", { class: "muted" }, saved.path),
     h("p", { class: "muted" }, "Every control saves to this file. Provider and MCP panels use the same file. Credentials stay in the protected credential store. Saved secret markers preserve existing values."),

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
-import { UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
+import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { AskDoc, checkAnswer } from "./ask.js";
 import { Children } from "./delegate.js";
@@ -21,12 +21,15 @@ import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
+import { activeContextTokens } from "./context-usage.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
 export interface ServerOptions {
   harness: Harness;
   settings?: SettingsStore;
+  /** Policy for a runtime without a file-backed settings store. */
+  compaction?: () => { enabled: boolean; triggerPercent: number };
   conversations?: ConversationStore;
   /** Extensions added to sessions created in a project (the board). */
   projectExtensions?: Extension[];
@@ -61,7 +64,7 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
+const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/cron.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -247,6 +250,26 @@ export function createApp(opts: ServerOptions) {
     return c.json({ id: conv.id }, 201);
   });
 
+  const contextUsage = async (conv: NonNullable<Awaited<ReturnType<typeof getConv>>>) => {
+    const agent = await conv.agent(context);
+    const model = agent.model && opts.models?.getModel(agent.model.provider, agent.model.modelId);
+    const capacity = model && Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? model.contextWindow : null;
+    const view = await conv.context(context);
+    const usedTokens = activeContextTokens(view);
+    const live = await harness.snapshot(LiveDoc, conv.id, context);
+    const policy = opts.settings?.read().compaction ?? opts.compaction?.() ?? { enabled: true, triggerPercent: 75 };
+    return {
+      usedTokens, contextWindow: capacity, percent: capacity === null ? null : usedTokens / capacity * 100,
+      estimated: true as const, triggerPercent: policy.triggerPercent, autoCompactionEnabled: policy.enabled,
+      compacting: (live?.compactions?.length ?? 0) > 0,
+    };
+  };
+  app.get("/v1/sessions/:id/context", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    return c.json(await contextUsage(conv));
+  });
+
   app.get("/v1/sessions/:id", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
@@ -264,6 +287,7 @@ export function createApp(opts: ServerOptions) {
       running,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       usage: usage ?? null,
+      contextUsage: await contextUsage(conv),
       children: kids?.children ?? [],
       todos: (todo?.tasks ?? []).filter((t) => t.status !== "deleted"),
       questions: ask?.pending ?? [],
@@ -541,34 +565,139 @@ export function createApp(opts: ServerOptions) {
 
   // ---- cron ----
   const cron = (c: HonoContext) => (opts.store ? undefined : err(c, 404, "cron disabled"));
-  app.get("/v1/cron", (c) => cron(c) ?? c.json({ jobs: opts.store!.listJobs(), runs: opts.store!.runs(undefined, 50) }));
+  app.get("/v1/cron", (c) => {
+    if (!opts.store) return err(c, 404, "cron disabled");
+    const jobs = opts.store.listJobs().map(j => ({
+      ...j,
+      lastRun: opts.store!.lastRun(j.id) ?? null,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    }));
+    return c.json({ jobs, runs: c.req.query("summary") === "1" ? [] : opts.store.runs(undefined, 50), unreadCount: opts.store.unreadCount(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+  });
   app.post("/v1/cron", async (c) => {
     const no = cron(c); if (no) return no;
-    const b = await c.req.json().catch(() => ({})) as { name?: string; expr?: string; prompt?: string };
-    if (!b.name || !b.expr || !b.prompt) return err(c, 400, "name, expr and prompt required");
+    const b = await c.req.json().catch(() => ({})) as any;
+    if (!b || typeof b !== "object" || Array.isArray(b)) return err(c, 400, "invalid body");
+    const allowed = ["name", "expr", "prompt", "reportPolicy"];
+    const keys = Object.keys(b);
+    if (!keys.length || keys.some(k => !allowed.includes(k))) return err(c, 400, "invalid or unknown fields");
+    if (!b.name || typeof b.name !== "string" || !b.name.trim() || !b.expr || typeof b.expr !== "string" || !b.prompt || typeof b.prompt !== "string" || !b.prompt.trim()) return err(c, 400, "name, expr and prompt required");
+    if (b.reportPolicy !== undefined && !['always', 'changes', 'failures'].includes(b.reportPolicy)) return err(c, 400, "invalid report policy");
     if (opts.store!.listJobs().some((j) => j.name === b.name)) return err(c, 409, "a job with that name exists");
-    try { const job = opts.store!.addJob(b.name, b.expr, b.prompt); opts.scheduler?.rearm(); return c.json(job, 201); }
-    catch (e) { return err(c, 400, (e as Error).message); }
+    try {
+      const job = opts.store!.addJob(b.name, b.expr, b.prompt, undefined, Date.now(), b.reportPolicy);
+      opts.scheduler?.rearm();
+      return c.json(job, 201);
+    } catch (e) { return err(c, 400, (e as Error).message); }
   });
   app.patch("/v1/cron/:id", async (c) => {
     const no = cron(c); if (no) return no;
-    const b = await c.req.json().catch(() => ({})) as { enabled?: boolean };
-    if (typeof b.enabled !== "boolean") return err(c, 400, "enabled (boolean) required");
-    try { opts.store!.setEnabled(Number(c.req.param("id")), b.enabled); opts.scheduler?.rearm(); return c.json({ ok: true }); }
-    catch (e) { return err(c, 404, (e as Error).message); }
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such job");
+    const existing = opts.store!.getJob(id);
+    if (!existing) return err(c, 404, "no such job");
+    const b = await c.req.json().catch(() => ({})) as any;
+    if (!b || typeof b !== "object" || Array.isArray(b)) return err(c, 400, "invalid body");
+    const allowed = ["name", "expr", "prompt", "enabled", "reportPolicy"];
+    const keys = Object.keys(b);
+    if (!keys.length || keys.some(k => !allowed.includes(k))) return err(c, 400, "invalid or unknown fields");
+    if ("name" in b && (typeof b.name !== "string" || !b.name.trim())) return err(c, 400, "invalid name");
+    if ("expr" in b && (typeof b.expr !== "string" || !b.expr.trim())) return err(c, 400, "invalid expr");
+    if ("prompt" in b && b.prompt !== undefined) {
+      if (typeof b.prompt !== "string") return err(c, 400, "invalid prompt");
+      if (!b.prompt.trim() && !existing.execution) {
+        return err(c, 400, "prompt required");
+      }
+    }
+    if ("enabled" in b && typeof b.enabled !== "boolean") return err(c, 400, "enabled must be boolean");
+    if ("reportPolicy" in b && !['always', 'changes', 'failures'].includes(b.reportPolicy)) return err(c, 400, "invalid report policy");
+
+    if ("name" in b && b.name !== existing.name) {
+      if (opts.store!.listJobs().some(j => j.name === b.name && j.id !== id)) return err(c, 409, "a job with that name exists");
+    }
+
+    try {
+      const updated = opts.store!.updateJob(id, b);
+      opts.scheduler?.rearm();
+      return c.json(updated);
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes("running")) return err(c, 409, msg);
+      if (msg.includes("interval")) return err(c, 400, msg);
+      return err(c, 400, msg);
+    }
   });
   app.post("/v1/cron/:id/run", (c) => {
     const no = cron(c); if (no) return no;
     if (!opts.scheduler) return err(c, 404, "scheduler disabled");
-    try { return c.json(opts.scheduler.runNow(Number(c.req.param("id"))), 202); }
-    catch (e) { return err(c, 404, (e as Error).message); }
+    try {
+      return c.json(opts.scheduler.runNow(Number(c.req.param("id"))), 202);
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes("already running")) return err(c, 409, msg);
+      return err(c, 404, msg);
+    }
   });
   app.delete("/v1/cron/:id", (c) => {
     const no = cron(c); if (no) return no;
     const id = Number(c.req.param("id"));
-    if (!opts.store!.getJob(id)) return err(c, 404, "no such job");
-    opts.store!.removeJob(id); opts.scheduler?.rearm();
-    return c.json({ ok: true });
+    if (!Number.isSafeInteger(id) || id < 1 || !opts.store!.getJob(id)) return err(c, 404, "no such job");
+    try {
+      opts.store!.removeJob(id);
+      opts.scheduler?.rearm();
+      return c.json({ ok: true });
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes("running")) return err(c, 409, msg);
+      return err(c, 400, msg);
+    }
+  });
+  app.get("/v1/cron/reports", (c) => {
+    const no = cron(c); if (no) return no;
+    const history = c.req.query("history") === "1" || c.req.query("history") === "true";
+    const jobId = c.req.query("jobId") !== undefined ? Number(c.req.query("jobId")) : undefined;
+    const before = c.req.query("before") !== undefined ? Number(c.req.query("before")) : undefined;
+    const limit = c.req.query("limit") !== undefined ? Number(c.req.query("limit")) : 50;
+    if (jobId !== undefined && (!Number.isSafeInteger(jobId) || jobId < 1)) return err(c, 400, "invalid jobId");
+    if (before !== undefined && (!Number.isSafeInteger(before) || before < 1)) return err(c, 400, "invalid before cursor");
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) return err(c, 400, "invalid limit (1..100)");
+    const reports = opts.store!.reports({ history, jobId, before, limit });
+    return c.json({ reports, unreadCount: opts.store!.unreadCount() });
+  });
+  app.get("/v1/cron/runs", (c) => {
+    const no = cron(c); if (no) return no;
+    const history = c.req.query("history") === "1" || c.req.query("history") === "true";
+    const jobId = c.req.query("jobId") !== undefined ? Number(c.req.query("jobId")) : undefined;
+    const status = c.req.query("status") as any;
+    const before = c.req.query("before") !== undefined ? Number(c.req.query("before")) : undefined;
+    const limit = c.req.query("limit") !== undefined ? Number(c.req.query("limit")) : 50;
+    if (jobId !== undefined && (!Number.isSafeInteger(jobId) || jobId < 1)) return err(c, 400, "invalid jobId");
+    if (status !== undefined && !["running", "ok", "error"].includes(status)) return err(c, 400, "invalid status");
+    if (before !== undefined && (!Number.isSafeInteger(before) || before < 1)) return err(c, 400, "invalid before cursor");
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) return err(c, 400, "invalid limit (1..100)");
+    const runs = opts.store!.queryRuns({ history, jobId, status, before, limit });
+    return c.json({ runs });
+  });
+  app.get("/v1/cron/runs/:runId", (c) => {
+    const no = cron(c); if (no) return no;
+    const runId = Number(c.req.param("runId"));
+    if (!Number.isSafeInteger(runId) || runId < 1) return err(c, 404, "no such run");
+    const r = opts.store!.getRun(runId);
+    if (!r) return err(c, 404, "no such run");
+    return c.json(r);
+  });
+  app.patch("/v1/cron/reports/:runId", async (c) => {
+    const no = cron(c); if (no) return no;
+    const runId = Number(c.req.param("runId"));
+    if (!Number.isSafeInteger(runId) || runId < 1) return err(c, 404, "no such run");
+    const b = await c.req.json().catch(() => ({})) as any;
+    if (!b || typeof b !== "object" || Array.isArray(b) || typeof b.read !== "boolean" || Object.keys(b).some(key => key !== "read")) return err(c, 400, "read (boolean) required");
+    try {
+      const updated = opts.store!.markRead(runId, b.read);
+      return c.json(updated);
+    } catch (e) {
+      return err(c, 404, (e as Error).message);
+    }
   });
 
   // ---- memory ----

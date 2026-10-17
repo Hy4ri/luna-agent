@@ -57,14 +57,14 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
   });
   const remove = defineTool({
     name: "cron_remove",
-    description: "Delete a job and its run history by id.",
+    description: "Delete a job by id. Reports and run history are kept. Stop or wait for its active run first.",
     parameters: Type.Object({ id: Type.Number() }),
     replay: "safe",
     async execute({ id }) {
       if (!store.getJob(id)) return text(`no job ${id}`, true);
-      store.removeJob(id);
+      try { store.removeJob(id); } catch (e) { return text((e as Error).message, true); }
       changed();
-      return text(`removed job ${id}`);
+      return text(`removed job ${id}; reports and run history kept`);
     },
   });
   const runs = defineTool({

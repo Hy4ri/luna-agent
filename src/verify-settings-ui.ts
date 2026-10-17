@@ -42,7 +42,7 @@ try {
   await page.getByLabel("Subagent thinking level", { exact: true }).selectOption("low");
   await page.getByLabel("Subagent default model", { exact: true }).selectOption("faux/child");
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
-  await page.getByText("Settings saved. New sessions and subagents use the new defaults.", { exact: true }).waitFor();
+  await page.getByText("Settings saved. Compaction changes apply now. New sessions and subagents use the new defaults.", { exact: true }).waitFor();
   let disk = JSON.parse(readFileSync(path, "utf8"));
   assert.equal(disk.thinkingLevel, "high"); assert.equal(disk.subagents.thinkingLevel, "low"); assert.equal(disk.subagents.model, "child");
   await page.keyboard.press("Escape"); await open();

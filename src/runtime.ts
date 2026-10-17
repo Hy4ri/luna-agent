@@ -120,8 +120,13 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
 
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
+  const compaction = () => settings?.resolved().compaction ?? cfg.compaction;
   const harness = await openLuna({
     registry,
+    compaction: () => {
+      const policy = compaction();
+      return { enabled: true, autoEnabled: policy.enabled, triggerPercent: policy.triggerPercent, backgroundTokens: 0 };
+    },
     dbPath: join(cfg.dataDir, "luna.db"),
     models: built.models,
     cwd: cfg.cwd,
@@ -149,6 +154,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   return {
     config: cfg,
     settings,
+    compaction,
     harness,
     conversations,
     /** Added to the agent of every session created in a project. */

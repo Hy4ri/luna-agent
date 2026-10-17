@@ -15,6 +15,13 @@ The Providers and MCP panels also write this file, not separate settings files.
 
 - `provider`, `model`: default model for new sessions and cron runs.
 - `thinkingLevel`, `instructions`: defaults for new chat sessions.
+- `compaction`: automatic context compaction. `enabled` defaults to `true`.
+  `triggerPercent` is an integer from 1 through 99; the default is `75`.
+  Both controls are under **Settings → Automatic compaction** and apply live to existing sessions.
+  The trigger uses the selected model's context window, not lifetime token usage.
+  Running tool calls finish first. The next model request waits for compaction, then resumes.
+  A final answer can compact before the run settles, without starting another turn.
+  Disabling automatic compaction leaves emergency context-overflow recovery enabled.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.
 - `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` overrides.
   Set both provider and model, or omit both to inherit the parent model.
@@ -105,3 +112,21 @@ LUNA_PLAYWRIGHT_PATH=/path/to/playwright pnpm run verify:settings-ui
 ```
 
 The test uses isolated config files, databases, and a faux model. It does not call an external AI provider.
+
+## Context usage
+
+The chat context bar shows estimated active tokens, model capacity, and the percentage used.
+It is green below 50%, amber from 50% up to the configured trigger, and red at or above the trigger.
+A trigger below 50% takes precedence over green. Unknown model capacity is shown as unavailable.
+The bar refreshes after tool results, model changes, and compaction. It is not a live tokenizer.
+Older usage measurements are discarded after a summary changes the context boundary.
+The separate token totals remain cumulative usage.
+
+## Runtime compaction policy
+
+The pinned `pi-durable` dependency has a local pnpm patch in `patches/`.
+It adds blocking percentage thresholds, separate automatic and overflow switches, and a durable
+final-answer checkpoint. `pnpm install --frozen-lockfile` applies this patch on a clean install.
+Keep the patch when updating the dependency until the equivalent behavior exists upstream.
+In percentage mode, recent history retention is capped at half the trigger budget (maximum 20,000 tokens).
+This keeps compaction useful for small model windows. No running tool is interrupted.

@@ -1,6 +1,6 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Models } from "@earendil-works/pi-ai";
-import { createRegistry, Harness, ROOT_CONVERSATION_ID, type Extension, type Registry } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, ROOT_CONVERSATION_ID, type CompactionPolicy, type Extension, type Registry } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openConversationStorage, registerConversationStorage } from "./conversation-storage.js";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
@@ -10,6 +10,8 @@ import { createMemoryExtension, MemoryStore } from "./memory.js";
 export const context = BACKGROUND_CONTEXT;
 
 export interface LunaOptions {
+  /** Live harness compaction policy; read again at each execution boundary. */
+  compaction?: () => Partial<CompactionPolicy>;
   /** SQLite file; defaults to ./luna.db */
   dbPath?: string;
   /** Model catalog with providers already set. */
@@ -44,7 +46,10 @@ export async function openLuna(opts: LunaOptions) {
       models: opts.models,
       registry,
       // The board belongs to project sessions only: they add it at creation. Everything else (cron, subagents, plain sessions) skips it.
-      settings: { get extensions() { return registry.snapshot().installed().filter(e => e.name !== "board"); } },
+      settings: {
+        get extensions() { return registry.snapshot().installed().filter(e => e.name !== "board"); },
+        get compaction() { return opts.compaction?.(); },
+      },
       conversationCreated: async (tx, conversation) => {
         // The reserved root ID can be reused after deletion. Give each incarnation a unique context boundary,
         // so pi-durable cannot extend a retained model-context range from its deleted incarnation.

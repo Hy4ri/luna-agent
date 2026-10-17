@@ -1,0 +1,172 @@
+diff --git a/dist/harness/compaction.d.ts b/dist/harness/compaction.d.ts
+index c863663657177e722e8cee4f7973c42522211730..27f332b80e426350fdad04c45260a0afc79f2ee9 100644
+--- a/dist/harness/compaction.d.ts
++++ b/dist/harness/compaction.d.ts
+@@ -59,3 +59,5 @@ export declare function estimateContext(view: ContextView, extra: readonly Messa
+  */
+ export declare function serializeConversation(messages: readonly Message[]): string;
+ //# sourceMappingURL=compaction.d.ts.map
++/** Retention budget adapted to small model windows in percentage mode. */
++export declare function keepRecentForWindow(policy: import("./types.js").CompactionPolicy, contextWindow: number): number;
+diff --git a/dist/harness/compaction.js b/dist/harness/compaction.js
+index c3fb798f4f3fcf13465484b104d40e68cd245b36..7f86ac717dcb44a0e61a6d08c0f01d9b865d747e 100644
+--- a/dist/harness/compaction.js
++++ b/dist/harness/compaction.js
+@@ -66,7 +66,8 @@ export const CompactionTask = defineTask({
+                 return failNoModel(runtime, ref, context);
+             const policy = settings.compaction;
+             const view = await runtime.context(conversationId, context);
+-            const cut = selectCut(view, policy.keepRecentTokens);
++            const keep = keepRecentForWindow(policy, model.contextWindow);
++            const cut = selectCut(view, keep);
+             if (cut === undefined)
+                 return complete(runtime, context);
+             const firstKept = view.entries[cut].id;
+@@ -92,7 +93,7 @@ export const CompactionTask = defineTask({
+                 model: ref,
+                 thinkingLevel: agent.thinkingLevel,
+                 streamOptions: settings.stream,
+-                maxTokens: Math.min(Math.floor(0.8 * policy.reserveTokens), model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY),
++                maxTokens: Math.min(Math.floor(0.8 * policy.reserveTokens), policy.triggerPercent === undefined ? Number.POSITIVE_INFINITY : Math.max(1, Math.floor(model.contextWindow / 4)), model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY),
+                 tail: view.entries.reduce((tail, entry) => (entry.id > tail ? entry.id : tail), firstKept),
+                 firstKept,
+             };
+@@ -193,6 +194,9 @@ export async function createCompaction(tx, conversationId, input, owner) {
+  * that entry: an entry whose contribution starts with a user or assistant message, never a tool result, and never a
+  * user entry that a result of the preceding assistant's calls still follows.
+  */
++export function keepRecentForWindow(policy, contextWindow) {
++    return policy.triggerPercent === undefined ? policy.keepRecentTokens : Math.min(policy.keepRecentTokens, Math.floor(contextWindow * policy.triggerPercent / 200));
++}
+ export function selectCut(view, keepRecentTokens) {
+     const { contributions } = view;
+     const start = view.head === undefined ? 0 : 1;
+diff --git a/dist/harness/generation.d.ts b/dist/harness/generation.d.ts
+index ccd0557bdafa606dadac6d3a2c264d7664a2f690..1bea5896a19c7bd73f176a39818b601f5b6aee1d 100644
+--- a/dist/harness/generation.d.ts
++++ b/dist/harness/generation.d.ts
+@@ -6,6 +6,10 @@ import { type ToolTaskResult } from "./tool.ts";
+ import type { CompactionResult, ConversationStreamOptions, GenerationHooks, ModelRef } from "./types.ts";
+ export type GenerationInput = Record<string, never>;
+ export type GenerationCheckpoint = {
++    phase: "finalize";
++    entryId: EntryId;
++    compacted?: TaskId<CompactionResult>;
++} | {
+     phase: "prepare";
+     attempt: number;
+     /** The blocking compaction this generation waited for; it starts no other compaction (spec §8.3). */
+diff --git a/dist/harness/generation.js b/dist/harness/generation.js
+index 136bed43fe2c45f1739109e34af5590d5036a3f7..d88f59ce443c2319de734fc245804e7ee96e47b4 100644
+--- a/dist/harness/generation.js
++++ b/dist/harness/generation.js
+@@ -5,7 +5,7 @@ import { getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
+ import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.js";
+ import { defineTask } from "../tasks.js";
+ import { addTools } from "./agent.js";
+-import { createCompaction, estimateContext, selectCut } from "./compaction.js";
++import { createCompaction, estimateContext, keepRecentForWindow, selectCut } from "./compaction.js";
+ import { applyBoundary, prepareBoundary } from "./inbox.js";
+ import { assignJson } from "./json.js";
+ import { endRun, LiveDoc } from "./live.js";
+@@ -100,6 +100,28 @@ export const GenerationTask = defineTask({
+                 return { status: "running", checkpoint: { phase: "request", ...request } };
+             }, context);
+         },
++        // A committed final answer can compact without requesting another model turn.
++        finalize: async (task, runtime, context) => {
++            const { entryId, compacted } = task.state.checkpoint;
++            const policy = runtime.settings.compaction;
++            if (compacted === undefined && policy.triggerPercent !== undefined) {
++                const agent = await runtime.agent(context);
++                const model = agent.model === undefined ? undefined : runtime.models.getModel(agent.model.provider, agent.model.modelId);
++                const view = await runtime.context(runtime.conversationId, context);
++                if (model !== undefined && thresholdCompaction(view, [], model.contextWindow, policy) === "blocking") {
++                    await runtime.commit(async (tx) => {
++                        const child = await createCompaction(tx, runtime.conversationId, { reason: "threshold" }, runtime.taskId);
++                        return { status: "waiting", checkpoint: { phase: "finalize", entryId, compacted: child }, on: [child], policy: "allSettled" };
++                    }, context);
++                    return;
++                }
++            }
++            // A failed summary leaves the final answer intact; live state reports the failure.
++            const message = (await runtime.entry(AssistantEntry, entryId, context))?.model?.[0];
++            if (message?.role !== "assistant")
++                return failModelError(runtime, "Final answer entry is missing", context);
++            return answer(runtime, message, context, entryId);
++        },
+         request: async (task, runtime, context) => {
+             const { attempt, compacted, model: ref, thinkingLevel, streamOptions, cutoff } = task.state.checkpoint;
+             const conversationId = runtime.conversationId;
+@@ -223,6 +245,12 @@ function thresholdCompaction(view, planned, contextWindow, policy) {
+     if (!policy.enabled || contextWindow <= 0)
+         return undefined;
+     const tokens = estimateContext(view, planned.flatMap((entry) => entry.model ?? []));
++    if (policy.triggerPercent !== undefined) {
++        if (policy.autoEnabled === false)
++            return undefined;
++        const keep = keepRecentForWindow(policy, contextWindow);
++        return tokens >= contextWindow * policy.triggerPercent / 100 && selectCut(view, keep) !== undefined ? "blocking" : undefined;
++    }
+     const blocking = contextWindow - policy.reserveTokens;
+     const background = blocking - policy.backgroundTokens;
+     const over = tokens > blocking ? "blocking" : policy.backgroundTokens > 0 && tokens > background ? "background" : undefined;
+@@ -360,6 +388,14 @@ async function classify(runtime, request, message, context) {
+         return startToolRound(runtime, request, message, calls, context);
+     }
+     if (message.stopReason === "stop" || message.stopReason === "length" || message.stopReason === "toolUse") {
++        if (runtime.settings.compaction.triggerPercent !== undefined) {
++            await runtime.commit(async (tx) => {
++                const entry = await appendAssistant(tx, conversationId, message);
++                delete (await tx.doc(LiveDoc, conversationId)).generation;
++                return { status: "running", checkpoint: { phase: "finalize", entryId: entry.id } };
++            }, context);
++            return;
++        }
+         return answer(runtime, message, context);
+     }
+     // The retry and compaction policies govern the next attempt, so they are read now rather than pinned at preparation.
+@@ -368,7 +404,9 @@ async function classify(runtime, request, message, context) {
+     if (overflow && compacted === undefined && settings.compaction.enabled) {
+         const policy = settings.compaction;
+         const view = await runtime.context(conversationId, context, { at: cutoff });
+-        if (selectCut(view, policy.keepRecentTokens) !== undefined) {
++        const window = runtime.models.getModel(ref.provider, ref.modelId)?.contextWindow ?? 0;
++        const keep = keepRecentForWindow(policy, window);
++        if (selectCut(view, keep) !== undefined) {
+             const text = message.errorMessage ?? "Context overflow";
+             await runtime.commit(async (tx) => {
+                 const live = await tx.doc(LiveDoc, conversationId);
+@@ -415,7 +453,7 @@ async function classify(runtime, request, message, context) {
+  * message and hands the run to a successor generation, but only when the boundary selected no user item and no reset.
+  * Otherwise the run's inputs settle `done`, and selected user items start the next run.
+  */
+-async function answer(runtime, message, context) {
++async function answer(runtime, message, context, existingEntryId) {
+     let continuation;
+     await runtime.hooks.each("onYield", async (hook) => {
+         if (continuation !== undefined)
+@@ -427,7 +465,7 @@ async function answer(runtime, message, context) {
+         // Queue modes are read on the Session line, when the boundary is decided.
+         const boundary = await prepareBoundary(tx, conversationId, runtime.settings);
+         const live = await tx.doc(LiveDoc, conversationId);
+-        const entry = await appendAssistant(tx, conversationId, message);
++        const entry = existingEntryId === undefined ? await appendAssistant(tx, conversationId, message) : { id: existingEntryId };
+         const result = { status: "terminal", outcome: { status: "completed", result: { entryId: entry.id } } };
+         const { users, reset } = await applyBoundary(tx, boundary, "final", runtime.now());
+         if (continuation !== undefined && users.length === 0 && !reset) {
+diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
+index ea3adc9e21bcc4b101da614ce9913e3858777f0d..7f866ffa577c4472487b41e2dcd28b3de209726d 100644
+--- a/dist/harness/types.d.ts
++++ b/dist/harness/types.d.ts
+@@ -443,6 +443,10 @@ export type ConversationRetryPolicy = {
+ };
+ /** Automatic compaction thresholds (spec §8.7); manual compaction ignores `enabled`. */
+ export type CompactionPolicy = {
++    /** Enable percentage-triggered compaction independently of emergency overflow recovery. */
++    autoEnabled?: boolean;
++    /** Blocking trigger as a percentage of the selected model window; absent preserves legacy thresholds. */
++    triggerPercent?: number;
+     /** Threshold and overflow compaction. */
+     enabled: boolean;
+     /** Room kept free for the answer: generation blocks to compact above `contextWindow - reserveTokens`. */

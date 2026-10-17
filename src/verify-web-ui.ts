@@ -84,7 +84,7 @@ try {
   await page.keyboard.press("Escape");
   await page.locator('[data-panel="settings"]').click();
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
-  await page.getByText("Settings saved. New sessions and subagents use the new defaults.", { exact: true }).waitFor();
+  await page.getByText("Settings saved. Compaction changes apply now. New sessions and subagents use the new defaults.", { exact: true }).waitFor();
   await page.keyboard.press("Escape");
   console.log("OK memory write/remove and settings save through the real server");
   await page.locator("#file").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==", "base64") });
