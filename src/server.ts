@@ -1,4 +1,5 @@
 import { ProjectError } from "./projects.js";
+import { BoardError } from "./board.js";
 import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
 import { Hono, type Context as HonoContext } from "hono";
@@ -7,6 +8,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import type { Models } from "@earendil-works/pi-ai";
+import type { Extension } from "@earendil-works/pi-durable";
 import { UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { AskDoc, checkAnswer } from "./ask.js";
@@ -26,6 +28,8 @@ export interface ServerOptions {
   harness: Harness;
   settings?: SettingsStore;
   conversations?: ConversationStore;
+  /** Extensions added to sessions created in a project (the board). */
+  projectExtensions?: Extension[];
   /** Bearer token for /v1/*. When unset, auth is off (daemon then binds loopback only). */
   token?: string;
   /** Default agent choices for new sessions (model etc). */
@@ -78,7 +82,7 @@ export function createApp(opts: ServerOptions) {
   const err = (c: HonoContext, status: 400 | 401 | 404 | 409 | 500, message: string) => c.json({ error: message }, status);
 
   app.onError((e, c) => {
-    if (e instanceof ConversationError || e instanceof ProjectError) return err(c, e.status, e.message);
+    if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError) return err(c, e.status, e.message);
     const name = (e as Error).name;
     if (name === "ConversationBusy") return err(c, 409, "conversation busy");
     return err(c, 500, (e as Error).message ?? String(e));
@@ -193,6 +197,36 @@ export function createApp(opts: ServerOptions) {
   app.delete("/v1/projects/:id", (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
     opts.conversations.projects.delete(projectId(c));
+    opts.conversations.touch();
+    return c.json({ ok: true });
+  });
+
+  // ---- project board: cards shared by the user and the project's sessions ----
+  const boardOf = (c: HonoContext) => {
+    const conv = opts.conversations; if (!conv) throw new ProjectError(404, "projects disabled");
+    const id = projectId(c); if (!conv.projects.get(id)) throw new ProjectError(404, "no such project");
+    return { conv, id };
+  };
+  const cardId = (c: HonoContext) => { const n = Number(c.req.param("cardId")); return Number.isSafeInteger(n) && n > 0 ? n : 0; };
+  // Writes go through a harness commit, like other stored metadata, so they never interleave with another transaction.
+  const write = async <T,>(conv: NonNullable<typeof opts.conversations>, fn: () => T): Promise<T> => { const r = await harness.commit(async () => fn(), context); conv.touch(); return r; };
+  app.get("/v1/projects/:id/board", (c) => {
+    const { conv, id } = boardOf(c);
+    return c.json({ cards: conv.board.list(id, { archived: c.req.query("archived") === "1" }) });
+  });
+  app.post("/v1/projects/:id/cards", async (c) => {
+    const { conv, id } = boardOf(c);
+    const b = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    return c.json(await write(conv, () => conv.board.create(id, b)), 201);
+  });
+  app.patch("/v1/projects/:id/cards/:cardId", async (c) => {
+    const { conv, id } = boardOf(c);
+    const b = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    return c.json(await write(conv, () => conv.board.update(id, cardId(c), b)));
+  });
+  app.delete("/v1/projects/:id/cards/:cardId", async (c) => {
+    const { conv, id } = boardOf(c);
+    await write(conv, () => conv.board.delete(id, cardId(c)));
     return c.json({ ok: true });
   });
 
@@ -206,7 +240,8 @@ export function createApp(opts: ServerOptions) {
       if (!project) return err(c, 400, "unknown project");
     }
     const cwd = b.cwd || project?.cwd;
-    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }) };
+    // Project sessions also get the board tool and prompt section; other sessions never do.
+    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
     if (project) opts.conversations!.projects.link(Number(conv.id), project.id);
     return c.json({ id: conv.id }, 201);
@@ -400,26 +435,32 @@ export function createApp(opts: ServerOptions) {
 
   // Cross-device list invalidations; payloads contain no transcript and writes are serialized/coalesced.
   app.get("/v1/events", c => streamSSE(c, async stream => {
-    let finish!: () => void, timer: ReturnType<typeof setTimeout> | undefined, dirty = false, writing = false, closed = false;
+    let finish!: () => void, timer: ReturnType<typeof setTimeout> | undefined, dirty = false, boardDirty = false, writing = false, closed = false;
     const done = new Promise<void>(r => finish = r);
     stream.onAbort(finish);
     const flush = async () => {
       timer = undefined;
-      if (closed || writing || !dirty) return;
-      dirty = false; writing = true;
-      try { await stream.writeSSE({ event: "sessions_changed", data: "{}" }); }
+      if (closed || writing || (!dirty && !boardDirty)) return;
+      const sessions = dirty, board = boardDirty; dirty = boardDirty = false; writing = true;
+      try {
+        if (sessions) await stream.writeSSE({ event: "sessions_changed", data: "{}" });
+        if (board) await stream.writeSSE({ event: "board_changed", data: "{}" });
+      }
       catch { finish(); }
-      finally { writing = false; if (dirty && !closed) timer = setTimeout(flush, 100); }
+      finally { writing = false; if ((dirty || boardDirty) && !closed) timer = setTimeout(flush, 100); }
     };
-    const changed = () => { dirty = true; if (!timer && !writing && !closed) timer = setTimeout(flush, 100); };
+    const arm = () => { if (!timer && !writing && !closed) timer = setTimeout(flush, 100); };
+    const changed = () => { dirty = true; arm(); };
+    const boardChanged = () => { boardDirty = true; arm(); };
     // Register BEFORE the initial event, so creation during attachment cannot be missed.
     const unsubscribe = harness.subscribeCommits(publication => {
       if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission")) changed();
     });
     const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
+    const unsubscribeBoard = opts.conversations?.subscribeBoard(boardChanged);
     const ping = setInterval(() => { if (!writing) void stream.writeSSE({ event: "ping", data: "{}" }).catch(finish); }, 15000);
     try { dirty = true; await flush(); await Promise.race([done, harness.closed]); }
-    finally { closed = true; clearInterval(ping); clearTimeout(timer); unsubscribe(); unsubscribeMeta?.(); }
+    finally { closed = true; clearInterval(ping); clearTimeout(timer); unsubscribe(); unsubscribeMeta?.(); unsubscribeBoard?.(); }
   }));
 
   // ---- tools ----

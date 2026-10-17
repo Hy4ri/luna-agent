@@ -1,4 +1,5 @@
 import { ConversationStore } from "./conversations.js";
+import { createBoardExtension } from "./board.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
@@ -100,6 +101,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   }
   if (on("tool-search")) extensions.push(createToolSearchExtension());
   if (on("todo")) extensions.push(Todo);
+  // Installed always, selected only by project sessions (see openLuna). The store exists once the harness is open.
+  let conversationsRef: ConversationStore | undefined;
+  const board = createBoardExtension(() => conversationsRef);
+  extensions.push(board);
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
   const notifyUrl = cfg.cron.notifyUrl;
   const ask = on("ask-user") ? createAskExtension({
@@ -126,6 +131,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     extensions,
   });
   const conversations = new ConversationStore(harness, recall);
+  conversationsRef = conversations;
   harnessRef = harness;
   harness.resume(); // continue any run a previous process left unfinished
 
@@ -145,6 +151,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     settings,
     harness,
     conversations,
+    /** Added to the agent of every session created in a project. */
+    projectExtensions: [board],
     models: built.models,
     providers,
     memory: memory || undefined,

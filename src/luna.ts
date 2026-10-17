@@ -43,6 +43,8 @@ export async function openLuna(opts: LunaOptions) {
     {
       models: opts.models,
       registry,
+      // The board belongs to project sessions only: they add it at creation. Everything else (cron, subagents, plain sessions) skips it.
+      settings: { get extensions() { return registry.snapshot().installed().filter(e => e.name !== "board"); } },
       conversationCreated: async (tx, conversation) => {
         // The reserved root ID can be reused after deletion. Give each incarnation a unique context boundary,
         // so pi-durable cannot extend a retained model-context range from its deleted incarnation.

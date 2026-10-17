@@ -11,7 +11,7 @@ export class ProjectError extends Error {
 }
 
 export class ProjectStore {
-  constructor(private readonly db: DatabaseSync) {
+  constructor(private readonly db: DatabaseSync, private readonly onDelete?: (id: number) => void) {
     db.exec(`CREATE TABLE IF NOT EXISTS luna_projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, cwd TEXT NOT NULL
       ) STRICT;
@@ -54,9 +54,14 @@ export class ProjectStore {
     if (!this.get(id)) throw new ProjectError(404, "no such project");
     this.db.prepare("DELETE FROM luna_session_projects WHERE project_id=?").run(id);
     this.db.prepare("DELETE FROM luna_projects WHERE id=?").run(id);
+    this.onDelete?.(id);
   }
   link(conversationId: number, projectId: number) {
     this.db.prepare("INSERT OR REPLACE INTO luna_session_projects(conversation_id, project_id) VALUES (?,?)").run(conversationId, projectId);
+  }
+  projectOf(conversationId: number): number | undefined {
+    const r = this.db.prepare("SELECT project_id FROM luna_session_projects WHERE conversation_id=?").get(conversationId) as { project_id: number } | undefined;
+    return r?.project_id;
   }
   /** conversation id -> project id, for the session list. */
   links(): Map<number, number> {

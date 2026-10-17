@@ -5,6 +5,7 @@ import { conversationStorage } from "./conversation-storage.js";
 import { context } from "./luna.js";
 import type { RecallIndex } from "./recall.js";
 import { ProjectStore } from "./projects.js";
+import { BoardStore } from "./board.js";
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export type ConversationMeta = { title: string | null; archived: boolean; pinned: boolean };
 export class ConversationError extends Error {
@@ -14,17 +15,26 @@ export class ConversationStore {
   private readonly db: DatabaseSync;
   private readonly listeners = new Set<() => void>();
   readonly projects: ProjectStore;
+  readonly board: BoardStore;
+  private readonly boardListeners = new Set<() => void>();
   constructor(private readonly harness: Harness, private readonly recall?: RecallIndex) {
     this.db = conversationStorage(harness).db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_conversations (
         id INTEGER PRIMARY KEY, title TEXT, archived INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0
       ) STRICT;`);
-    this.projects = new ProjectStore(this.db);
+    this.projects = new ProjectStore(this.db, id => this.board.deleteProject(id));
+    this.board = new BoardStore(this.db);
   }
   subscribeChanges(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => { this.listeners.delete(cb); };
   }
+  subscribeBoard(cb: () => void): () => void {
+    this.boardListeners.add(cb);
+    return () => { this.boardListeners.delete(cb); };
+  }
+  /** Tell connected viewers a board changed. */
+  touch() { for (const cb of [...this.boardListeners]) { try { cb(); } catch {} } }
   private notify() {
     for (const cb of [...this.listeners]) {
       try { cb(); } catch {}
