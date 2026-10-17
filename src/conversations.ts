@@ -4,6 +4,7 @@ import { defineDoc, defineDocFamily, type ConversationRecord, type DocumentRecor
 import { conversationStorage } from "./conversation-storage.js";
 import { context } from "./luna.js";
 import type { RecallIndex } from "./recall.js";
+import { ProjectStore } from "./projects.js";
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export type ConversationMeta = { title: string | null; archived: boolean; pinned: boolean };
 export class ConversationError extends Error {
@@ -12,11 +13,13 @@ export class ConversationError extends Error {
 export class ConversationStore {
   private readonly db: DatabaseSync;
   private readonly listeners = new Set<() => void>();
+  readonly projects: ProjectStore;
   constructor(private readonly harness: Harness, private readonly recall?: RecallIndex) {
     this.db = conversationStorage(harness).db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_conversations (
         id INTEGER PRIMARY KEY, title TEXT, archived INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0
       ) STRICT;`);
+    this.projects = new ProjectStore(this.db);
   }
   subscribeChanges(cb: () => void): () => void {
     this.listeners.add(cb);
@@ -87,6 +90,7 @@ export class ConversationStore {
         DELETE FROM entries WHERE conversation_id IN (SELECT id FROM purge_conversations);
         DELETE FROM tasks WHERE id IN (SELECT id FROM purge_tasks);
         DELETE FROM luna_conversations WHERE id IN (SELECT id FROM purge_conversations);
+        DELETE FROM luna_session_projects WHERE conversation_id IN (SELECT id FROM purge_conversations);
         DELETE FROM conversations WHERE id IN (SELECT id FROM purge_conversations);
         DELETE FROM purge_documents; DELETE FROM purge_tasks; DELETE FROM purge_conversations;
         `);

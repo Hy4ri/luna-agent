@@ -1,3 +1,4 @@
+import { ProjectError } from "./projects.js";
 import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
 import { Hono, type Context as HonoContext } from "hono";
@@ -77,7 +78,7 @@ export function createApp(opts: ServerOptions) {
   const err = (c: HonoContext, status: 400 | 401 | 404 | 409 | 500, message: string) => c.json({ error: message }, status);
 
   app.onError((e, c) => {
-    if (e instanceof ConversationError) return err(c, e.status, e.message);
+    if (e instanceof ConversationError || e instanceof ProjectError) return err(c, e.status, e.message);
     const name = (e as Error).name;
     if (name === "ConversationBusy") return err(c, 409, "conversation busy");
     return err(c, 500, (e as Error).message ?? String(e));
@@ -140,7 +141,8 @@ export function createApp(opts: ServerOptions) {
   app.get("/v1/sessions", async (c) => {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
-      const out: ({ id: unknown; parent: unknown; title: string; archived: boolean; pinned: boolean; running: boolean })[] = [];
+      const links = opts.conversations?.projects.links();
+      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean })[] = [];
       let cursor;
       do {
         const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
@@ -150,7 +152,7 @@ export function createApp(opts: ServerOptions) {
           const user = head.find((e) => e.kind === "pi.user");
           const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
           const running = await isRunning(tx, r.id);
-          out.push({ id: r.id, parent: r.parent ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running });
+          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running });
         }
         cursor = page.next;
       } while (cursor);
@@ -175,11 +177,38 @@ export function createApp(opts: ServerOptions) {
     return c.json({ deleted: await opts.conversations.delete(id) });
   });
 
+  // ---- projects: a named working directory that new sessions inherit ----
+  const projectId = (c: HonoContext) => { const n = Number(c.req.param("id")); return Number.isSafeInteger(n) && n > 0 ? n : 0; };
+  app.get("/v1/projects", (c) => opts.conversations ? c.json({ projects: opts.conversations.projects.list() }) : err(c, 404, "projects disabled"));
+  app.post("/v1/projects", async (c) => {
+    if (!opts.conversations) return err(c, 404, "projects disabled");
+    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown };
+    return c.json(opts.conversations.projects.create(b.name, b.cwd), 201);
+  });
+  app.patch("/v1/projects/:id", async (c) => {
+    if (!opts.conversations) return err(c, 404, "projects disabled");
+    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown };
+    return c.json(opts.conversations.projects.update(projectId(c), b));
+  });
+  app.delete("/v1/projects/:id", (c) => {
+    if (!opts.conversations) return err(c, 404, "projects disabled");
+    opts.conversations.projects.delete(projectId(c));
+    return c.json({ ok: true });
+  });
+
   app.post("/v1/sessions", async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; instructions?: string; cwd?: string };
+    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; instructions?: string; cwd?: string; project?: number };
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
-    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(b.cwd && { cwd: b.cwd }) };
+    // A project supplies the default cwd. An explicit cwd still wins. No project: nothing changes.
+    let project;
+    if (b.project !== undefined && b.project !== null) {
+      project = opts.conversations?.projects.get(b.project);
+      if (!project) return err(c, 400, "unknown project");
+    }
+    const cwd = b.cwd || project?.cwd;
+    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
+    if (project) opts.conversations!.projects.link(Number(conv.id), project.id);
     return c.json({ id: conv.id }, 201);
   });
 
