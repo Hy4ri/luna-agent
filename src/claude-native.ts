@@ -1,60 +1,12 @@
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import {
   getCurrentSystemPrompt, getCurrentTools,
   type ImageContent, type TextContent, type TranscriptContext,
 } from "@earendil-works/pi-ai";
+import { runClaude } from "./claude-native/transport.js";
+import type { Block, NativeMessage, NativeRequest, NativeResponse, NativeToolCall } from "./claude-native/types.js";
 
-interface NativeBlock {
-  type: string;
-  [key: string]: unknown;
-}
-export interface NativeToolCall {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-}
-interface NativeMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | NativeBlock[] | null;
-  tool_calls?: NativeToolCall[];
-  tool_call_id?: string;
-  is_error?: boolean;
-  reasoning_details?: unknown[];
-}
-export interface NativeRequest {
-  model: string;
-  messages: NativeMessage[];
-  tools: { type: "function"; function: { name: string; description: string; parameters: object } }[];
-  stream: true;
-  max_tokens?: number;
-}
-export interface NativeResponse {
-  id?: string;
-  model: string;
-  choices: {
-    finish_reason: string;
-    message: {
-      content: string | null;
-      tool_calls?: NativeToolCall[] | null;
-      reasoning_content?: string | null;
-      reasoning_details?: unknown[] | null;
-      refusal?: string | null;
-    };
-  }[];
-  usage: {
-    native_usage: {
-      input_tokens: number;
-      output_tokens: number;
-      cache_read_input_tokens?: number;
-      cache_creation_input_tokens?: number;
-      cache_creation?: { ephemeral_1h_input_tokens?: number };
-    };
-    native_admission?: { upstream_requests: number; blocked_requests: number; unrestored?: string };
-  };
-}
+export type { NativeToolCall, NativeRequest, NativeResponse } from "./claude-native/types.js";
 
-const DEFAULT_MAX_PROMPT_BYTES = 128 * 1024;
 const SIGNATURE_PREFIX = "luna-claude-native-v1:";
 const NATIVE_CARRIER_TYPE = "claude-subscription-directsdk-experimental.native_assistant";
 
@@ -88,7 +40,7 @@ function carrierDetails(signature: string, model: string): unknown[] | undefined
   return details;
 }
 
-function blocks(content: (TextContent | ImageContent)[]): NativeBlock[] {
+function blocks(content: (TextContent | ImageContent)[]): Block[] {
   return content.map(block => block.type === "text"
     ? { type: "text", text: block.text }
     : { type: "image", source: { type: "base64", media_type: block.mimeType, data: block.data } });
@@ -137,21 +89,7 @@ export function prepareNativeRequest(context: TranscriptContext, model: { id: st
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new Error("Claude max_tokens must be a positive safe integer");
     request.max_tokens = maxTokens;
   }
-  const configured = process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES;
-  const limit = configured === undefined ? DEFAULT_MAX_PROMPT_BYTES : Number(configured);
-  if (!Number.isSafeInteger(limit) || limit <= 0) {
-    throw new Error("LUNA_CLAUDE_MAX_PROMPT_BYTES must be a positive safe integer");
-  }
-  const size = Buffer.byteLength(JSON.stringify(request), "utf8");
-  if (size > limit) {
-    throw new Error(`Claude CLI input is ${size} bytes; limit is ${limit} bytes. ` +
-      "Compact this session with another provider, or start a new session, before retrying. Claude was not invoked.");
-  }
   return request;
-}
-
-function aborted(): Error {
-  return Object.assign(new Error("Claude request aborted"), { name: "AbortError" });
 }
 
 /** Validate the completed envelope before any tools can become actionable. */
@@ -177,77 +115,12 @@ export function validateNativeResponse(value: unknown, model: string): asserts v
   }
 }
 
-/** One bridge and one CLI process group per generation. Never return partial tool batches. */
+/** One CLI process group and one admitted upstream request per generation. Never return partial tool batches. */
 export async function runNativeRequest(request: NativeRequest, options: {
   executable: string; signal?: AbortSignal;
   onText: (text: string) => void; onThinking: (text: string) => void;
 }): Promise<NativeResponse> {
-  if (options.signal?.aborted) throw aborted();
-  const env = { ...process.env };
-  delete env.CLAUDECODE;
-  // Keep auth conflicts intact. The bridge refuses API-key/custom-backend fallback.
-  const child = spawn(process.env.LUNA_CLAUDE_PYTHON ?? "python3", ["-B", "-u",
-    fileURLToPath(new URL("./claude-native/bridge.py", import.meta.url))], { env, stdio: ["pipe", "pipe", "pipe"] });
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  return new Promise((resolve, reject) => {
-    let buffer = "", stderr = "";
-    let response: NativeResponse | undefined;
-    let failure: Error | undefined;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const terminate = (error: Error) => {
-      if (failure) return;
-      failure = error;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
-      killTimer.unref();
-    };
-    const abort = () => terminate(aborted());
-    options.signal?.addEventListener("abort", abort, { once: true });
-    if (options.signal?.aborted) abort();
-    child.on("error", error => { failure ??= error; });
-    child.stdin.on("error", error => terminate(error));
-    child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-32768); });
-    child.stdout.on("data", (chunk: string) => {
-      if (failure) return;
-      buffer += chunk;
-      // A native signed final response is larger than a delta. Bound a single JSONL event.
-      if (Buffer.byteLength(buffer, "utf8") > 16 * 1024 * 1024) {
-        terminate(new Error("Claude bridge event exceeds 16 MiB"));
-        return;
-      }
-      let newline: number;
-      while (!failure && (newline = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        try {
-          const event: unknown = JSON.parse(line);
-          if (!object(event) || response) throw new Error("Unexpected or duplicate Claude bridge event");
-          if (event.type === "delta" || event.type === "thinking") {
-            if (typeof event.text !== "string") throw new Error("Invalid Claude bridge delta");
-            if (event.type === "delta") options.onText(event.text);
-            else options.onThinking(event.text);
-          } else if (event.type === "response") {
-            validateNativeResponse(event.response, request.model);
-            response = event.response;
-          } else if (event.type === "error") {
-            throw Object.assign(new Error(typeof event.message === "string" ? event.message : "Claude bridge failed"),
-              { statusCode: event.statusCode });
-          } else throw new Error("Unknown Claude bridge event");
-        } catch (error) {
-          terminate(error instanceof Error ? error : new Error(String(error)));
-        }
-      }
-    });
-    child.on("close", (code, signal) => {
-      options.signal?.removeEventListener("abort", abort);
-      if (killTimer) clearTimeout(killTimer);
-      if (failure) reject(failure);
-      else if (code !== 0) reject(new Error(`Claude bridge exited with ${signal ?? code}: ${stderr.slice(-500)}`));
-      else if (buffer.length) reject(new Error("Incomplete Claude bridge JSONL event"));
-      else if (!response) reject(new Error("Claude bridge completed without a final response"));
-      else resolve(response);
-    });
-    child.stdin.end(JSON.stringify({ command: options.executable, request }));
-  });
+  const response = await runClaude(request, options);
+  validateNativeResponse(response, request.model);
+  return response;
 }

@@ -45,8 +45,6 @@ const { claudeCliProvider } = await import("./claude-cli.js");
 const models = createModels();
 models.setProvider(claudeCliProvider());
 const model = models.getModels("claude-cli")[0]!;
-const priorBudget = process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES;
-delete process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES;
 const user = (content = "Keep the exact latest request."): Context => ({ messages: [{ role: "user", content, timestamp: 1 }] });
 const generate = async (context: Context) => {
   finalReady = false;
@@ -59,42 +57,18 @@ const generate = async (context: Context) => {
   return { result: await stream.result(), events };
 };
 try {
-  const oversized = await generate(user("x".repeat(1_300_000)));
-  assert.equal(oversized.result.stopReason, "error");
-  assert.match(oversized.result.errorMessage!, /Compact/);
-  assert.equal(calls, 0);
-  assert.equal(oversized.result.usage.totalTokens, 0);
+  // No size guard: a large history reaches the transport; compaction belongs to the runtime.
+  const large = await generate(user("x".repeat(1_300_000)));
+  assert.equal(large.result.stopReason, "stop", large.result.errorMessage ?? "large request failed");
+  assert.equal(calls, 1);
 
   const small = await generate(user());
   assert.equal(small.result.stopReason, "stop", small.result.errorMessage ?? "small request failed");
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.deepEqual(lastRequest!.messages, [{ role: "user", content: "Keep the exact latest request." }]);
   assert.deepEqual(small.result.usage, { input: 11, output: 7, cacheRead: 13, cacheWrite: 17, totalTokens: 48,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
-  const bytes = Buffer.byteLength(JSON.stringify(lastRequest));
-  process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES = String(bytes);
-  assert.equal((await generate(user())).result.stopReason, "stop");
-  process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES = String(bytes - 1);
-  assert.equal((await generate(user())).result.stopReason, "error");
-  assert.equal(calls, 2);
-  process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES = "1024";
-  for (const context of [
-    { ...user("hi"), systemPrompt: "s".repeat(1024) },
-    { ...user("hi"), tools: [{ ...tool, description: "d".repeat(1024) }] },
-    user("🙂".repeat(300)), // 600 UTF-16 units, but 1200 UTF-8 bytes before framing.
-  ]) {
-    assert.equal((await generate(context)).result.stopReason, "error");
-    assert.equal(calls, 2);
-  }
-  for (const value of ["", "0", "-1", "NaN", "Infinity", "1.5", "9007199254740992"]) {
-    process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES = value;
-    const rejected = await generate(user());
-    assert.equal(rejected.result.stopReason, "error");
-    assert.match(rejected.result.errorMessage!, /positive safe integer/);
-    assert.equal(calls, 2);
-  }
-  delete process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES;
-  console.log("OK: oversized, UTF-8, system/schema, exact-boundary, and invalid-budget requests fail before transport");
+  console.log("OK: large and small requests reach the transport with exact usage");
 
   const context: Context = { ...user("Look up the actual value."), tools: [tool] };
   next = completion(model.id, null, [toolCall("call-1"), toolCall("call-2")]);
@@ -177,7 +151,5 @@ try {
   console.log("OK: failed discovery also clears its timeout");
   console.log("CLAUDE_CLI_BUDGET_OK");
 } finally {
-  if (priorBudget === undefined) delete process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES;
-  else process.env.LUNA_CLAUDE_MAX_PROMPT_BYTES = priorBudget;
   mock.restoreAll();
 }
