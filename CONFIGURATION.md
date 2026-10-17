@@ -37,6 +37,59 @@ This prevents an old in-memory connection list from overwriting saved settings.
 Environment variables still override the file: `LUNA_DATA`, `LUNA_CWD`, `LUNA_PROVIDER`,
 `LUNA_MODEL`, `LUNA_HOST`, and `LUNA_PORT`. Settings lists active override names.
 
+## Claude CLI provider
+
+The `claude-cli` provider uses the installed Claude Code login. It requires **Python 3.10+**
+and a recent official Claude Code CLI. It does not require Python packages or a Hermes installation.
+`LUNA_CLAUDE_EXECUTABLE` selects the Claude executable; the default is `~/.local/bin/claude`.
+`LUNA_CLAUDE_PYTHON` selects Python; the default is `python3`.
+Use `claude auth login`, `CLAUDE_CODE_OAUTH_TOKEN`, or `CLAUDE_CONFIG_DIR` for authentication.
+Conflicting API keys, custom Anthropic endpoints, and Bedrock/Vertex/Foundry overrides block requests.
+The provider does not silently change to API billing or another model.
+
+Luna replays separate native user, assistant, tool-use, and tool-result frames.
+It no longer embeds the conversation as a JSON string in one user prompt.
+Signed native assistant blocks are retained for unchanged responses from this provider and model.
+A request-scoped local relay permits at most one upstream Messages request.
+The relay keeps cache markers on recurring content, not on Claude's per-request context.
+This preserves reusable message prefixes; it does not guarantee vendor cache hits or quota savings.
+
+Luna executes all tools. Claude receives an inert tool inventory and cannot execute Luna tools.
+Luna supplies actual host results on the next request. Claude's temporary transcript is not resumed.
+A tool-result mismatch blocks forwarding instead of accepting a synthetic denial.
+Only a complete, validated response can return actionable tool calls.
+Plain model IDs use a conservative 200000-token window. Explicit `[1m]` routes report 1000000 tokens.
+
+### Input budget
+
+The adapter also rejects oversized input **before starting Claude**.
+The default budget is **131072 bytes (128 KiB)**. It counts the UTF-8 JSON transport bytes of
+structured history, native replay data, conversation instructions, and exported tool schemas.
+This transport-size guard is not a token count. Claude's internal prompt overhead is additional.
+It does not replace the runtime's context-window compaction.
+
+Set `LUNA_CLAUDE_MAX_PROMPT_BYTES` in the daemon environment to change this budget.
+The value must be a positive safe integer. Invalid values block CLI requests.
+Increase it explicitly for larger histories. Restart the daemon after changing its environment.
+
+When input exceeds the budget, Luna reports its size and limit without invoking Claude.
+Compact the session using another provider, or start a new session, before retrying.
+Large instructions or tool schemas can also require reduction.
+The adapter never silently drops history or host tool results.
+
+### Offline verification
+
+`pnpm run verify:claude-cli:budget` checks the provider without inference.
+`pnpm run verify:claude-cli:native` checks conversion, process handling, and local HTTP admission.
+To qualify the installed CLI against a synthetic local peer, run:
+
+```sh
+pnpm run verify:claude-cli:wire /absolute/path/to/claude
+```
+
+This wire check uses temporary configuration and fake credentials. It does not call Anthropic.
+`verify:claude-cli:live` is separate and uses the real subscription; run it only when intended.
+
 ## Validation and credentials
 
 Unknown keys, invalid values, duplicate names, and incomplete subagent model selections are rejected.
