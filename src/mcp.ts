@@ -8,6 +8,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { defineExtension, defineTool, type Extension, type Registry } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { McpServerSchema } from "./config.js";
 
 type Common = { name: string; enabled?: boolean; /** Tools hidden until tool_search loads them. Default true. */ defer?: boolean };
 export type McpServerConfig = Common & (
@@ -101,4 +103,131 @@ export async function installMcpServers(registry: Registry, configs: McpServerCo
     }
   }
   return { connections, failures, close: async () => { await Promise.all(connections.map((c) => c.close().catch(() => {}))); } };
+}
+
+// ---------------------------------------------------------------- runtime management (web UI)
+
+export interface McpServerInfo {
+  name: string;
+  source: "config" | "web";
+  transport: McpServerConfig["transport"];
+  /** Command line or URL without query string. Env values and headers are never returned, only their names. */
+  target: string;
+  secretKeys: string[];
+  enabled: boolean;
+  defer: boolean;
+  status: "connected" | "failed" | "disabled";
+  error?: string;
+  tools: string[];
+}
+
+/**
+ * Owns every MCP connection. Servers from the config file are fixed; servers added in the web UI are saved to
+ * `file` (mode 0600, they may hold tokens) and connect or disconnect live by installing or removing their extension.
+ */
+export class McpManager {
+  private conns = new Map<string, McpConnection>();
+  private errors = new Map<string, string>();
+  private web: McpServerConfig[] = [];
+
+  constructor(private registry: Registry, private fixed: McpServerConfig[], private file?: string) {
+    if (file && existsSync(file)) {
+      try { this.web = (JSON.parse(readFileSync(file, "utf8")).servers ?? []).map((s: unknown) => McpServerSchema.parse(s)); }
+      catch (e) { throw new Error(`${file}: ${(e as Error).message}`); }
+    }
+  }
+
+  get connections() { return [...this.conns.values()]; }
+  get failures() { return [...this.errors].map(([name, error]) => ({ name, error })); }
+
+  async start() {
+    for (const cfg of [...this.fixed, ...this.web.filter((w) => !this.fixed.some((f) => f.name === w.name))]) await this.connect(cfg).catch(() => {});
+  }
+
+  private async connect(cfg: McpServerConfig) {
+    this.errors.delete(cfg.name);
+    if (cfg.enabled === false) return;
+    try {
+      const c = await connectMcpServer(cfg);
+      this.registry.install(c.extension);
+      this.conns.set(cfg.name, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.errors.set(cfg.name, msg);
+      throw new Error(msg);
+    }
+  }
+
+  private async disconnect(name: string) {
+    const c = this.conns.get(name);
+    this.errors.delete(name);
+    if (!c) return;
+    this.conns.delete(name);
+    this.registry.uninstall(c.extension);
+    await c.close().catch(() => {});
+  }
+
+  private save() {
+    if (!this.file) return;
+    const tmp = this.file + ".tmp";
+    writeFileSync(tmp, JSON.stringify({ servers: this.web }, null, 2), { mode: 0o600 });
+    renameSync(tmp, this.file);
+  }
+
+  private all(): { cfg: McpServerConfig; source: "config" | "web" }[] {
+    return [...this.fixed.map((cfg) => ({ cfg, source: "config" as const })), ...this.web.map((cfg) => ({ cfg, source: "web" as const }))];
+  }
+
+  list(): McpServerInfo[] {
+    return this.all().map(({ cfg, source }) => {
+      const conn = this.conns.get(cfg.name);
+      const error = this.errors.get(cfg.name);
+      let target: string, secretKeys: string[];
+      if (cfg.transport === "stdio") { target = [cfg.command, ...(cfg.args ?? [])].join(" "); secretKeys = Object.keys(cfg.env ?? {}); }
+      else { const u = new URL(cfg.url); target = u.origin + u.pathname; secretKeys = Object.keys(cfg.headers ?? {}); }
+      return {
+        name: cfg.name, source, transport: cfg.transport, target, secretKeys,
+        enabled: cfg.enabled !== false, defer: cfg.defer ?? true,
+        status: conn ? "connected" : error ? "failed" : "disabled",
+        ...(error ? { error } : {}), tools: conn?.toolNames ?? [],
+      };
+    });
+  }
+
+  /** Validate, connect, then save. A server that cannot connect is not saved. */
+  async add(input: unknown): Promise<McpServerInfo> {
+    const r = McpServerSchema.safeParse(input);
+    if (!r.success) throw new Error(r.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "));
+    const cfg = r.data;
+    if (this.all().some((s) => s.cfg.name === cfg.name)) throw new Error(`MCP server "${cfg.name}" already exists`);
+    await this.connect(cfg);
+    this.errors.delete(cfg.name);
+    this.web.push(cfg);
+    this.save();
+    return this.list().find((s) => s.name === cfg.name)!;
+  }
+
+  private webServer(name: string) {
+    const i = this.web.findIndex((s) => s.name === name);
+    if (i < 0) throw new Error(this.fixed.some((s) => s.name === name) ? `"${name}" comes from the config file; edit it there` : `no such MCP server "${name}"`);
+    return i;
+  }
+
+  async setEnabled(name: string, enabled: boolean) {
+    const i = this.webServer(name);
+    const next = { ...this.web[i]!, enabled } as McpServerConfig;
+    if (enabled) await this.connect(next); else await this.disconnect(name);
+    this.web[i] = next;
+    this.save();
+    return this.list().find((s) => s.name === name)!;
+  }
+
+  async remove(name: string) {
+    const i = this.webServer(name);
+    await this.disconnect(name);
+    this.web.splice(i, 1);
+    this.save();
+  }
+
+  async close() { await Promise.all([...this.conns.values()].map((c) => c.close().catch(() => {}))); }
 }

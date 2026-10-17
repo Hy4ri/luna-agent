@@ -1,12 +1,14 @@
 // Durable cron scheduler: jobs + run log live in SQLite (cron.db); each fire runs an isolated
 // ownerless pi-durable conversation. Exactly-once-ish via deterministic requestId per (job, slot).
 import { DatabaseSync } from "node:sqlite";
+import { execFile } from "node:child_process";
 import { context } from "./luna.js";
 import { nextRun, parseCron } from "./cron-expr.js";
 import type { Harness } from "@earendil-works/pi-durable";
 
 export interface ModelRef { provider: string; modelId: string }
-export interface Job { id: number; name: string; expr: string; prompt: string; enabled: boolean; nextRun: number | null; model: ModelRef | null }
+export interface ScriptExecution { command: string[]; cwd?: string }
+export interface Job { id: number; name: string; expr: string; prompt: string; enabled: boolean; nextRun: number | null; model: ModelRef | null; execution?: ScriptExecution; intervalMs?: number }
 export interface Run {
   id: number; jobId: number; slot: number; startedAt: number; endedAt: number | null;
   status: "running" | "ok" | "error"; conversationId: string | null; submissionId: string | null; output: string | null; error: string | null;
@@ -22,9 +24,12 @@ export class CronStore {
       CREATE TABLE IF NOT EXISTS runs(id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, slot INTEGER NOT NULL,
         started_at INTEGER NOT NULL, ended_at INTEGER, status TEXT NOT NULL, conversation_id TEXT, submission_id TEXT, output TEXT, error TEXT,
         UNIQUE(job_id, slot));`);
+    const columns = new Set((this.db.prepare("PRAGMA table_info(jobs)").all() as any[]).map(c => c.name));
+    if (!columns.has("execution")) this.db.exec("ALTER TABLE jobs ADD COLUMN execution TEXT");
+    if (!columns.has("interval_ms")) this.db.exec("ALTER TABLE jobs ADD COLUMN interval_ms INTEGER");
   }
   private job(r: any): Job {
-    return { id: r.id, name: r.name, expr: r.expr, prompt: r.prompt, enabled: !!r.enabled, nextRun: r.next_run, model: r.model ? JSON.parse(r.model) : null };
+    return { id: r.id, name: r.name, expr: r.expr, prompt: r.prompt, enabled: !!r.enabled, nextRun: r.next_run, model: r.model ? JSON.parse(r.model) : null, ...(r.execution ? { execution: JSON.parse(r.execution) } : {}), ...(r.interval_ms ? { intervalMs: r.interval_ms } : {}) };
   }
   private run(r: any): Run {
     return { id: r.id, jobId: r.job_id, slot: r.slot, startedAt: r.started_at, endedAt: r.ended_at, status: r.status, conversationId: r.conversation_id, submissionId: r.submission_id, output: r.output, error: r.error };
@@ -39,7 +44,7 @@ export class CronStore {
   listJobs(): Job[] { return this.db.prepare("SELECT * FROM jobs ORDER BY id").all().map((r) => this.job(r)); }
   setEnabled(id: number, on: boolean, now = Date.now()) {
     const j = this.getJob(id); if (!j) throw new Error("no such job " + id);
-    this.db.prepare("UPDATE jobs SET enabled=?, next_run=? WHERE id=?").run(on ? 1 : 0, on ? nextRun(j.expr, now) : null, id);
+    this.db.prepare("UPDATE jobs SET enabled=?, next_run=? WHERE id=?").run(on ? 1 : 0, on ? (j.intervalMs ? now + j.intervalMs : nextRun(j.expr, now)) : null, id);
   }
   removeJob(id: number) { this.db.prepare("DELETE FROM jobs WHERE id=?").run(id); }
   dueJobs(now: number): Job[] { return this.db.prepare("SELECT * FROM jobs WHERE enabled=1 AND next_run<=? ORDER BY next_run").all(now).map((r) => this.job(r)); }
@@ -51,7 +56,7 @@ export class CronStore {
     try {
       const info = this.db.prepare("INSERT OR IGNORE INTO runs(job_id,slot,started_at,status) VALUES(?,?,?,'running')").run(job.id, slot, now);
       // coalesce missed slots: next_run is computed from now, not from the missed slot
-      this.db.prepare("UPDATE jobs SET next_run=? WHERE id=?").run(nextRun(job.expr, Math.max(now, slot)), job.id);
+      this.db.prepare("UPDATE jobs SET next_run=? WHERE id=?").run(job.intervalMs ? Math.max(now, slot) + job.intervalMs : nextRun(job.expr, Math.max(now, slot)), job.id);
       this.db.exec("COMMIT");
       if (!info.changes) return undefined;
       return this.run(this.db.prepare("SELECT * FROM runs WHERE job_id=? AND slot=?").get(job.id, slot));
@@ -144,6 +149,18 @@ export class Scheduler {
   private async execute(job: Job, run: Run) {
     const { store, harness } = this.o;
     try {
+      if (job.execution) {
+        const { command, cwd } = job.execution;
+        if (!command.length) throw new Error("empty script command");
+        const output = await new Promise<string>((resolve, reject) => {
+          execFile(command[0]!, command.slice(1), { cwd, timeout: this.o.runTimeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+            if (error) reject(new Error(`${error.message}\n${stderr}`));
+            else resolve(stdout);
+          });
+        });
+        store.finish(run.id, "ok", output, null);
+        return;
+      }
       const d = this.o.defaultModel;
       const model = job.model ?? (typeof d === "function" ? d() : d);
       const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model } }, context);

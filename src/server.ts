@@ -7,6 +7,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { Children } from "./delegate.js";
+import type { McpManager } from "./mcp.js";
 import type { ProviderManager } from "./providers.js";
 import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
@@ -28,6 +29,8 @@ export interface ServerOptions {
   scheduler?: Scheduler;
   memory?: MemoryStore;
   skillDirs?: string[];
+  /** MCP servers: list, add, enable, remove at runtime. */
+  mcp?: McpManager;
 }
 
 type Input = string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
@@ -303,6 +306,18 @@ export function createApp(opts: ServerOptions) {
     try { opts.providers!.answerLogin(c.req.param("id"), Number(b.seq), String(b.value ?? "")); return c.json({ ok: true }); }
     catch (e) { return err(c, 409, (e as Error).message); }
   });
+  // ---- MCP servers: config-file ones are read-only, ones added here are saved in <dataDir>/mcp.json ----
+  const mcpOff = (c: HonoContext) => (opts.mcp ? undefined : err(c, 404, "mcp disabled"));
+  app.get("/v1/mcp", (c) => mcpOff(c) ?? c.json({ servers: opts.mcp!.list() }));
+  app.post("/v1/mcp", async (c) => mcpOff(c) ?? attempt(c, async () => opts.mcp!.add(await c.req.json().catch(() => ({}))), 201));
+  app.patch("/v1/mcp/:name", async (c) => {
+    const no = mcpOff(c); if (no) return no;
+    const b = await c.req.json().catch(() => ({})) as { enabled?: unknown };
+    if (typeof b.enabled !== "boolean") return err(c, 400, "enabled (boolean) required");
+    return attempt(c, () => opts.mcp!.setEnabled(c.req.param("name"), b.enabled as boolean));
+  });
+  app.delete("/v1/mcp/:name", async (c) => mcpOff(c) ?? attempt(c, () => opts.mcp!.remove(c.req.param("name"))));
+
   app.delete("/v1/logins/:id", (c) => { const no = prov(c); if (no) return no; opts.providers!.cancelLogin(c.req.param("id")); return c.json({ ok: true }); });
 
   // ---- cron ----

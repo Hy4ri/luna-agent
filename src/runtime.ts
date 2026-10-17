@@ -1,17 +1,17 @@
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
-import { createRegistry, type Extension } from "@earendil-works/pi-durable";
+import { createRegistry, defineExtension, section, type Extension } from "@earendil-works/pi-durable";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import type { LunaConfig } from "./config.js";
 import { createCronExtension, deliverRun } from "./cron-tools.js";
 import { Delegate } from "./delegate.js";
 import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
-import { installMcpServers } from "./mcp.js";
+import { McpManager } from "./mcp.js";
 import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 
@@ -57,7 +57,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const registry = createRegistry();
 
   // MCP first, so their (deferred) tools are in the registry before the harness resumes old runs.
-  const mcp = await installMcpServers(registry, cfg.mcpServers);
+  const mcp = new McpManager(registry, cfg.mcpServers, join(cfg.dataDir, "mcp.json"));
+  await mcp.start();
   for (const f of mcp.failures) log(`mcp ${f.name}: failed to start: ${f.error}`);
   for (const c of mcp.connections) log(`mcp ${c.name}: ${c.toolNames.length} tools`);
 
@@ -66,6 +67,19 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let scheduler: Scheduler | undefined;
 
   const extensions: Extension[] = [];
+  // Identity and always-on memory belong to the runtime, including cron and child conversations.
+  extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
+    const files = ["SOUL.md", "USER.md", "MEMORY.md"];
+    // Sent with every prompt, so each file is capped; the model can read the full file with its tools.
+    const CAP = 4000;
+    const text = files.filter(f => existsSync(join(cfg.dataDir, f)))
+      .map((f) => {
+        const body = readFileSync(join(cfg.dataDir, f), "utf8");
+        const cut = body.length > CAP ? `${body.slice(0, CAP)}\n[truncated: ${body.length - CAP} more chars in ${join(cfg.dataDir, f)}]` : body;
+        return `## ${f}\n${cut}`;
+      }).join("\n\n");
+    return text || undefined;
+  })] }));
   if (on("delegate")) extensions.push(Delegate);
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm()));
   if (on("improve")) {

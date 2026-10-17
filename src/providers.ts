@@ -245,6 +245,13 @@ export class ProviderManager {
       models = (await detectModels(baseUrl, key, this.fetchImpl)).map((mid) => ({ id: mid }));
     }
     if (!models.length) throw new Error("at least one model id is required");
+    for (const m of models) {
+      for (const k of ["contextWindow", "maxTokens"] as const) {
+        const v = m[k];
+        if (v !== undefined && (!Number.isInteger(v) || v < 1000)) throw new Error(`${m.id}: ${k} must be an integer >= 1000`);
+      }
+      if (m.contextWindow === undefined) console.warn(`provider ${id}/${m.id}: no contextWindow given, assuming 128000; compaction triggers late if the real window is smaller`);
+    }
     const def: CustomProviderDef = { id, name: String(input.name ?? "").trim() || id, api, baseUrl, models };
     this.models.setProvider(customProvider(def));
     await this.setApiKey(id, key);

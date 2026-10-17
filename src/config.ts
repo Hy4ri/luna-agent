@@ -14,7 +14,7 @@ export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 const name = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/, "1-40 letters, digits, _ or -");
 const common = { name, enabled: z.boolean().optional(), defer: z.boolean().optional() };
 const headers = z.record(z.string(), z.string()).optional();
-const McpServer = z.discriminatedUnion("transport", [
+export const McpServerSchema = z.discriminatedUnion("transport", [
   z.strictObject({ ...common, transport: z.literal("stdio"), command: z.string().min(1), args: z.array(z.string()).optional(), env: z.record(z.string(), z.string()).optional(), cwd: z.string().optional() }),
   z.strictObject({ ...common, transport: z.literal("http"), url: z.url(), headers }),
   z.strictObject({ ...common, transport: z.literal("sse"), url: z.url(), headers }),
@@ -33,7 +33,7 @@ export const ConfigSchema = z
     extensions: z.array(z.enum(BUILTIN_EXTENSIONS)).default([...BUILTIN_EXTENSIONS]),
     /** Extra skill dirs, scanned after <dataDir>/skills. */
     skillDirs: z.array(z.string()).default([]),
-    mcpServers: z.array(McpServer).default([]),
+    mcpServers: z.array(McpServerSchema).default([]),
     cron: z.strictObject({ notifyUrl: z.url().optional(), runTimeoutMinutes: z.number().positive().optional() }).prefault({}),
     improve: z.strictObject({ schedule: cronExpr.optional(), allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
     server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787) }).prefault({}),

@@ -93,7 +93,7 @@
   <div id="nav">
     <button data-panel="agents">Subagents</button><button data-panel="cron">Cron</button>
     <button data-panel="memory">Memory</button><button data-panel="skills">Skills</button>
-    <button data-panel="providers">Providers</button>
+    <button data-panel="providers">Providers</button><button data-panel="mcp">MCP</button>
   </div>
 </aside>
 <main id="main">
@@ -500,6 +500,48 @@ const panels = {
       h("div", { class: "row" }, h("button", { onclick: async () => { try { await post("/v1/memory", { content: content.value, key: key.value.trim() || undefined }); content.value = ""; key.value = ""; load(); } catch (e) { toast(body, e.message); } } }, "Save"))), q, list);
     load();
   },
+  async mcp(body) {
+    const r = await json("/v1/mcp").catch((e) => ({ error: e.message }));
+    if (r.error) return body.append(h("p", { class: "muted" }, r.error));
+    const name = h("input", { placeholder: "name (letters, digits, _ -)" });
+    const tr = h("select", {}, h("option", { value: "http" }, "http (Streamable HTTP)"), h("option", { value: "sse" }, "sse"), h("option", { value: "stdio" }, "stdio (local command)"));
+    const target = h("input", { placeholder: "https://host/mcp" });
+    const args = h("input", { placeholder: "args, space separated" });
+    const secrets = h("textarea", { rows: 2, placeholder: "headers (Authorization: Bearer ...), one per line" });
+    const defer = h("input", { type: "checkbox", checked: "checked" });
+    const sync = () => {
+      const stdio = tr.value === "stdio";
+      target.placeholder = stdio ? "command, e.g. npx" : "https://host/mcp";
+      args.style.display = stdio ? "" : "none";
+      secrets.placeholder = stdio ? "env vars, one per line: KEY=value" : "headers, one per line: Authorization: Bearer ...";
+    };
+    tr.onchange = sync; sync();
+    const pairs = (text, sep) => Object.fromEntries(text.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => { const i = l.indexOf(sep); return i < 0 ? [l, ""] : [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }));
+    body.append(h("div", { class: "card grid" }, h("b", {}, "Add MCP server"), name, tr, target, args, secrets,
+      h("label", { class: "row muted" }, defer, "Defer tools (load on demand with tool_search; keeps the prompt small)"),
+      h("div", { class: "row" }, h("button", { onclick: async (ev) => {
+        const b = { name: name.value.trim(), transport: tr.value, defer: defer.checked };
+        if (tr.value === "stdio") { b.command = target.value.trim(); if (args.value.trim()) b.args = args.value.trim().split(/\s+/); const e = pairs(secrets.value, "="); if (Object.keys(e).length) b.env = e; }
+        else { b.url = target.value.trim(); const hd = pairs(secrets.value, ":"); if (Object.keys(hd).length) b.headers = hd; }
+        ev.target.disabled = true; toast(body, "connecting...");
+        try { await post("/v1/mcp", b); refresh(); } catch (e) { ev.target.disabled = false; toast(body, e.message); }
+      } }, "Connect and save"))));
+    if (!r.servers.length) body.append(h("p", { class: "muted" }, "No MCP servers yet."));
+    for (const s of r.servers) {
+      const color = s.status === "connected" ? "var(--ok)" : s.status === "failed" ? "var(--err)" : "var(--dim)";
+      body.append(h("div", { class: "card grid" },
+        h("div", { class: "row" }, h("b", { class: "grow" }, s.name), h("span", { style: "color:" + color }, s.status), h("span", { class: "muted" }, s.transport + " · " + s.source)),
+        h("span", { class: "muted" }, s.target),
+        s.secretKeys.length ? h("span", { class: "muted" }, "secrets: " + s.secretKeys.join(", ") + " (hidden)") : null,
+        s.error ? h("span", { style: "color:var(--err)" }, s.error) : null,
+        s.tools.length ? h("details", {}, h("summary", { class: "muted" }, `${s.tools.length} tools${s.defer ? " (deferred)" : ""}`), h("pre", { class: "code" }, s.tools.join("\n"))) : null,
+        s.source === "web" ? h("div", { class: "row" },
+          h("button", { onclick: async () => { try { await post("/v1/mcp/" + encodeURIComponent(s.name), { enabled: !s.enabled }, "PATCH"); refresh(); } catch (e) { toast(body, e.message); } } }, s.enabled ? "Disable" : "Enable"),
+          h("button", { onclick: async () => { if (confirm(`Remove MCP server "${s.name}"?`)) { try { await api("/v1/mcp/" + encodeURIComponent(s.name), { method: "DELETE" }); refresh(); } catch (e) { toast(body, e.message); } } } }, "Remove"))
+          : h("span", { class: "muted" }, "From the config file; edit it there.")));
+    }
+    body.append(h("p", { class: "muted" }, "New sessions see changes at once; running sessions pick them up on their next turn."));
+  },
   async providers(body) {
     const r = await json("/v1/providers").catch((e) => ({ error: e.message }));
     if (r.error) return body.append(h("p", { class: "muted" }, r.error));
@@ -597,7 +639,7 @@ function loginBox(body, login) {
 }
 const panelState = {};
 let currentPanel = null;
-const TITLES = { session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers" };
+const TITLES = { session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers", mcp: "MCP servers" };
 async function openPanel(name) {
   currentPanel = name;
   $("ptitle").textContent = TITLES[name];
