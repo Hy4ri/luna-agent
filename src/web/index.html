@@ -56,7 +56,15 @@
   #controls { display:flex; align-items:center; gap:8px; }
   #controls label { display:flex; flex-direction:column; gap:3px; }
   #controls label > span { font-size:10px; color:var(--dim); line-height:1; }
-  #model { max-width:240px; }
+  #model { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:12px; }
+  #model-picker { inset:85px 12px auto auto; margin:0; width:380px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 110px); overflow:auto; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:var(--radius); padding:12px; }
+  #model-picker details { border-top:1px solid var(--line); margin-top:8px; }
+  #model-picker summary { cursor:pointer; padding:10px 4px; overflow-wrap:anywhere; }
+  .model-row { display:flex; gap:6px; margin:4px 0; }
+  .model-choice { flex:1; text-align:left; min-width:0; overflow-wrap:anywhere; }
+  .model-choice[aria-current="true"] { border-color:var(--acc); }
+  .model-choice small { display:block; color:var(--dim); }
+  .model-pin { flex:none; align-self:center; font-size:12px; }
   #controls select { border:0; background:transparent; font-size:12px; padding:4px 24px 4px 0; min-height:28px; }
   #menu { display:none; }
   #stop { color:var(--err); }
@@ -201,7 +209,8 @@
     <button id="menu" class="icon-button" aria-label="Open navigation" aria-controls="side" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div class="heading"><span id="title">New conversation</span><span class="muted">Luna workspace</span></div>
     <div id="controls">
-      <label><span>Model</span><select id="model" aria-label="Model"></select></label>
+      <div class="grid"><span class="muted" style="font-size:10px">Model</span><button id="model" type="button" popovertarget="model-picker" aria-label="Model" aria-expanded="false">Choose model</button></div>
+      <div id="model-picker" popover aria-label="Choose model"></div>
       <label><span>Thinking</span><select id="think" aria-label="Thinking level"></select></label>
     </div>
     <button id="stop" disabled>Stop response</button>
@@ -401,14 +410,80 @@ function showUsage(u) {
 
 // ---- models / thinking ----
 const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+let selectedModel = null;
+const PIN_KEY = "luna.pinnedModels";
+function readModelPins() {
+  try {
+    const pins = JSON.parse(localStorage.getItem(PIN_KEY) || "[]");
+    return new Set(Array.isArray(pins) ? pins.filter(p => typeof p === "string") : []);
+  } catch { return new Set(); }
+}
+const modelKey = m => m.provider + "/" + m.id;
+function updateModelLabel() {
+  const key = selectedModel && selectedModel.provider + "/" + selectedModel.modelId;
+  const m = modelList.find(m => modelKey(m) === key);
+  $("model").textContent = m ? m.provider + " · " + (m.name || m.id) : key || "Choose model";
+  $("model").title = $("model").textContent;
+}
+function renderModelPicker(openProviders = new Set()) {
+  const box = $("model-picker"), pins = readModelPins();
+  box.replaceChildren();
+  function row(m, available = true) {
+    const key = modelKey(m), pinned = pins.has(key);
+    const choice = h("button", { type: "button", class: "model-choice", "data-model": key,
+      "aria-current": String(selectedModel?.provider === m.provider && selectedModel?.modelId === m.id),
+      onclick: async () => {
+        choice.disabled = true;
+        try {
+          if (!session) await newSession();
+          await post(`/v1/sessions/${session}`, { model: { provider: m.provider, modelId: m.id } }, "PATCH");
+          selectedModel = { provider: m.provider, modelId: m.id }; updateModelLabel();
+          box.hidePopover(); $("model").focus();
+        } catch (e) { addErr(e.message); }
+        finally { choice.disabled = !available; }
+      } }, m.name || m.id, h("small", {}, m.provider + (available ? "" : " · Unavailable")));
+    choice.disabled = !available;
+    return h("div", { class: "model-row" }, choice, h("button", { type: "button", class: "model-pin",
+      "aria-label": (pinned ? "Unpin " : "Pin ") + key, "aria-pressed": String(pinned), onclick: () => {
+        const next = readModelPins(); if (next.has(key)) next.delete(key); else next.add(key);
+        try { localStorage.setItem(PIN_KEY, JSON.stringify([...next])); }
+        catch { addErr("Could not save pinned models in this browser."); return; }
+        const open = new Set([...box.querySelectorAll("details[open]")].map(d => d.dataset.provider));
+        renderModelPicker(open);
+        [...box.querySelectorAll(".model-pin")].find(b => b.getAttribute("aria-label") === (next.has(key) ? "Unpin " : "Pin ") + key)?.focus();
+      } }, pinned ? "Unpin" : "Pin"));
+  }
+  if (pins.size) {
+    const section = h("section", { "aria-label": "Pinned models", "data-pinned-models": "" }, h("b", {}, "Pinned"));
+    for (const key of pins) {
+      const m = modelList.find(m => modelKey(m) === key);
+      const [provider, ...id] = key.split("/");
+      section.append(row(m || { provider, id: id.join("/") }, !!m));
+    }
+    box.append(section);
+  }
+  const providers = new Map();
+  for (const m of modelList) {
+    if (!providers.has(m.provider)) providers.set(m.provider, []);
+    providers.get(m.provider).push(m);
+  }
+  for (const [provider, models] of providers) {
+    const group = h("details", { "data-provider": provider }, h("summary", {}, provider + " (" + models.length + ")"), ...models.map(m => row(m)));
+    group.open = openProviders.has(provider); box.append(group);
+  }
+  if (!modelList.length) box.append(h("p", { class: "muted" }, "No connected models. Connect a provider to choose a model."));
+}
+$("model-picker").addEventListener("beforetoggle", e => {
+  $("model").setAttribute("aria-expanded", String(e.newState === "open"));
+  if (e.newState === "open") renderModelPicker();
+});
 async function loadModels() {
   try { const r = await json("/v1/models"); modelList = r.models; defaultModel = r.default; } catch { modelList = []; }
-  const sel = $("model"); sel.replaceChildren();
-  for (const m of modelList) sel.append(h("option", { value: m.provider + "/" + m.id }, m.provider + " · " + (m.name || m.id)));
-  sel.disabled = modelList.length < 2;
+  if (!session) selectedModel = defaultModel;
+  updateModelLabel();
+  if ($("model-picker").matches(":popover-open")) renderModelPicker();
   const t = $("think"); t.replaceChildren(...LEVELS.map((l) => h("option", { value: l }, l === "off" ? "Off" : l.charAt(0).toUpperCase() + l.slice(1))));
 }
-$("model").onchange = async () => { if (!session) return; const [provider, ...rest] = $("model").value.split("/"); await post(`/v1/sessions/${session}`, { model: { provider, modelId: rest.join("/") } }, "PATCH").catch((e) => addErr(e.message)); };
 $("think").onchange = async () => { if (!session) return; await post(`/v1/sessions/${session}`, { thinkingLevel: $("think").value }, "PATCH").catch((e) => addErr(e.message)); };
 
 // ---- sessions ----
@@ -438,7 +513,7 @@ async function openSession(id) {
   const s = await json(`/v1/sessions/${id}?limit=500`);
   $("title").textContent = sessionList.find(s => String(s.id) === String(id))?.title || "Conversation " + id;
   const cur = s.agent.model || defaultModel;
-  if (cur) { const v = cur.provider + "/" + cur.modelId; if (![...$("model").options].some((o) => o.value === v)) $("model").append(h("option", { value: v }, cur.modelId)); $("model").value = v; }
+  selectedModel = cur || null; updateModelLabel();
   $("think").value = s.agent.thinkingLevel || "off";
   showUsage(s.usage);
   renderExtras(s);
