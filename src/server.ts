@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
-import { UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
+import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { AskDoc, checkAnswer } from "./ask.js";
 import { Children } from "./delegate.js";
@@ -21,12 +21,15 @@ import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
+import { activeContextTokens } from "./context-usage.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
 export interface ServerOptions {
   harness: Harness;
   settings?: SettingsStore;
+  /** Policy for a runtime without a file-backed settings store. */
+  compaction?: () => { enabled: boolean; triggerPercent: number };
   conversations?: ConversationStore;
   /** Extensions added to sessions created in a project (the board). */
   projectExtensions?: Extension[];
@@ -247,6 +250,26 @@ export function createApp(opts: ServerOptions) {
     return c.json({ id: conv.id }, 201);
   });
 
+  const contextUsage = async (conv: NonNullable<Awaited<ReturnType<typeof getConv>>>) => {
+    const agent = await conv.agent(context);
+    const model = agent.model && opts.models?.getModel(agent.model.provider, agent.model.modelId);
+    const capacity = model && Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? model.contextWindow : null;
+    const view = await conv.context(context);
+    const usedTokens = activeContextTokens(view);
+    const live = await harness.snapshot(LiveDoc, conv.id, context);
+    const policy = opts.settings?.read().compaction ?? opts.compaction?.() ?? { enabled: true, triggerPercent: 75 };
+    return {
+      usedTokens, contextWindow: capacity, percent: capacity === null ? null : usedTokens / capacity * 100,
+      estimated: true as const, triggerPercent: policy.triggerPercent, autoCompactionEnabled: policy.enabled,
+      compacting: (live?.compactions?.length ?? 0) > 0,
+    };
+  };
+  app.get("/v1/sessions/:id/context", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    return c.json(await contextUsage(conv));
+  });
+
   app.get("/v1/sessions/:id", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
@@ -264,6 +287,7 @@ export function createApp(opts: ServerOptions) {
       running,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       usage: usage ?? null,
+      contextUsage: await contextUsage(conv),
       children: kids?.children ?? [],
       todos: (todo?.tasks ?? []).filter((t) => t.status !== "deleted"),
       questions: ask?.pending ?? [],

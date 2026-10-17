@@ -42,6 +42,10 @@ export const ConfigSchema = z
     model: z.string().optional(),
     thinkingLevel: thinking.optional(),
     instructions: z.string().optional(),
+    compaction: z.strictObject({
+      enabled: z.boolean().default(true),
+      triggerPercent: z.number().int().min(1).max(99).default(75),
+    }).prefault({}),
     providers: z.array(CustomProviderSchema).default([]),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
