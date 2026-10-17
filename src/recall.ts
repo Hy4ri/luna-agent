@@ -44,16 +44,30 @@ export class RecallIndex {
   }
   close() { this.db.close(); }
 
+  /** Remove both the text rows and their FTS entries. Safe to repeat after a crash. */
+  forget(ids: number[]) {
+    this.db.exec("BEGIN");
+    try {
+      for (const id of ids) {
+        this.db.prepare("DELETE FROM messages WHERE conv=?").run(id);
+        this.db.prepare("DELETE FROM convs WHERE id=?").run(id);
+      }
+      this.db.exec("COMMIT");
+    } catch (e) { this.db.exec("ROLLBACK"); throw e; }
+  }
+
   /** Index entries newer than the last indexed one, conversation by conversation. Returns the number of new messages. */
   async sync(tx: Tx): Promise<number> {
     const last = new Map((this.db.prepare("SELECT id, last_entry FROM convs").all() as { id: number; last_entry: number }[]).map((r) => [r.id, r.last_entry]));
     const ins = this.db.prepare("INSERT OR IGNORE INTO messages(conv, entry, role, ts, head, tail) VALUES (?,?,?,?,?,?)");
     const upConv = this.db.prepare("INSERT INTO convs(id, title, started, last_entry) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_entry=excluded.last_entry, title=COALESCE(convs.title, excluded.title), started=COALESCE(convs.started, excluded.started)");
+    const present = new Set<number>();
     let added = 0;
     let cur;
     do {
       const page = await tx.scanConversations({ order: "ascending" }, PAGE, cur);
       for (const c of page.items) {
+        present.add(c.id as number);
         const from = last.get(c.id as number) ?? 0;
         let ecur, max = from, title: string | null = null, started: number | null = null;
         do {
@@ -81,6 +95,7 @@ export class RecallIndex {
       }
       cur = page.next;
     } while (cur);
+    this.forget([...last.keys()].filter(id => !present.has(id)));
     return added;
   }
 

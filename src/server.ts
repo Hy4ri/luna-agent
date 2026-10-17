@@ -1,3 +1,4 @@
+import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
 import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -22,6 +23,7 @@ type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export interface ServerOptions {
   harness: Harness;
   settings?: SettingsStore;
+  conversations?: ConversationStore;
   /** Bearer token for /v1/*. When unset, auth is off (daemon then binds loopback only). */
   token?: string;
   /** Default agent choices for new sessions (model etc). */
@@ -67,6 +69,7 @@ export function createApp(opts: ServerOptions) {
   const err = (c: HonoContext, status: 400 | 401 | 404 | 409 | 500, message: string) => c.json({ error: message }, status);
 
   app.onError((e, c) => {
+    if (e instanceof ConversationError) return err(c, e.status, e.message);
     const name = (e as Error).name;
     if (name === "ConversationBusy") return err(c, 409, "conversation busy");
     return err(c, 500, (e as Error).message ?? String(e));
@@ -127,17 +130,38 @@ export function createApp(opts: ServerOptions) {
   app.get("/v1/sessions", async (c) => {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
-      const page = await tx.scanConversations({ order: "descending" }, 100);
-      const out: { id: unknown; parent: unknown; title: string }[] = [];
-      for (const r of page.items) {
-        const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
-        if (head.some((e) => e.kind === "delegate.child")) continue;
-        const user = head.find((e) => e.kind === "pi.user");
-        out.push({ id: r.id, parent: r.parent ?? null, title: textOf(user).replace(/\s+/g, " ").slice(0, 60) });
-      }
-      return out;
+      const out: ({ id: unknown; parent: unknown; title: string; archived: boolean; pinned: boolean })[] = [];
+      let cursor;
+      do {
+        const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
+        for (const r of page.items) {
+          const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
+          if (head.some((e) => e.kind === "delegate.child")) continue;
+          const user = head.find((e) => e.kind === "pi.user");
+          const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
+          out.push({ id: r.id, parent: r.parent ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60) });
+        }
+        cursor = page.next;
+      } while (cursor);
+      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned));
     }, context);
     return c.json({ sessions });
+  });
+
+  app.patch("/v1/sessions/:id/metadata", async c => {
+    if (!opts.conversations) return err(c, 404, "conversation management disabled");
+    const b = await c.req.json().catch(() => null);
+    if (!b || typeof b !== "object" || Array.isArray(b) || !Object.keys(b).length || Object.keys(b).some(k => !["title", "archived", "pinned"].includes(k))) return err(c, 400, "title, archived or pinned required");
+    if ("title" in b && (typeof b.title !== "string" || !b.title.trim() || b.title.trim().length > 200)) return err(c, 400, "title must contain 1 to 200 characters");
+    for (const k of ["archived", "pinned"]) if (k in b && typeof b[k] !== "boolean") return err(c, 400, k + " must be a boolean");
+    const id = Number(c.req.param("id")); if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
+    const changes = { ...b, ...("title" in b ? { title: b.title.trim() } : {}) } as Partial<ConversationMeta>;
+    return c.json(await opts.conversations.update(id, changes));
+  });
+  app.delete("/v1/sessions/:id", async c => {
+    if (!opts.conversations) return err(c, 404, "conversation management disabled");
+    const id = Number(c.req.param("id")); if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
+    return c.json({ deleted: await opts.conversations.delete(id) });
   });
 
   app.post("/v1/sessions", async (c) => {

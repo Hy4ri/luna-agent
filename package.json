@@ -16,13 +16,15 @@
     "verify:runtime": "tsx src/verify-runtime.ts",
     "verify:providers": "tsx src/verify-providers.ts",
     "verify:claude-cli:live": "tsx src/verify-claude-cli-live.ts",
-    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui",
+    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui && pnpm run verify:conversations && pnpm run verify:conversations-ui",
     "verify:web": "tsx src/verify-web.ts",
     "verify:mcp-manage": "tsx src/verify-mcp-manage.ts",
     "verify:plugins": "tsx src/verify-plugins.ts",
     "verify:settings": "tsx src/verify-settings.ts",
     "verify:settings-ui": "tsx src/verify-settings-ui.ts",
-    "verify:model-picker-ui": "tsx src/verify-model-picker-ui.ts"
+    "verify:model-picker-ui": "tsx src/verify-model-picker-ui.ts",
+    "verify:conversations": "tsx src/verify-conversations.ts",
+    "verify:conversations-ui": "tsx src/verify-conversations-ui.ts"
   },
   "keywords": [],
   "author": "",

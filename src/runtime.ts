@@ -1,3 +1,4 @@
+import { ConversationStore } from "./conversations.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
@@ -124,6 +125,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     ...(on("skills") ? { skillDirs: cfg.allSkillDirs } : {}),
     extensions,
   });
+  const conversations = new ConversationStore(harness, recall);
   harnessRef = harness;
   harness.resume(); // continue any run a previous process left unfinished
 
@@ -142,6 +144,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     config: cfg,
     settings,
     harness,
+    conversations,
     models: built.models,
     providers,
     memory: memory || undefined,

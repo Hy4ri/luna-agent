@@ -1,8 +1,8 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Models } from "@earendil-works/pi-ai";
-import { createRegistry, Harness, type Extension, type Registry } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, ROOT_CONVERSATION_ID, type Extension, type Registry } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { openConversationStorage, registerConversationStorage } from "./conversation-storage.js";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
@@ -37,16 +37,22 @@ export async function openLuna(opts: LunaOptions) {
     const memory = opts.memory instanceof MemoryStore ? opts.memory : new MemoryStore(opts.memory ?? "memory.db");
     registry.install(createMemoryExtension(memory));
   }
-  const storage = await openNodeSqliteStorage(opts.dbPath ?? "luna.db");
+  const { storage, store } = await openConversationStorage(opts.dbPath ?? "luna.db");
   const harness = await Harness.open(
     storage,
     {
       models: opts.models,
       registry,
+      conversationCreated: async (tx, conversation) => {
+        // The reserved root ID can be reused after deletion. Give each incarnation a unique context boundary,
+        // so pi-durable cannot extend a retained model-context range from its deleted incarnation.
+        if (conversation.id === ROOT_CONVERSATION_ID) await tx.appendEntry(conversation.id, { kind: "luna.context-start", head: "self" });
+      },
       env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? opts.cwd ?? process.cwd() }),
     },
     context,
   );
+  registerConversationStorage(harness, store);
   return harness;
 }
 

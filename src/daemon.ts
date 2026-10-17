@@ -17,7 +17,7 @@ if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1" && !token) {
 const rt = await startRuntime(cfg);
 const app = createApp({
   harness: rt.harness, token, agent: { model: rt.model },
-  settings: rt.settings,
+  settings: rt.settings, conversations: rt.conversations,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
 });
 const server = serve({ fetch: app.fetch, hostname: host, port }, (i) =>

@@ -41,6 +41,11 @@
   #search { min-height:42px; font-size:13px; background:transparent; }
   #sessions { flex:1; overflow:auto; scrollbar-width:thin; }
   #sessions button { display:block; width:100%; text-align:left; border:1px solid transparent; border-radius:8px; background:none; padding:9px 11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--dim); font-size:14px; margin-bottom:3px; }
+  #sessions .session-row { display:flex; align-items:center; gap:2px; }
+  #sessions .session-open { flex:1; min-width:0; }
+  #sessions .session-manage { width:36px; min-height:44px; padding:7px; flex:none; text-align:center; }
+  #sessions .session-manage svg { width:18px; height:18px; }
+  #history-view { padding:4px 7px; min-height:32px; font-size:12px; background:transparent; }
   #sessions button.on { background:var(--panel); color:var(--fg); border-color:var(--line); }
   #sessions .muted { padding:10px; }
   #nav { flex:none; display:grid; gap:3px; border-top:1px solid var(--line); padding-top:14px; }
@@ -188,7 +193,7 @@
   <header><div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z"/></svg><h1>Luna</h1></div><button id="side-close" class="icon-button" aria-label="Close navigation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></header>
   <button id="new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> New conversation</button>
   <section class="history" aria-label="Conversation history">
-    <div class="eyebrow">Conversations</div>
+    <div class="row"><div class="eyebrow grow">Conversations</div><select id="history-view" aria-label="Conversation view"><option value="active">Active</option><option value="archived">Archived</option></select></div>
     <input id="search" type="search" placeholder="Find a conversation" aria-label="Find a conversation" autocomplete="off">
     <div id="sessions"></div>
   </section>
@@ -497,20 +502,36 @@ async function loadSessions() {
 function renderSessions() {
   const box = $("sessions"); box.replaceChildren();
   const query = $("search").value.trim().toLowerCase();
-  const shown = sessionList.filter(s => (s.title || "Conversation " + s.id).toLowerCase().includes(query));
+  const archived = $("history-view").value === "archived";
+  const shown = sessionList.filter(s => !!s.archived === archived && (s.title || "Conversation " + s.id).toLowerCase().includes(query))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  let pinnedHeading = false, otherHeading = false;
   for (const s of shown) {
     const active = String(s.id) === String(session);
-    const b = h("button", { class: active ? "on" : "", "aria-current": active ? "page" : null, onclick: () => { setDrawer(false); openSession(s.id).catch(e => addErr(e.message)); } }, s.title || "Conversation " + s.id);
-    b.title = b.textContent; box.append(b);
+    if (s.pinned && !pinnedHeading) { box.append(h("div", { class: "eyebrow" }, "Pinned")); pinnedHeading = true; }
+    if (!s.pinned && pinnedHeading && !otherHeading) { box.append(h("div", { class: "eyebrow" }, "Other conversations")); otherHeading = true; }
+    const b = h("button", { class: "session-open" + (active ? " on" : ""), "aria-current": active ? "page" : null, onclick: () => { setDrawer(false); openSession(s.id).catch(e => addErr(e.message)); } }, s.title || "Conversation " + s.id);
+    b.title = b.textContent;
+    const manage = h("button", { class: "session-manage", "aria-label": "Manage " + (s.title || "Conversation " + s.id), onclick: () => { managedSession = s.id; openPanel("conversation"); } });
+    manage.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>';
+    box.append(h("div", { class: "session-row", "data-session": s.id }, b, manage));
   }
-  if (!shown.length) box.append(h("p", { class: "muted" }, query ? "No matching conversations." : "Your conversations will appear here."));
+  if (!shown.length) box.append(h("p", { class: "muted" }, query ? "No matching conversations." : archived ? "No archived conversations." : "Your conversations will appear here."));
 }
 $("search").oninput = renderSessions;
+$("history-view").onchange = () => loadSessions().catch(e => addErr(e.message));
+let managedSession = null;
+function clearConversation() {
+  session = null; localStorage.removeItem("luna.session");
+  $("title").textContent = "New conversation"; $("log").replaceChildren(); $("extras").replaceChildren();
+  selectedModel = defaultModel; updateModelLabel(); $("think").value = "off"; showUsage(null);
+  showWelcome(); renderSessions();
+}
 async function openSession(id) {
+  const s = await json(`/v1/sessions/${id}?limit=500`);
   session = String(id);
   localStorage.setItem("luna.session", session);
   $("log").replaceChildren(); $("extras").replaceChildren();
-  const s = await json(`/v1/sessions/${id}?limit=500`);
   $("title").textContent = sessionList.find(s => String(s.id) === String(id))?.title || "Conversation " + id;
   const cur = s.agent.model || defaultModel;
   selectedModel = cur || null; updateModelLabel();
@@ -540,6 +561,7 @@ async function openSession(id) {
 }
 async function newSession() {
   const { id } = await post("/v1/sessions", {});
+  $("history-view").value = "active"; $("search").value = "";
   await openSession(id);
   return id;
 }
@@ -727,6 +749,39 @@ function askForm(p) {
 
 // ---- panels ----
 const panels = {
+  async conversation(body) {
+    await loadSessions();
+    const id = managedSession, s = sessionList.find(s => String(s.id) === String(id));
+    if (!s) return body.append(h("p", { role: "status" }, "This conversation no longer exists."));
+    const title = h("input", { "aria-label": "Conversation name", maxlength: 200, value: s.title || "Conversation " + id });
+    const status = h("p", { class: "muted", role: "status", "aria-live": "polite" });
+    const form = h("div", { class: "grid" });
+    const mutate = async (changes, remove = false) => {
+      form.inert = true;
+      try {
+        const result = remove ? await json(`/v1/sessions/${id}`, { method: "DELETE" }) : await post(`/v1/sessions/${id}/metadata`, changes, "PATCH");
+        if ((remove && result.deleted.some(n => String(n) === String(session))) || (changes.archived && String(session) === String(id))) clearConversation();
+        await loadSessions();
+        if (remove) closePanel(); else await refresh();
+      } catch (e) { status.textContent = e.message; }
+      finally { form.inert = false; }
+    };
+    const save = h("button", { type: "submit" }, "Save name");
+    const rename = h("form", { class: "grid", onsubmit: e => {
+      e.preventDefault(); if (!title.value.trim()) { status.textContent = "Enter a conversation name."; title.focus(); return; }
+      mutate({ title: title.value.trim() });
+    } }, h("label", { class: "field-label" }, h("span", {}, "Conversation name"), title), save);
+    const archive = h("button", { onclick: () => mutate({ archived: !s.archived }) }, s.archived ? "Restore conversation" : "Archive conversation");
+    const remove = h("button", { style: "color:var(--err)", onclick: () => {
+      if (confirm('Permanently delete "' + (s.title || "Conversation " + id) + '" and all its child conversations and forks? Stored messages and search entries will be removed. This cannot be undone.')) mutate({}, true);
+    } }, "Delete permanently");
+    archive.disabled = remove.disabled = busy && String(session) === String(id);
+    form.append(rename, h("div", { class: "row" },
+      h("button", { "aria-pressed": String(s.pinned), onclick: () => mutate({ pinned: !s.pinned }) }, s.pinned ? "Unpin conversation" : "Pin to top"), archive),
+      h("p", { class: "muted" }, "Archive hides this conversation from the active list. You can restore it from the Archived view."), remove,
+      h("p", { class: "muted" }, "Delete removes the conversation, its children and forks, and their stored history. Stop any running tasks before deleting."));
+    body.append(form, status);
+  },
   async settings(body) {
     await renderSettings(body, { h, json, post, loadModels, getModels: () => modelList });
   },
@@ -940,6 +995,7 @@ function loginBox(body, login) {
   render(login); tick();
 }
 const DESCRIPTIONS = {
+  conversation: "Manage the stored conversation. Changes apply across browsers and survive a restart.",
   settings: "Model defaults and runtime configuration.", session: "Instructions, context, and tools for this conversation.",
   agents: "Delegated work in this conversation.", cron: "Manage scheduled prompts and inspect recent runs.",
   memory: "Search, save, and remove persistent facts.", skills: "Browse the instructions available to Luna.",
@@ -947,7 +1003,7 @@ const DESCRIPTIONS = {
 };
 const panelState = {};
 let currentPanel = null;
-const TITLES = { settings: "Settings", session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers", mcp: "MCP servers" };
+const TITLES = { conversation: "Manage conversation", settings: "Settings", session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers", mcp: "MCP servers" };
 async function openPanel(name) {
   returnFocus = document.activeElement;
   setDrawer(false);
