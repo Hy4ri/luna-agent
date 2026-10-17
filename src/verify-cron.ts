@@ -56,6 +56,13 @@ try {
   await sched.tick(at("2026-10-16T12:00:00")); await sched.idle();
   ok(store.runs(job.id).length === 2, "disabled job does not fire");
 
+  // manual run works on a disabled job and leaves the schedule alone
+  const before = store.getJob(job.id)!.nextRun;
+  faux.setResponses([fauxAssistantMessage([fauxText("manual")])]);
+  const manual = sched.runNow(job.id); await sched.idle();
+  ok(store.getRun(manual.id)!.status === "ok" && store.runs(job.id).length === 3, "runNow executes a job outside its schedule: ");
+  ok(store.getJob(job.id)!.nextRun === before, "runNow does not change next_run");
+
   // failure path: unknown model gets logged as error, scheduler survives
   const bad = store.addJob("bad", "* * * * *", "x", { provider: "nope", modelId: "nope" }, at("2026-10-16T12:00:00"));
   await sched.tick(at("2026-10-16T12:01:00")); await sched.idle();
@@ -67,7 +74,7 @@ try {
   store.db.prepare("INSERT INTO runs(job_id,slot,started_at,status) VALUES(?,?,?,'running')").run(job.id, 1, 1);
   store.close();
   const store2 = new CronStore(join(d, "cron.db"));
-  ok(store2.runs(job.id).length === 3, "run log persisted across reopen");
+  ok(store2.runs(job.id).length === 4, "run log persisted across reopen");
   const h2 = await openLuna({ dbPath: join(d, "luna.db"), memory: join(d, "memory.db"), models, cwd: d });
   const s2 = new Scheduler({ harness: h2, store: store2, defaultModel: model });
   await s2.start(); await s2.idle();

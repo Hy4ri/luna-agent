@@ -62,6 +62,11 @@ export class CronStore {
       return this.run(this.db.prepare("SELECT * FROM runs WHERE job_id=? AND slot=?").get(job.id, slot));
     } catch (e) { this.db.exec("ROLLBACK"); throw e; }
   }
+  /** Manual run: insert a run row keyed by the current time. Does not touch next_run. */
+  claimManual(job: Job, now: number): Run {
+    const info = this.db.prepare("INSERT INTO runs(job_id,slot,started_at,status) VALUES(?,?,?,'running')").run(job.id, now, now);
+    return this.getRun(Number(info.lastInsertRowid))!;
+  }
   attach(runId: number, conversationId: string, submissionId: string) {
     this.db.prepare("UPDATE runs SET conversation_id=?, submission_id=? WHERE id=?").run(conversationId, submissionId, runId);
   }
@@ -144,6 +149,15 @@ export class Scheduler {
       if (run) this.track(this.execute(job, run).then(() => this.notify(run.id)));
     }
     this.arm();
+  }
+
+  /** Start a job immediately, outside its schedule. The schedule is unchanged. */
+  runNow(id: number): Run {
+    const job = this.o.store.getJob(id);
+    if (!job) throw new Error("no such job " + id);
+    const run = this.o.store.claimManual(job, Date.now());
+    this.track(this.execute(job, run).then(() => this.notify(run.id)));
+    return run;
   }
 
   private track(p: Promise<void>) { this.inflight.add(p); void p.finally(() => this.inflight.delete(p)); }

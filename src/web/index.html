@@ -1051,6 +1051,7 @@ const panels = {
     for (const j of r.jobs) {
       body.append(h("div", { class: "card" },
         h("div", { class: "row" }, h("b", { class: "grow" }, j.name), h("span", { class: "muted" }, j.expr),
+          h("button", { onclick: async () => { try { await post(`/v1/cron/${j.id}/run`, {}); refresh(); } catch (e) { toast(body, e.message); } } }, "Run now"),
           h("button", { onclick: async () => { await post(`/v1/cron/${j.id}`, { enabled: !j.enabled }, "PATCH"); refresh(); } }, j.enabled ? "Disable" : "Enable"),
           h("button", { onclick: async () => { if (confirm(`Delete job "${j.name}" and its runs?`)) { await api(`/v1/cron/${j.id}`, { method: "DELETE" }); refresh(); } } }, "Delete")),
         h("div", { class: "muted" }, j.enabled ? "next: " + (j.nextRun ? new Date(j.nextRun).toLocaleString() : "—") : "disabled"),

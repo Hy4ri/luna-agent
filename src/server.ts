@@ -557,6 +557,12 @@ export function createApp(opts: ServerOptions) {
     try { opts.store!.setEnabled(Number(c.req.param("id")), b.enabled); opts.scheduler?.rearm(); return c.json({ ok: true }); }
     catch (e) { return err(c, 404, (e as Error).message); }
   });
+  app.post("/v1/cron/:id/run", (c) => {
+    const no = cron(c); if (no) return no;
+    if (!opts.scheduler) return err(c, 404, "scheduler disabled");
+    try { return c.json(opts.scheduler.runNow(Number(c.req.param("id"))), 202); }
+    catch (e) { return err(c, 404, (e as Error).message); }
+  });
   app.delete("/v1/cron/:id", (c) => {
     const no = cron(c); if (no) return no;
     const id = Number(c.req.param("id"));
