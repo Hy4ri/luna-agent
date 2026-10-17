@@ -1,6 +1,6 @@
 // Minimal service worker: makes the app installable and caches the shell. API calls always go to the network.
-const SHELL = "luna-shell-v3";
-const FILES = ["/", "/manifest.webmanifest", "/icon.svg", "/settings.js"];
+const SHELL = "luna-shell-v4";
+const FILES = ["/", "/manifest.webmanifest", "/icon.svg", "/settings.js", "/sync.js"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== SHELL).map((k) => caches.delete(k)))));

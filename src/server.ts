@@ -5,7 +5,7 @@ import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { Models } from "@earendil-works/pi-ai";
-import { UsageDoc, watchEvents } from "@earendil-works/pi-durable";
+import { UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { AskDoc, checkAnswer } from "./ask.js";
 import { Children } from "./delegate.js";
@@ -55,12 +55,19 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-const STATIC: Record<string, string> = { "/settings.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript", "/icon.svg": "image/svg+xml" };
+const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 };
+
+async function isRunning(tx: Tx, id: ConversationId) {
+  for (const status of ["pending", "running", "waiting", "completing"] as const) {
+    if ((await tx.scanTasks({ conversationId: id, status }, 1)).items.length) return true;
+  }
+  return false;
+}
 
 export function createApp(opts: ServerOptions) {
   const { harness } = opts;
@@ -82,8 +89,8 @@ export function createApp(opts: ServerOptions) {
     const body = readFileSync(new URL("./web" + path, import.meta.url));
     app.get(path, (c) => c.body(body, 200, { "content-type": type, "cache-control": "no-cache" }));
   }
-  app.get("/health", async (c) => {
-    if (opts.token) return c.json({ ok: true, auth: true }); // no internals without the token
+  app.get("/health", async c => {
+    if (opts.token) return c.json({ ok: true, auth: true });
     const inspection = await harness.inspect(context);
     return c.json({ ok: true, auth: false, uptimeMs: Date.now() - started, live: inspection as unknown });
   });
@@ -130,7 +137,7 @@ export function createApp(opts: ServerOptions) {
   app.get("/v1/sessions", async (c) => {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
-      const out: ({ id: unknown; parent: unknown; title: string; archived: boolean; pinned: boolean })[] = [];
+      const out: ({ id: unknown; parent: unknown; title: string; archived: boolean; pinned: boolean; running: boolean })[] = [];
       let cursor;
       do {
         const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
@@ -139,7 +146,8 @@ export function createApp(opts: ServerOptions) {
           if (head.some((e) => e.kind === "delegate.child")) continue;
           const user = head.find((e) => e.kind === "pi.user");
           const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
-          out.push({ id: r.id, parent: r.parent ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60) });
+          const running = await isRunning(tx, r.id);
+          out.push({ id: r.id, parent: r.parent ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running });
         }
         cursor = page.next;
       } while (cursor);
@@ -183,8 +191,10 @@ export function createApp(opts: ServerOptions) {
     const todo = await harness.snapshot(TodoDoc, conv.id, context).catch(() => undefined);
     const ask = await harness.snapshot(AskDoc, conv.id, context).catch(() => undefined);
     const goal = await harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined);
+    const running = await harness.commit(tx => isRunning(tx, conv.id), context);
     return c.json({
       id: conv.id,
+      running,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       usage: usage ?? null,
       children: kids?.children ?? [],
@@ -274,12 +284,18 @@ export function createApp(opts: ServerOptions) {
   // ---- messages ----
   // Non-streaming (default): waits for the answer and returns it.
   // Streaming (?stream=1 or Accept: text/event-stream): SSE of agent events until the submission settles.
-  const send = async (c: HonoContext, sessionId: string, body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" }) => {
+  const send = async (c: HonoContext, sessionId: string, body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" }, asyncMode = false) => {
     const conv = await getConv(sessionId);
     if (!conv) return err(c, 404, "no such session");
     const content = parseInput(body.content);
     if (typeof content === "string" && typeof body.content !== "string") return err(c, 400, content);
     if (typeof body.content === "string" && !body.content.trim()) return err(c, 400, "content (string) required");
+
+    if (asyncMode) {
+      const sub = await conv.submit({ type: "input", content: content as Input, requestId: body.requestId, whenBusy: body.whenBusy }, context);
+      return c.json({ submissionId: sub.id }, 202);
+    }
+
     const wantsStream = c.req.query("stream") === "1" || (c.req.header("accept") ?? "").includes("text/event-stream");
     const settle = async (sub: Awaited<ReturnType<typeof conv.submit>>) => {
       const s = await sub.wait(context);
@@ -316,7 +332,10 @@ export function createApp(opts: ServerOptions) {
     });
   };
 
-  app.post("/v1/sessions/:id/messages", bodyLimit({ maxSize: 32 * 1024 * 1024, onError: (c) => err(c, 400, "message too large (32 MB max)") }), async (c) => send(c, c.req.param("id"), await c.req.json().catch(() => ({}))));
+  app.post("/v1/sessions/:id/messages", bodyLimit({ maxSize: 32 * 1024 * 1024, onError: (c) => err(c, 400, "message too large (32 MB max)") }), async (c) => {
+    const asyncParam = c.req.query("async") === "1";
+    return send(c, c.req.param("id"), await c.req.json().catch(() => ({})), asyncParam);
+  });
 
   // Convenience: create-or-reuse session in one call. {message, sessionId?}
   app.post("/v1/chat", async (c) => {
@@ -326,23 +345,50 @@ export function createApp(opts: ServerOptions) {
     return send(c, id, { content: b.message, requestId: b.requestId, whenBusy: b.whenBusy });
   });
 
-  // Live events only (no submit): attach to a running session.
-  app.get("/v1/sessions/:id/events", async (c) => {
+  // Live viewers never own the run. Closing this connection only releases their observation.
+  app.get("/v1/sessions/:id/events", async c => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
-    return streamSSE(c, async (stream) => {
+    return streamSSE(c, async stream => {
       const ev = await watchEvents(harness, conv.id, context);
-      const closed = new Promise<void>((r) => stream.onAbort(() => r()));
-      await stream.writeSSE({ event: "snapshot", data: JSON.stringify(ev.snapshot) });
-      ev.start(async (events) => {
-        for (const e of events) await stream.writeSSE({ event: (e as { type: string }).type, data: JSON.stringify(e) });
-      });
-      const ping = setInterval(() => void stream.writeSSE({ event: "ping", data: "" }).catch(() => {}), 15000);
-      await closed;
-      clearInterval(ping);
-      await ev.stop();
+      let finish!: () => void;
+      const done = new Promise<void>(r => finish = r);
+      stream.onAbort(finish);
+      const ping = setInterval(() => { void stream.writeSSE({ event: "ping", data: "{}" }).catch(finish); }, 15000);
+      try {
+        await stream.writeSSE({ event: "snapshot", data: JSON.stringify(ev.snapshot) });
+        ev.start(async events => {
+          try { for (const event of events) await stream.writeSSE({ event: event.type, data: JSON.stringify(event) }); }
+          catch { finish(); }
+        });
+        await Promise.race([done, ev.closed, harness.closed]);
+      } finally { clearInterval(ping); await ev.stop(); }
     });
   });
+
+  // Cross-device list invalidations; payloads contain no transcript and writes are serialized/coalesced.
+  app.get("/v1/events", c => streamSSE(c, async stream => {
+    let finish!: () => void, timer: ReturnType<typeof setTimeout> | undefined, dirty = false, writing = false, closed = false;
+    const done = new Promise<void>(r => finish = r);
+    stream.onAbort(finish);
+    const flush = async () => {
+      timer = undefined;
+      if (closed || writing || !dirty) return;
+      dirty = false; writing = true;
+      try { await stream.writeSSE({ event: "sessions_changed", data: "{}" }); }
+      catch { finish(); }
+      finally { writing = false; if (dirty && !closed) timer = setTimeout(flush, 100); }
+    };
+    const changed = () => { dirty = true; if (!timer && !writing && !closed) timer = setTimeout(flush, 100); };
+    // Register BEFORE the initial event, so creation during attachment cannot be missed.
+    const unsubscribe = harness.subscribeCommits(publication => {
+      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission")) changed();
+    });
+    const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
+    const ping = setInterval(() => { if (!writing) void stream.writeSSE({ event: "ping", data: "{}" }).catch(finish); }, 15000);
+    try { dirty = true; await flush(); await Promise.race([done, harness.closed]); }
+    finally { closed = true; clearInterval(ping); clearTimeout(timer); unsubscribe(); unsubscribeMeta?.(); }
+  }));
 
   // ---- tools ----
   app.get("/v1/tools", async (c) => {

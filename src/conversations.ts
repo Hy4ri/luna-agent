@@ -11,18 +11,28 @@ export class ConversationError extends Error {
 }
 export class ConversationStore {
   private readonly db: DatabaseSync;
+  private readonly listeners = new Set<() => void>();
   constructor(private readonly harness: Harness, private readonly recall?: RecallIndex) {
     this.db = conversationStorage(harness).db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_conversations (
         id INTEGER PRIMARY KEY, title TEXT, archived INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0
       ) STRICT;`);
   }
+  subscribeChanges(cb: () => void): () => void {
+    this.listeners.add(cb);
+    return () => { this.listeners.delete(cb); };
+  }
+  private notify() {
+    for (const cb of [...this.listeners]) {
+      try { cb(); } catch {}
+    }
+  }
   get(id: number): ConversationMeta {
     const row = this.db.prepare("SELECT title, archived, pinned FROM luna_conversations WHERE id=?").get(id) as { title: string | null; archived: number; pinned: number } | undefined;
     return { title: row?.title ?? null, archived: !!row?.archived, pinned: !!row?.pinned };
   }
   async update(id: number, changes: Partial<ConversationMeta>) {
-    return this.harness.commit(async tx => {
+    const res = await this.harness.commit(async tx => {
       if (!await tx.conversation(id as never)) throw new ConversationError(404, "no such session");
       const next = { ...this.get(id), ...changes };
       this.db.prepare(`INSERT INTO luna_conversations(id,title,archived,pinned) VALUES (?,?,?,?)
@@ -30,6 +40,8 @@ export class ConversationStore {
         .run(id, next.title, Number(next.archived), Number(next.pinned));
       return next;
     }, context);
+    this.notify();
+    return res;
   }
   async delete(id: number) {
     // A busy conversation must be stopped first. Do not race an invocation that can still write its result.
@@ -85,7 +97,7 @@ export class ConversationStore {
         try { purge(); this.db.exec("COMMIT"); } catch (e) { this.db.exec("ROLLBACK"); throw e; }
       }
       return ids;
-    }, context).then(ids => { this.recall?.forget(ids); return ids; });
+    }, context).then(ids => { this.recall?.forget(ids); this.notify(); return ids; });
     } finally { if (store.afterWrite === pendingPurge) store.afterWrite = undefined; }
   }
 }
