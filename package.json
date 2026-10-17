@@ -15,6 +15,7 @@
     "verify:improve": "tsx src/verify-improve.ts",
     "verify:runtime": "tsx src/verify-runtime.ts",
     "verify:providers": "tsx src/verify-providers.ts",
+    "verify:claude-cli:live": "tsx src/verify-claude-cli-live.ts",
     "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:mcp-manage && pnpm run verify:plugins",
     "verify:web": "tsx src/verify-web.ts",
     "verify:mcp-manage": "tsx src/verify-mcp-manage.ts",
@@ -33,6 +34,7 @@
   "packageManager": "pnpm@12.11.2",
   "type": "module",
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.301",
     "@earendil-works/chord": "^1.2.0",
     "@earendil-works/pi-ai": "^1.2.0",
     "@earendil-works/pi-durable": "^1.2.0",

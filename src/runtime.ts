@@ -58,6 +58,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const built = o.models ? { models: o.models, model: o.model! } : buildModels(cfg);
   // Adds the built-in and custom providers; the default model saved in the UI wins over config.
   const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch });
+  if (!o.models) {
+    const refreshed = await built.models.refresh({ providers: ["claude-cli"], allowNetwork: true });
+    for (const [id, error] of refreshed.errors) log(`models ${id}: ${error.message}`);
+  }
   const registry = createRegistry();
 
   // MCP first, so their (deferred) tools are in the registry before the harness resumes old runs.
