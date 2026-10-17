@@ -8,7 +8,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { parseCron } from "./cron-expr.js";
 
-export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search"] as const;
+export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 
 const name = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/, "1-40 letters, digits, _ or -");

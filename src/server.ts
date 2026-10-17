@@ -6,12 +6,15 @@ import { readFileSync } from "node:fs";
 import type { Models } from "@earendil-works/pi-ai";
 import { UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
+import { AskDoc, checkAnswer } from "./ask.js";
 import { Children } from "./delegate.js";
+import { GoalDoc } from "./goal.js";
 import type { McpManager } from "./mcp.js";
 import type { ProviderManager } from "./providers.js";
 import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
+import { TodoDoc } from "./todo.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
@@ -126,11 +129,17 @@ export function createApp(opts: ServerOptions) {
     const a = await conv.agent(context);
     const usage = await harness.snapshot(UsageDoc, conv.id, context).catch(() => undefined);
     const kids = await harness.snapshot(Children, conv.id, context).catch(() => undefined);
+    const todo = await harness.snapshot(TodoDoc, conv.id, context).catch(() => undefined);
+    const ask = await harness.snapshot(AskDoc, conv.id, context).catch(() => undefined);
+    const goal = await harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined);
     return c.json({
       id: conv.id,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       usage: usage ?? null,
       children: kids?.children ?? [],
+      todos: (todo?.tasks ?? []).filter((t) => t.status !== "deleted"),
+      questions: ask?.pending ?? [],
+      goal: goal?.goal ?? null,
       entries: page.items,
     });
   });
@@ -168,6 +177,46 @@ export function createApp(opts: ServerOptions) {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
     await conv.abort(context);
+    return c.json({ ok: true });
+  });
+
+  // ---- ask_user_question: answer an open questionnaire ----
+  app.post("/v1/sessions/:id/questions/:callId", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const callId = c.req.param("callId");
+    const body = await c.req.json().catch(() => null);
+    const r = await harness.commit(async (tx) => {
+      const doc = await tx.doc(AskDoc, conv.id);
+      const p = doc.pending.find((x) => x.callId === callId);
+      if (!p) return { status: 404 as const, error: "no open question with that id" };
+      if (doc.answers[callId]) return { status: 409 as const, error: "already answered" };
+      const res = checkAnswer(JSON.parse(JSON.stringify(p)), body);
+      if (typeof res === "string") return { status: 400 as const, error: res };
+      doc.answers[callId] = res as never;
+      return { status: 200 as const };
+    }, context);
+    return r.status === 200 ? c.json({ ok: true }) : err(c, r.status, r.error!);
+  });
+
+  // ---- goal: pause, resume, clear from the UI ----
+  app.patch("/v1/sessions/:id/goal", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const b = await c.req.json().catch(() => ({})) as { action?: string };
+    if (!["pause", "resume", "clear"].includes(b.action ?? "")) return err(c, 400, "action must be pause, resume or clear");
+    const r = await harness.commit(async (tx) => {
+      const d = await tx.doc(GoalDoc, conv.id);
+      if (!d.goal) return "no goal";
+      if (b.action === "clear") { d.goal = null; return "ok"; }
+      if (d.goal.status === "complete") return "goal is complete";
+      if (b.action === "pause") { d.goal.status = "paused"; d.goal.statusReason = "paused by the user"; }
+      else { d.goal.status = "active"; delete d.goal.statusReason; d.goal.runs = 0; }
+      return "ok";
+    }, context);
+    if (r !== "ok") return err(c, 409, r);
+    // Resuming an idle conversation needs a turn to start the work again.
+    if (b.action === "resume") await conv.submit({ type: "input", content: "Resume the active goal.", whenBusy: "followUp" }, context);
     return c.json({ ok: true });
   });
 

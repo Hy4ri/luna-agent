@@ -78,6 +78,13 @@
   .pill { font-size:11px; padding:1px 6px; border-radius:10px; border:1px solid var(--line); }
   .pill.ok { color:var(--ok); } .pill.error { color:var(--err); } .pill.running { color:var(--acc); }
   .grid { display:grid; gap:6px; }
+  #extras { padding:0 12px; display:flex; flex-direction:column; gap:6px; }
+  #extras:empty { display:none; }
+  #extras > * { max-width:780px; width:100%; margin:0 auto; }
+  #extras .opt { display:flex; gap:8px; align-items:flex-start; padding:4px 0; cursor:pointer; }
+  #extras .opt input { margin-top:4px; }
+  #extras .todo { font:13px/1.5 ui-monospace, monospace; }
+  #extras .todo .done { color:var(--dim); text-decoration:line-through; }
   @media (max-width: 720px) {
     #side { position:fixed; inset:0 25% 0 0; z-index:5; transform:translateX(-100%); transition:transform .15s; }
     #side.open { transform:none; }
@@ -106,6 +113,7 @@
     <button id="stop" disabled>Stop</button>
   </div>
   <div id="log"></div>
+  <div id="extras"></div>
   <div id="atts"></div>
   <form id="form">
     <button type="button" id="attach" title="attach image">＋</button>
@@ -285,13 +293,14 @@ async function loadSessions() {
 async function openSession(id) {
   session = String(id);
   localStorage.setItem("luna.session", session);
-  $("log").replaceChildren();
+  $("log").replaceChildren(); $("extras").replaceChildren();
   const s = await json(`/v1/sessions/${id}?limit=500`);
   $("title").textContent = "session " + id;
   const cur = s.agent.model || defaultModel;
   if (cur) { const v = cur.provider + "/" + cur.modelId; if (![...$("model").options].some((o) => o.value === v)) $("model").append(h("option", { value: v }, cur.modelId)); $("model").value = v; }
   $("think").value = s.agent.thinkingLevel || "off";
   showUsage(s.usage);
+  renderExtras(s);
   const pending = new Map();
   for (const e of [...s.entries].reverse()) {
     if (e.kind === "pi.reset") { addErr("— context reset —").className = "msg muted"; continue; }
@@ -387,7 +396,10 @@ async function send(text, atts) {
             setBusy(true, "writing…");
           } else if (c.type === "thinking_delta") setBusy(true, "thinking…");
         } else if (ev === "message_end") { render(); cur = null; curText = ""; }
-        else if (ev === "tool_execution_start") { tools.set(e.toolCallId, addTool(e.toolName, e.args)); setBusy(true, "running " + e.toolName + "…"); }
+        else if (ev === "tool_execution_start") {
+          tools.set(e.toolCallId, addTool(e.toolName, e.args)); setBusy(true, e.toolName === "ask_user_question" ? "waiting for your answer…" : "running " + e.toolName + "…");
+          if (EXTRA_TOOLS.test(e.toolName)) loadExtras(e.toolName === "ask_user_question" ? 3 : 0);
+        }
         else if (ev === "tool_execution_update" && e.output) {
           const v = tools.get(e.toolCallId);
           if (v && "set" in e.output) v.pre.textContent = e.output.set;
@@ -395,6 +407,7 @@ async function send(text, atts) {
         } else if (ev === "tool_execution_end") {
           const v = tools.get(e.toolCallId), m = e.entry?.model?.[0];
           if (v && m) finishTool(v, m);
+          if (v && EXTRA_TOOLS.test(v.name)) loadExtras();
           setBusy(true, "thinking…");
         } else if (ev === "usage_changed" && e.usage) showUsage(e.usage);
         else if (ev === "done") {
@@ -409,7 +422,7 @@ async function send(text, atts) {
   } finally {
     setBusy(false);
     loadSessions().catch(() => {});
-    json(`/v1/sessions/${session}?limit=1`).then((s) => showUsage(s.usage)).catch(() => {});
+    json(`/v1/sessions/${session}?limit=1`).then((s) => { showUsage(s.usage); renderExtras(s); }).catch(() => {});
   }
 }
 
@@ -425,6 +438,75 @@ $("form").onsubmit = (e) => {
   input.value = ""; grow();
   send(t, atts);
 };
+
+// ---- todos, open questions, goal (ported plugins) ----
+const EXTRA_TOOLS = /^(todo|ask_user_question|create_goal|update_goal|set_goal_tasks|update_goal_task)$/;
+let answering = new Set();
+async function loadExtras(retries = 0) {
+  const sid = session;
+  const s = await json(`/v1/sessions/${sid}?limit=1`).catch(() => null);
+  if (!s || sid !== session) return;
+  renderExtras(s);
+  if (retries && !s.questions.length) setTimeout(() => loadExtras(retries - 1), 500);
+}
+function renderExtras(s) {
+  const box = $("extras");
+  // Keep a questionnaire the user is filling in.
+  const keep = [...box.querySelectorAll("[data-ask]")].filter((f) => s.questions.some((q) => q.callId === f.dataset.ask));
+  box.replaceChildren();
+  if (s.goal) box.append(goalCard(s.goal));
+  const todos = s.todos || [];
+  if (todos.length) {
+    const done = todos.filter((t) => t.status === "completed").length;
+    const mark = { pending: "○", in_progress: "◐", completed: "✓" };
+    box.append(h("details", { class: "card todo", open: "" }, h("summary", { class: "muted" }, `Todos ${done}/${todos.length}`),
+      ...todos.map((t) => h("div", { class: t.status === "completed" ? "done" : "" }, `${mark[t.status] || "·"} #${t.id} ${t.subject}${t.status === "in_progress" && t.activeForm ? " — " + t.activeForm : ""}${t.blockedBy?.length ? "  ⛓ " + t.blockedBy.map((i) => "#" + i).join(",") : ""}`))));
+  }
+  for (const q of s.questions || []) box.append(keep.find((f) => f.dataset.ask === q.callId) || askForm(q));
+}
+function goalCard(g) {
+  const done = g.tasks.filter((t) => t.status !== "pending").length;
+  const act = (action) => async () => { try { await post(`/v1/sessions/${session}/goal`, { action }, "PATCH"); loadExtras(); } catch (e) { addErr(e.message); } };
+  const open = g.status !== "complete";
+  return h("div", { class: "card grid" },
+    h("div", { class: "row" }, h("b", {}, "Goal " + g.id), h("span", { class: "pill " + (g.status === "complete" ? "ok" : g.status === "active" ? "running" : "") }, g.status),
+      h("span", { class: "grow muted" }, `runs ${g.runs}/${g.maxRuns}${g.tasks.length ? ` · tasks ${done}/${g.tasks.length}` : ""}${g.tokenBudget ? ` · ${g.tokensUsed}/${g.tokenBudget} tok` : ""}`),
+      open && g.status === "active" ? h("button", { onclick: act("pause") }, "Pause") : null,
+      open && g.status !== "active" ? h("button", { onclick: act("resume") }, "Resume") : null,
+      h("button", { onclick: () => confirm("Clear this goal?") && act("clear")() }, "Clear")),
+    h("span", { class: "muted" }, g.objective.length > 200 ? g.objective.slice(0, 200) + "…" : g.objective),
+    g.statusReason ? h("span", { class: "muted" }, g.statusReason) : null);
+}
+function askForm(p) {
+  const form = h("form", { class: "card grid" });
+  form.dataset.ask = p.callId;
+  const read = [];
+  p.questions.forEach((q, qi) => {
+    const name = `q${p.callId}-${qi}`, type = q.multiSelect ? "checkbox" : "radio";
+    const custom = h("input", { placeholder: "Or type your own answer" });
+    const opts = q.options.map((o) => {
+      const inp = h("input", { type, name, value: o.label });
+      return { inp, row: h("label", { class: "opt" }, inp, h("span", {}, h("b", {}, o.label), h("div", { class: "muted" }, o.description), o.preview ? h("pre", { class: "code" }, o.preview) : null)) };
+    });
+    form.append(h("div", { class: "grid" }, h("div", { class: "row" }, h("span", { class: "pill" }, q.header), h("b", { class: "grow" }, q.question)), ...opts.map((o) => o.row), custom));
+    read.push(() => {
+      const picked = opts.filter((o) => o.inp.checked).map((o) => o.inp.value), text = custom.value.trim();
+      if (q.multiSelect) return picked.length || text ? { questionIndex: qi, kind: "multi", selected: picked, answer: text || null } : null;
+      if (text) return { questionIndex: qi, kind: "custom", answer: text };
+      return picked.length ? { questionIndex: qi, kind: "option", answer: picked[0] } : null;
+    });
+  });
+  const note = h("input", { placeholder: "Note for Luna (optional)" });
+  const send = async (body) => {
+    if (answering.has(p.callId)) return;
+    answering.add(p.callId);
+    try { await post(`/v1/sessions/${session}/questions/${encodeURIComponent(p.callId)}`, body); form.remove(); }
+    catch (e) { addErr(e.message); } finally { answering.delete(p.callId); }
+  };
+  form.onsubmit = (e) => { e.preventDefault(); send({ answers: read.map((r) => r()).filter(Boolean), ...(note.value.trim() ? { globalNote: note.value.trim() } : {}) }); };
+  form.append(note, h("div", { class: "row" }, h("button", {}, "Answer"), h("button", { type: "button", onclick: () => send({ cancelled: true }) }, "Decline")));
+  return form;
+}
 
 // ---- panels ----
 const panels = {

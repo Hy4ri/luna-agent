@@ -7,8 +7,12 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type Mutabl
 import { createRegistry, defineExtension, section, type Extension } from "@earendil-works/pi-durable";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import type { LunaConfig } from "./config.js";
+import { createAskExtension } from "./ask.js";
 import { createCronExtension, deliverRun } from "./cron-tools.js";
 import { Delegate } from "./delegate.js";
+import { createGoalExtension } from "./goal.js";
+import { createRecallExtension, RecallIndex } from "./recall.js";
+import { Todo } from "./todo.js";
 import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
@@ -87,6 +91,20 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     extensions.push(createImproveExtension(imp, { allowCommandBenchmarks: cfg.improve.allowCommandBenchmarks }));
   }
   if (on("tool-search")) extensions.push(createToolSearchExtension());
+  if (on("todo")) extensions.push(Todo);
+  // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
+  const notifyUrl = cfg.cron.notifyUrl;
+  const ask = on("ask-user") ? createAskExtension({
+    onAsk: notifyUrl ? async (conv, p) => {
+      const body = p.questions.map((q) => `• ${q.question}`).join("\n");
+      await (o.fetch ?? fetch)(notifyUrl, { method: "POST", headers: { Title: `Luna is asking (session ${conv})`, "Content-Type": "text/plain; charset=utf-8" }, body: body.slice(0, 4000) });
+    } : undefined,
+  }) : undefined;
+  if (ask) extensions.push(ask);
+  const recall = on("recall") ? new RecallIndex(join(cfg.dataDir, "recall.db")) : undefined;
+  if (recall) extensions.push(createRecallExtension(recall));
+  let harnessRef: Awaited<ReturnType<typeof openLuna>> | undefined;
+  if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
 
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
   const harness = await openLuna({
@@ -99,14 +117,15 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     ...(on("skills") ? { skillDirs: cfg.allSkillDirs } : {}),
     extensions,
   });
+  harnessRef = harness;
   harness.resume(); // continue any run a previous process left unfinished
 
   if (on("cron")) {
-    const notifyUrl = cfg.cron.notifyUrl;
     scheduler = new Scheduler({
       harness, store: store!, defaultModel: () => providers.defaultModel(), log,
       ...(cfg.cron.runTimeoutMinutes ? { runTimeoutMs: cfg.cron.runTimeoutMinutes * 60_000 } : {}),
       onFinish: notifyUrl ? (job, run) => deliverRun(notifyUrl, job, run, o.fetch) : undefined,
+      ...(ask ? { exclude: [ask] } : {}),
     });
     syncImproveJob(cfg, store!);
     await scheduler.start();
@@ -130,6 +149,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       await mcp.close();
       store?.close();
       if (memory) memory.close();
+      recall?.close();
     },
   };
 }

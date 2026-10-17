@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { execFile } from "node:child_process";
 import { context } from "./luna.js";
 import { nextRun, parseCron } from "./cron-expr.js";
-import type { Harness } from "@earendil-works/pi-durable";
+import type { Extension, Harness } from "@earendil-works/pi-durable";
 
 export interface ModelRef { provider: string; modelId: string }
 export interface ScriptExecution { command: string[]; cwd?: string }
@@ -88,6 +88,8 @@ export interface SchedulerOptions {
   log?: (msg: string) => void;
   /** Called once per finished run (ok or error), e.g. to deliver the result. Errors are logged, never thrown. */
   onFinish?: (job: Job | undefined, run: Run) => void | Promise<void>;
+  /** Extensions removed from cron conversations, e.g. tools that wait for a human. */
+  exclude?: Extension[];
 }
 
 const MAX_TIMER = 2 ** 31 - 1;
@@ -96,8 +98,8 @@ export class Scheduler {
   private timer: NodeJS.Timeout | undefined;
   private inflight = new Set<Promise<void>>();
   private stopped = true;
-  private o: Required<Omit<SchedulerOptions, "onFinish">> & Pick<Required<SchedulerOptions>, "onFinish">;
-  constructor(o: SchedulerOptions) { this.o = { runTimeoutMs: 30 * 60_000, log: () => {}, onFinish: () => {}, ...o }; }
+  private o: Required<SchedulerOptions>;
+  constructor(o: SchedulerOptions) { this.o = { runTimeoutMs: 30 * 60_000, log: () => {}, onFinish: () => {}, exclude: [], ...o }; }
 
   /** Re-arm the timer after jobs change (e.g. the model added a job). */
   rearm() { this.arm(); }
@@ -163,7 +165,7 @@ export class Scheduler {
       }
       const d = this.o.defaultModel;
       const model = job.model ?? (typeof d === "function" ? d() : d);
-      const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model } }, context);
+      const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) } }, context);
       const sub = await conv.submit({ type: "input", content: job.prompt, requestId: `cron-${job.id}-${run.slot}` }, context);
       store.attach(run.id, String(conv.id), String(sub.id));
       await this.settle(run, sub, conv);
