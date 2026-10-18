@@ -47,9 +47,15 @@ try {
   assert.equal(await field("browser.provider").inputValue(), "disabled");
   await field("browser.provider").selectOption("camofox");
   await field("browser.providers.camofox.mcpServer").fill("secure");
+  assert.equal(await field("processes.enabled").isChecked(), false);
+  await field("processes.enabled").check();
+  await field("processes.retentionHours").fill("48");
+  await field("processes.maxOutputBytes").fill("8192");
   await tab("general").click(); await tab("tools").click();
   assert.equal(await field("browser.provider").inputValue(), "camofox");
   assert.equal(await field("browser.providers.camofox.mcpServer").inputValue(), "secure");
+  assert.equal(await field("processes.enabled").isChecked(), true);
+  assert.equal(await field("processes.retentionHours").inputValue(), "48");
   await screen.locator("details").evaluateAll((items: any[]) => items.forEach(item => item.open = true));
   const secret = field("mcpServers.0.headers.Authorization"); await secret.waitFor();
   assert.equal(await secret.getAttribute("type"), "password"); assert.equal(await secret.inputValue(), "<secret: unchanged>");
@@ -68,6 +74,7 @@ try {
   assert.equal(saved.web.searchProvider, "ddgs"); assert.equal(saved.web.extractProvider, "disabled"); assert.equal(saved.web.providers.ddgs.region, "fr-fr");
   assert.equal(saved.mcpServers[0].headers.Authorization, "secret-token-123");
   assert.deepEqual(saved.browser, { provider: "camofox", providers: { camofox: { mcpServer: "secure" } } });
+  assert.deepEqual(saved.processes, { enabled: true, retentionHours: 48, maxOutputBytes: 8192 });
   await screen.locator("[data-settings-close]").click(); await screen.waitFor({ state: "hidden" }); assert.equal(await page.locator("#input").inputValue(), "Keep this chat draft");
   // A late settings fetch must not reopen a page that the user has closed.
   let requested!: () => void, release!: () => void, delivered!: () => void;
@@ -89,24 +96,26 @@ try {
   await page.reload(); await screen.waitFor({ state: "visible" }); await field("web.searchProvider").waitFor(); assert.equal(new URL(page.url()).hash, "#settings/tools");
   assert.equal(await field("browser.provider").inputValue(), "camofox");
   assert.equal(await field("browser.providers.camofox.mcpServer").inputValue(), "secure");
+  assert.equal(await field("processes.enabled").isChecked(), true);
+  assert.equal(await field("processes.maxOutputBytes").inputValue(), "8192");
   // Small screens keep navigation available, preserve chat, and do not overflow horizontally.
   await page.setViewportSize({ width: 390, height: 844 });
   await screen.locator("#settings-menu").click(); await page.locator('[data-panel="analytics"]').click(); await page.locator("#analytics-screen").waitFor({ state: "visible" }); assert.equal(await screen.isVisible(), false);
   await page.locator("#analytics-menu").click(); await page.locator('[data-panel="settings"]').click(); await field("dataDir").waitFor();
   await tab("tools").click(); await field("web.providers.ddgs.region").waitFor();
   assert.equal(await page.evaluate(() => { const d = (globalThis as any).document; return d.documentElement.scrollWidth <= d.documentElement.clientWidth; }), true);
-  await screen.locator('[data-section="browser"]').scrollIntoViewIfNeeded();
-  await page.screenshot({ path: "/tmp/luna17-settings-mobile.png" });
+  await screen.locator('[data-section="processes"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "/tmp/luna18-settings-mobile.png" });
   // Reload discards edits only after confirmation; close confirmation can also be accepted.
   await field("web.providers.ddgs.region").fill("uk-en"); acceptDiscard = true;
   await screen.getByRole("button", { name: "Reload", exact: true }).click(); await page.waitForFunction(() => (globalThis as any).document.querySelector('[data-setting="web.providers.ddgs.region"]')?.value === "fr-fr");
   await field("web.providers.ddgs.region").fill("uk-en"); await screen.locator("[data-settings-close]").click(); await screen.waitFor({ state: "hidden" });
   await page.goto(base + "/#settings/context"); await field("instructions").waitFor(); assert.equal(await field("instructions").inputValue(), "Settings draft instruction");
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await tab("tools").click(); await screen.locator('[data-section="browser"]').scrollIntoViewIfNeeded();
-  await page.screenshot({ path: "/tmp/luna17-settings-desktop.png" });
+  await tab("tools").click(); await screen.locator('[data-section="processes"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "/tmp/luna18-settings-desktop.png" });
   assert.deepEqual(errors, []);
-  console.log("SETTINGS_PAGE_UI_OK: full page, five tabs, keyboard, web/browser provider drafts and persistence, secrets, failure/retry, deep links, mobile navigation");
+  console.log("SETTINGS_PAGE_UI_OK: full page, five tabs, keyboard, web/browser/process drafts and persistence, secrets, failure/retry, deep links, mobile navigation");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }

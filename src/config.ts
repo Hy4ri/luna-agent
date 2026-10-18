@@ -73,6 +73,11 @@ export const ConfigSchema = z
         camofox: z.strictObject({ mcpServer: name.default("camofox") }).prefault({}),
       }).prefault({}),
     }).prefault({}),
+    processes: z.strictObject({
+      enabled: z.boolean().default(false),
+      retentionHours: z.number().positive().default(168),
+      maxOutputBytes: z.number().int().min(1024).max(16777216).default(1048576),
+    }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
       thinkingLevel: thinking.optional(), cwd: z.string().optional(),

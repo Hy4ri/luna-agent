@@ -98,5 +98,10 @@
         "mcpServer": "camofox"
       }
     }
+  },
+  "processes": {
+    "enabled": false,
+    "retentionHours": 168,
+    "maxOutputBytes": 1048576
   }
 }

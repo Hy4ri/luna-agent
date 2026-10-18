@@ -10,7 +10,7 @@ The page has five tabs:
 - **General:** data directory, working directory, HTTP server, and busy chat input.
 - **Models:** main model, subagent defaults, custom model providers, and auxiliary models.
 - **Context:** default instructions and automatic compaction.
-- **Tools:** web and browser providers, MCP connections, extensions, and extra skill directories.
+- **Tools:** web and browser providers, background processes, MCP connections, extensions, and extra skill directories.
 - **Automation:** scheduled runs and self-improvement.
 
 Every config field has a form control. All tabs share one unsaved draft.
@@ -298,12 +298,69 @@ Disable them with `acknowledgements: false`. A one-time tip explains each select
 A redirected foreground shell command yields its wait. The same OS process continues in the background, without restart.
 The model receives its process ID and can use `process_manage` to list, read, wait for, or stop it. Handles belong to their chat session.
 Completion returns as follow-up input. Arbitrary tools without a cooperative yield point finish normally; they are never killed by redirect.
-Background OS processes are local to the daemon process. A normal daemon shutdown stops them; they are not restart-persistent tasks.
+Background OS processes belong to the current daemon. A normal shutdown stops them; metadata and retained output survive restart.
+See **Native background processes** for crash handling and output retention.
 
 The HTTP message endpoint returns `action`, plus optional `notice` and `tip`. Existing `whenBusy: "steer" | "followUp" | "reject"` clients remain supported.
 `whenBusy: "redirect"` requests a per-message redirect. Command responses include `command: true` and queue commands return numbered `queue` rows.
 The web client omits `whenBusy` for normal sends, so the saved mode controls routing.
 
+
+## Native background processes
+
+Enable explicit background commands under **Settings → Tools → Background processes**:
+
+```json
+"processes": {
+  "enabled": true,
+  "retentionHours": 168,
+  "maxOutputBytes": 1048576
+}
+```
+
+`enabled` defaults to `false`. Save and restart Luna to apply changes.
+The `coding` extension must also be enabled. These tools have the same host access as `bash`; they are not a sandbox.
+Existing correction-detached commands remain supported when explicit background starts are disabled.
+
+- `process_start({command, cwd?, timeoutSec?})` starts a shell command and immediately returns a managed process ID.
+  The default working directory belongs to the calling conversation. A relative `cwd` uses that directory.
+  An optional positive timeout limits command execution. Spawn failures become failed process results.
+- `process_manage({action, id?, timeoutSec?, offset?, limit?})` manages only the calling conversation's processes.
+  Actions are `list`, `read`, `wait`, and `stop`. Every action except `list` requires an ID.
+  `read` returns current or final output, state, and exit code. Nonzero exits have state `failed` and retain their exact code.
+  `wait` waits at most 10 seconds by default, or `timeoutSec` from 0 through 60. A timeout is not completion.
+  Cancelling a wait does not stop the process. Use `stop` to stop it.
+
+Output combines stdout and stderr in arrival order. Reads return the latest 40,000 characters by default.
+Use a nonnegative character `offset` and `limit` up to 40,000 to page through the retained output.
+`nextOffset` identifies the next page. `truncated` reports output removed by the retention limit.
+Offsets use UTF-16 string positions in the current retained tail. Page boundaries keep complete Unicode characters.
+New output can shift that tail while a command runs.
+For `list`, `offset` is a process index and `limit` is a process count. Large lists require smaller pages.
+Encoded response size can reduce an output page. Use `nextOffset` rather than assuming the page length.
+Process summaries show a command preview; `commandTruncated` identifies a shortened preview.
+Completed processes retain metadata and output for `retentionHours` (default seven days).
+Each process retains at most `maxOutputBytes` of UTF-8 output (default 1 MiB; allowed range 1 KiB through 16 MiB).
+Private snapshots are saved under `<dataDir>/processes`, at most every 250 milliseconds during output, and at completion.
+This is bounded retained output, not an unlimited full log.
+
+Completion submits one follow-up result to the owning conversation and resumes Luna automatically.
+It queues behind current work instead of interrupting it. The result includes a bounded output tail.
+Shell output is untrusted data. Pending delivery survives restart and uses a stable request ID to prevent duplicate submissions.
+If `cron.notifyUrl` is set, an external completion notification carries status only, not shell output.
+Closing a viewer or stopping the conversation does not stop an admitted background process.
+
+On POSIX hosts, `stop` and normal daemon shutdown kill each running command's process group and wait for execution to settle.
+Execution completes when the launched command or shell exits. Do not append `&`; `process_start` already runs in the background.
+Children that outlive that shell are no longer managed after its completion.
+Descendants that create another process group or session can also escape this termination boundary.
+Normal shutdown retains stopped results. After an abrupt daemon failure, unfinished saved jobs become `interrupted`.
+The daemon does not reattach to or restart those commands. Surviving OS processes may still run after a crash.
+An interrupted result does not prove that the old command stopped. Inspect the host before repeating destructive commands.
+Saved output and completed exit codes remain available after restart until retention expires.
+
+Run `pnpm run verify:process-tools` for real shell execution through the native runtime tools.
+The test uses a scripted model; it does not prove real-model tool choice.
 
 ## Parallel chat commands
 

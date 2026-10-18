@@ -143,6 +143,18 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     models: built.models,
     cwd: cfg.cwd,
     coding: on("coding"),
+    processes: cfg.processes,
+    processDirectory: join(cfg.dataDir, "processes"),
+    log,
+    processNotify: notifyUrl ? async (id, message) => {
+      const response = await (o.fetch ?? fetch)(notifyUrl, {
+        method: "POST", signal: AbortSignal.timeout(5000),
+        headers: { Title: `Luna process finished (session ${id})`, "Content-Type": "text/plain; charset=utf-8" },
+        // Shell output can contain secrets. External notifications carry status only.
+        body: message.split("\n", 1)[0]!.slice(0, 500),
+      });
+      if (!response.ok) throw new Error(`notification HTTP ${response.status}`);
+    } : undefined,
     memory,
     ...(on("skills") ? { skillDirs: cfg.allSkillDirs } : {}),
     extensions,
