@@ -73,7 +73,8 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/settings.css": "text/css", "/cron.js": "text/javascript", "/analytics.js": "text/javascript", "/analytics.css": "text/css", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
+// Web UI modules and styles (src/web). Keep this list in step with FILES in src/web/sw.ts.
+const STATIC: Record<string, string> = { "/js/dom.js": "text/javascript", "/js/api.js": "text/javascript", "/js/markdown.js": "text/javascript", "/js/transcript.js": "text/javascript", "/js/models.js": "text/javascript", "/js/sidebar.js": "text/javascript", "/js/composer.js": "text/javascript", "/js/extras.js": "text/javascript", "/js/session.js": "text/javascript", "/js/panels.js": "text/javascript", "/js/shell.js": "text/javascript", "/js/main.js": "text/javascript", "/css/tokens.css": "text/css", "/css/app.css": "text/css", "/cron.css": "text/css", "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/settings.css": "text/css", "/cron.js": "text/javascript", "/analytics.js": "text/javascript", "/analytics.css": "text/css", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);

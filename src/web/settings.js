@@ -1,5 +1,5 @@
 // The validated config schema supplies every field. No second settings model is stored in the UI.
-async function renderSettings(body, { h, json, post, loadModels, getModels, onSaved, initialTab = "general", onTabChange }) {
+export async function renderSettings(body, { h, json, post, loadModels, getModels, onSaved, initialTab = "general", onTabChange }) {
   await loadModels();
   let saved = await json("/v1/settings");
   let draft = structuredClone(saved.config);

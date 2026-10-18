@@ -1,5 +1,5 @@
 /* Retained usage ledgers are authoritative. Dated assistant responses are a separate history view. */
-window.createAnalyticsScreen = function ({ root, h, json, onClose, onMenu }) {
+export function createAnalyticsScreen({ root, h, json, onClose, onMenu }) {
   let opened = false, generation = 0, selected = "", snapshot = null;
   const colors = ["#b5d9ad", "#8fb9d1", "#d5ba8d", "#bb9dcb"];
   const fields = [["input", "Uncached input"], ["output", "Output"], ["cacheRead", "Cache read"], ["cacheWrite", "Cache write"]];
@@ -148,4 +148,4 @@ window.createAnalyticsScreen = function ({ root, h, json, onClose, onMenu }) {
     open() { opened = true; load(); },
     close() { opened = false; generation++; refresh.disabled = false; root.setAttribute("aria-busy", "false"); },
   };
-};
+}

@@ -1,0 +1,114 @@
+#cron-screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px max(24px, calc((100% - 1180px) / 2));
+  overflow-wrap: anywhere;
+}
+#cron-screen > header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+}
+#cron-screen > header > .grow {
+  flex: 1;
+}
+#cron-screen h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+}
+#cron-screen h2 {
+  margin: 0;
+  font-size: 19px;
+}
+#cron-screen h3 {
+  margin: 0;
+  font-size: 16px;
+}
+#cron-screen nav,
+.cron-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+#cron-screen button[aria-selected="true"] {
+  border-color: var(--acc);
+  color: var(--acc);
+  background: var(--acc-soft);
+}
+#cron-screen label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dim);
+  font-size: 13px;
+}
+#cron-screen label input,
+#cron-screen label textarea,
+#cron-screen label select {
+  color: var(--fg);
+  font-size: 14px;
+  max-width: 100%;
+}
+#cron-screen textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+#cron-screen details > summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+#cron-screen .card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  margin-bottom: 12px;
+}
+#cron-screen .md {
+  overflow-wrap: anywhere;
+}
+#cron-screen .md pre {
+  max-height: none;
+  color: var(--fg);
+}
+#cron-screen .md p {
+  white-space: pre-wrap;
+}
+#cron-screen .cron-error {
+  color: var(--err);
+}
+#cron-screen .cron-unread {
+  border-left: 3px solid var(--acc);
+}
+#cron-screen .cron-content {
+  display: grid;
+  gap: 16px;
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+}
+#cron-menu {
+  display: none;
+}
+@media (max-width: 760px) {
+  #cron-screen {
+    padding: 16px 14px max(20px, env(safe-area-inset-bottom));
+  }
+  #cron-menu {
+    display: inline-flex;
+  }
+  #cron-screen label input,
+  #cron-screen label textarea,
+  #cron-screen label select {
+    font-size: 16px;
+  }
+}

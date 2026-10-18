@@ -1,5 +1,5 @@
 /* Cron is a full workspace page. History is fetched only after it is opened. */
-window.createCronScreen = function ({ root, h, json, post, markdown, onContinue, onClose, onUnread }) {
+export function createCronScreen({ root, h, json, post, markdown, onContinue, onClose, onUnread }) {
   const PAGE = 20;
   const policies = { always: "Every run", changes: "Only when output changes", failures: "Failures only" };
   let opened = false, epoch = 0, view = "reports", selectedJob = "", selectedStatus = "";
@@ -288,4 +288,4 @@ window.createCronScreen = function ({ root, h, json, post, markdown, onContinue,
     close() { opened = false; epoch++; viewVersion++; historyRequest++; historyFetching = false; root.hidden = true; loading = false; },
     refreshBadge() { refreshBadge(); startTimers(); },
   };
-};
+}

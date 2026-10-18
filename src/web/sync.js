@@ -1,5 +1,5 @@
 // Authenticated SSE with one owned connection, cancellable retries, and no message submission on reconnect.
-function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }) {
+export function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }) {
   let stopped = false, generation = 0, controller, timer, delay = 500;
   async function connect() {
     const own = ++generation;

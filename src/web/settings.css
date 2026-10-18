@@ -1,19 +1,116 @@
-:root { color-scheme:dark; }
-#settings-screen { flex:1; min-width:0; min-height:0; overflow:auto; padding:28px max(24px,calc((100% - 1320px)/2)); overflow-wrap:anywhere; }
-#settings-screen > header { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
-#settings-screen h1 { margin:0; font-size:26px; font-weight:600; letter-spacing:-.03em; }
-#settings-screen .settings-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:22px; }
-#settings-screen button[aria-selected="true"] { border-color:var(--acc); color:var(--acc); background:var(--panel); }
-#settings-screen label { display:grid; gap:6px; min-width:0; color:var(--dim); font-size:13px; }
-#settings-screen label input, #settings-screen label textarea, #settings-screen label select { color:var(--fg); font-size:14px; }
-#settings-screen textarea { resize:vertical; min-height:110px; }
-#settings-screen details > summary { cursor:pointer; padding:10px 0; }
-#settings-screen .card { margin-bottom:12px; }
-@media (max-width:760px) {
-  #settings-screen { padding:16px 14px max(20px,env(safe-area-inset-bottom)); }
-  #settings-screen label input, #settings-screen label textarea, #settings-screen label select { font-size:16px; }
+#settings-screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px max(24px, calc((100% - 1180px) / 2));
+  overflow-wrap: anywhere;
 }
-#settings-screen h2 { margin:0; font-size:18px; font-weight:600; }
-#settings-screen h3 { margin:12px 0 0; font-size:15px; font-weight:600; }
-#settings-screen .settings-file { margin-bottom:20px; color:var(--dim); font-size:13px; }
-#settings-screen .settings-file summary { cursor:pointer; }
+#settings-screen > header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+  width: 100%;
+}
+#settings-screen h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+}
+#settings-screen h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+#settings-screen h3 {
+  margin: 12px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+#settings-screen .settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+  width: 100%;
+}
+#settings-screen button[aria-selected="true"] {
+  border-color: var(--acc);
+  color: var(--acc);
+  background: var(--acc-soft);
+}
+#settings-screen label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dim);
+  font-size: 13px;
+}
+#settings-screen label input,
+#settings-screen label textarea,
+#settings-screen label select {
+  color: var(--fg);
+  font-size: 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  outline: none;
+  width: 100%;
+  max-width: 100%;
+}
+#settings-screen label input:focus,
+#settings-screen label textarea:focus,
+#settings-screen label select:focus {
+  border-color: var(--acc);
+}
+#settings-screen textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+#settings-screen details > summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+#settings-screen .card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 18px;
+  margin-bottom: 12px;
+  width: 100%;
+}
+#settings-screen .settings-file {
+  margin-bottom: 20px;
+  color: var(--dim);
+  font-size: 13px;
+  width: 100%;
+}
+#settings-screen .settings-file summary {
+  cursor: pointer;
+}
+#settings-menu {
+  display: none;
+}
+#settings-screen [data-settings-close] {
+  margin-left: auto;
+}
+#settings-screen .settings-file summary {
+  text-align: left;
+}
+@media (max-width: 760px) {
+  #settings-screen {
+    padding: 16px 14px max(20px, env(safe-area-inset-bottom));
+  }
+  #settings-menu {
+    display: inline-flex;
+  }
+  #settings-screen label input,
+  #settings-screen label textarea,
+  #settings-screen label select {
+    font-size: 16px;
+  }
+}
