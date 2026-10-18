@@ -8,7 +8,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     general: ["dataDir", "cwd", "server", "busyInput"],
     models: ["provider", "model", "thinkingLevel", "subagents", "providers", "auxiliary"],
     context: ["instructions", "compaction"],
-    tools: ["web", "mcpServers", "extensions", "skillDirs"],
+    tools: ["web", "browser", "mcpServers", "extensions", "skillDirs"],
     automation: ["cron", "improve"],
   };
   let activeTab = Object.hasOwn(groups, initialTab) ? initialTab : "general";
@@ -35,6 +35,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
   const status = h("p", { class: "muted", role: "status", "aria-live": "polite" });
   const titles = {
     auxiliary: "Auxiliary models", side_question: "Side questions",
+    browser: "Browser tools", camofox: "Camofox",
     web: "Web tools", searchProvider: "Search provider", extractProvider: "Extraction provider", ddgs: "DDGS", mcpServer: "MCP server name", backend: "Search backend", region: "Search region", safesearch: "Safe search",
     dataDir: "Data directory", cwd: "Working directory", provider: "Provider", model: "Model ID",
     thinkingLevel: "Thinking level", instructions: "Default instructions", providers: "Custom AI providers",
@@ -49,7 +50,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     enabled: "Enabled", defer: "Defer tools until search", timeoutMs: "Tool-call timeout (milliseconds)",
   };
   const additions = { providers: "provider", models: "model", mcpServers: "MCP server", skillDirs: "skill directory", args: "argument", env: "environment variable", headers: "header" };
-  const label = path => path.join(".") === "web.providers" ? "Provider options" : path.join(".") === "compaction.enabled" ? "Enable automatic compaction" : typeof path.at(-1) === "number" ? (additions[path.at(-2)] || "Item") + " " + (path.at(-1) + 1) : path.join(".") === "thinkingLevel" ? "Main thinking level"
+  const label = path => ["web.providers", "browser.providers"].includes(path.join(".")) ? "Provider options" : path.join(".") === "browser.provider" ? "Browser provider" : path.join(".") === "compaction.enabled" ? "Enable automatic compaction" : typeof path.at(-1) === "number" ? (additions[path.at(-2)] || "Item") + " " + (path.at(-1) + 1) : path.join(".") === "thinkingLevel" ? "Main thinking level"
     : path.join(".") === "subagents.thinkingLevel" ? "Subagent thinking level" : titles[path.at(-1)] || path.at(-1);
   const get = path => path.reduce((value, key) => value?.[key], draft);
   function set(path, value) {
@@ -98,6 +99,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
       const section = h("section", { class: "card grid", "data-section": key }, h("h2", {}, titles[key] || key), field(props[key], [key], (saved.schema.required || []).includes(key)));
       if (key === "busyInput") section.append(h("p", { class: "muted" }, "Applies now to all chats. Interrupt redirects the model; tools finish safely. Queue runs separate turns. Steer adds information at the next boundary. Use /queue, /steer, or /redirect for one message."));
       if (key === "compaction") section.append(h("p", { class: "muted" }, "Applies live to existing sessions. Running tool calls finish first. Emergency overflow recovery stays enabled."));
+      if (key === "browser") section.append(h("p", { class: "muted" }, "Browser tools use the selected provider and its named MCP connection. Save, then restart Luna to apply routing changes."));
       if (key === "web") section.append(h("p", { class: "muted" }, "Search and extraction use separate provider selections. DDGS uses the named MCP connection and its protected credentials. Save, then restart Luna to apply routing changes."));
       form.append(section);
     }
@@ -150,6 +152,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     }
     if (schema.type === "object" && schema.properties) {
       const group = h("div", { class: "grid" });
+      if (path.join(".") === "browser.providers.camofox") group.append(h("h3", {}, "Camofox options"));
       if (path.join(".") === "web.providers.ddgs") group.append(h("h3", {}, "DDGS options"));
       for (const [name, child] of Object.entries(schema.properties)) group.append(field(child, [...path, name], (schema.required || []).includes(name)));
       return group;
