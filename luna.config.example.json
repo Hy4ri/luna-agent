@@ -32,6 +32,15 @@
         "Authorization": "Bearer CHANGE_ME"
       },
       "enabled": false
+    },
+    {
+      "name": "ddgs",
+      "transport": "stdio",
+      "command": "ddgs",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
     }
   ],
   "cron": {
@@ -60,5 +69,17 @@
   "busyInput": {
     "mode": "interrupt",
     "acknowledgements": true
+  },
+  "web": {
+    "searchProvider": "disabled",
+    "extractProvider": "disabled",
+    "providers": {
+      "ddgs": {
+        "mcpServer": "ddgs",
+        "backend": "auto",
+        "region": "us-en",
+        "safesearch": "moderate"
+      }
+    }
   }
 }

@@ -4,10 +4,20 @@ Luna reads `luna.config.json` from its launch directory. Set `LUNA_CONFIG` to us
 An explicit path must exist. Without an explicit path, startup creates the default file if necessary.
 Use `luna.config.example.json` as an example.
 
-Open **Settings** in the Web UI to edit the same file. Every config field has a form control.
-Main and subagent thinking selectors are independent. Subagents can also inherit the parent thinking level.
-Other fields are grouped into expandable sections. Provider models, MCP arguments, environment variables,
-headers, and skill directories have add/remove controls. No JSON editing is required.
+Open **Settings** in the Web UI to edit the same file on a full page.
+The page has five tabs:
+
+- **General:** data directory, working directory, and HTTP server.
+- **Models:** main model, subagent defaults, and custom model providers.
+- **Context:** default instructions and automatic compaction.
+- **Tools:** web providers, MCP connections, extensions, and extra skill directories.
+- **Automation:** scheduled runs and self-improvement.
+
+Every config field has a form control. All tabs share one unsaved draft.
+Leaving with unsaved changes requires confirmation. Direct links such as `/#settings/tools` open a specific tab.
+Main and subagent thinking selectors are independent. Subagents can inherit the parent thinking level.
+Provider models, MCP arguments, environment variables, headers, and skill directories have add/remove controls.
+No JSON editing is required.
 Click **Save settings** to write changes. **Reload** discards unsaved edits and reads the file again.
 The Providers and MCP panels also write this file, not separate settings files.
 
@@ -17,7 +27,7 @@ The Providers and MCP panels also write this file, not separate settings files.
 - `thinkingLevel`, `instructions`: defaults for new chat sessions.
 - `compaction`: automatic context compaction. `enabled` defaults to `true`.
   `triggerPercent` is an integer from 1 through 99; the default is `75`.
-  Both controls are under **Settings → Automatic compaction** and apply live to existing sessions.
+  Both controls are under **Settings → Context → Automatic compaction** and apply live to existing sessions.
   The trigger uses the selected model's context window, not lifetime token usage.
   Running tool calls finish first. The next model request waits for compaction, then resumes.
   A final answer can compact before the run settles, without starting another turn.
@@ -31,6 +41,60 @@ The Providers and MCP panels also write this file, not separate settings files.
 - `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `server`: runtime settings.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
+
+## Native web tools
+
+The agent calls `web_search` and `web_extract`. Their names and parameters do not depend on the provider.
+
+- `web_search`: `query` and optional positive integer `count` (default `5`).
+  Returns `{"results":[{"title":"...","url":"...","snippet":"..."}]}`.
+- `web_extract`: an HTTP(S) `url` and optional `format` (`markdown` or `text`; default `markdown`).
+  Returns `{"url":"...","content":"...","format":"markdown"}`.
+
+Web results are untrusted data, not instructions. Provider failures return tool errors, not empty successful results.
+URLs with embedded credentials and non-HTTP(S) protocols are rejected.
+These tools are native and do not require `tool_search` discovery.
+
+Choose each operation's provider in **Settings → Tools → Web tools**.
+Both operations default to `disabled`. DDGS is the only included provider.
+The common tool interface accepts no DDGS options. The DDGS adapter translates requests and normalizes results.
+A new adapter implements `WebProvider` and is registered by the runtime, with its own validated configuration.
+The common tool implementation does not need to change.
+
+DDGS reuses an existing managed MCP connection. Configure that connection under **Tools → MCP servers**.
+Set the DDGS MCP server name to its exact configured name. The connection must be enabled and connected.
+The host must already have DDGS with MCP support installed. This change does not install DDGS.
+For example, use the following entries with the rest of your configuration:
+
+```json
+{
+  "web": {
+    "searchProvider": "ddgs",
+    "extractProvider": "ddgs",
+    "providers": {
+      "ddgs": {
+        "mcpServer": "ddgs",
+        "backend": "auto",
+        "region": "us-en",
+        "safesearch": "moderate"
+      }
+    }
+  },
+  "mcpServers": [
+    { "name": "ddgs", "transport": "stdio", "command": "ddgs", "args": ["mcp"] }
+  ]
+}
+```
+
+Use an absolute command path if DDGS is not on the daemon's PATH.
+DDGS options remain under `web.providers.ddgs`. Its proxy credentials, if needed, remain in the protected MCP environment (`DDGS_PROXY`).
+Connection timeouts use the existing MCP `timeoutMs`. Cancellation reaches the same managed connection.
+Save and restart Luna to apply web provider selection or option changes.
+A disabled or disconnected selection fails explicitly. There is no silent fallback to another provider.
+
+Run `verify:web-tools` for deterministic runtime checks.
+Run `verify:web-tools:live` to use the installed `/.local/bin/ddgs` against real web pages.
+The live gate uses a scripted model; it verifies tool execution, not real-model tool choice.
 
 ## Applying changes
 
@@ -111,7 +175,8 @@ Run `verify:settings-ui` with an installed Playwright and Chromium. For example:
 LUNA_PLAYWRIGHT_PATH=/path/to/playwright pnpm run verify:settings-ui
 ```
 
-The test uses isolated config files, databases, and a faux model. It does not call an external AI provider.
+Also run `verify:settings-page-ui` to check full-page navigation, tabs, drafts, deep links, mobile layout, and error recovery.
+Both tests use isolated config files, databases, and a faux model. They do not call an external AI provider.
 
 ## Context usage
 

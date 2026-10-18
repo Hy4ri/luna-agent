@@ -73,7 +73,7 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/cron.js": "text/javascript", "/analytics.js": "text/javascript", "/analytics.css": "text/css", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
+const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/settings.css": "text/css", "/cron.js": "text/javascript", "/analytics.js": "text/javascript", "/analytics.css": "text/css", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);

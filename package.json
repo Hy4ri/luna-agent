@@ -19,7 +19,7 @@
     "verify:claude-cli:budget": "node --experimental-test-module-mocks --import tsx src/verify-claude-cli-budget.ts",
     "verify:claude-cli:native": "node --import tsx --test src/verify-claude-native.ts src/verify-claude-native-units.ts src/verify-claude-transport.ts",
     "verify:claude-cli:wire": "tsx src/claude-native/evals/cache-wire.ts",
-    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:claude-cli:budget && pnpm run verify:claude-cli:native && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui && pnpm run verify:conversations && pnpm run verify:projects && pnpm run verify:conversations-ui && pnpm run verify:conversation-sync && pnpm run verify:conversation-sync-ui && pnpm run verify:cron-screen && pnpm run verify:cron-screen-ui && pnpm run verify:compaction && pnpm run verify:context-usage && pnpm run verify:compaction-ui && pnpm run verify:analytics && pnpm run verify:analytics-ui && pnpm run verify:busy-input && pnpm run verify:busy-tools && pnpm run verify:busy-input-ui && pnpm run verify:side-commands && pnpm run verify:side-delivery && pnpm run verify:side-cli",
+    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:claude-cli:budget && pnpm run verify:claude-cli:native && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui && pnpm run verify:conversations && pnpm run verify:projects && pnpm run verify:conversations-ui && pnpm run verify:conversation-sync && pnpm run verify:conversation-sync-ui && pnpm run verify:cron-screen && pnpm run verify:cron-screen-ui && pnpm run verify:compaction && pnpm run verify:context-usage && pnpm run verify:compaction-ui && pnpm run verify:analytics && pnpm run verify:analytics-ui && pnpm run verify:busy-input && pnpm run verify:busy-tools && pnpm run verify:busy-input-ui && pnpm run verify:side-commands && pnpm run verify:side-delivery && pnpm run verify:side-cli && pnpm run verify:web-tools && pnpm run verify:settings-ui && pnpm run verify:settings-page-ui",
     "verify:web": "tsx src/verify-web.ts",
     "verify:mcp-manage": "tsx src/verify-mcp-manage.ts",
     "verify:plugins": "tsx src/verify-plugins.ts",
@@ -44,7 +44,10 @@
     "verify:side-commands": "tsx src/verify-side-commands.ts",
     "verify:side-delivery": "tsx src/verify-side-delivery.ts",
     "verify:side-commands-ui": "tsx src/verify-side-commands-ui.ts",
-    "verify:side-cli": "tsx src/verify-side-cli.ts"
+    "verify:side-cli": "tsx src/verify-side-cli.ts",
+    "verify:web-tools": "tsx src/verify-web-tools.ts",
+    "verify:web-tools:live": "tsx src/verify-web-tools.ts --live",
+    "verify:settings-page-ui": "tsx src/verify-settings-page-ui.ts"
   },
   "keywords": [],
   "author": "",

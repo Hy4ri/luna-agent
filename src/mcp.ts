@@ -22,6 +22,7 @@ export interface McpConnection {
   readonly name: string;
   readonly extension: Extension;
   readonly toolNames: string[];
+  callTool(tool: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
   close(): Promise<void>;
 }
 
@@ -81,6 +82,7 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
       name: cfg.name,
       extension,
       toolNames: registered.map((t) => t.name),
+      callTool: (tool, args, signal) => client.callTool({ name: tool, arguments: args }, undefined, { signal, timeout: cfg.timeoutMs ?? CALL_TIMEOUT_MS }),
       close: () => client.close(),
     };
   } catch (e) {
@@ -137,6 +139,14 @@ export class McpManager {
       try { this.web = (JSON.parse(readFileSync(file, "utf8")).servers ?? []).map((s: unknown) => McpServerSchema.parse(s)); }
       catch (e) { throw new Error(`${file}: ${(e as Error).message}`); }
     }
+  }
+
+  /** Native provider adapters reuse managed connections, credentials and timeouts. */
+  async callTool(server: string, tool: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
+    signal.throwIfAborted();
+    const conn = this.conns.get(server);
+    if (!conn) throw new Error(`MCP server "${server}" is not connected. Check its configuration and status.`);
+    return conn.callTool(tool, args, signal);
   }
 
   get connections() { return [...this.conns.values()]; }

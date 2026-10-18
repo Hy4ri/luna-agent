@@ -54,6 +54,19 @@ export const ConfigSchema = z
       side_question: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
     }).prefault({}),
     providers: z.array(CustomProviderSchema).default([]),
+    // Agent-facing web tools use a common interface; options belong to each provider.
+    web: z.strictObject({
+      searchProvider: z.enum(["disabled", "ddgs"]).default("disabled"),
+      extractProvider: z.enum(["disabled", "ddgs"]).default("disabled"),
+      providers: z.strictObject({
+        ddgs: z.strictObject({
+          mcpServer: name.default("ddgs"),
+          backend: z.string().trim().min(1).default("auto"),
+          region: z.string().trim().min(1).default("us-en"),
+          safesearch: z.enum(["on", "moderate", "off"]).default("moderate"),
+        }).prefault({}),
+      }).prefault({}),
+    }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
       thinkingLevel: thinking.optional(), cwd: z.string().optional(),

@@ -20,6 +20,8 @@ import { Todo } from "./todo.js";
 import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
+import { createWebToolsExtension } from "./web-tools.js";
+import { createDdgsWebProvider } from "./ddgs-web-provider.js";
 import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 
@@ -81,6 +83,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let scheduler: Scheduler | undefined;
 
   const extensions: Extension[] = [];
+  extensions.push(createWebToolsExtension(cfg.web, new Map([
+    ["ddgs", createDdgsWebProvider(cfg.web.providers.ddgs, mcp)],
+  ])));
   // Identity and always-on memory belong to the runtime, including cron and child conversations.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
     const files = ["SOUL.md", "USER.md", "MEMORY.md"];
