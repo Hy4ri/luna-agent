@@ -19,7 +19,7 @@
     "verify:claude-cli:budget": "node --experimental-test-module-mocks --import tsx src/verify-claude-cli-budget.ts",
     "verify:claude-cli:native": "node --import tsx --test src/verify-claude-native.ts src/verify-claude-native-units.ts src/verify-claude-transport.ts",
     "verify:claude-cli:wire": "tsx src/claude-native/evals/cache-wire.ts",
-    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:claude-cli:budget && pnpm run verify:claude-cli:native && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui && pnpm run verify:conversations && pnpm run verify:projects && pnpm run verify:conversations-ui && pnpm run verify:conversation-sync && pnpm run verify:conversation-sync-ui && pnpm run verify:cron-screen && pnpm run verify:cron-screen-ui && pnpm run verify:compaction && pnpm run verify:context-usage && pnpm run verify:compaction-ui",
+    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:claude-cli:budget && pnpm run verify:claude-cli:native && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui && pnpm run verify:conversations && pnpm run verify:projects && pnpm run verify:conversations-ui && pnpm run verify:conversation-sync && pnpm run verify:conversation-sync-ui && pnpm run verify:cron-screen && pnpm run verify:cron-screen-ui && pnpm run verify:compaction && pnpm run verify:context-usage && pnpm run verify:compaction-ui && pnpm run verify:analytics && pnpm run verify:analytics-ui",
     "verify:web": "tsx src/verify-web.ts",
     "verify:mcp-manage": "tsx src/verify-mcp-manage.ts",
     "verify:plugins": "tsx src/verify-plugins.ts",
@@ -35,7 +35,9 @@
     "verify:cron-screen-ui": "tsx src/verify-cron-screen-ui.ts",
     "verify:compaction": "tsx src/verify-compaction.ts",
     "verify:context-usage": "tsx src/verify-context-usage.ts",
-    "verify:compaction-ui": "tsx src/verify-compaction-ui.ts"
+    "verify:compaction-ui": "tsx src/verify-compaction-ui.ts",
+    "verify:analytics": "tsx src/verify-analytics.ts",
+    "verify:analytics-ui": "tsx src/verify-analytics-ui.ts"
   },
   "keywords": [],
   "author": "",
