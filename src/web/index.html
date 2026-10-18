@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#171a19">
+<link rel="stylesheet" href="/analytics.css">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
@@ -236,6 +237,7 @@
   <nav id="nav" aria-label="Workspace tools">
     <div class="eyebrow">Workspace</div>
     <button data-panel="agents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><path d="M14 6h4v8M6 10v8h8"/></svg>Subagents</button>
+    <button data-panel="analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16M8 16v-4m5 4V8m5 8V5"/></svg>Analytics</button>
     <button data-panel="cron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Cron <span id="cron-unread" class="pill" hidden aria-label="Unread cron reports"></span></button>
     <button data-panel="memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5c3-2 5-2 8 0 3-2 5-2 8 0v15c-3-2-5-2-8 0-3-2-5-2-8 0ZM12 5v15"/></svg>Memory</button>
     <button data-panel="skills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></svg>Skills</button>
@@ -277,11 +279,13 @@
   </div>
 </main>
 <main id="cron-screen" hidden aria-label="Cron"></main>
+<main id="analytics-screen" hidden aria-label="Analytics"></main>
 <div id="panel"><div role="dialog" aria-modal="true" aria-labelledby="ptitle" aria-describedby="pdesc" tabindex="-1"><header><div class="heading"><b id="ptitle"></b><p id="pdesc"></p></div><button id="pclose" class="icon-button" aria-label="Close panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></header><div id="pbody"></div></div></div>
 <div id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle"><form id="loginForm"><div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z"/></svg><h2 id="loginTitle">Connect to Luna</h2></div><p>Enter your server token to open your workspace.</p><label class="grid">Server token<input id="token" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" required></label><button>Connect</button><span class="status" id="loginErr" role="alert"></span></form></div>
 <script src="/settings.js"></script>
 <script src="/sync.js"></script>
 <script src="/cron.js"></script>
+<script src="/analytics.js"></script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -297,6 +301,8 @@ let returnFocus = null;
 const MOBILE = "(max-width: 760px)";
 let cronOpen = false;
 let cronScreen;
+let analyticsOpen = false;
+let analyticsScreen;
 function setDrawer(open) {
   $("side").classList.toggle("open", open);
   $("shade").classList.toggle("open", open);
@@ -305,8 +311,9 @@ function setDrawer(open) {
   $("side").inert = !!currentPanel || (mobile && !open);
   $("main").inert = !!currentPanel || (mobile && open);
   $("cron-screen").inert = !!currentPanel || (mobile && open);
+  $("analytics-screen").inert = !!currentPanel || (mobile && open);
   if (mobile && open) $("side-close").focus();
-  else if (mobile) (cronOpen ? $("cron-menu") : $("menu"))?.focus();
+  else if (mobile) (analyticsOpen ? $("analytics-menu") : cronOpen ? $("cron-menu") : $("menu"))?.focus();
 }
 matchMedia(MOBILE).addEventListener("change", () => setDrawer(false));
 $("side-close").onclick = () => setDrawer(false);
@@ -332,7 +339,7 @@ const api = async (path, opts = {}) => {
 const json = async (path, opts) => { const r = await api(path, opts); if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).error || r.statusText), { status: r.status }); return r.json(); };
 const post = (path, body, method = "POST") => json(path, { method, body: JSON.stringify(body ?? {}) });
 
-function showLogin(err) { if (cronOpen) { cronScreen.close(); cronOpen = false; $("cron-screen").hidden = true; $("main").hidden = false; } activeFeed?.stop(); listFeed?.stop(); closePanel(); setDrawer(false); $("main").inert = true; $("side").inert = true; $("cron-screen").inert = true; $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
+function showLogin(err) { if (analyticsOpen) closeAnalyticsScreen(); if (cronOpen) { cronScreen.close(); cronOpen = false; $("cron-screen").hidden = true; $("main").hidden = false; } activeFeed?.stop(); listFeed?.stop(); closePanel(); setDrawer(false); $("main").inert = true; $("side").inert = true; $("cron-screen").inert = true; $("analytics-screen").inert = true; $("login").style.display = "flex"; $("loginErr").textContent = err || ""; $("token").focus(); }
 $("loginForm").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); localStorage.setItem("luna.token", token); $("login").style.display = "none"; setDrawer(false); boot(); };
 
 // ---- markdown: builds DOM nodes only (never innerHTML), links limited to http(s)/mailto ----
@@ -771,6 +778,7 @@ function onSessionEvent(type, e, epoch) {
   updateRunControls();
 }
 async function openSession(id) {
+  if (analyticsOpen) closeAnalyticsScreen();
   if (cronOpen) closeCronScreen();
   saveDraft(); detachView();
   session = String(id); localStorage.setItem("luna.session", session); sessionStorage.setItem("luna.session", session);
@@ -1293,6 +1301,7 @@ const panelState = {};
 let currentPanel = null;
 const TITLES = { conversation: "Manage conversation", settings: "Settings", projects: "Projects", board: "Project board", session: "Session", agents: "Subagents", cron: "Cron jobs", memory: "Memory", skills: "Skills", providers: "Model providers", mcp: "MCP servers" };
 async function openPanel(name) {
+  if (name === "analytics") { closePanel(); return openAnalyticsScreen(); }
   if (name === "cron") { closePanel(); return openCronScreen(); }
   returnFocus = document.activeElement;
   setDrawer(false);
@@ -1301,7 +1310,7 @@ async function openPanel(name) {
   $("pdesc").textContent = DESCRIPTIONS[name];
   $("ptitle").textContent = TITLES[name];
   $("panel").classList.add("open");
-  $("side").inert = true; $("main").inert = true; $("cron-screen").inert = true;
+  $("side").inert = true; $("main").inert = true; $("cron-screen").inert = true; $("analytics-screen").inert = true;
   $("pclose").focus();
   await refresh();
 }
@@ -1325,8 +1334,9 @@ async function refresh() {
 function closePanel() {
   if (!currentPanel) return;
   $("panel").classList.remove("open"); currentPanel = null;
-  $("main").inert = false; $("cron-screen").inert = false; $("side").inert = matchMedia(MOBILE).matches;
+  $("main").inert = false; $("cron-screen").inert = false; $("analytics-screen").inert = false; $("side").inert = matchMedia(MOBILE).matches;
   if (returnFocus?.isConnected && !returnFocus.closest("[inert]")) returnFocus.focus();
+  else if (analyticsOpen) $("analytics-menu")?.focus();
   else if (cronOpen) $("cron-menu")?.focus();
   else $("menu").offsetParent ? $("menu").focus() : $("more").focus();
 }
@@ -1357,6 +1367,7 @@ function closeCronScreen() {
 function openCronScreen() {
   if ($("login").style.display === "flex") return;
   closePanel();
+  closeAnalyticsScreen();
   setDrawer(false); cronOpen = true;
   $("main").hidden = true; $("cron-screen").hidden = false;
   document.querySelector('[data-panel="cron"]').setAttribute("aria-current", "page");
@@ -1386,7 +1397,32 @@ new MutationObserver(() => {
     if (header) header.prepend(cronMenu);
   }
 }).observe($("cron-screen"), { childList: true, subtree: true });
-window.addEventListener("hashchange", () => { if (location.hash === "#cron") { if (!cronOpen) openCronScreen(); } else closeCronScreen(); });
+function closeAnalyticsScreen() {
+  if (!analyticsOpen) return;
+  analyticsOpen = false; analyticsScreen.close();
+  $("analytics-screen").hidden = true; $("main").hidden = false;
+  document.querySelector('[data-panel="analytics"]').removeAttribute("aria-current");
+  if (location.hash === "#analytics") history.replaceState(null, "", location.pathname + location.search);
+  setDrawer(false);
+}
+function openAnalyticsScreen() {
+  if ($("login").style.display === "flex") return;
+  closePanel(); closeCronScreen(); setDrawer(false);
+  analyticsOpen = true; $("main").hidden = true; $("analytics-screen").hidden = false;
+  document.querySelector('[data-panel="analytics"]').setAttribute("aria-current", "page");
+  if (location.hash !== "#analytics") location.hash = "analytics";
+  analyticsScreen.open();
+}
+analyticsScreen = window.createAnalyticsScreen({
+  root: $("analytics-screen"), h, json,
+  onClose: () => { closeAnalyticsScreen(); $("input").focus(); },
+  onMenu: () => setDrawer(true),
+});
+window.addEventListener("hashchange", () => {
+  if (location.hash === "#analytics") { if (!analyticsOpen) openAnalyticsScreen(); }
+  else if (location.hash === "#cron") { if (!cronOpen) openCronScreen(); }
+  else { closeCronScreen(); closeAnalyticsScreen(); }
+});
 
 async function boot() {
   $("send").disabled = true;
@@ -1400,6 +1436,7 @@ async function boot() {
     startListFeed(); showWelcome(); updateRunControls();
     cronScreen.refreshBadge();
     if (location.hash === "#cron") openCronScreen();
+    else if (location.hash === "#analytics") openAnalyticsScreen();
   } catch (e) { if (e.message !== "unauthorized") $("status").textContent = String(e.message || e); }
 }
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) navigator.serviceWorker.register("/sw.js").catch(() => {});

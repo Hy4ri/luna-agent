@@ -21,6 +21,7 @@ import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
+import { readAnalytics } from "./analytics.js";
 import { activeContextTokens } from "./context-usage.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
@@ -64,7 +65,7 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/cron.js": "text/javascript", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
+const STATIC: Record<string, string> = { "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/cron.js": "text/javascript", "/analytics.js": "text/javascript", "/analytics.css": "text/css", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -125,6 +126,7 @@ export function createApp(opts: ServerOptions) {
   };
 
   app.get("/v1/settings", c => opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"));
+  app.get("/v1/analytics", async c => c.json(await readAnalytics(harness, opts.models)));
   app.put("/v1/settings", async c => {
     if (!opts.settings) return err(c, 404, "settings disabled");
     try {

@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-const SHELL = "luna-shell-v5";
-const FILES = ["/", "/manifest.webmanifest", "/icon.svg", "/settings.js", "/sync.js", "/cron.js"];
+const SHELL = "luna-shell-v6";
+const FILES = ["/", "/manifest.webmanifest", "/icon.svg", "/settings.js", "/sync.js", "/cron.js", "/analytics.js", "/analytics.css"];
 self.addEventListener("install", (e: ExtendableEvent) => { e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", (e: ExtendableEvent) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== SHELL).map((k) => caches.delete(k)))));
