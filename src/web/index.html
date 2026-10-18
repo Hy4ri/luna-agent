@@ -267,6 +267,7 @@
   <div id="compose">
     <div id="composer">
       <div id="atts" aria-label="Attached images"></div>
+      <div id="busyFeedback" class="muted" role="status" aria-live="polite" style="white-space:pre-wrap" hidden></div>
       <form id="form">
         <textarea id="input" rows="1" placeholder="Message Luna…" aria-label="Message Luna"></textarea>
         <button type="button" id="attach" class="icon-button" title="Attach images" aria-label="Attach images"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L12 3"/></svg></button>
@@ -656,6 +657,7 @@ function restoreDraft() {
   renderAtts(); grow();
 }
 function detachView() {
+  $("busyFeedback").hidden = true; $("busyFeedback").textContent = "";
   viewEpoch++; activeFeed?.stop(); activeFeed = null;
   clearTimeout(extrasTimer); clearTimeout(contextTimer); contextRevision++;
   contextCompacting = false; activeCompactions = new Set(); showContextUsage(null);
@@ -883,7 +885,14 @@ async function submitMessage(sid, body) {
   submissions.set(sid, body);
   if (session === sid) { updateRunControls(); renderSendError(); }
   try {
-    await post(`/v1/sessions/${sid}/messages?async=1`, body);
+    const result = await post(`/v1/sessions/${sid}/messages?async=1`, body);
+    if (session === sid && result) {
+      const lines = [result.tip, result.notice, ...(result.queue || []).map(row => `${row.number}. ${typeof row.content === "string" ? row.content : JSON.stringify(row.content)}`)].filter(Boolean);
+      if (lines.length) {
+        $("busyFeedback").textContent = lines.join("\n");
+        $("busyFeedback").hidden = false;
+      }
+    }
     sendErrors.delete(sid);
   } catch (e) {
     if (e.message !== "unauthorized") sendErrors.set(sid, { body, message: e.message });
@@ -907,7 +916,7 @@ async function send(text, atts) {
   const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map(a => ({ type: "image", data: a.data, mimeType: a.mimeType }))] : text;
   for (const a of atts) URL.revokeObjectURL(a.url);
   if (!sid) { const id = await newSession(); if (!id) return; sid = String(id); }
-  await submitMessage(sid, { content, requestId: randomId(), whenBusy: "followUp" });
+  await submitMessage(sid, { content, requestId: randomId() });
 }
 const input = $("input");
 const grow = () => { input.style.height = "auto"; input.style.height = Math.max(input.scrollHeight + 2, 38) + "px"; };

@@ -14,6 +14,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     host: "Host", port: "Port", id: "ID", name: "Name", api: "API format", baseUrl: "Base URL", models: "Models",
     contextWindow: "Context window (tokens)", maxTokens: "Maximum output tokens", reasoning: "Reasoning support", vision: "Image support",
     transport: "Transport", command: "Command", args: "Arguments", env: "Environment variables", url: "URL", headers: "Headers",
+    busyInput: "Busy chat input", mode: "Mode", acknowledgements: "Show acknowledgements",
     compaction: "Automatic compaction", triggerPercent: "Context trigger (%)",
     enabled: "Enabled", defer: "Defer tools until search", timeoutMs: "Tool-call timeout (milliseconds)",
   };
@@ -58,6 +59,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     form.append(child);
     for (const key of Object.keys(props).filter(k => !["provider", "model", "thinkingLevel", "instructions", "subagents"].includes(k))) {
       const section = h("details", { class: "card grid", "data-section": key }, h("summary", {}, titles[key] || key), field(props[key], [key], (saved.schema.required || []).includes(key)));
+      if (key === "busyInput") section.append(h("p", { class: "muted" }, "Applies now to all chats. Interrupt redirects the model; tools finish safely. Queue runs separate turns. Steer adds information at the next boundary. Use /queue, /steer, or /redirect for one message."));
       if (key === "compaction") section.append(h("p", { class: "muted" }, "Applies live to existing sessions. Running tool calls finish first; pending work waits for compaction, then resumes. A finished turn stays idle. Emergency overflow recovery stays enabled."));
       if (open.has(key)) section.open = true;
       form.append(section);

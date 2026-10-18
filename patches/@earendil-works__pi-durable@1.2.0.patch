@@ -1,13 +1,17 @@
 diff --git a/dist/harness/compaction.d.ts b/dist/harness/compaction.d.ts
-index c863663657177e722e8cee4f7973c42522211730..27f332b80e426350fdad04c45260a0afc79f2ee9 100644
+index c863663657177e722e8cee4f7973c42522211730..13bc5e3ae4a05fe87751c9c2008ec0aaffeb1a2e 100644
 --- a/dist/harness/compaction.d.ts
 +++ b/dist/harness/compaction.d.ts
-@@ -59,3 +59,5 @@ export declare function estimateContext(view: ContextView, extra: readonly Messa
+@@ -58,4 +58,6 @@ export declare function estimateContext(view: ContextView, extra: readonly Messa
+  * than the context it summarizes. Visible text, tool calls, and tool results record what happened.
   */
  export declare function serializeConversation(messages: readonly Message[]): string;
- //# sourceMappingURL=compaction.d.ts.map
+-//# sourceMappingURL=compaction.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=compaction.d.ts.map
 +/** Retention budget adapted to small model windows in percentage mode. */
 +export declare function keepRecentForWindow(policy: import("./types.js").CompactionPolicy, contextWindow: number): number;
+\ No newline at end of file
 diff --git a/dist/harness/compaction.js b/dist/harness/compaction.js
 index c3fb798f4f3fcf13465484b104d40e68cd245b36..7f86ac717dcb44a0e61a6d08c0f01d9b865d747e 100644
 --- a/dist/harness/compaction.js
@@ -57,19 +61,21 @@ index ccd0557bdafa606dadac6d3a2c264d7664a2f690..1bea5896a19c7bd73f176a39818b601f
      attempt: number;
      /** The blocking compaction this generation waited for; it starts no other compaction (spec §8.3). */
 diff --git a/dist/harness/generation.js b/dist/harness/generation.js
-index 136bed43fe2c45f1739109e34af5590d5036a3f7..d88f59ce443c2319de734fc245804e7ee96e47b4 100644
+index 136bed43fe2c45f1739109e34af5590d5036a3f7..10f1d6a09e98c04138fb759c9399e4f8faac0e97 100644
 --- a/dist/harness/generation.js
 +++ b/dist/harness/generation.js
-@@ -5,7 +5,7 @@ import { getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
+@@ -5,8 +5,8 @@ import { getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
  import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.js";
  import { defineTask } from "../tasks.js";
  import { addTools } from "./agent.js";
 -import { createCompaction, estimateContext, selectCut } from "./compaction.js";
+-import { applyBoundary, prepareBoundary } from "./inbox.js";
 +import { createCompaction, estimateContext, keepRecentForWindow, selectCut } from "./compaction.js";
- import { applyBoundary, prepareBoundary } from "./inbox.js";
++import { applyBoundary, prepareBoundary, InboxDoc } from "./inbox.js";
  import { assignJson } from "./json.js";
  import { endRun, LiveDoc } from "./live.js";
-@@ -100,6 +100,28 @@ export const GenerationTask = defineTask({
+ import { planSystemEntries, renderSections, replaySections } from "./prompt.js";
+@@ -100,7 +100,36 @@ export const GenerationTask = defineTask({
                  return { status: "running", checkpoint: { phase: "request", ...request } };
              }, context);
          },
@@ -96,9 +102,38 @@ index 136bed43fe2c45f1739109e34af5590d5036a3f7..d88f59ce443c2319de734fc245804e7e
 +            return answer(runtime, message, context, entryId);
 +        },
          request: async (task, runtime, context) => {
++            // Recovery: an admitted correction must be placed before replaying a crashed request.
++            const pending = await runtime.snapshot(InboxDoc, runtime.conversationId, context);
++            if (pending?.items.some(item => item.mode === "steer" && item.redirect)) {
++                const live = await runtime.snapshot(LiveDoc, runtime.conversationId, context);
++                await continueRedirect(runtime, live?.generation?.message, context);
++                return;
++            }
              const { attempt, compacted, model: ref, thinkingLevel, streamOptions, cutoff } = task.state.checkpoint;
              const conversationId = runtime.conversationId;
-@@ -223,6 +245,12 @@ function thresholdCompaction(view, planned, contextWindow, policy) {
+             await runtime.commit(async (tx) => {
+@@ -119,13 +148,18 @@ export const GenerationTask = defineTask({
+                 if (replaced !== undefined)
+                     messages = replaced.messages;
+             });
++            const controller = new AbortController();
++            const active = { controller, signal: runtime.signal, taskId: runtime.taskId };
+             const options = {
+                 ...streamOptions,
+-                signal: runtime.signal,
++                signal: AbortSignal.any([runtime.signal, controller.signal]),
+                 sessionId: await ensureProviderSessionId(runtime, context),
+                 ...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
+             };
+-            const message = await streamResponse(runtime, model, messages, options, attempt, context);
++            let message;
++            runtime.busyRequests.set(conversationId, active);
++            try { message = await streamResponse(runtime, model, messages, options, attempt, context); }
++            finally { if (runtime.busyRequests.get(conversationId) === active) runtime.busyRequests.delete(conversationId); }
+             const request = { attempt, compacted, model: ref, cutoff, messages: view.messages };
+             await classify(runtime, request, message, context);
+         },
+@@ -223,6 +257,12 @@ function thresholdCompaction(view, planned, contextWindow, policy) {
      if (!policy.enabled || contextWindow <= 0)
          return undefined;
      const tokens = estimateContext(view, planned.flatMap((entry) => entry.model ?? []));
@@ -111,7 +146,73 @@ index 136bed43fe2c45f1739109e34af5590d5036a3f7..d88f59ce443c2319de734fc245804e7e
      const blocking = contextWindow - policy.reserveTokens;
      const background = blocking - policy.backgroundTokens;
      const over = tokens > blocking ? "blocking" : policy.backgroundTokens > 0 && tokens > background ? "background" : undefined;
-@@ -360,6 +388,14 @@ async function classify(runtime, request, message, context) {
+@@ -281,6 +321,7 @@ export async function convertPartial(tx, live, conversationId) {
+ async function streamResponse(runtime, model, messages, options, attempt, context) {
+     const interval = runtime.settings.progress.partialIntervalMs;
+     let pending;
++    let latest;
+     let timer;
+     let inFlight;
+     let stopped = false;
+@@ -318,24 +359,57 @@ async function streamResponse(runtime, model, messages, options, attempt, contex
+             // never gets past it, so it never leaves a partial.
+             if (event.type === "done" || event.type === "error" || event.partial.content.length === 0)
+                 continue;
++            latest = event.partial;
+             pending = event.partial;
+             if (timer === undefined && inFlight === undefined)
+                 timer = setTimeout(flush, interval);
+         }
+         return await events.result();
+     }
++    catch (error) {
++        if (!options.signal?.aborted || runtime.signal.aborted) throw error;
++        const partial = latest ?? pending ?? (await runtime.snapshot(LiveDoc, runtime.conversationId, context))?.generation?.message;
++        if (partial) return { ...partial, stopReason: "aborted" };
++        return { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, timestamp: runtime.now(), stopReason: "aborted", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
++    }
+     finally {
+         stopped = true;
+         clearTimeout(timer);
+         await inFlight;
+     }
+ }
++// A redirect is a continuation, not a failed or completed original submission.
++async function continueRedirect(runtime, message, context) {
++    const conversationId = runtime.conversationId;
++    await runtime.commit(async tx => {
++        const boundary = await prepareBoundary(tx, conversationId, runtime.settings);
++        const live = await tx.doc(LiveDoc, conversationId);
++        const content = (message?.content ?? []).filter(block => block.type === "text" || block.type === "thinking");
++        if (content.length) {
++            const partial = { ...message, content, stopReason: "stop" };
++            delete partial.errorMessage;
++            await appendAssistant(tx, conversationId, partial);
++        } else if (message) {
++            await recordUsage(tx, conversationId, "models", `${message.provider}/${message.model}`, message.usage);
++        }
++        const { users } = await applyBoundary(tx, boundary, "postTools", runtime.now());
++        if (live.run?.taskId === runtime.taskId) live.run.inputs.push(...users);
++        delete live.generation;
++        return { status: "running", checkpoint: { phase: "prepare", attempt: 1 } };
++    }, context);
++}
+ /** Classify a terminal provider message in one commit that also clears the partial. */
+ async function classify(runtime, request, message, context) {
+     // An abort mark or close: the abort invocation or the reopened run handles the committed state.
+     runtime.signal.throwIfAborted();
+     const conversationId = runtime.conversationId;
+     const { attempt, compacted, model: ref, cutoff } = request;
++    // The correction is durable before the independent model signal is cancelled. A hard abort wins at commit.
++    const inbox = await runtime.snapshot(InboxDoc, conversationId, context);
++    if (inbox?.items.some(item => item.mode === "steer" && item.redirect)) {
++        await continueRedirect(runtime, message, context);
++        return;
++    }
+     if (message.stopReason === "deferred" && message.deferred !== undefined) {
+         const handle = message.deferred;
+         const pollAt = Math.max(runtime.now() + (handle.pollAfterMs ?? DEFAULT_POLL_AFTER_MS), request.pollAt === undefined ? Number.NEGATIVE_INFINITY : request.pollAt + 1);
+@@ -360,6 +434,14 @@ async function classify(runtime, request, message, context) {
          return startToolRound(runtime, request, message, calls, context);
      }
      if (message.stopReason === "stop" || message.stopReason === "length" || message.stopReason === "toolUse") {
@@ -126,7 +227,7 @@ index 136bed43fe2c45f1739109e34af5590d5036a3f7..d88f59ce443c2319de734fc245804e7e
          return answer(runtime, message, context);
      }
      // The retry and compaction policies govern the next attempt, so they are read now rather than pinned at preparation.
-@@ -368,7 +404,9 @@ async function classify(runtime, request, message, context) {
+@@ -368,7 +450,9 @@ async function classify(runtime, request, message, context) {
      if (overflow && compacted === undefined && settings.compaction.enabled) {
          const policy = settings.compaction;
          const view = await runtime.context(conversationId, context, { at: cutoff });
@@ -137,7 +238,7 @@ index 136bed43fe2c45f1739109e34af5590d5036a3f7..d88f59ce443c2319de734fc245804e7e
              const text = message.errorMessage ?? "Context overflow";
              await runtime.commit(async (tx) => {
                  const live = await tx.doc(LiveDoc, conversationId);
-@@ -415,7 +453,7 @@ async function classify(runtime, request, message, context) {
+@@ -415,7 +499,7 @@ async function classify(runtime, request, message, context) {
   * message and hands the run to a successor generation, but only when the boundary selected no user item and no reset.
   * Otherwise the run's inputs settle `done`, and selected user items start the next run.
   */
@@ -146,20 +247,224 @@ index 136bed43fe2c45f1739109e34af5590d5036a3f7..d88f59ce443c2319de734fc245804e7e
      let continuation;
      await runtime.hooks.each("onYield", async (hook) => {
          if (continuation !== undefined)
-@@ -427,7 +465,7 @@ async function answer(runtime, message, context) {
+@@ -427,9 +511,15 @@ async function answer(runtime, message, context) {
          // Queue modes are read on the Session line, when the boundary is decided.
          const boundary = await prepareBoundary(tx, conversationId, runtime.settings);
          const live = await tx.doc(LiveDoc, conversationId);
 -        const entry = await appendAssistant(tx, conversationId, message);
 +        const entry = existingEntryId === undefined ? await appendAssistant(tx, conversationId, message) : { id: existingEntryId };
          const result = { status: "terminal", outcome: { status: "completed", result: { entryId: entry.id } } };
-         const { users, reset } = await applyBoundary(tx, boundary, "final", runtime.now());
+-        const { users, reset } = await applyBoundary(tx, boundary, "final", runtime.now());
++        const { users, reset, steered } = await applyBoundary(tx, boundary, "final", runtime.now());
++        if (steered && !reset) {
++            if (live.run?.taskId === runtime.taskId) live.run.inputs.push(...users);
++            handOver(live, runtime.taskId, await createGeneration(tx, conversationId));
++            delete live.generation;
++            return result;
++        }
          if (continuation !== undefined && users.length === 0 && !reset) {
+             const user = { role: "user", content: continuation, timestamp: runtime.now() };
+             await tx.appendEntry(UserEntry, conversationId, { model: [user] });
+diff --git a/dist/harness/harness.js b/dist/harness/harness.js
+index d228c4c4aafde8bb5de06c8c0c132c085a53ba8e..a459d6eb1f8a9996b59b499ab08a6f356f532c81 100644
+--- a/dist/harness/harness.js
++++ b/dist/harness/harness.js
+@@ -97,11 +97,13 @@ class HarnessImpl extends SessionImpl {
+         this.#options = options;
+         this.#report = report;
+         const settings = () => resolveSettings(options.settings);
++        const busyRequests = new Map();
+         this.#tasks = new TaskScheduler({
+             session: this,
+             storage,
+             registry: options.registry,
+             models: options.models,
++            busyRequests,
+             agent: (id, snapshot, callContext) => this.resolveAgent(id, snapshot, callContext),
+             settings,
+             env: (id, callContext) => this.buildEnv(id, callContext),
+@@ -115,7 +117,7 @@ class HarnessImpl extends SessionImpl {
+             },
+             context: withoutAbortSignal(context),
+         });
+-        this.#submissions = new Submissions(this, storage, now, settings, () => this.#tasks.resume());
++        this.#submissions = new Submissions(this, storage, now, settings, () => this.#tasks.resume(), busyRequests);
+         this.#taskGraph = new TaskGraphView(this, storage);
+         this.#host = {
+             harness: this,
+diff --git a/dist/harness/inbox.d.ts b/dist/harness/inbox.d.ts
+index ee7a0718b1430ca405ab3fb5a037a92fd781ef29..d52a5b084d3d53003d33c8dff39b420c0c1d3e04 100644
+--- a/dist/harness/inbox.d.ts
++++ b/dist/harness/inbox.d.ts
+@@ -6,6 +6,7 @@ export type InboxItem = {
+     id: SubmissionId;
+     mode: "steer" | "followUp";
+     content: JsonRepresentation<UserInput>;
++    redirect?: boolean;
+     entry?: JsonRepresentation<InputEntry>;
+ }
+ /** `entry` is an `EntryDraft`, stored as plain JSON. */
+@@ -34,6 +35,7 @@ export type Boundary = {
+ export type BoundaryResult = {
+     readonly users: SubmissionId[];
+     readonly reset: boolean;
++    readonly steered: boolean;
+ };
+ /**
+  * Read what a boundary needs. Table reads must precede the commit's first table write, so callers prepare the
+diff --git a/dist/harness/inbox.js b/dist/harness/inbox.js
+index e8e07656188833bffa17af35cd2dbc4eb65b2a24..a4edd0d8327461f700f08b4bba712de725d240a8 100644
+--- a/dist/harness/inbox.js
++++ b/dist/harness/inbox.js
+@@ -42,7 +42,8 @@ export async function applyBoundary(tx, boundary, at, now) {
+         return queueMode === "all" ? indexes : indexes.slice(0, 1);
+     };
+     const writes = items.flatMap((item, index) => (item.mode === "write" ? [index] : []));
+-    const users = [...pick("steer", boundary.steeringMode), ...(final ? pick("followUp", boundary.followUpMode) : [])];
++    const steers = pick("steer", boundary.steeringMode);
++    const users = [...steers, ...(final && (reset || steers.length === 0) ? pick("followUp", boundary.followUpMode) : [])];
+     users.sort((a, b) => a - b);
+     // `appendEntry()` copies the drafts' values; the items are removed only afterwards.
+     for (const index of writes) {
+@@ -58,16 +59,21 @@ export async function applyBoundary(tx, boundary, at, now) {
+         tx.placeSubmission(item.id, entry.id);
+     }
+     const placed = [];
++    const grouped = new Set();
+     for (const index of users) {
++        if (grouped.has(index)) continue;
+         const item = items[index];
+-        const entry = await appendInput(tx, conversationId, item.content, item.entry, now);
+-        tx.placeSubmission(item.id, entry.id);
+-        placed.push(item.id);
++        const group = item.mode === "steer" && typeof item.content === "string" && item.entry === undefined
++            ? users.filter(i => items[i].mode === "steer" && items[i].redirect === item.redirect && typeof items[i].content === "string" && items[i].entry === undefined)
++            : [index];
++        const content = group.length > 1 ? group.map(i => items[i].content).join(item.redirect ? "\n[Additional user correction]\n\n" : "\n") : item.content;
++        const entry = await appendInput(tx, conversationId, content, item.entry, now);
++        for (const i of group) { grouped.add(i); tx.placeSubmission(items[i].id, entry.id); placed.push(items[i].id); }
+     }
+     const removed = [...writes, ...users].sort((a, b) => b - a);
+     for (const index of removed)
+         items.splice(index, 1);
+-    return { users: placed, reset };
++    return { users: placed, reset, steered: steers.length > 0 };
+ }
+ /** Append the entry an input is placed as: `entry`'s kind and data, or `pi.user`, with the user message of `content`. */
+ export function appendInput(tx, conversationId, content, entry, now) {
+diff --git a/dist/harness/scheduler.js b/dist/harness/scheduler.js
+index e40b59720224b1f180b0745066e251cc52b499f3..c7c46cff7fb3ea0ac112cf6adae4fd4d0e29043c 100644
+--- a/dist/harness/scheduler.js
++++ b/dist/harness/scheduler.js
+@@ -60,6 +60,7 @@ export class TaskScheduler {
+      * first idle check after `settings.contextRetentionMs` of idleness, and at close.
+      */
+     #contexts = new Map();
++    #busyRequests;
+     /** Timer for the earliest expiry of an idle context, only where timers can be unreferenced (see `#scheduleExpiry`). */
+     #expiry;
+     #invocations = new Map();
+@@ -116,6 +117,7 @@ export class TaskScheduler {
+         this.#storage = options.storage;
+         this.#registry = options.registry;
+         this.#models = options.models;
++        this.#busyRequests = options.busyRequests ?? new Map();
+         this.#agent = options.agent;
+         this.#settings = options.settings;
+         this.#env = options.env;
+@@ -1522,6 +1524,7 @@ export class TaskScheduler {
+             conversationId: invocation.conversationId,
+             signal: invocation.controller.signal,
+             models: this.#models,
++            busyRequests: this.#busyRequests,
+             agent: (context) => invocation.ended ? Promise.reject(endedError(invocation)) : awaitWithContext(agent(), context),
+             get settings() {
+                 return settings();
+diff --git a/dist/harness/submissions.js b/dist/harness/submissions.js
+index ee076b5ea977ae39bca78a22e43827c26ba386a5..73ea42b794fcdb43fa18c2ace9e5d5ab6f29d6e9 100644
+--- a/dist/harness/submissions.js
++++ b/dist/harness/submissions.js
+@@ -15,7 +15,9 @@ export class Submissions {
+     #resume;
+     #waiters = new Waiters();
+     #closed = false;
+-    constructor(session, storage, now, queueModes, resume) {
++    #busyRequests;
++    constructor(session, storage, now, queueModes, resume, busyRequests = new Map()) {
++        this.#busyRequests = busyRequests;
+         this.#session = session;
+         this.#storage = storage;
+         this.#now = now;
+@@ -30,8 +32,34 @@ export class Submissions {
+     /** Admit a submission in one commit; see `admitSubmission()`. */
+     async submit(conversationId, draft, context) {
+         this.#resume();
+-        const id = await this.#session.commitWith((tx) => admitSubmission(tx, conversationId, draft, this.#now(), this.#queueModes()), context);
+-        return new SubmissionHandle(id, this);
++        let action, redirect;
++        const id = await this.#session.commitWith(async (tx) => {
++            const live = await tx.doc(LiveDoc, conversationId);
++            const run = live.run === undefined ? undefined : await tx.task(live.run.taskId);
++            const existing = draft.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, draft.requestId);
++            let submitted = draft;
++            action = live.run === undefined ? "started" : "queued";
++            if (!existing && draft.type === "input" && live.run !== undefined && !run?.abortRequested) {
++                const plain = typeof draft.content === "string" || (Array.isArray(draft.content) && draft.content.every(b => b.type === "text"));
++                const text = typeof draft.content === "string" ? draft.content.trim() : plain ? draft.content.map(b => b.text).join("\n").trim() : undefined;
++                if (plain && !text) throw new Error("content is empty");
++                if (draft.whenBusy === "steer" && plain) { submitted = { ...draft, content: text }; action = "steered"; }
++                else if (draft.whenBusy === "redirect" && plain && !live.compactions?.length) {
++                    const active = this.#busyRequests.get(conversationId);
++                    if (live.tools?.length) { submitted = { ...draft, content: text, whenBusy: "steer" }; action = "steered"; }
++                    else if (active && !active.signal.aborted && active.taskId === live.run.taskId) {
++                        submitted = { ...draft, content: text, whenBusy: "steer" }; action = "redirected"; redirect = active;
++                    } else submitted = { ...draft, whenBusy: "followUp" };
++                } else if (draft.whenBusy === "redirect" || (draft.whenBusy === "steer" && !plain)) submitted = { ...draft, whenBusy: "followUp" };
++            } else if (draft.type === "input" && run?.abortRequested) submitted = { ...draft, whenBusy: "followUp" };
++            const id = await admitSubmission(tx, conversationId, submitted, this.#now(), this.#queueModes());
++            const item = (await tx.doc(InboxDoc, conversationId)).items.find(item => item.id === id);
++            if (redirect && item?.mode === "steer") item.redirect = true;
++            if (existing) action = item?.mode === "steer" ? item.redirect ? "redirected" : "steered" : item?.mode === "followUp" ? "queued" : "started";
++            return id;
++        }, context);
++        if (redirect) redirect.controller.abort();
++        return new SubmissionHandle(id, this, action);
+     }
+     /** Handle for an existing submission, or `undefined`. */
+     async get(id, context) {
+@@ -86,7 +114,9 @@ export class Submissions {
+ class SubmissionHandle {
+     id;
+     #submissions;
+-    constructor(id, submissions) {
++    action;
++    constructor(id, submissions, action) {
++        this.action = action;
+         this.id = id;
+         this.#submissions = submissions;
+     }
 diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
-index ea3adc9e21bcc4b101da614ce9913e3858777f0d..7f866ffa577c4472487b41e2dcd28b3de209726d 100644
+index ea3adc9e21bcc4b101da614ce9913e3858777f0d..11f1a9cfab4a5839beec9e8efca0b459a564731a 100644
 --- a/dist/harness/types.d.ts
 +++ b/dist/harness/types.d.ts
-@@ -443,6 +443,10 @@ export type ConversationRetryPolicy = {
+@@ -25,7 +25,7 @@ export type SubmissionDraft = {
+ } & ({
+     readonly type: "input";
+     readonly content: UserInput;
+-    readonly whenBusy?: "steer" | "followUp" | "reject";
++    readonly whenBusy?: "steer" | "followUp" | "reject" | "redirect";
+     /** Place the input as this entry; default `pi.user` without data. The kind must not start with `pi.`. */
+     readonly entry?: InputEntry;
+ } | {
+@@ -42,6 +42,7 @@ export type SettledSubmissionRecord = SubmissionRecord & {
+ };
+ /** Awaitable host object for one durably admitted submission. */
+ export interface Submission {
++    readonly action?: "started" | "queued" | "steered" | "redirected";
+     readonly id: SubmissionId;
+     status(context: Context): Promise<SubmissionRecord>;
+     wait(context: Context): Promise<SettledSubmissionRecord>;
+@@ -443,6 +444,10 @@ export type ConversationRetryPolicy = {
  };
  /** Automatic compaction thresholds (spec §8.7); manual compaction ignores `enabled`. */
  export type CompactionPolicy = {

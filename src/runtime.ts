@@ -121,6 +121,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
 
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
   const compaction = () => settings?.resolved().compaction ?? cfg.compaction;
+  const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
   const harness = await openLuna({
     registry,
     compaction: () => {
@@ -155,6 +156,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     config: cfg,
     settings,
     compaction,
+    busyInput,
     harness,
     conversations,
     /** Added to the agent of every session created in a project. */

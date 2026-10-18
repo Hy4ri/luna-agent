@@ -23,6 +23,13 @@ async function send(id: string, content: string) {
     method: "POST", headers: { ...auth, "content-type": "application/json", accept: "text/event-stream" }, body: JSON.stringify({ content }),
   });
   if (!r.ok || !r.body) throw new Error(`send: ${r.status} ${await r.text()}`);
+  if ((r.headers.get("content-type") ?? "").includes("application/json")) {
+    const result = await r.json() as { notice?: string; tip?: string; queue?: { number: number; content: unknown }[] };
+    if (result.notice) console.error(result.notice);
+    if (result.tip) console.error(result.tip);
+    for (const row of result.queue ?? []) console.log(`${row.number}. ${typeof row.content === "string" ? row.content : JSON.stringify(row.content)}`);
+    return;
+  }
   let buf = "", printed = false;
   const dec = new TextDecoder();
   for await (const chunk of r.body as any as AsyncIterable<Uint8Array>) {
@@ -34,7 +41,11 @@ async function send(id: string, content: string) {
       const data = frame.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
       if (!ev || !data) continue;
       let e: any; try { e = JSON.parse(data); } catch { continue; }
-      if (ev === "message_update") {
+      if (ev === "submitted") {
+        if (e.notice) console.error(e.notice);
+        if (e.tip) console.error(e.tip);
+      }
+      else if (ev === "message_update") {
         for (const c of e.changes ?? []) if (c.type === "text_delta") { process.stdout.write(c.delta); printed = true; }
       }
       else if (ev === "tool_execution_start") process.stderr.write(`\n  [tool] ${e.toolName}\n`);

@@ -1,7 +1,7 @@
+import { BusyExecutions } from "./busy-tools.js";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, ROOT_CONVERSATION_ID, type CompactionPolicy, type Extension, type Registry } from "@earendil-works/pi-durable";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openConversationStorage, registerConversationStorage } from "./conversation-storage.js";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
@@ -32,7 +32,12 @@ export interface LunaOptions {
 /** Open the durable Luna harness: SQLite storage + CodingTools (bash/read/write/edit) + memory + optional skills. */
 export async function openLuna(opts: LunaOptions) {
   const registry = opts.registry ?? createRegistry();
-  if (opts.coding !== false) registry.install(CodingTools);
+  let harnessRef: Harness | undefined;
+  const busyTools = new BusyExecutions(async (id, message, requestId) => {
+    const conv = await harnessRef?.conversation(id, context);
+    await conv?.submit({ type: "input", content: message, requestId, whenBusy: "followUp" }, context);
+  });
+  if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); }
   for (const e of opts.extensions ?? []) registry.install(e);
   if (opts.skillDirs?.length) registry.install(createSkillsExtension({ dirs: opts.skillDirs }));
   if (opts.memory !== false) {
@@ -49,18 +54,25 @@ export async function openLuna(opts: LunaOptions) {
       settings: {
         get extensions() { return registry.snapshot().installed().filter(e => e.name !== "board"); },
         get compaction() { return opts.compaction?.(); },
+        steeringMode: "all",
+        followUpMode: "one-at-a-time",
       },
       conversationCreated: async (tx, conversation) => {
         // The reserved root ID can be reused after deletion. Give each incarnation a unique context boundary,
         // so pi-durable cannot extend a retained model-context range from its deleted incarnation.
         if (conversation.id === ROOT_CONVERSATION_ID) await tx.appendEntry(conversation.id, { kind: "luna.context-start", head: "self" });
       },
-      env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? opts.cwd ?? process.cwd() }),
+      env: ({ cwd, conversationId }) => busyTools.env(conversationId, cwd ?? opts.cwd ?? process.cwd()),
     },
     context,
   );
+  harnessRef = harness;
   registerConversationStorage(harness, store);
-  return harness;
+  const close = harness.close.bind(harness);
+  return Object.assign(harness, {
+    busyTools,
+    async close(ctx: Parameters<Harness["close"]>[0]) { try { await close(ctx); } finally { await busyTools.close(); } },
+  });
 }
 
 export { createModels, MemoryStore };

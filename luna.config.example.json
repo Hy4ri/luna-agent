@@ -56,5 +56,9 @@
   "compaction": {
     "enabled": true,
     "triggerPercent": 75
+  },
+  "busyInput": {
+    "mode": "interrupt",
+    "acknowledgements": true
   }
 }
