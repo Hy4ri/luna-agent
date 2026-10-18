@@ -123,6 +123,7 @@
   .codewrap button { position:absolute; top:6px; right:6px; padding:4px 10px; font-size:11px; min-height:32px; }
   pre.code { background:#111512; border:1px solid var(--line); padding:48px 16px 16px; border-radius:12px; overflow:auto; white-space:pre; font:13px/1.6 ui-monospace,monospace; margin:.8em 0; }
   .tool { width:100%; min-width:0; font:12px/1.6 ui-monospace,monospace; color:var(--dim); border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  .tool img.tool-image { display:block; max-width:calc(100% - 28px); max-height:480px; margin:0 14px 14px; border-radius:8px; object-fit:contain; }
   .tool summary { cursor:pointer; padding:10px 14px; overflow-wrap:anywhere; }
   .tool pre { margin:0; padding:14px; border-top:1px solid var(--line); overflow:auto; max-height:300px; white-space:pre-wrap; overflow-wrap:anywhere; }
   #compose { padding:12px max(28px,calc((100% - 800px)/2)) max(12px,env(safe-area-inset-bottom)); background:var(--bg); }
@@ -503,6 +504,11 @@ function finishTool(view, m) {
   view.pre.textContent += "\n" + out;
   if (m.isError) view.s.textContent = "Failed · " + view.name;
   linkChild(view, out);
+  for (const image of view.el.querySelectorAll(".tool-image")) image.remove();
+  for (const block of Array.isArray(m.content) ? m.content : []) {
+    if (block.type === "image" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType) && typeof block.data === "string")
+      view.el.append(h("img", { class: "tool-image", src: `data:${block.mimeType};base64,${block.data}`, alt: view.name + " result" }));
+  }
 }
 
 // ---- usage ----

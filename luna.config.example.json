@@ -41,6 +41,15 @@
         "mcp"
       ],
       "enabled": false
+    },
+    {
+      "name": "camofox",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "/path/to/camofox-browser/mcp/server.mjs"
+      ],
+      "enabled": false
     }
   ],
   "cron": {
@@ -79,6 +88,14 @@
         "backend": "auto",
         "region": "us-en",
         "safesearch": "moderate"
+      }
+    }
+  },
+  "browser": {
+    "provider": "disabled",
+    "providers": {
+      "camofox": {
+        "mcpServer": "camofox"
       }
     }
   }

@@ -83,10 +83,28 @@ try {
     assert.equal(await page.locator(".assistant strong").textContent(), "chat", "Chat survives Cron navigation");
   }
 
+  async function checkSettingsPage() {
+    const screen = page.locator("#settings-screen");
+    await screen.waitFor({ state: "visible" });
+    await screen.locator('[data-setting="dataDir"]').waitFor();
+    assert.equal(await page.locator("#main").isVisible(), false);
+    assert.equal(await page.locator("#panel").isVisible(), false);
+    assert.equal(await screen.getByRole("tab").count(), 5);
+    await screen.locator('[data-settings-tab="tools"]').click();
+    assert.equal(await screen.locator('[data-setting="browser.provider"]').inputValue(), "disabled");
+    assert.equal(await screen.locator('[data-setting="browser.providers.camofox.mcpServer"]').inputValue(), "camofox");
+    assert.equal(await page.evaluate(() => { const p = document.getElementById("settings-screen")!; return p.scrollWidth <= p.clientWidth + 1; }), true, "Settings overflow");
+    await screen.getByRole("button", { name: "Back to chat", exact: true }).click();
+    await screen.waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#main").isVisible(), true);
+    assert.equal(await page.locator("#input").evaluate((input: any) => input === document.activeElement), true);
+  }
+
   // Real API-backed workspace content, not static fixtures.
   for (const name of ["agents", "cron", "memory", "skills", "providers", "mcp", "settings"]) {
     await page.locator(`[data-panel=${name}]`).click();
     if (name === "cron") { await checkCronPage(); continue; }
+    if (name === "settings") { await checkSettingsPage(); continue; }
     await page.getByText("Loading…", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await page.locator("#pbody .msg.err").count(), 0, name);
     assert.ok((await page.locator("#pbody").textContent()).trim().length, name);
@@ -96,7 +114,7 @@ try {
     await page.keyboard.press("Escape");
     await page.locator("#panel").waitFor({ state: "hidden" });
   }
-  console.log("OK six workspace panels and full-page Cron, no overflow, panel focus and Escape, return to chat");
+  console.log("OK five workspace panels, full-page Cron and Settings, browser provider controls, no overflow, panel focus and Escape, return to chat");
   await page.locator('[data-panel="memory"]').click();
   await page.getByLabel("key (optional, e.g. user.timezone)").fill("ui.test");
   await page.getByLabel("fact or note", { exact: true }).fill("Browser test fact");
@@ -138,6 +156,7 @@ try {
         if (mobile) await page.locator("#menu").click();
         continue;
       }
+      if (name === "settings") { await checkSettingsPage(); continue; }
       await page.getByText("Loading…", { exact: true }).waitFor({ state: "hidden" });
       assert.equal(await page.evaluate(() => { const p = document.getElementById("pbody")!; return p.scrollWidth <= p.clientWidth + 1; }), true, `${name} at ${viewport.width}`);
       if (name === "providers" && viewport.width === 390 && process.env.LUNA_UI_SCREENSHOTS) await page.screenshot({ path: join(process.env.LUNA_UI_SCREENSHOTS, "luna-mobile-providers.png") });
@@ -154,7 +173,7 @@ try {
       await page.locator("#shade").click({ position: { x: viewport.width - 5, y: 200 } });
       assert.equal(await page.locator("#menu").getAttribute("aria-expanded"), "false");
     }
-    console.log(`OK ${viewport.width}×${viewport.height}: chat, navigation, six panels and Cron page, no horizontal overflow`);
+    console.log(`OK ${viewport.width}×${viewport.height}: chat, navigation, five panels, Cron and Settings pages, no horizontal overflow`);
   }
   assert.deepEqual(errors, []);
   console.log("WEB_UI_OK (faux model; no external provider or device-keyboard claim)");
