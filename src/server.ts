@@ -1,3 +1,4 @@
+import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
 import { ProjectError } from "./projects.js";
 import { BoardError } from "./board.js";
 import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
@@ -31,6 +32,7 @@ export interface ServerOptions {
   settings?: SettingsStore;
   /** Policy for a runtime without a file-backed settings store. */
   compaction?: () => { enabled: boolean; triggerPercent: number };
+  busyInput?: () => BusyPolicy;
   conversations?: ConversationStore;
   /** Extensions added to sessions created in a project (the board). */
   projectExtensions?: Extension[];
@@ -62,6 +64,7 @@ function parseInput(v: unknown): Input | string {
     if (b?.type === "image" && typeof b.data === "string" && IMAGE_MIME.test(b.mimeType) && /^[A-Za-z0-9+/=]+$/.test(b.data)) { images++; continue; }
     return "invalid content block (text, or image with png/jpeg/gif/webp base64 data)";
   }
+  if (!images && !v.some(b => b.type === "text" && b.text.trim())) return "content is empty";
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
@@ -83,9 +86,29 @@ export function createApp(opts: ServerOptions) {
   const { harness } = opts;
   const app = new Hono();
   const started = Date.now();
+  const draining = new Set<string>();
+  const stops = new Map<string, Promise<void>>();
+  const admissions = new Map<string, Promise<unknown>>();
+  const serial = async <T>(id: string, fn: () => Promise<T>): Promise<T> => {
+    const previous = admissions.get(id) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(fn);
+    admissions.set(id, next);
+    try { return await next; } finally { if (admissions.get(id) === next) admissions.delete(id); }
+  };
+  const stop = async (conv: NonNullable<Awaited<ReturnType<Harness["conversation"]>>>) => {
+    const id = String(conv.id);
+    const pending = stops.get(id);
+    if (pending) return pending;
+    draining.add(id);
+    const work = serial(id, () => conv.abort(context));
+    stops.set(id, work);
+    try { await work; }
+    finally { draining.delete(id); stops.delete(id); }
+  };
   const err = (c: HonoContext, status: 400 | 401 | 404 | 409 | 500, message: string) => c.json({ error: message }, status);
 
   app.onError((e, c) => {
+    if (e instanceof BusyCommandError) return err(c, e.status, e.message);
     if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError) return err(c, e.status, e.message);
     const name = (e as Error).name;
     if (name === "ConversationBusy") return err(c, 409, "conversation busy");
@@ -303,6 +326,7 @@ export function createApp(opts: ServerOptions) {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
     const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string } | null; thinkingLevel?: string | null; instructions?: string | null };
+    if (await harness.commit(tx => isRunning(tx, conv.id), context)) return err(c, 409, "Cannot change the model or agent settings while busy.");
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
     if (b.thinkingLevel && !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
     await conv.configure({
@@ -323,6 +347,7 @@ export function createApp(opts: ServerOptions) {
   app.post("/v1/sessions/:id/compact", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
+    if (await harness.commit(tx => isRunning(tx, conv.id), context)) return err(c, 409, "Cannot compress context while busy.");
     const task = await conv.compact(undefined, context);
     return c.json({ ok: true, taskId: task }, 202);
   });
@@ -330,7 +355,7 @@ export function createApp(opts: ServerOptions) {
   app.post("/v1/sessions/:id/abort", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
-    await conv.abort(context);
+    await stop(conv);
     return c.json({ ok: true });
   });
 
@@ -377,16 +402,55 @@ export function createApp(opts: ServerOptions) {
   // ---- messages ----
   // Non-streaming (default): waits for the answer and returns it.
   // Streaming (?stream=1 or Accept: text/event-stream): SSE of agent events until the submission settles.
-  const send = async (c: HonoContext, sessionId: string, body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" }, asyncMode = false) => {
+  const send = async (c: HonoContext, sessionId: string, body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" | "redirect" }, asyncMode = false) => {
     const conv = await getConv(sessionId);
     if (!conv) return err(c, 404, "no such session");
     const content = parseInput(body.content);
     if (typeof content === "string" && typeof body.content !== "string") return err(c, 400, content);
     if (typeof body.content === "string" && !body.content.trim()) return err(c, 400, "content (string) required");
 
+    if (body.requestId !== undefined && (typeof body.requestId !== "string" || !body.requestId.trim())) return err(c, 400, "requestId must be a nonempty string");
+    if (body.whenBusy !== undefined && !["steer", "followUp", "reject", "redirect"].includes(body.whenBusy)) return err(c, 400, "invalid whenBusy");
+    if (draining.has(String(conv.id))) return c.json({ command: true, notice: "The current turn is stopping. Send the message again after it stops." }, 409);
+    const plain = typeof content === "string" ? content : content.every(block => block.type === "text") ? content.map(block => block.type === "text" ? block.text : "").join("\n") : undefined;
+    const slash = plain === undefined ? null : /^\/(queue|steer|redirect|stop|model|compress|compact|retry)(?:\s+([\s\S]*))?$/.exec(plain.trim());
+    let input = content as Input;
+    let override: BusyMode | undefined;
+    if (slash) {
+      const command = slash[1]!, args = (slash[2] ?? "").trim();
+      if (command === "stop") {
+        await stop(conv);
+        return c.json({ command: true, notice: "Stopped." });
+      }
+      if (["model", "compress", "compact", "retry"].includes(command)) {
+        const busy = await harness.commit(tx => isRunning(tx, conv.id), context);
+        return err(c, busy ? 409 : 400, busy ? `/${command} is not available while busy.` : `Use the session controls for /${command}.`);
+      }
+      if (command === "queue") {
+        const mutation = parseQueueCommand(args || "list");
+        if (mutation) return c.json(await serial(String(conv.id), () => harness.commit(tx => queueCommand(tx, conv.id, mutation, body.requestId), context)));
+        if (/^(?:edit|remove|move)\s+\d+(?:\s|$)/.test(args)) return err(c, 400, "Use /queue list, edit N text, remove N, move A B, or clear.");
+      }
+      if (!args) return err(c, 400, `/${command} needs a message.`);
+      input = args;
+      override = command === "redirect" ? "interrupt" : command as "queue" | "steer";
+    }
+    const submit = () => serial(String(conv.id), async () => {
+      if (draining.has(String(conv.id))) throw new BusyCommandError("The current turn is stopping. Send the message again after it stops.", 409);
+      const policy = opts.settings?.read().busyInput ?? opts.busyInput?.() ?? DEFAULT_BUSY_INPUT;
+      let mode = override ?? (body.whenBusy === "steer" ? "steer" : body.whenBusy === "followUp" ? "queue" : body.whenBusy === "redirect" ? "interrupt" : policy.mode);
+      if (mode === "interrupt" && await harness.commit(tx => interruptBlocked(tx, conv.id), context)) mode = "queue";
+      const textOnly = typeof input === "string" || input.every(block => block.type === "text");
+      const whenBusy = body.whenBusy === "reject" && !override ? "reject" : !textOnly || mode === "queue" ? "followUp" : mode === "steer" ? "steer" : "redirect";
+      const sub = await conv.submit({ type: "input", content: input, requestId: body.requestId, whenBusy }, context);
+      if (sub.action === "steered" && mode === "interrupt") harness.busyTools.yield(conv.id);
+      const action = sub.action ?? ((await sub.status(context)).status === "queued" ? "queued" : "started");
+      const notices = await harness.commit(tx => feedback(tx, conv.id, policy, action), context);
+      return { sub, action, ...notices };
+    });
     if (asyncMode) {
-      const sub = await conv.submit({ type: "input", content: content as Input, requestId: body.requestId, whenBusy: body.whenBusy }, context);
-      return c.json({ submissionId: sub.id }, 202);
+      const { sub, ...receipt } = await submit();
+      return c.json({ submissionId: sub.id, ...receipt }, 202);
     }
 
     const wantsStream = c.req.query("stream") === "1" || (c.req.header("accept") ?? "").includes("text/event-stream");
@@ -399,8 +463,8 @@ export function createApp(opts: ServerOptions) {
     };
 
     if (!wantsStream) {
-      const sub = await conv.submit({ type: "input", content: content as Input, requestId: body.requestId, whenBusy: body.whenBusy }, context);
-      return c.json(await settle(sub));
+      const { sub, ...receipt } = await submit();
+      return c.json({ ...await settle(sub), ...receipt });
     }
     return streamSSE(c, async (stream) => {
       const ev = await watchEvents(harness, conv.id, context);
@@ -412,8 +476,8 @@ export function createApp(opts: ServerOptions) {
         for (const e of events) await stream.writeSSE({ event: (e as { type: string }).type, data: JSON.stringify(e) });
       });
       try {
-        const sub = await conv.submit({ type: "input", content: content as Input, requestId: body.requestId, whenBusy: body.whenBusy }, context);
-        await stream.writeSSE({ event: "submitted", data: JSON.stringify({ submissionId: sub.id }) });
+        const { sub, ...receipt } = await submit();
+        await stream.writeSSE({ event: "submitted", data: JSON.stringify({ submissionId: sub.id, ...receipt }) });
         const result = await Promise.race([settle(sub), done.then(() => null)]);
         if (result) {
           await new Promise((r) => setTimeout(r, 150)); // let the final commit's events flush
@@ -432,7 +496,7 @@ export function createApp(opts: ServerOptions) {
 
   // Convenience: create-or-reuse session in one call. {message, sessionId?}
   app.post("/v1/chat", async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { message?: string; sessionId?: string; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" };
+    const b = await c.req.json().catch(() => ({})) as { message?: string; sessionId?: string; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" | "redirect" };
     let id = b.sessionId;
     if (!id) id = (await harness.createConversation({ ownership: { kind: "ownerless" }, agent: baseAgent() }, context)).id as unknown as string;
     return send(c, id, { content: b.message, requestId: b.requestId, whenBusy: b.whenBusy });

@@ -104,7 +104,7 @@ try {
 
   // Rehydrate an in-flight partial after reload. A queued follow-up must be processed once, on that same session.
   const resume = await create(one); await send(one, "RESUME"); await bounded(gates.get("RESUME")!.entered.promise, "RESUME entered");
-  await choose(two, resume); await send(two, "queued from second device");
+  await choose(two, resume); await send(two, "/queue queued from second device");
   gates.get("RESUME")!.release.resolve(); await two.locator(".assistant").filter({ hasText: "RESUME partial" }).waitFor();
   await two.reload(); await ready(two); await two.locator(".assistant").filter({ hasText: "RESUME partial" }).waitFor();
   await two.getByText("Reply to queued from second device.", { exact: true }).waitFor(); await idle(two);

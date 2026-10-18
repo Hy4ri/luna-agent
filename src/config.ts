@@ -42,6 +42,10 @@ export const ConfigSchema = z
     model: z.string().optional(),
     thinkingLevel: thinking.optional(),
     instructions: z.string().optional(),
+    busyInput: z.strictObject({
+      mode: z.enum(["interrupt", "queue", "steer"]).default("interrupt"),
+      acknowledgements: z.boolean().default(true),
+    }).prefault({}),
     compaction: z.strictObject({
       enabled: z.boolean().default(true),
       triggerPercent: z.number().int().min(1).max(99).default(75),
