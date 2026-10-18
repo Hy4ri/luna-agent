@@ -57,15 +57,15 @@ try {
   await report(1400);
   await page.waitForFunction(() => (globalThis as any).document.getElementById("context-bar")?.dataset.level === "green");
   await page.locator('[data-panel="settings"]').click();
-  const section = page.locator('details[data-section="compaction"]');
-  await section.locator("summary").click();
+  await page.locator('[data-settings-tab="context"]').click();
+  await page.locator('#settings-screen section[data-section="compaction"]').waitFor();
   await page.getByLabel("Enable automatic compaction", { exact: true }).uncheck();
   await page.getByLabel("Context trigger (%)", { exact: true }).fill("30");
   await page.locator("[data-settings-save]").click();
   await page.waitForFunction(() => [...(globalThis as any).document.querySelectorAll('[role="status"][aria-live="polite"]')].some(e => e.textContent?.includes("Compaction changes apply now")));
   assert.deepEqual(rt.compaction(), { enabled: false, triggerPercent: 30 });
   await page.waitForFunction(() => (globalThis as any).document.getElementById("context-bar")?.dataset.level === "red");
-  // Closing the panel keeps the same attached conversation.
+  // Closing the Settings page keeps the same attached conversation.
   await page.keyboard.press("Escape");
   await report(1400);
   await page.waitForFunction(() => (globalThis as any).document.getElementById("context-text")?.textContent?.includes("35.0%"));

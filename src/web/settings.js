@@ -1,11 +1,41 @@
 // The validated config schema supplies every field. No second settings model is stored in the UI.
-async function renderSettings(body, { h, json, post, loadModels, getModels, onSaved }) {
+async function renderSettings(body, { h, json, post, loadModels, getModels, onSaved, initialTab = "general", onTabChange }) {
   await loadModels();
   let saved = await json("/v1/settings");
   let draft = structuredClone(saved.config);
-  const form = h("div", { class: "grid" });
+  let baseline = JSON.stringify(draft);
+  const groups = {
+    general: ["dataDir", "cwd", "server", "busyInput"],
+    models: ["provider", "model", "thinkingLevel", "subagents", "providers", "auxiliary"],
+    context: ["instructions", "compaction"],
+    tools: ["web", "mcpServers", "extensions", "skillDirs"],
+    automation: ["cron", "improve"],
+  };
+  let activeTab = Object.hasOwn(groups, initialTab) ? initialTab : "general";
+  const tabs = h("div", { class: "settings-tabs", role: "tablist", "aria-label": "Settings sections" });
+  const tabButtons = new Map();
+  function selectTab(id, notify = true) {
+    if (!Object.hasOwn(groups, id)) id = "general";
+    activeTab = id;
+    redraw();
+    if (notify) onTabChange?.(id);
+  }
+  for (const [id, title] of Object.entries({ general: "General", models: "Models", context: "Context", tools: "Tools", automation: "Automation" })) {
+    const tab = h("button", { type: "button", role: "tab", id: "settings-tab-" + id, "data-settings-tab": id,
+      "aria-controls": "settings-fields", onclick: () => selectTab(id) }, title);
+    tab.onkeydown = e => {
+      const ids = Object.keys(groups), index = ids.indexOf(activeTab);
+      const next = e.key === "ArrowRight" ? (index + 1) % ids.length : e.key === "ArrowLeft" ? (index + ids.length - 1) % ids.length : e.key === "Home" ? 0 : e.key === "End" ? ids.length - 1 : -1;
+      if (next < 0) return;
+      e.preventDefault(); selectTab(ids[next]); tabButtons.get(ids[next]).focus();
+    };
+    tabButtons.set(id, tab); tabs.append(tab);
+  }
+  const form = h("div", { class: "grid", id: "settings-fields", role: "tabpanel", tabindex: "0" });
   const status = h("p", { class: "muted", role: "status", "aria-live": "polite" });
   const titles = {
+    auxiliary: "Auxiliary models", side_question: "Side questions",
+    web: "Web tools", searchProvider: "Search provider", extractProvider: "Extraction provider", ddgs: "DDGS", mcpServer: "MCP server name", backend: "Search backend", region: "Search region", safesearch: "Safe search",
     dataDir: "Data directory", cwd: "Working directory", provider: "Provider", model: "Model ID",
     thinkingLevel: "Thinking level", instructions: "Default instructions", providers: "Custom AI providers",
     subagents: "Subagents", extensions: "Extensions", skillDirs: "Extra skill directories", mcpServers: "MCP servers",
@@ -19,7 +49,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     enabled: "Enabled", defer: "Defer tools until search", timeoutMs: "Tool-call timeout (milliseconds)",
   };
   const additions = { providers: "provider", models: "model", mcpServers: "MCP server", skillDirs: "skill directory", args: "argument", env: "environment variable", headers: "header" };
-  const label = path => path.join(".") === "compaction.enabled" ? "Enable automatic compaction" : typeof path.at(-1) === "number" ? (additions[path.at(-2)] || "Item") + " " + (path.at(-1) + 1) : path.join(".") === "thinkingLevel" ? "Main thinking level"
+  const label = path => path.join(".") === "web.providers" ? "Provider options" : path.join(".") === "compaction.enabled" ? "Enable automatic compaction" : typeof path.at(-1) === "number" ? (additions[path.at(-2)] || "Item") + " " + (path.at(-1) + 1) : path.join(".") === "thinkingLevel" ? "Main thinking level"
     : path.join(".") === "subagents.thinkingLevel" ? "Subagent thinking level" : titles[path.at(-1)] || path.at(-1);
   const get = path => path.reduce((value, key) => value?.[key], draft);
   function set(path, value) {
@@ -49,19 +79,26 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     const open = new Set([...form.querySelectorAll("details[open][data-section]")].map(e => e.dataset.section));
     form.replaceChildren();
     const props = saved.schema.properties;
-    const main = h("section", { class: "card grid" }, h("b", {}, "Main agent"), modelPicker(false));
-    for (const key of ["thinkingLevel", "instructions"]) main.append(field(props[key], [key], false));
-    main.append(h("p", { class: "muted" }, "Defaults apply to new chat sessions. Each model can limit the thinking levels it supports."));
-    form.append(main);
-    const child = h("section", { class: "card grid" }, h("b", {}, "Subagents"), modelPicker(true));
-    for (const key of ["thinkingLevel", "cwd"]) child.append(field(props.subagents.properties[key], ["subagents", key], false));
-    child.append(h("p", { class: "muted" }, "Unset values inherit from the parent. Applies to normal and forked children."));
-    form.append(child);
-    for (const key of Object.keys(props).filter(k => !["provider", "model", "thinkingLevel", "instructions", "subagents"].includes(k))) {
-      const section = h("details", { class: "card grid", "data-section": key }, h("summary", {}, titles[key] || key), field(props[key], [key], (saved.schema.required || []).includes(key)));
+    for (const [id, tab] of tabButtons) {
+      tab.setAttribute("aria-selected", String(id === activeTab));
+      tab.tabIndex = id === activeTab ? 0 : -1;
+    }
+    form.setAttribute("aria-labelledby", "settings-tab-" + activeTab);
+    if (activeTab === "models") {
+      const main = h("section", { class: "card grid" }, h("h2", {}, "Main agent"), modelPicker(false));
+      main.append(field(props.thinkingLevel, ["thinkingLevel"], false));
+      main.append(h("p", { class: "muted" }, "Defaults apply to new chat sessions. Each model can limit its supported thinking levels."));
+      form.append(main);
+      const child = h("section", { class: "card grid" }, h("h2", {}, "Subagents"), modelPicker(true));
+      for (const key of ["thinkingLevel", "cwd"]) child.append(field(props.subagents.properties[key], ["subagents", key], false));
+      child.append(h("p", { class: "muted" }, "Unset values inherit from the parent. Applies to normal and forked children."));
+      form.append(child);
+    }
+    for (const key of groups[activeTab].filter(k => !["provider", "model", "thinkingLevel", "subagents"].includes(k))) {
+      const section = h("section", { class: "card grid", "data-section": key }, h("h2", {}, titles[key] || key), field(props[key], [key], (saved.schema.required || []).includes(key)));
       if (key === "busyInput") section.append(h("p", { class: "muted" }, "Applies now to all chats. Interrupt redirects the model; tools finish safely. Queue runs separate turns. Steer adds information at the next boundary. Use /queue, /steer, or /redirect for one message."));
-      if (key === "compaction") section.append(h("p", { class: "muted" }, "Applies live to existing sessions. Running tool calls finish first; pending work waits for compaction, then resumes. A finished turn stays idle. Emergency overflow recovery stays enabled."));
-      if (open.has(key)) section.open = true;
+      if (key === "compaction") section.append(h("p", { class: "muted" }, "Applies live to existing sessions. Running tool calls finish first. Emergency overflow recovery stays enabled."));
+      if (key === "web") section.append(h("p", { class: "muted" }, "Search and extraction use separate provider selections. DDGS uses the named MCP connection and its protected credentials. Save, then restart Luna to apply routing changes."));
       form.append(section);
     }
     for (const section of form.querySelectorAll("details[data-section]")) if (open.has(section.dataset.section)) section.open = true;
@@ -113,6 +150,7 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     }
     if (schema.type === "object" && schema.properties) {
       const group = h("div", { class: "grid" });
+      if (path.join(".") === "web.providers.ddgs") group.append(h("h3", {}, "DDGS options"));
       for (const [name, child] of Object.entries(schema.properties)) group.append(field(child, [...path, name], (schema.required || []).includes(name)));
       return group;
     }
@@ -186,28 +224,35 @@ async function renderSettings(body, { h, json, post, loadModels, getModels, onSa
     return fieldLabel(text, input);
   }
   const save = h("button", { type: "button", "data-settings-save": "", onclick: async () => {
-    save.disabled = true; form.inert = true; reload.disabled = true;
+    save.disabled = true; form.inert = true; tabs.inert = true; reload.disabled = true;
     try {
       saved = await post("/v1/settings", { config: draft, revision: saved.revision }, "PUT");
-      draft = structuredClone(saved.config); await loadModels(); redraw(); onSaved?.();
+      draft = structuredClone(saved.config); baseline = JSON.stringify(draft); await loadModels(); redraw(); onSaved?.();
       status.textContent = saved.restartRequired ? "Saved. Restart Luna to apply runtime changes." : "Settings saved. Compaction changes apply now. New sessions and subagents use the new defaults.";
     } catch (e) { status.textContent = e.message; }
-    finally { save.disabled = false; form.inert = false; reload.disabled = false; }
+    finally { save.disabled = false; form.inert = false; tabs.inert = false; reload.disabled = false; }
   } }, "Save settings");
   const reload = button("Reload", async () => {
     if (!confirm("Discard unsaved edits and reload settings?")) return;
-    reload.disabled = true;
-    try { saved = await json("/v1/settings"); draft = structuredClone(saved.config); await loadModels(); redraw(); notice(); }
+    reload.disabled = true; save.disabled = true; form.inert = true; tabs.inert = true;
+    try { saved = await json("/v1/settings"); draft = structuredClone(saved.config); baseline = JSON.stringify(draft); await loadModels(); redraw(); notice(); }
     catch (e) { status.textContent = e.message; }
-    finally { reload.disabled = false; }
+    finally { reload.disabled = false; save.disabled = false; form.inert = false; tabs.inert = false; }
   });
   function notice() {
     status.textContent = saved.restartRequired ? "Saved. Restart Luna to apply runtime changes." : "Compaction changes apply live. Model defaults apply to new sessions and subagents. Other changes need a restart.";
   }
-  body.append(h("p", { class: "muted" }, saved.path),
-    h("p", { class: "muted" }, "Every control saves to this file. Provider and MCP panels use the same file. Credentials stay in the protected credential store. Saved secret markers preserve existing values."),
-    saved.environmentOverrides.length ? h("p", { class: "muted" }, "Environment overrides: " + saved.environmentOverrides.join(", ")) : null,
+  body.append(tabs,
+    h("details", { class: "settings-file" }, h("summary", {}, "Configuration file"),
+      h("p", { class: "muted" }, saved.path),
+      h("p", { class: "muted" }, "All tabs save to this file. Provider and MCP panels use the same file. Saved secret markers preserve existing values."),
+      saved.environmentOverrides.length ? h("p", { class: "muted" }, "Environment overrides: " + saved.environmentOverrides.join(", ")) : null),
     form, h("p", { class: "muted" }, "Provider definitions, MCP connections, and runtime changes made here need a restart. Provider and MCP panels can apply connection changes live."),
     h("div", { class: "row" }, save, reload), status);
   redraw(); notice();
+  return {
+    selectTab,
+    canLeave: () => JSON.stringify(draft) === baseline || confirm("Discard unsaved settings?"),
+    isDirty: () => JSON.stringify(draft) !== baseline,
+  };
 }

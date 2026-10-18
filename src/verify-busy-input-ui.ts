@@ -32,7 +32,8 @@ try {
   await page.addInitScript((id: string) => { localStorage.setItem("luna.token", "test"); localStorage.setItem("luna.session", id); }, String(conv.id));
   await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
   await page.locator('[data-panel="settings"]').click();
-  const section = page.locator('details[data-section="busyInput"]'); await section.locator("summary").click();
+  await page.locator('[data-settings-tab="general"]').click();
+  await page.locator('section[data-section="busyInput"]').waitFor();
   await page.getByLabel("Mode", { exact: true }).selectOption("queue");
   await page.getByLabel("Show acknowledgements", { exact: true }).uncheck();
   await page.locator("[data-settings-save]").click();
