@@ -177,3 +177,63 @@ Background OS processes are local to the daemon process. A normal daemon shutdow
 The HTTP message endpoint returns `action`, plus optional `notice` and `tip`. Existing `whenBusy: "steer" | "followUp" | "reject"` clients remain supported.
 `whenBusy: "redirect"` requests a per-message redirect. Command responses include `command: true` and queue commands return numbered `queue` rows.
 The web client omits `whenBusy` for normal sends, so the saved mode controls routing.
+
+
+## Parallel chat commands
+
+Both commands run immediately, including during a model call, tool execution, or compaction.
+They do not interrupt, steer, or queue the main turn. They also work while a main-turn stop drains.
+
+| Command | Context | Tools | Result |
+| --- | --- | --- | --- |
+| `/btw question` | Snapshot of this conversation | Denied | Short text answer |
+| `/bg prompt` | Fresh conversation | Same enabled tools as the source | Full task result and media |
+
+An empty argument returns usage. `/btw` reports unreadable history, empty history, or unavailable provider credentials before starting.
+`/bg` can start from an empty chat. Include all necessary task context in its prompt.
+Images go directly to the new conversation. Audio attachments become local files with paths in its prompt.
+Audio understanding requires an enabled tool that can read or transcribe those files; it is not a native audio model input.
+Ordinary messages cannot contain audio. `/btw` ignores attachments.
+
+The started receipt includes the prompt preview and job ID. Results appear separately in the same chat.
+They are not synthetic user or assistant entries in the main history. The main agent never sees them.
+The web client restores job results after reconnecting, or after switching away and back, while the daemon remains running.
+The CLI prints results with their job ID. Closing a viewer does not stop a job. The main Stop button does not stop side jobs.
+There is no side-job steering or cancellation command.
+
+`/btw` replays the unchanged structured prompt prefix when a complete assistant boundary exists.
+It uses the source provider session identity and records its usage against the source session.
+It trims unfinished tail messages. The snapshot can therefore omit recent activity.
+The side instruction is a new user suffix, not a change to the main system prompt.
+Tool calls receive denial results without dispatch, with at most three model calls total.
+When structured replay is unavailable, it uses one plain-text call: 2,000 characters per message,
+24,000 characters total, newest messages first for budget selection. System messages are omitted.
+Actual provider cache hits depend on provider behavior; prefix parity is not proof of a cache hit.
+
+Optional side-question routing uses a bounded plain-text digest instead of structured replay:
+
+```json
+"auxiliary": {
+  "side_question": { "provider": "openai", "model": "gpt-4.1-mini" }
+}
+```
+
+Both route fields are required. Settings changes apply to the next side question.
+The route does not change `/bg` or the main model.
+
+The new `/bg` conversation has its own durable numeric session ID and a `bg_HHMMSS_xxxxxx` job ID.
+It inherits the source model, thinking level, instructions, working directory, and enabled extensions, but no transcript.
+Its tool actions can change shared files and services. Isolation applies to chat history, not the operating system.
+`MEDIA:` file directives in its answer provide authenticated image, audio, video, or document delivery.
+The web client displays media in the answer where each directive occurs. The CLI prints download URLs.
+Only files named in that job result are downloadable. File reads reject final symlinks and non-regular files.
+
+Job receipts, result delivery, and attached audio files last for the current daemon process.
+They are not a restart-safe job queue. Normal shutdown stops active side jobs and removes attached audio files.
+The `/bg` transcript remains in its separate durable conversation.
+
+HTTP clients use the normal message endpoint. Side commands return HTTP 202 with
+`{ command: true, job, notice }`, without a main submission ID.
+`GET /v1/sessions/:id/side-jobs` lists only that chat's jobs.
+The session event stream sends `side_jobs` on connection and `side_job` for state changes.
+Retries with the same request ID reuse the same job; conflicting reuse is rejected.

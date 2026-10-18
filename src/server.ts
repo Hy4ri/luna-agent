@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
-import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId } from "@earendil-works/pi-durable";
+import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { AskDoc, checkAnswer } from "./ask.js";
 import { Children } from "./delegate.js";
@@ -23,12 +23,15 @@ import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
 import { readAnalytics } from "./analytics.js";
+import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
+import { sideMedia, readSideMedia } from "./side-media.js";
 import { activeContextTokens } from "./context-usage.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
 export interface ServerOptions {
   harness: Harness;
+  sideCommands?: SideCommands;
   settings?: SettingsStore;
   /** Policy for a runtime without a file-backed settings store. */
   compaction?: () => { enabled: boolean; triggerPercent: number };
@@ -52,9 +55,10 @@ export interface ServerOptions {
   mcp?: McpManager;
 }
 
-type Input = string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
+type Input = SideInput;
+const AUDIO_MIME = /^audio\/(mpeg|mp3|wav|x-wav|ogg|webm|mp4|flac)$/;
 const IMAGE_MIME = /^image\/(png|jpeg|gif|webp)$/;
-/** Validate message content: a string, or text/image blocks (max 8 images, base64 data). */
+/** Validate text, image, and file-backed audio input (max 8 images, base64 data). */
 function parseInput(v: unknown): Input | string {
   if (typeof v === "string") return v.trim() ? v : "content is empty";
   if (!Array.isArray(v) || !v.length) return "content (string or block array) required";
@@ -62,7 +66,8 @@ function parseInput(v: unknown): Input | string {
   for (const b of v) {
     if (b?.type === "text" && typeof b.text === "string") continue;
     if (b?.type === "image" && typeof b.data === "string" && IMAGE_MIME.test(b.mimeType) && /^[A-Za-z0-9+/=]+$/.test(b.data)) { images++; continue; }
-    return "invalid content block (text, or image with png/jpeg/gif/webp base64 data)";
+    if (b?.type === "audio" && typeof b.data === "string" && AUDIO_MIME.test(b.mimeType) && /^[A-Za-z0-9+/=]+$/.test(b.data)) continue;
+    return "invalid content block (text, image, or audio with base64 data)";
   }
   if (!images && !v.some(b => b.type === "text" && b.text.trim())) return "content is empty";
   if (images > 8) return "at most 8 images per message";
@@ -84,8 +89,12 @@ async function isRunning(tx: Tx, id: ConversationId) {
 
 export function createApp(opts: ServerOptions) {
   const { harness } = opts;
+  const sideCommands = opts.sideCommands ?? new SideCommands({ harness, models: opts.models });
   const app = new Hono();
   const started = Date.now();
+  const jobView = (job: SideJob) => ({ ...job, media: (job.kind === "bg" && job.status === "complete" ? sideMedia(job.text) : []).map(({ name, mimeType, type, directive }, index) => ({
+    name, mimeType, type, directive, url: `/v1/sessions/${encodeURIComponent(job.sessionId)}/side-jobs/${encodeURIComponent(job.id)}/media/${index}`,
+  })) });
   const draining = new Set<string>();
   const stops = new Map<string, Promise<void>>();
   const admissions = new Map<string, Promise<unknown>>();
@@ -399,6 +408,29 @@ export function createApp(opts: ServerOptions) {
     return c.json({ ok: true });
   });
 
+  // Out-of-band job results: never model-visible entries or submissions in this chat.
+  app.get("/v1/sessions/:id/side-jobs", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    return c.json({ jobs: sideCommands.list(String(conv.id)).map(jobView) });
+  });
+  app.get("/v1/sessions/:id/side-jobs/:jobId/media/:index", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const job = sideCommands.list(String(conv.id)).find(j => j.id === c.req.param("jobId"));
+    const index = Number(c.req.param("index"));
+    if (!job || job.kind !== "bg" || job.status !== "complete" || !Number.isSafeInteger(index) || index < 0) return err(c, 404, "no such media");
+    const child = job.conversationId && await harness.conversation(job.conversationId as never, context);
+    const cwd = child ? (await child.agent(context)).cwd : undefined;
+    const media = sideMedia(job.text, cwd)[index];
+    if (!media) return err(c, 404, "no such media");
+    try {
+      const bytes = await readSideMedia(media.path);
+      return c.body(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 200, { "content-type": media.mimeType, "cache-control": "no-store",
+        "x-content-type-options": "nosniff", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(media.name)}` });
+    } catch { return err(c, 404, "media file unreadable"); }
+  });
+
   // ---- messages ----
   // Non-streaming (default): waits for the answer and returns it.
   // Streaming (?stream=1 or Accept: text/event-stream): SSE of agent events until the submission settles.
@@ -411,6 +443,17 @@ export function createApp(opts: ServerOptions) {
 
     if (body.requestId !== undefined && (typeof body.requestId !== "string" || !body.requestId.trim())) return err(c, 400, "requestId must be a nonempty string");
     if (body.whenBusy !== undefined && !["steer", "followUp", "reject", "redirect"].includes(body.whenBusy)) return err(c, 400, "invalid whenBusy");
+    const commandText = typeof content === "string" ? content : content.filter(b => b.type === "text").map(b => b.type === "text" ? b.text : "").join("\n");
+    const side = /^\/(btw|bg)(?:\s+([\s\S]*))?$/.exec(commandText.trim());
+    if (side) {
+      const kind = side[1] as "btw" | "bg", prompt = (side[2] ?? "").trim();
+      if (!prompt) return err(c, 400, `Usage: /${kind} <${kind === "btw" ? "question" : "prompt"}>`);
+      try {
+        const job = await sideCommands.start(conv, kind, prompt, content as Input, body.requestId);
+        return c.json({ command: true, job: jobView(job), notice: `/${kind} started: ${prompt.slice(0, 60)} [${job.id}]` }, 202);
+      } catch (error) { return err(c, 400, (error as Error).message); }
+    }
+    if (Array.isArray(content) && content.some(b => b.type === "audio")) return err(c, 400, "Audio attachments require /bg.");
     if (draining.has(String(conv.id))) return c.json({ command: true, notice: "The current turn is stopping. Send the message again after it stops." }, 409);
     const plain = typeof content === "string" ? content : content.every(block => block.type === "text") ? content.map(block => block.type === "text" ? block.text : "").join("\n") : undefined;
     const slash = plain === undefined ? null : /^\/(queue|steer|redirect|stop|model|compress|compact|retry)(?:\s+([\s\S]*))?$/.exec(plain.trim());
@@ -442,7 +485,7 @@ export function createApp(opts: ServerOptions) {
       if (mode === "interrupt" && await harness.commit(tx => interruptBlocked(tx, conv.id), context)) mode = "queue";
       const textOnly = typeof input === "string" || input.every(block => block.type === "text");
       const whenBusy = body.whenBusy === "reject" && !override ? "reject" : !textOnly || mode === "queue" ? "followUp" : mode === "steer" ? "steer" : "redirect";
-      const sub = await conv.submit({ type: "input", content: input, requestId: body.requestId, whenBusy }, context);
+      const sub = await conv.submit({ type: "input", content: input as UserInput, requestId: body.requestId, whenBusy }, context);
       if (sub.action === "steered" && mode === "interrupt") harness.busyTools.yield(conv.id);
       const action = sub.action ?? ((await sub.status(context)).status === "queued" ? "queued" : "started");
       const notices = await harness.commit(tx => feedback(tx, conv.id, policy, action), context);
@@ -511,15 +554,19 @@ export function createApp(opts: ServerOptions) {
       let finish!: () => void;
       const done = new Promise<void>(r => finish = r);
       stream.onAbort(finish);
+      const stopSide = sideCommands.subscribe(String(conv.id), job => {
+        void stream.writeSSE({ event: "side_job", data: JSON.stringify(jobView(job)) }).catch(finish);
+      });
       const ping = setInterval(() => { void stream.writeSSE({ event: "ping", data: "{}" }).catch(finish); }, 15000);
       try {
+        await stream.writeSSE({ event: "side_jobs", data: JSON.stringify({ jobs: sideCommands.list(String(conv.id)).map(jobView) }) });
         await stream.writeSSE({ event: "snapshot", data: JSON.stringify(ev.snapshot) });
         ev.start(async events => {
           try { for (const event of events) await stream.writeSSE({ event: event.type, data: JSON.stringify(event) }); }
           catch { finish(); }
         });
         await Promise.race([done, ev.closed, harness.closed]);
-      } finally { clearInterval(ping); await ev.stop(); }
+      } finally { stopSide(); clearInterval(ping); await ev.stop(); }
     });
   });
 
