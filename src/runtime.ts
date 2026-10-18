@@ -1,3 +1,4 @@
+import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
@@ -152,7 +153,13 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     await scheduler.start();
   }
 
+  const sideCommands = new SideCommands({ harness, models: built.models, route: () => {
+    const route = (settings?.resolved() ?? cfg).auxiliary.side_question;
+    return route ? { provider: route.provider, modelId: route.model } : undefined;
+  } });
+
   return {
+    sideCommands,
     config: cfg,
     settings,
     compaction,
@@ -170,6 +177,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     scheduler,
     mcp,
     async close() {
+      await sideCommands.close();
       providers.close();
       await scheduler?.stop();
       await harness.close(context).catch(() => {});

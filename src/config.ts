@@ -50,6 +50,9 @@ export const ConfigSchema = z
       enabled: z.boolean().default(true),
       triggerPercent: z.number().int().min(1).max(99).default(75),
     }).prefault({}),
+    auxiliary: z.strictObject({
+      side_question: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
+    }).prefault({}),
     providers: z.array(CustomProviderSchema).default([]),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
