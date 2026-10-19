@@ -499,3 +499,88 @@ Each redirect is checked. Connections use the checked IP while retaining the URL
 Downloads retry once for network errors or HTTP 5xx, with at most five redirects and a 30-second download deadline.
 Transport safety limits are 32 MiB per source and 40 million decoded pixels.
 An interruption returns `Interrupted`.
+
+
+## Image generation (ChatGPT subscription)
+
+Image generation uses the ChatGPT subscription saved by the Codex CLI. It does not use an OpenAI API key.
+It is disabled by default. Select the provider explicitly:
+
+```json
+{
+  "image_gen": {
+    "provider": "openai-codex",
+    "openai-codex": {
+      "model": "gpt-image-2",
+      "quality": "low"
+    }
+  }
+}
+```
+
+Sign in with `codex login` using ChatGPT. The adapter reads the file-backed Codex login from
+`CODEX_HOME/auth.json`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
+Set `image_gen.openai-codex.codexHome` to select another Codex home explicitly.
+Relative configuration paths resolve against the config file's directory.
+Keyring-only Codex credentials are not supported; this adapter requires file-backed tokens.
+Luna's separate **OpenAI / Sign in with ChatGPT** chat login is not substituted for the Codex login.
+These OAuth flows use different credentials; the image adapter leaves the chat login unchanged.
+
+`OPENAI_API_KEY`, API-key-mode Codex credentials, and the paid OpenAI Images API are never used.
+There is no paid fallback. Subscription plan limits and image quota still apply.
+The adapter posts to the native Codex `images/generations` and `images/edits` endpoints at
+`https://chatgpt.com/backend-api/codex/`, not a chat-model prompt that might skip image generation.
+It sends Luna's own client identity and the selected account/residency headers.
+
+Availability checks read only the selected adapter's local credentials. They do not refresh tokens or contact OpenAI.
+On execution, a token near expiry is refreshed using the official Codex app-server `account/read` RPC.
+No model turn is started. Codex owns refresh-token rotation and credential-file writes.
+The refresh process uses `codex` from PATH; `image_gen.openai-codex.codexCommand` can override that executable.
+Concurrent calls share one refresh. If the selected account changes during refresh, the image request fails before submission.
+Cancellation stops waiting but lets an active, bounded refresh finish saving rotated credentials.
+The helper process closes after refresh or failure. Refresh failures require a fresh `codex login`; they never switch accounts or auth types.
+
+Remove `image_gen.provider` to hide the tool.
+Provider and capability changes apply on the next tool listing, including existing conversations.
+Changes to the daemon's environment require restarting it.
+
+`image_generate` requires a nonempty `prompt`.
+`aspect_ratio` accepts `landscape` (16:9), `square`, or `portrait` (9:16); landscape is the default.
+Requests specify sizes 1536×864, 1024×1024, or 864×1536 respectively.
+The supported model is `gpt-image-2`. Configured `quality` accepts `low`, `medium`, or `high`; the default is `low`.
+The subscription backend can ignore size or quality. The result records `requested_size`, measured `pixel_size`,
+`requested_quality`, and any `reported_size` or `reported_quality`. `aspect_ratio` records the requested orientation, not a guaranteed exact output ratio.
+
+The tool accepts `image_url` and `reference_image_urls`. At most 16 source images are allowed in total.
+Sources select editing; no sources select text-to-image. Upscaling and creative controls are not advertised for Codex.
+The schema includes only the selected adapter's supported fields and is rebuilt for every listing.
+Local sources must resolve inside the conversation working directory (or configured `cwd`).
+The file descriptor is checked after opening, so symlinks cannot escape that directory.
+This is source-file confinement, not an operating-system sandbox.
+HTTP(S) sources use the existing vision loader, with public-address checks, pinned DNS, redirect checks, and byte/pixel limits.
+Data URLs are also accepted. Sources are decoded before provider dispatch; adapters receive pixels, not unchecked paths or URLs.
+The Codex adapter normalizes edit sources to PNG and applies a 25 MiB per-image upload limit.
+
+Each generation call makes one image submission. There is no automatic generation retry, provider fallback, or interrupted-call recovery replay.
+Cancellation cannot restore quota already consumed by a submitted request.
+Generated PNG files remain in `<dataDir>/generated-images/` with private file permissions. There is no automatic retention cleanup.
+Success results include `success`, `image`, `model`, `prompt`, `aspect_ratio`, `modality`, `provider`, and `upscaled`.
+Errors include `success: false`, `error`, and `error_type`. Server error bodies and credentials are not exposed.
+The tool returns a bounded image preview for chat delivery. If preview delivery fails, the successful file path is retained.
+Use `vision_analyze` on the returned local path to inspect the original.
+To edit a generated file outside the conversation directory, copy it into that directory first.
+
+Provider adapters implement `ImageGenProvider` in `src/image-gen.ts`.
+The current adapter is `src/plugins/image_gen/openai-codex.ts`; authentication is in `src/codex-image-auth.ts`.
+Register new adapters explicitly. Directory contents are not executed automatically.
+Adapters must ignore unknown request fields. The dispatcher forwards only advertised controls.
+Unsupported editing is checked before calling an adapter. JavaScript `TypeError` is `provider_exception`, not a Python keyword-argument error.
+Unknown selected providers get one registry refresh attempt, then `provider_not_registered`.
+Other providers, FAL, managed Nous/Krea/Portal gateways, and remote file synchronization remain unimplemented.
+Unsupported gateway and nonlocal execution routes fail explicitly.
+
+Offline checks: `pnpm run verify:image-gen` and `pnpm run verify:image-gen-ui`.
+The opt-in live check is `pnpm run verify:image-gen:live --live`.
+It uses an isolated runtime, submits exactly one real subscription generation, verifies chat preview delivery,
+and retains the generated image under the configured data directory. It never changes live configuration.
+The live check is excluded from the default suite and requires explicit permission to consume subscription quota.
