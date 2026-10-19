@@ -20,6 +20,17 @@ const initialEntries = [
   { id: 4, kind: 'pi.assistant', model: [{ role: 'assistant', content: [{ type: 'text', text: 'One file needs access.' }], timestamp: stamp + 3000 }] },
   { id: 5, kind: 'pi.user', model: [{ role: 'user', content: 'Background process deadbeef-abcd finished: completed, exit 0.\nWorker report.', timestamp: stamp + 4000 }] },
   { id: 6, kind: 'pi.user', model: [{ role: 'user', content: 'I mentioned background tasks, not a report.', timestamp: stamp + 5000 }] },
+  { id: 7, kind: 'pi.assistant', model: [{ role: 'assistant', timestamp: stamp + 6000, content: [
+    { type: 'toolCall', id: 'edit-1', name: 'edit', arguments: { path: 'src/a.ts', edits: [{ oldText: 'const a = 1;', newText: 'const a = 2;\nconst b = 3;' }] } },
+    { type: 'toolCall', id: 'edit-2', name: 'edit', arguments: { path: 'src/b.ts', edits: [{ oldText: 'old line', newText: 'new line' }] } },
+    { type: 'toolCall', id: 'bash-1', name: 'bash', arguments: { command: 'pnpm test\n--verbose' } },
+  ] }] },
+  { id: 8, kind: 'pi.tool', model: [
+    { role: 'toolResult', toolCallId: 'edit-1', toolName: 'edit', isError: false, timestamp: stamp + 7000, content: [{ type: 'text', text: 'Successfully replaced 1 block(s) in src/a.ts.' }],
+      details: { diff: '    ...\n  9 // keep\n-10 const a = 1;\n+10 const a = 2;\n+11 const b = 3;\n 11 export {};', patch: '' } },
+    { role: 'toolResult', toolCallId: 'edit-2', toolName: 'edit', isError: true, timestamp: stamp + 7000, content: [{ type: 'text', text: 'Could not find the exact text in src/b.ts.' }] },
+    { role: 'toolResult', toolCallId: 'bash-1', toolName: 'bash', isError: true, timestamp: stamp + 7000, content: [{ type: 'text', text: '\u001b[31mFAIL\u001b[0m 2 tests\n<harness>\n[error] Command exited with code 2\n</harness>' }] },
+  ] },
 ];
 const tasks = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, subject: `Task ${i + 1}`, activeForm: i === 1 ? 'Reading files' : undefined, status: i === 0 ? 'completed' : i === 1 ? 'in_progress' : 'pending', blockedBy: [] }));
 const sessions = new Map<string, any>([
@@ -104,6 +115,28 @@ try {
   assert.equal(await failed.locator('script').count(), 0);
   assert.equal(await page.evaluate(() => (globalThis as any).injected), undefined);
   assert.ok(await failed.locator('time').count(), 'Tool timestamp remains at bottom');
+  const edit = page.locator('.tool[data-call="edit-1"]');
+  assert.equal((await edit.locator('.tool-summary').textContent()).trim(), 'src/a.ts', 'Edit summary names the file');
+  assert.equal((await edit.locator('.tool-counts').textContent()).trim(), '+2 −1');
+  await edit.locator('summary').first().click();
+  await edit.getByText('Diff', { exact: true }).waitFor();
+  assert.deepEqual(await edit.locator('.diff-row').evaluateAll((rows: any[]) => rows.map(r => [r.dataset.kind, r.querySelector('.diff-line').textContent, r.querySelector('.diff-text').textContent])),
+    [['skip', '', '…'], ['ctx', '9', '// keep'], ['del', '10', 'const a = 1;'], ['add', '10', 'const a = 2;'], ['add', '11', 'const b = 3;'], ['ctx', '11', 'export {};']]);
+  assert.equal(await edit.locator('.tool-section-label', { hasText: 'Arguments' }).count(), 0, 'Edit shows a diff, not argument JSON');
+  assert.equal(await edit.locator('.tool-raw').count(), 1, 'Raw arguments stay reachable');
+  const failedEdit = page.locator('.tool[data-call="edit-2"]');
+  await failedEdit.getByText('Could not find the exact text in src/b.ts.', { exact: true }).waitFor();
+  assert.equal(await failedEdit.locator('.tool-counts').count(), 0, 'An edit that was not applied shows no change counts');
+  await failedEdit.locator('summary').first().click();
+  await failedEdit.getByText('Requested change (not applied, no line numbers)', { exact: true }).waitFor();
+  assert.deepEqual(await failedEdit.locator('.diff-row').evaluateAll((rows: any[]) => rows.map(r => [r.dataset.kind, r.querySelector('.diff-line').textContent])), [['del', ''], ['add', '']]);
+  const shell = page.locator('.tool[data-call="bash-1"]');
+  assert.equal((await shell.locator('.tool-summary').textContent()).trim(), '$ pnpm test');
+  assert.equal((await shell.locator('.tool-exit').textContent()).trim(), 'exit 2');
+  const shellError = shell.locator('.tool-error');
+  await shellError.getByText('Exited with code 2', { exact: true }).waitFor({ state: 'visible' });
+  assert.equal(await shellError.locator('pre').textContent(), 'FAIL 2 tests', 'ANSI codes and the harness block are not shown as text');
+  assert.equal(await shellError.locator('.ansi-red').textContent(), 'FAIL');
   for (const row of [page.locator('.user').first(), page.locator('.assistant').filter({ hasText: 'One file needs access.' })]) {
     assert.ok(await row.locator('.message-footer time').getAttribute('datetime'));
     await row.getByRole('button', { name: 'Copy message', exact: true }).waitFor();
@@ -160,12 +193,12 @@ try {
   emit('42', 'tool_execution_start', { toolCallId: 'live-1', toolName: 'bash', taskId: 't-1', args: { command: 'false' } });
   emit('42', 'tool_execution_update', { toolCallId: 'live-1', output: { set: 'stale partial output' } });
   await page.locator('.tool[data-call="live-1"]').waitFor();
-  await page.locator('.tool[data-call="live-1"] summary').click();
+  await page.locator('.tool[data-call="live-1"] > details > summary').click();
   await page.evaluate(() => { (globalThis as any).savedTool = (globalThis as any).document.querySelector('.tool[data-call="live-1"]'); });
   emit('42', 'tool_execution_update', { toolCallId: 'live-1', output: { append: ' more output' } });
   await page.locator('.tool[data-call="live-1"] pre').filter({ hasText: 'more output' }).waitFor();
   assert.equal(await page.evaluate(() => (globalThis as any).savedTool === (globalThis as any).document.querySelector('.tool[data-call="live-1"]')), true);
-  assert.notEqual(await page.locator('.tool[data-call="live-1"] details').getAttribute('open'), null);
+  assert.notEqual(await page.locator('.tool[data-call="live-1"] > details').getAttribute('open'), null);
   emit('42', 'tool_execution_end', { toolCallId: 'live-1', result: { isError: true, structuredOutput: 'Final tool error', diagnostics: [] } });
   const finalTool = page.locator('.tool[data-call="live-1"]');
   await finalTool.getByText('Final tool error', { exact: true }).waitFor();
