@@ -9,6 +9,7 @@ import {
   type ProviderStreams, type AssistantMessage, type TextContent, type ThinkingContent, type ToolCall,
 } from "@earendil-works/pi-ai";
 import { prepareNativeRequest, runNativeRequest, nativeResponseCarrier, validateNativeResponse } from "./claude-native.js";
+import { nativeContextWindow } from "./claude-native/history.js";
 
 export function claudeExecutable() {
   return process.env.LUNA_CLAUDE_EXECUTABLE ?? join(homedir(), ".local/bin/claude");
@@ -133,8 +134,9 @@ export function claudeCliProvider() {
     return {
       id, name: `${name} (CLI)`, api: "anthropic-messages" as const,
       provider: "claude-cli", baseUrl: "", input: ["text" as const, "image" as const], reasoning: false,
-      // Unknown/plain native routes default to 200K. Never copy a larger API-only window.
-      contextWindow: id.endsWith("[1m]") ? 1000000 : 200000, maxTokens: known?.maxTokens ?? 32000,
+      // Same table the transport routes by, so the reported window is the one the CLI runs at.
+      // Unknown/plain native routes stay 200K. Never copy a larger API-only window.
+      contextWindow: nativeContextWindow(id), maxTokens: known?.maxTokens ?? 32000,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     };
   };

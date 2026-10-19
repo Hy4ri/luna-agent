@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mock } from "node:test";
 import { createModels, type Context, type AssistantMessageEvent } from "@earendil-works/pi-ai";
 import * as native from "./claude-native.js";
+import { nativeContextWindow } from "./claude-native/history.js";
 
 let calls = 0;
 let lastRequest: native.NativeRequest | undefined;
@@ -113,7 +114,9 @@ try {
   assert.equal(refused.events.filter(e => e.type === "toolcall_end").length, 0);
   console.log("OK: invalid or incomplete batches and refusals never expose actionable tools");
 
-  assert.ok(models.getModels("claude-cli").every(m => m.contextWindow === 200000));
+  for (const m of models.getModels("claude-cli")) assert.equal(m.contextWindow, nativeContextWindow(m.id), m.id);
+  assert.equal(models.getModel("claude-cli", "claude-opus-5-5")!.contextWindow, 1000000);
+  assert.equal(models.getModel("claude-cli", "claude-haiku-4-5-20251001")!.contextWindow, 200000);
   const refreshed = await models.refresh({ providers: ["claude-cli"], allowNetwork: true });
   assert.equal(refreshed.errors.size, 0);
   assert.equal(models.getModel("claude-cli", "claude-new-test")!.contextWindow, 200000);
