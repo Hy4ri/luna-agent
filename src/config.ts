@@ -52,6 +52,16 @@ export const ConfigSchema = z
     }).prefault({}),
     auxiliary: z.strictObject({
       side_question: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
+      vision: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
+    }).prefault({}),
+    vision: z.strictObject({
+      image_mode: z.enum(["native", "auxiliary"]).default("native"),
+      history_budget_bytes: z.number().int().positive().default(256 * 1024),
+      long_edge: z.number().int().positive().default(2048),
+      hard_bytes: z.number().int().positive().default(1024 * 1024),
+      max_calls_per_image: z.number().int().nonnegative().default(0),
+      subagent_max_calls_per_image: z.number().int().nonnegative().default(3),
+      profiles: z.record(z.string(), z.strictObject({ tool_result_images: z.boolean() })).default({}),
     }).prefault({}),
     providers: z.array(CustomProviderSchema).default([]),
     // Agent-facing web tools use a common interface; options belong to each provider.

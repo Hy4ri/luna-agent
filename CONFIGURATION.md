@@ -430,3 +430,72 @@ The server does not need the frontend source files at runtime. Rebuilds update t
 During a rebuild, requests can fail while Vite replaces the output files. Reload after the build completes.
 Run `pnpm run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
 Use `pnpm run typecheck:web` to check Vue components. `pnpm run test` includes frontend type checking and the production build.
+
+## Image analysis
+
+`vision_analyze(image_url, question, region?, use_active_model?)` accepts a local path, an HTTP(S) URL, or an image data URL.
+Load the full image first. Then use `region` to inspect small text.
+`region` is `{ "x": 0, "y": 0, "width": 200, "height": 100 }` in original-image pixels.
+All values must be integers. Regions outside the image are rejected. Cropping occurs before resizing.
+Local paths use the conversation working directory.
+
+The tool is offered only when the active model accepts images or a configured auxiliary vision model resolves with credentials.
+The runtime checks the model catalog. Unknown capability does not enable native routing.
+
+```json
+{
+  "auxiliary": {
+    "vision": { "provider": "openai", "model": "gpt-4o" }
+  },
+  "vision": {
+    "image_mode": "native",
+    "history_budget_bytes": 262144,
+    "long_edge": 2048,
+    "hard_bytes": 1048576,
+    "max_calls_per_image": 0,
+    "subagent_max_calls_per_image": 3,
+    "profiles": {
+      "example-provider": { "tool_result_images": false }
+    }
+  }
+}
+```
+
+These values are the defaults, except the example auxiliary route and profile.
+`image_mode` accepts `native` or `auxiliary`. Settings changes apply to later requests and tool calls without restart.
+Profiles use a provider ID or `provider/model`. A model profile takes precedence over a provider profile.
+Set `tool_result_images` to `false` when a deployment rejects images in tool results.
+
+Native routing requires native mode, a known image-capable model, a supported transport, and no profile veto.
+Capability-check errors use the auxiliary route.
+Native results contain text and an image block. The provider adapter converts this block to its image input format.
+The active model inspects the pixels directly. Later requests resend those pixels from history.
+Both byte limits measure the base64 payload. The tool resizes and re-encodes to meet both limits and the long-edge cap.
+It returns an error if the image cannot fit.
+
+Auxiliary routing uses `auxiliary.vision.model`, temperature `0.1`, and a 120-second timeout across attempts.
+It sends the full-resolution image, or the full-resolution crop, with this prompt:
+`Fully describe everything, then answer: <question>`.
+A size rejection permits one smaller-image retry. An empty reply permits one further attempt.
+The main model receives only `{ "success": true, "analysis": "..." }`, not auxiliary pixels.
+Some visual detail can be lost in that text.
+
+If native routing is rejected and no auxiliary client resolves, the tool returns an explicit error.
+For a supported active vision model in native mode, the error offers a retry with `use_active_model: true`.
+That explicit option bypasses only the profile veto. It cannot enable image input for a text-only model or an unsupported transport.
+It does not change configured image mode or future calls.
+
+A zero call limit means unlimited. Main agents have no default cap; subagents default to three calls per source image.
+Counts persist across turns. Crops share their source image's count.
+A native source-and-region pair is attached only once per turn. Different regions are separate variants.
+An image already attached in the current turn is not attached again.
+Duplicate skips do not consume the configured call limit. Failed analysis attempts after source preparation do consume it.
+
+Sources are copied to private temporary files, with directory mode `0700` and file mode `0600`.
+The tool deletes only its temporary files on success, error, or interruption. User files are never removed.
+SVG and BMP sources become PNG. External SVG resources and entities are rejected.
+Downloads reject private, loopback, link-local, multicast, reserved, and translated IP addresses.
+Each redirect is checked. Connections use the checked IP while retaining the URL host for TLS verification.
+Downloads retry once for network errors or HTTP 5xx, with at most five redirects and a 30-second download deadline.
+Transport safety limits are 32 MiB per source and 40 million decoded pixels.
+An interruption returns `Interrupted`.

@@ -1,3 +1,4 @@
+import { createVisionExtension } from "./vision.js";
 import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
@@ -84,7 +85,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const store = on("cron") || on("improve") ? new CronStore(cronDb) : undefined;
   let scheduler: Scheduler | undefined;
 
+  let harnessRef: Awaited<ReturnType<typeof openLuna>> | undefined;
   const extensions: Extension[] = [];
+  extensions.push(createVisionExtension({ config: () => settings?.resolved() ?? cfg, models: built.models, defaultModel: () => providers.defaultModel(),
+    history: async (id, ctx) => (await (await harnessRef!.conversation(id, ctx))!.context(ctx)) }));
   extensions.push(createWebToolsExtension(cfg.web, new Map([
     ["ddgs", createDdgsWebProvider(cfg.web.providers.ddgs, mcp)],
   ])));
@@ -127,7 +131,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (ask) extensions.push(ask);
   const recall = on("recall") ? new RecallIndex(join(cfg.dataDir, "recall.db")) : undefined;
   if (recall) extensions.push(createRecallExtension(recall));
-  let harnessRef: Awaited<ReturnType<typeof openLuna>> | undefined;
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
 
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
