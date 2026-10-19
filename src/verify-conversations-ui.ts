@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import { createModels, fauxProvider } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { parseConfig } from "./config.js";
 import { startRuntime } from "./runtime.js";
 import { createApp } from "./server.js";
@@ -17,7 +17,7 @@ const fm = faux.getModel(), model = { provider: fm.provider, modelId: fm.id };
 const rt = await startRuntime(parseConfig({ dataDir: dir, provider: "faux" }, dir, {}), { models, model });
 const app = createApp({ harness: rt.harness, models: rt.models, conversations: rt.conversations, agent: { model }, token: "test" });
 const headers = { authorization: "Bearer test", "content-type": "application/json" };
-const create = async () => (await (await app.request("/v1/sessions", { method: "POST", headers, body: "{}" })).json() as { id: number }).id;
+const create = async (project?: number) => (await (await app.request("/v1/sessions", { method: "POST", headers, body: JSON.stringify(project ? { project } : {}) })).json() as { id: number }).id;
 const first = await create(), second = await create();
 await rt.conversations.update(first, { title: "First conversation" });
 await rt.conversations.update(second, { title: "Second conversation" });
@@ -56,7 +56,6 @@ try {
   await page.locator("#title").filter({ hasText: "Renamed <safe> conversation" }).waitFor();
   await manage(first); await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
   await row(first).waitFor({ state: "hidden" });
-  await row(first).waitFor({ state: "hidden" });
   assert.equal(await row(first).count(), 0);
   assert.equal(await page.locator("#title").textContent(), "New conversation");
   await page.locator("#history-view").click();
@@ -66,7 +65,6 @@ try {
   await page.locator("#history-view").click();
   await row(first).waitFor();
   await manage(first); await page.getByRole("menuitem", { name: "Restore", exact: true }).click();
-  await row(first).waitFor({ state: "hidden" });
   await row(first).waitFor({ state: "hidden" });
   assert.equal(await row(first).count(), 0);
   await page.locator("#history-view").click();
@@ -108,8 +106,48 @@ try {
   }, second);
   await close(); await page.locator("#menu").click();
   await row(second).getByRole("button", { name: "Mobile rename", exact: true }).waitFor();
+  // Send real messages in older sessions. Verify ordering independently in both group types.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const projectRes = await app.request("/v1/projects", { method: "POST", headers, body: JSON.stringify({ name: "Activity project", cwd: dir }) });
+  assert.equal(projectRes.status, 201);
+  const project = await projectRes.json() as { id: number };
+  const projectOlder = await create(project.id), projectNewer = await create(project.id);
+  const normalOlder = await create(), normalNewer = await create();
+  faux.setResponses(Array(12).fill(() => fauxAssistantMessage("activity reply")));
+  await page.reload();
+  await row(normalNewer).waitFor();
+  const groupKeys = await page.locator('.session-group > .group-toggle').evaluateAll((els: any[]) => els.map(el => el.getAttribute('aria-controls')));
+  assert.deepEqual(groupKeys, ['group-' + project.id, 'group-none'], "project groups must precede Chats");
+  const waitFirst = async (group: string, id: number) => page.waitForFunction(({ group, id }: { group: string; id: number }) => {
+    const doc = (globalThis as any).document;
+    return doc.querySelector(`#${group} .session-row`)?.getAttribute('data-session') === String(id);
+  }, { group, id });
+  const send = async (id: number, text: string) => {
+    await row(id).locator('.session-open').click();
+    await page.waitForFunction(() => !(globalThis as any).document.getElementById('send').disabled);
+    await page.locator('#input').fill(text);
+    await page.locator('#send').click();
+    await page.locator('#log .user').filter({ hasText: text }).waitFor();
+    await page.waitForFunction(() => (globalThis as any).document.getElementById('status').textContent === 'Ready');
+  };
+  for (const [group, older, newer] of [['group-' + project.id, projectOlder, projectNewer], ['group-none', normalOlder, normalNewer]] as const) {
+    await waitFirst(group, newer);
+    await send(newer, 'first activity ' + group);
+    await waitFirst(group, newer);
+    await send(older, 'newer activity in older session ' + group);
+    await waitFirst(group, older);
+    await manage(newer); await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+    await row(newer).locator('.session-pin').waitFor();
+    await waitFirst(group, newer);
+    await send(older, 'activity below pinned session ' + group);
+    await waitFirst(group, newer);
+    await manage(newer); await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
+    await row(newer).locator('.session-pin').waitFor({ state: 'hidden' });
+    await waitFirst(group, older);
+  }
+
   assert.deepEqual(errors, []);
-  console.log("CONVERSATIONS_UI_OK: rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls");
+  console.log("CONVERSATIONS_UI_OK: rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups and pin precedence");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }

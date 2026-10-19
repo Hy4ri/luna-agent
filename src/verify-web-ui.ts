@@ -161,7 +161,14 @@ try {
   await page.locator("#search").fill("");
   await page.screenshot({ path: process.env.LUNA_UI_SCREENSHOTS ? join(process.env.LUNA_UI_SCREENSHOTS, "luna-desktop.png") : join(dir, "desktop.png") });
 
+  const stopButton = page.getByRole('button', { name: 'Stop', exact: true });
+  assert.equal(await stopButton.getAttribute('title'), 'Stop');
+  assert.equal((await stopButton.textContent()).trim(), '', 'Stop must be icon-only');
+  assert.equal(await stopButton.locator('svg').count(), 1);
+  const expandedHistoryIcon = await page.locator('.history-head > svg').getAttribute('class');
+  assert.ok(expandedHistoryIcon?.includes('lucide-history'), 'expanded History uses the Lucide History icon');
   await page.locator('#side-collapse').click();
+  assert.equal(await page.locator('#history-rail svg').getAttribute('class'), expandedHistoryIcon);
   assert.equal(await page.locator('#side-collapse').getAttribute('aria-label'), 'Expand sidebar');
   assert.equal(await page.evaluate(() => localStorage.getItem('luna.side.collapsed')), '1');
   await page.waitForFunction(() => document.getElementById('side')!.getBoundingClientRect().width <= 64);

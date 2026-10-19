@@ -47,7 +47,7 @@ onUnmounted(() => document.removeEventListener('keydown', keyboard));
         <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
           <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" aria-controls="side" :aria-expanded="ui.drawer" @click="setDrawer(true)"><Menu :size="18" /></button>
           <div class="heading min-w-0 flex-1"><span id="title" class="block truncate text-sm font-medium">{{ chat.title }}</span></div>
-          <button id="stop" :disabled="stopDisabled" class="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-35" @click="stopRun"><Square :size="13" />Stop</button>
+          <button id="stop" :disabled="stopDisabled" class="icon-button" aria-label="Stop" title="Stop" @click="stopRun"><Square :size="16" /></button>
           <button id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
         </header>
         <Transcript />

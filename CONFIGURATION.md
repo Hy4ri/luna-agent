@@ -425,6 +425,8 @@ Retries with the same request ID reuse the same job; conflicting reuse is reject
 ## Web frontend development
 
 The web frontend uses Vue 3, Vite, TypeScript, Tailwind CSS, and shadcn-vue.
-Run `pnpm run build:web` before starting the server. The server serves the build from `dist/web`.
+Run `pnpm run build:web` before starting the server. The server serves the build from `dist/web`, including the service worker.
+The server does not need the frontend source files at runtime. Rebuilds update the served page and asset list without a server restart.
+During a rebuild, requests can fail while Vite replaces the output files. Reload after the build completes.
 Run `pnpm run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
 Use `pnpm run typecheck:web` to check Vue components. `pnpm run test` includes frontend type checking and the production build.

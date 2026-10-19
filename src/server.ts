@@ -6,8 +6,7 @@ import { ConversationError, type ConversationStore, type ConversationMeta } from
 import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
+import { createWebApp } from "./web-assets.js";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
 import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
@@ -124,19 +123,8 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
-  const root = new URL("../dist/web/", import.meta.url);
-  let page: string | null = null;
-  const assets: string[] = [];
-  try { page = readFileSync(new URL("index.html", root), "utf8"); assets.push(...readdirSync(new URL("assets/", root)).map(name => "/assets/" + name)); } catch { /* Build required. API remains available. */ }
-  app.get("/", (c) => page === null ? c.text("Web UI is not built. Run pnpm run build:web.", 503) : c.html(page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer" }));
-  const files = ["/", "/manifest.webmanifest", "/icon.svg", ...assets];
-  const version = "luna-vue-" + assets.join("-");
-  const swCode = stripTypeScriptTypes(readFileSync(new URL("../web/sw.ts", import.meta.url), "utf8")).replace("__SHELL_VERSION__", version).replace("__SHELL_FILES__", JSON.stringify(files));
-  app.get("/sw.js", (c) => c.body(swCode, 200, { "content-type": "text/javascript", "cache-control": "no-cache" }));
-  for (const path of files.filter(p => p !== "/")) {
-    const type = path.endsWith(".js") ? "text/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".svg") ? "image/svg+xml" : "application/manifest+json";
-    app.get(path, c => { try { return c.body(readFileSync(new URL(path.slice(1), root)), 200, { "content-type": type, "cache-control": path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache" }); } catch { return c.notFound(); } });
-  }
+  const webApp = createWebApp(new URL("../dist/web/", import.meta.url));
+  app.route("/", webApp);
   app.get("/health", async c => {
     if (opts.token) return c.json({ ok: true, auth: true });
     const inspection = await harness.inspect(context);
@@ -187,7 +175,7 @@ export function createApp(opts: ServerOptions) {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
       const links = opts.conversations?.projects.links();
-      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean })[] = [];
+      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; lastActivity: number | null })[] = [];
       let cursor;
       do {
         const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
@@ -197,11 +185,26 @@ export function createApp(opts: ServerOptions) {
           const user = head.find((e) => e.kind === "pi.user");
           const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
           const running = await isRunning(tx, r.id);
-          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running });
+          // Only message times count. Renaming, pinning and other bookkeeping must not move a session.
+          let lastActivity: number | null = null;
+          let entryCursor;
+          do {
+            const entries = await tx.scanEntries({ conversationId: r.id, order: "descending" }, 200, entryCursor);
+            for (const entry of entries.items) {
+              const role = entry.kind === "pi.user" ? "user" : entry.kind === "pi.assistant" ? "assistant" : null;
+              if (!role) continue;
+              for (const message of entry.model ?? []) {
+                if (message.role !== role || !Number.isFinite(message.timestamp) || message.timestamp < 0) continue;
+                lastActivity = Math.max(lastActivity ?? 0, message.timestamp);
+              }
+            }
+            entryCursor = entries.next;
+          } while (entryCursor);
+          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, lastActivity });
         }
         cursor = page.next;
       } while (cursor);
-      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? 0) - (a.lastActivity ?? 0) || Number(b.id) - Number(a.id));
     }, context);
     return c.json({ sessions });
   });

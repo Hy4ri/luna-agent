@@ -1,5 +1,25 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import {
+  Boxes,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
+  Plus,
+  Clock,
+  FolderKanban,
+  Kanban,
+  History as HistoryIcon,
+  Search,
+  Archive,
+  ChevronRight,
+  Pin,
+  Ellipsis,
+  Pencil,
+  Trash2,
+  Settings as SettingsIcon,
+  LoaderCircle,
+} from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
@@ -23,22 +43,39 @@ const filteredSessions = computed(() => {
   return history.list.filter(s => !!s.archived === history.archived && sessionTitle(s).toLowerCase().includes(q));
 });
 
+function sortSessions(sessions: any[]) {
+  return [...sessions].sort((a, b) => {
+    if (!!b.pinned !== !!a.pinned) {
+      return Number(b.pinned) - Number(a.pinned);
+    }
+    const timeB = b.lastActivity ?? 0;
+    const timeA = a.lastActivity ?? 0;
+    if (timeB !== timeA) {
+      return timeB - timeA;
+    }
+    return Number(b.id) - Number(a.id);
+  });
+}
+
 const groups = computed(() => {
   const filtered = filteredSessions.value;
   if (history.projects.length === 0) {
-    return [{ key: "none", name: "Chats", project: null, sessions: [...filtered].sort((a, b) => Number(b.pinned) - Number(a.pinned)) }];
+    return [{ key: "none", name: "Chats", project: null, sessions: sortSessions(filtered) }];
   }
   const result: { key: string; name: string; project: number | null; sessions: any[] }[] = [];
-  const noneSessions = filtered.filter(s => !s.project || !history.projects.some(p => p.id === s.project));
-  if (noneSessions.length > 0 || !history.query) {
-    result.push({ key: "none", name: "Chats", project: null, sessions: noneSessions.sort((a, b) => Number(b.pinned) - Number(a.pinned)) });
-  }
+
   for (const p of history.projects) {
     const pSessions = filtered.filter(s => Number(s.project) === Number(p.id));
     if (pSessions.length > 0 || !history.query) {
-      result.push({ key: String(p.id), name: p.name, project: p.id, sessions: pSessions.sort((a, b) => Number(b.pinned) - Number(a.pinned)) });
+      result.push({ key: String(p.id), name: p.name, project: p.id, sessions: sortSessions(pSessions) });
     }
   }
+
+  const noneSessions = filtered.filter(s => !s.project || !history.projects.some(p => p.id === s.project));
+  if (noneSessions.length > 0 || !history.query) {
+    result.push({ key: "none", name: "Chats", project: null, sessions: sortSessions(noneSessions) });
+  }
+
   return result;
 });
 
@@ -139,9 +176,7 @@ async function saveRename(s: any) {
   const t = renameValue.value.trim();
   const cur = sessionTitle(s);
   if (t && t !== cur) {
-    try {
-      await renameSession(s, t);
-    } catch {}
+    await renameSession(s, t);
   }
   renamingId.value = null;
 }
@@ -166,23 +201,19 @@ function openSessionMenu(s: any, event: MouseEvent) {
 }
 
 async function handleMenuAction(action: string, s: any) {
-  if (action === 'delete') {
-    if (await deleteSession(s)) closeMenu();
-    return;
-  }
-  closeMenu();
   if (action === "pin") {
-    try {
-      await togglePinned(s);
-    } catch {}
+    await togglePinned(s);
+    closeMenu();
   } else if (action === "rename") {
+    closeMenu();
     startRename(s);
   } else if (action === "archive") {
-    try {
-      await toggleArchived(s);
-    } catch {}
+    await toggleArchived(s);
+    closeMenu();
   } else if (action === "delete") {
-    await deleteSession(s);
+    if (await deleteSession(s)) {
+      closeMenu();
+    }
   }
 }
 
@@ -206,8 +237,6 @@ onUnmounted(() => { document.removeEventListener('pointerdown', outsideMenu); do
 onMounted(() => {
   document.addEventListener('pointerdown', outsideMenu);
   document.addEventListener('keydown', menuKey, true);
-
-
 });
 </script>
 
@@ -222,7 +251,7 @@ onMounted(() => {
     <!-- Header -->
     <header class="side-head">
       <div class="brand">
-        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" class="text-primary"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        <Boxes :size="20" class="text-primary" />
         <h1 v-if="!collapsed">Luna</h1>
       </div>
       <button
@@ -233,7 +262,7 @@ onMounted(() => {
         :title="ui.collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
         @click="toggleCollapsed"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+        <component :is="ui.collapsed ? PanelLeftOpen : PanelLeftClose" :size="18" />
       </button>
       <button
         id="side-close"
@@ -241,27 +270,27 @@ onMounted(() => {
         aria-label="Close navigation"
         @click="setDrawer(false)"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        <X :size="18" />
       </button>
     </header>
 
     <!-- Nav Top -->
     <nav id="nav" class="side-top">
       <button id="new" title="New chat" class="side-item" @click="handleNewChat()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        <Plus :size="18" />
         <span class="side-label">New chat</span>
       </button>
       <button class="side-item" data-panel="cron" title="Cron" :aria-current="ui.view === 'cron' ? 'page' : undefined" @click="openPanel('cron')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <Clock :size="18" />
         <span class="side-label">Cron</span>
         <span id="cron-unread" class="pill" :hidden="!ui.cronUnread">{{ ui.cronUnread }}</span>
       </button>
       <button class="side-item" data-panel="projects" title="Projects" @click="openPanel('projects')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <FolderKanban :size="18" />
         <span class="side-label">Projects</span>
       </button>
       <button class="side-item" data-panel="board" title="Board" @click="openPanel('board')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        <Kanban :size="18" />
         <span class="side-label">Board</span>
       </button>
     </nav>
@@ -274,11 +303,11 @@ onMounted(() => {
         aria-label="Show history"
         @click="toggleCollapsed"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        <HistoryIcon :size="18" />
       </button>
 
       <div class="history-head" v-if="!collapsed">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+        <HistoryIcon :size="16" />
         <h2 id="history-title">History</h2>
         <button
           id="search-toggle"
@@ -288,7 +317,7 @@ onMounted(() => {
           aria-label="Search conversations"
           @click="toggleSearch"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <Search :size="16" />
         </button>
         <button
           id="history-view"
@@ -297,7 +326,7 @@ onMounted(() => {
           :aria-label="history.archived ? 'Show active conversations' : 'Show archived conversations'"
           @click="toggleHistoryView"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect width="22" height="5" x="1" y="3"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+          <Archive :size="16" />
         </button>
       </div>
 
@@ -334,8 +363,8 @@ onMounted(() => {
               :aria-controls="'group-' + g.key"
               @click="toggleGroup(g.key)"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="transition-transform" :class="{ 'rotate-90': !isGroupCollapsed(g.key) }"><polyline points="9 18 15 12 9 6"/></svg>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !isGroupCollapsed(g.key) }" />
+              <FolderKanban :size="14" />
               <span class="group-name">{{ g.name }}</span>
               <span class="group-count ml-auto text-xs text-muted-foreground">{{ g.sessions.length }}</span>
             </button>
@@ -346,7 +375,7 @@ onMounted(() => {
                 :aria-label="'New session in ' + g.name"
                 @click="handleNewChat(g.project)"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                <Plus :size="14" />
                 <span>New session</span>
               </button>
 
@@ -375,12 +404,14 @@ onMounted(() => {
                     @click="setDrawer(false); openSession(s.id)"
                   >
                     <span class="session-pin" aria-hidden="true" v-if="s.pinned">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+                      <Pin :size="12" />
                     </span>
                     <span>{{ sessionTitle(s) }}</span>
                   </button>
 
-                  <span class="session-running muted" data-running="true" aria-label="Running" v-if="s.running">Running</span>
+                  <span class="session-running muted" data-running="true" role="img" aria-label="Running" title="Running" v-if="s.running">
+                    <LoaderCircle :size="14" class="motion-safe:animate-spin" />
+                  </span>
 
                   <button
                     class="session-manage icon-button"
@@ -389,7 +420,7 @@ onMounted(() => {
                     :aria-expanded="activeMenuSession?.id === s.id ? 'true' : 'false'"
                     @click="(e) => openSessionMenu(s, e)"
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                    <Ellipsis :size="16" />
                   </button>
                 </div>
               </template>
@@ -402,7 +433,7 @@ onMounted(() => {
     <!-- Footer -->
     <div class="side-foot">
       <button class="side-item" data-panel="settings" title="Settings" :aria-current="ui.view === 'settings' ? 'page' : undefined" @click="openPanel('settings')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <SettingsIcon :size="18" />
         <span class="side-label">Settings</span>
       </button>
     </div>
@@ -431,14 +462,14 @@ onMounted(() => {
         role="menuitem"
         @click="handleMenuAction('pin', activeMenuSession)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+        <Pin :size="14" />
         <span>{{ activeMenuSession.pinned ? 'Unpin' : 'Pin' }}</span>
       </button>
       <button
         role="menuitem"
         @click="handleMenuAction('rename', activeMenuSession)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+        <Pencil :size="14" />
         <span>Rename</span>
       </button>
       <button
@@ -446,7 +477,7 @@ onMounted(() => {
         :disabled="activeMenuSession.running"
         @click="handleMenuAction('archive', activeMenuSession)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect width="22" height="5" x="1" y="3"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+        <Archive :size="14" />
         <span>{{ activeMenuSession.archived ? 'Restore' : 'Archive' }}</span>
       </button>
       <button
@@ -455,7 +486,7 @@ onMounted(() => {
         :disabled="activeMenuSession.running"
         @click="handleMenuAction('delete', activeMenuSession)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        <Trash2 :size="14" />
         <span>Delete</span>
       </button>
     </div></Teleport>

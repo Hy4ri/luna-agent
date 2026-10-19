@@ -39,7 +39,7 @@ try {
     const unauthRes = await app.request("/v1/sessions");
     assert.equal(unauthRes.status, 401);
 
-    // 2. Create some conversations and check listing & sorting (pinned first, stable descending creation ID within categories)
+    // 2. Create some conversations and check listing & sorting (pinned first, last message activity, descending ID for ties)
     const s1Res = await app.request("/v1/sessions", { method: "POST", headers, body: JSON.stringify({}) });
     assert.equal(s1Res.status, 201);
     const s1 = await s1Res.json() as { id: number };
@@ -47,6 +47,10 @@ try {
     const s2Res = await app.request("/v1/sessions", { method: "POST", headers, body: JSON.stringify({}) });
     assert.equal(s2Res.status, 201);
     const s2 = await s2Res.json() as { id: number };
+
+    const emptyList = (await (await app.request("/v1/sessions", { headers })).json() as { sessions: any[] }).sessions;
+    assert.deepEqual(emptyList.map(s => s.id), [s2.id, s1.id], "empty sessions use descending ID ties");
+    assert.ok(emptyList.every(s => s.lastActivity === null), "empty sessions have no message activity");
 
     // Pin s1
     const pinRes = await app.request(`/v1/sessions/${s1.id}/metadata`, {
@@ -73,6 +77,32 @@ try {
     assert.equal(listBody.sessions[0].id, s1.id);
     assert.equal(listBody.sessions[0].pinned, true);
     assert.equal(listBody.sessions[0].title, "Session One");
+
+    // Message activity is durable and independent of metadata and later bookkeeping entries.
+    const conv2 = (await rt.harness.conversation(s2.id as never, context))!;
+    const activityStart = Date.now();
+    const sent = await app.request(`/v1/sessions/${s2.id}/messages`, { method: "POST", headers, body: JSON.stringify({ content: "activity test" }) });
+    assert.equal(sent.status, 200);
+    assert.equal((await sent.json() as { status: string }).status, "done");
+    const entries = (await conv2.entries({ order: "descending" }, 50, undefined, context)).items;
+    const times = entries.filter(e => e.kind === "pi.user" || e.kind === "pi.assistant")
+      .flatMap(e => (e.model ?? []).filter(m => m.role === "user" || m.role === "assistant").map(m => m.timestamp));
+    assert.ok(times.length >= 2, "both user and assistant messages must exist");
+    const expectedActivity = Math.max(...times);
+    assert.ok(expectedActivity >= activityStart);
+    const sessions = async () => (await (await app.request("/v1/sessions", { headers })).json() as { sessions: any[] }).sessions;
+    assert.equal((await sessions()).find(s => s.id === s2.id).lastActivity, expectedActivity);
+    assert.equal((await sessions())[0].id, s1.id, "pin outranks more recent activity");
+    for (const metadata of [{ title: "Activity rename" }, { pinned: true }, { archived: false }]) {
+      assert.equal((await app.request(`/v1/sessions/${s2.id}/metadata`, { method: "PATCH", headers, body: JSON.stringify(metadata) })).status, 200);
+      assert.equal((await sessions()).find(s => s.id === s2.id).lastActivity, expectedActivity, "metadata must not change last activity");
+    }
+    // Restore the original fixture state for the persistence and deletion scenarios below.
+    assert.equal((await app.request(`/v1/sessions/${s2.id}/metadata`, { method: "PATCH", headers, body: JSON.stringify({ title: "Session Two", pinned: false, archived: true }) })).status, 200);
+    await conv2.commit(async tx => {
+      for (let i = 0; i < 205; i++) await tx.appendEntry(conv2.id, { kind: "test.bookkeeping", data: { timestamp: expectedActivity + 10000, i } });
+    }, context);
+    assert.equal((await sessions()).find(s => s.id === s2.id).lastActivity, expectedActivity, "message scan must continue beyond the first page and ignore bookkeeping times");
 
     // 3. Invalid metadata payload tests
     const badMeta1 = await app.request(`/v1/sessions/${s1.id}/metadata`, {
@@ -134,6 +164,7 @@ try {
       assert.ok(persistedS2);
       assert.equal(persistedS2.archived, true);
       assert.equal(persistedS2.title, "Session Two");
+      assert.equal(persistedS2.lastActivity, expectedActivity, "message activity survives runtime restart");
 
       // 5. Hard deletion tests (including fork/child rows, recall data, busy rejection, unrelated preservation, repeated delete 404)
       const unrelatedRes = await app2.request("/v1/sessions", { method: "POST", headers, body: JSON.stringify({}) });
