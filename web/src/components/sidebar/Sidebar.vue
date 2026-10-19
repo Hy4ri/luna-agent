@@ -357,28 +357,28 @@ onMounted(() => {
 
         <template v-for="g in groups" :key="g.key">
           <div class="session-group" :data-project="g.key">
-            <button
-              class="group-toggle"
-              :aria-expanded="!isGroupCollapsed(g.key) ? 'true' : 'false'"
-              :aria-controls="'group-' + g.key"
-              @click="toggleGroup(g.key)"
-            >
-              <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !isGroupCollapsed(g.key) }" />
-              <FolderKanban :size="14" />
-              <span class="group-name">{{ g.name }}</span>
-              <span class="group-count ml-auto text-xs text-muted-foreground">{{ g.sessions.length }}</span>
-            </button>
-
-            <div v-show="!isGroupCollapsed(g.key)" :id="'group-' + g.key" class="group-body">
+            <div class="group-header">
+              <button
+                class="group-toggle"
+                :aria-expanded="!isGroupCollapsed(g.key) ? 'true' : 'false'"
+                :aria-controls="'group-' + g.key"
+                @click="toggleGroup(g.key)"
+              >
+                <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !isGroupCollapsed(g.key) }" />
+                <FolderKanban :size="14" />
+                <span class="group-name">{{ g.name }}</span>
+              </button>
               <button
                 class="group-new"
                 :aria-label="'New session in ' + g.name"
+                :title="'New session in ' + g.name"
                 @click="handleNewChat(g.project)"
               >
                 <Plus :size="14" />
-                <span>New session</span>
               </button>
+            </div>
 
+            <div v-show="!isGroupCollapsed(g.key)" :id="'group-' + g.key" class="group-body">
               <template v-for="s in g.sessions" :key="s.id">
                 <div class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
                   <!-- Inline rename input -->
