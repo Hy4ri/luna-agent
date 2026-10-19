@@ -124,11 +124,11 @@ try {
   }, { group, id });
   const send = async (id: number, text: string) => {
     await row(id).locator('.session-open').click();
-    await page.waitForFunction(() => !(globalThis as any).document.getElementById('send').disabled);
+    await page.waitForFunction(() => (globalThis as any).document.getElementById('input') && !(globalThis as any).document.getElementById('activity')?.textContent?.includes('Reconnecting'));
     await page.locator('#input').fill(text);
     await page.locator('#send').click();
     await page.locator('#log .user').filter({ hasText: text }).waitFor();
-    await page.waitForFunction(() => (globalThis as any).document.getElementById('status').textContent === 'Ready');
+    await page.waitForFunction(() => !(globalThis as any).document.getElementById('activity'));
   };
   for (const [group, older, newer] of [['group-' + project.id, projectOlder, projectNewer], ['group-none', normalOlder, normalNewer]] as const) {
     await waitFirst(group, newer);

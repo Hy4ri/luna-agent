@@ -28,6 +28,7 @@ export function textBlocks(content: unknown): string {
 export const chat = reactive({
   session: (sessionStorage.getItem("luna.session") || localStorage.getItem("luna.session") || null) as string | null,
   title: "New conversation",
+  project: null as number | null,
   /** Bumps on every conversation switch; async work from older views is dropped. */
   epoch: 0,
   /** Bumps when durable entries change. */
@@ -38,10 +39,12 @@ export const chat = reactive({
   queuedCount: 0,
   /** Text of the in-flight assistant message (rAF-throttled). */
   liveText: "",
+  liveThinking: "",
   /** Live tool output by call id; replaces the static view while the tool runs. */
   toolLive: {} as Record<string, string>,
   /** Tools reported by the feed that may not be in durable entries yet. */
-  toolStarts: {} as Record<string, { name: string; args?: unknown }>,
+  toolStarts: {} as Record<string, { name: string; args?: unknown; timestamp?: number; taskId?: string }>,
+  toolResults: {} as Record<string, any>,
   activeTools: new Set<string>(),
   compactions: new Set<string>(),
   contextCompacting: false,
@@ -83,6 +86,18 @@ export const status = computed(() => {
   const waiting = [...chat.activeTools].some(id => toolName(id) === "ask_user_question");
   return sending.value ? "Sending…" : chat.session && !chat.connected ? "Reconnecting…" : chat.contextCompacting || chat.compactions.size > 0 ? "Compacting context…" : waiting ? "Waiting for your answer…"
     : chat.queuedCount ? `Running · ${chat.queuedCount} queued` : busy.value ? (chat.liveText ? "Writing…" : "Running…") : "Ready";
+});
+export const activityLabel = computed(() => {
+  if (chat.bootError) return chat.bootError;
+  if (sending.value) return "Sending…";
+  if (chat.session && !chat.connected) return "Reconnecting…";
+  if (chat.contextCompacting || chat.compactions.size) return "Compacting context…";
+  if ([...chat.activeTools].some(id => toolName(id) === "ask_user_question")) return "Waiting for your answer…";
+  if (chat.queuedCount) return `Running · ${chat.queuedCount} queued`;
+  if (chat.activeTools.size) return "Running…";
+  if (chat.liveText) return "Writing…";
+  if (chat.generationActive) return "Thinking…";
+  return chat.runActive ? "Running…" : "";
 });
 export const usageText = computed(() => {
   const u = chat.usage;
@@ -199,8 +214,9 @@ function detachView() {
   chat.contextCompacting = false; chat.compactions = new Set(); chat.context = undefined;
   if (liveFrame !== null) cancelAnimationFrame(liveFrame); liveFrame = null;
   chat.connected = false; chat.runActive = chat.generationActive = false; chat.queuedCount = 0;
-  liveMessage = null; chat.liveText = ""; entries = new Map(); chat.rev++;
-  chat.toolLive = {}; chat.toolStarts = {}; chat.activeTools = new Set();
+  liveMessage = null; chat.liveText = ""; chat.liveThinking = ""; entries = new Map(); chat.rev++;
+  chat.project = null;
+  chat.toolLive = {}; chat.toolStarts = {}; chat.toolResults = {}; chat.activeTools = new Set();
   chat.notices = []; chat.extras = null;
 }
 function setSession(id: string | null) {
@@ -217,7 +233,10 @@ export function clearConversation() {
 function applyAgent(agent: any) {
   setSelectedModel(agent?.model || models.defaultModel); models.thinking = agent?.thinkingLevel || "off";
 }
-function syncLive() { chat.liveText = textBlocks(liveMessage?.content); }
+function syncLive() {
+  chat.liveText = textBlocks(liveMessage?.content);
+  chat.liveThinking = Array.isArray(liveMessage?.content) ? liveMessage.content.filter((b: any) => b.type === "thinking").map((b: any) => b.thinking || "").join("\n\n") : "";
+}
 function queueLive(epoch: number) {
   if (liveFrame !== null) return;
   liveFrame = requestAnimationFrame(() => { liveFrame = null; if (epoch === chat.epoch) syncLive(); });
@@ -240,9 +259,12 @@ function onSessionEvent(type: string, e: any, epoch: number) {
     liveMessage = e.generation?.message ? structuredClone(e.generation.message) : null; syncLive();
     applyAgent(e.agent || {}); chat.usage = e.usage ? markRaw(e.usage) : null;
     for (const slot of slots) {
-      if (slot.status === "done") continue;
-      if (!chat.toolStarts[slot.callId]) chat.toolStarts[slot.callId] = { name: slot.name, args: slot.arguments };
+      if (slot.status === "done" && !slot.parentCallId) continue;
+      if (!chat.toolStarts[slot.callId]) chat.toolStarts[slot.callId] = { name: slot.name, args: slot.arguments, taskId: slot.taskId };
       if (slot.output) chat.toolLive[slot.callId] = slot.output;
+      if (slot.status === "done" && slot.summary) {
+        chat.toolResults[slot.callId] = { isError: slot.summary.isError, content: slot.summary.error || slot.output || "" };
+      }
     }
     scheduleExtras();
   } else if (type === "message_start" && e.message.role === "assistant") {
@@ -281,14 +303,29 @@ function onSessionEvent(type: string, e: any, epoch: number) {
   }
   else if (type === "tool_execution_start") {
     chat.activeTools.add(e.toolCallId);
-    if (!chat.toolStarts[e.toolCallId]) chat.toolStarts[e.toolCallId] = { name: e.toolName, args: e.args };
+    if (!chat.toolStarts[e.toolCallId]) chat.toolStarts[e.toolCallId] = { name: e.toolName, args: e.args, timestamp: Date.now(), taskId: e.taskId };
     if (EXTRA_TOOLS.test(e.toolName)) scheduleExtras(e.toolName === "ask_user_question" ? 3 : 0);
   } else if (type === "tool_execution_update" && e.output) {
     const id = e.toolCallId;
     if ("set" in e.output) chat.toolLive[id] = e.output.set;
     else chat.toolLive[id] = (chat.toolLive[id] ?? toolArgsText(chat.toolStarts[id]?.args)).slice(e.output.trimStart || 0) + (e.output.append || "");
-  } else if (type === "tool_execution_end") { chat.activeTools.delete(e.toolCallId); scheduleExtras(); scheduleContext(); }
-  else if (type === "task_failed") addErr(e.message);
+  } else if (type === "tool_execution_end") {
+    chat.activeTools.delete(e.toolCallId);
+    if (e.entry) putEntry(e.entry);
+    if (e.result) {
+      const output = e.result.structuredOutput;
+      const content = typeof output === "string" ? output : Array.isArray(output) ? output : output !== undefined ? JSON.stringify(output, null, 2) : (e.result.diagnostics || []).map((d: any) => d.message || "").join("\n");
+      chat.toolResults[e.toolCallId] = { ...e.result, content, timestamp: Date.now() };
+    }
+    scheduleExtras(); scheduleContext();
+  }
+  else if (type === "task_failed") {
+    const call = Object.entries(chat.toolStarts).find(([, tool]) => tool.taskId === e.taskId)?.[0];
+    if (call) {
+      chat.activeTools.delete(call);
+      chat.toolResults[call] = { isError: true, content: e.message, timestamp: Date.now() };
+    } else addErr(e.message);
+  }
   else if (type === "submission") {
     if (e.record.status === "unanswered") addErr(e.record.reason + (e.record.detail ? ": " + (typeof e.record.detail === "string" ? e.record.detail : JSON.stringify(e.record.detail)) : ""));
     scheduleExtras();
@@ -310,6 +347,7 @@ export async function openSession(id: string | number) {
       const s = await json(`/v1/sessions/${sid}?limit=500`, { signal });
       if (epoch !== chat.epoch) return;
       entries = new Map(s.entries.map((e: any) => [e.id, markRaw(e)])); chat.rev++;
+      chat.project = s.project ?? history.list.find(row => String(row.id) === sid)?.project ?? null;
       applyAgent(s.agent); chat.usage = s.usage ? markRaw(s.usage) : null; showContext(s.contextUsage); setExtras(s);
       chat.followTick++;
     },

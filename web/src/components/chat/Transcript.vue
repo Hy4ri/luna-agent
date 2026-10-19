@@ -1,102 +1,90 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from "vue";
-import { chat, entryList, toolArgsText } from "@/stores/chat";
+import { chat, entryList, activityLabel } from "@/stores/chat";
+import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
+import MessageFooter from "./MessageFooter.vue";
 import ToolCall from "./ToolCall.vue";
 import SideContent from "./SideContent.vue";
 import Welcome from "./Welcome.vue";
 
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
-
-function scroll(force?: boolean) {
-  const l = logRef.value;
-  if (!l) return;
-  if (force || l.scrollHeight - l.scrollTop - l.clientHeight < 200) {
-    l.scrollTop = l.scrollHeight;
-  }
+function scroll(force = false) {
+  const log = logRef.value;
+  if (log && (force || log.scrollHeight - log.scrollTop - log.clientHeight < 200)) log.scrollTop = log.scrollHeight;
 }
-
 function handleScroll() {
-  const l = logRef.value;
-  if (!l || !jumpRef.value) return;
-  jumpRef.value.hidden = l.scrollHeight - l.scrollTop - l.clientHeight < 200;
+  const log = logRef.value;
+  if (log && jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
 }
-
-function jumpClick() {
-  scroll(true);
-}
-
 watch(() => chat.followTick, () => nextTick(() => scroll(true)));
-watch(
-  () => [chat.rev, chat.liveText, chat.sideJobs.size, chat.notices.length, chat.followTick],
-  () => {
-    nextTick(() => scroll());
-  },
-  { deep: true }
-);
-
-const results = computed(() => new Map(entryList.value.flatMap(e => (e.model || []).filter((m: any) => m.role === 'toolResult').map((m: any) => [m.toolCallId,m]))));
-const calls = computed(() => new Set(entryList.value.flatMap(e => (e.model || []).flatMap((m: any) => Array.isArray(m.content) ? m.content.filter((c: any) => c.type === 'toolCall').map((c: any) => c.id) : []))));
+watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, chat.notices.length, activityLabel.value], () => nextTick(() => scroll()));
+const results = computed(() => {
+  const map = new Map<string, any>(Object.entries(chat.toolResults));
+  for (const entry of entryList.value) for (const message of entry.model || []) {
+    if (message.role === 'toolResult') map.set(message.toolCallId, message);
+  }
+  return map;
+});
+const calls = computed(() => new Set<string>(entryList.value.flatMap(e => (e.model || []).flatMap((m: any) => blocks(m.content).filter(c => c.type === 'toolCall').map(c => c.id)))));
+const durableResults = computed(() => new Set<string>(entryList.value.flatMap(e => (e.model || []).filter((m: any) => m.role === 'toolResult').map((m: any) => m.toolCallId))));
+function blocks(content: unknown): any[] {
+  return typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
+}
+function backgroundReport(entry: any, message: any): boolean {
+  // Background commands predate origin metadata. Match only their exact producer header.
+  return entry.kind === 'pi.user' && /^Background process [a-f0-9-]+ finished:/.test(messageText(message.content));
+}
 </script>
 
 <template>
-  <div id="log" ref="logRef" role="region" aria-label="Conversation" tabindex="0" @scroll="handleScroll">
-    <Welcome v-if="!entryList.length && !chat.liveText && !chat.sideJobs.size" />
-
-    <template v-for="e in entryList" :key="e.id">
-      <div v-if="e.kind === 'pi.reset'" class="msg muted">— context reset —</div>
-      <div v-else-if="e.kind === 'pi.compaction'" class="msg muted">— earlier messages compacted —</div>
-      <template v-else-if="e.model && e.model.length">
-        <template v-for="(m, mi) in e.model" :key="mi">
-          <!-- User message -->
-          <div v-if="m.role === 'user'" class="msg user" :data-entry="e.id">
-            <template v-if="typeof m.content === 'string'">{{ m.content }}</template>
-            <template v-else>
-              <template v-for="(c, ci) in (m.content || [])" :key="ci">
-                <span v-if="c.type === 'text'">{{ c.text }}</span>
-                <img v-else-if="c.type === 'image'" class="att" :src="`data:${c.mimeType};base64,${c.data}`" alt="attachment" />
-              </template>
-            </template>
-          </div>
-
-          <!-- Assistant message -->
-          <div v-else-if="m.role === 'assistant'" class="msg assistant">
-            <Markdown :content="typeof m.content === 'string' ? m.content : (m.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('')" />
-            <template v-for="(c, ci) in (m.content || [])" :key="ci">
-              <ToolCall v-if="c.type === 'toolCall'" :id="c.id" :name="c.name" :args="c.arguments" :result="results.get(c.id)" />
-            </template>
-            <div v-if="m.stopReason === 'error' && m.errorMessage" class="msg err">{{ m.errorMessage }}</div>
-          </div>
-
-          <!-- Tool result -->
-          <ToolCall v-else-if="m.role === 'toolResult' && !calls.has(m.toolCallId)" :id="m.toolCallId" :name="m.toolName || 'tool'" :args="chat.toolStarts[m.toolCallId]?.args" :result="m" />
-        </template>
+  <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll">
+    <Welcome v-if="!entryList.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
+    <template v-for="entry in entryList" :key="entry.id">
+      <div v-if="entry.kind === 'pi.reset'" class="msg muted">— context reset —</div>
+      <div v-else-if="entry.kind === 'pi.compaction'" class="msg muted">— earlier messages compacted —</div>
+      <template v-else v-for="(message, mi) in (entry.model || [])" :key="mi">
+        <details v-if="message.role === 'user' && backgroundReport(entry, message)" class="background-report" :data-entry="entry.id">
+          <summary>Background report</summary>
+          <pre>{{ messageText(message.content) }}</pre>
+          <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" />
+        </details>
+        <div v-else-if="message.role === 'user'" class="msg user" :data-entry="entry.id">
+          <div class="user-content"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
+          <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" />
+        </div>
+        <div v-else-if="message.role === 'assistant'" class="msg assistant" :data-entry="entry.id">
+          <template v-for="(block, bi) in blocks(message.content)" :key="bi">
+            <Markdown v-if="block.type === 'text' && block.text" :content="block.text" />
+            <details v-else-if="block.type === 'thinking' && block.thinking" class="thinking">
+              <summary>Thinking</summary>
+              <pre>{{ block.thinking }}</pre>
+            </details>
+            <ToolCall v-else-if="block.type === 'toolCall'" :id="block.id" :name="block.name" :args="block.arguments" :result="results.get(block.id)" :timestamp="message.timestamp" />
+          </template>
+          <div v-if="message.stopReason === 'error' && message.errorMessage" class="msg err">{{ message.errorMessage }}</div>
+          <MessageFooter v-if="messageText(message.content)" :text="messageText(message.content)" :timestamp="message.timestamp" />
+        </div>
+        <ToolCall v-else-if="message.role === 'toolResult' && !calls.has(message.toolCallId)" :id="message.toolCallId" :name="message.toolName || 'tool'" :args="chat.toolStarts[message.toolCallId]?.args" :result="message" />
       </template>
     </template>
-
-    <template v-for="(tool,id) in chat.toolStarts" :key="id">
-      <ToolCall v-if="!calls.has(id) && !results.has(id)" :id="id" :name="tool.name" :args="tool.args" />
+    <template v-for="(tool, id) in chat.toolStarts" :key="id">
+      <ToolCall v-if="!calls.has(id) && !durableResults.has(id)" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
     </template>
-    <!-- Live message (streaming assistant partial) -->
-    <div v-if="chat.liveText" class="msg assistant">
-      <Markdown :content="chat.liveText" />
+    <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message">
+      <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre>{{ chat.liveThinking }}</pre></details>
+      <Markdown v-if="chat.liveText" :content="chat.liveText" />
     </div>
-
-    <!-- Notices -->
-    <div v-for="notice in chat.notices" :key="notice.id" :class="['msg', notice.kind === 'err' ? 'err' : 'muted']">
-      {{ notice.text }}
-    </div>
-
-    <!-- Side Jobs -->
+    <div v-for="notice in chat.notices" :key="notice.id" :class="['msg', notice.kind === 'err' ? 'err' : 'muted']">{{ notice.text }}</div>
     <section v-if="chat.sideJobs.size" class="side-jobs" aria-label="Side questions and background tasks">
       <div v-for="job in [...chat.sideJobs.values()].sort((a, b) => a.createdAt - b.createdAt)" :key="job.id" class="msg assistant side-job" :data-side-job="job.id">
         <p class="muted">/{{ job.kind }} · {{ job.status === 'running' ? 'Started' : job.status === 'complete' ? 'Complete' : 'Failed' }} · {{ job.id }} · Not in main history</p>
-        <p>{{ job.prompt }}</p>
-        <SideContent :job="job" />
+        <p>{{ job.prompt }}</p><SideContent :job="job" />
+        <MessageFooter :text="job.text || ''" :timestamp="job.createdAt" />
       </div>
     </section>
+    <div v-if="activityLabel" id="activity" role="status" aria-live="polite">{{ activityLabel }}</div>
   </div>
-
-  <button id="jump" ref="jumpRef" hidden @click="jumpClick">Jump to bottom</button>
+  <button id="jump" ref="jumpRef" hidden @click="scroll(true)">Jump to bottom</button>
 </template>

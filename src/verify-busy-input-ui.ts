@@ -48,9 +48,9 @@ try {
   const messages: any[] = [];
   page.on("request", (req: any) => { if (/\/messages\?async=1$/.test(req.url())) messages.push(req.postDataJSON()); });
   await page.locator("#input").fill("original task"); await page.locator("#send").click(); await started;
-  await page.waitForFunction(() => !(globalThis as any).document.getElementById("send").disabled);
+  await page.locator("#stop").waitFor({ state: "visible" });
   await page.locator("#input").fill("/queue <b>queued task</b>"); await page.locator("#send").click();
-  await page.waitForFunction(() => !(globalThis as any).document.getElementById("send").disabled);
+  await page.locator("#stop").waitFor({ state: "visible" });
   await page.locator("#input").fill("/queue list"); await page.locator("#send").click();
   await page.locator("#busyFeedback").filter({ hasText: "1. <b>queued task</b>" }).waitFor();
   assert.equal(await page.locator("#busyFeedback b").count(), 0, "Queue text must not become HTML");

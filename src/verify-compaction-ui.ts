@@ -35,6 +35,7 @@ try {
   page.on("pageerror", (e: Error) => errors.push(e.message));
   await page.addInitScript((id: string) => { localStorage.setItem("luna.token", "test"); localStorage.setItem("luna.session", id); }, String(conv.id));
   await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
+  await page.locator("#statusbar > summary").click();
   await page.locator("#context-bar").waitFor({ state: "visible" });
   await page.waitForFunction(() => (globalThis as any).document.getElementById("context-bar")?.dataset.level === "green");
   assert.match(await page.locator("#context-text").textContent(), /4,000/);
@@ -107,17 +108,17 @@ try {
   const summaryGate = new Promise<void>(resolve => { releaseSummary = resolve; });
   faux.setResponses([fauxAssistantMessage("Final answer ".repeat(550)), async () => { await summaryGate; return fauxAssistantMessage("Earlier work complete."); }]);
   const sub = await finalConv.submit({ type: "input", content: "Finish" }, context);
-  await page.waitForFunction(() => (globalThis as any).document.getElementById("status")?.textContent === "Compacting context…");
+  await page.waitForFunction(() => (globalThis as any).document.getElementById("activity")?.textContent?.trim() === "Compacting context…");
   assert.equal(faux.state.callCount, 2, "Only answer + summary requests");
   releaseSummary();
   assert.equal((await sub.wait(context)).status, "done");
-  await page.waitForFunction(() => (globalThis as any).document.getElementById("status")?.textContent === "Ready");
+  await page.waitForFunction(() => !(globalThis as any).document.getElementById("activity"));
   assert.equal(faux.state.callCount, 2, "Compaction must not invent another turn");
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => (globalThis as any).document.documentElement.scrollWidth <= (globalThis as any).innerWidth), true);
   await page.locator("#new").evaluate((e: any) => e.click());
   await page.waitForFunction(() => (globalThis as any).document.getElementById("context-text")?.textContent?.includes("≈0 /"));
-  await page.waitForFunction(() => (globalThis as any).document.getElementById("status")?.textContent === "Ready");
+  await page.waitForFunction(() => !(globalThis as any).document.getElementById("activity"));
   assert.deepEqual(errors, []);
   console.log("COMPACTION_UI_OK: real settings, colors, overflow display, unknown capacity, model switch, live summary pause, idle, mobile layout");
 } finally {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { Menu, Square, Ellipsis, Moon } from '@lucide/vue';
+import { Menu, Ellipsis, Moon, Plus } from '@lucide/vue';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
@@ -12,11 +12,43 @@ import CronPage from '@/pages/CronPage.vue';
 import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
 import { ui, boot, login, setDrawer, closePanel, openPanel } from '@/stores/app';
-import { chat, stopDisabled, stopRun } from '@/stores/chat';
+import { chat, newSession, addErr } from '@/stores/chat';
+import { history } from '@/stores/sessions';
 import { useMobile } from '@/lib/dom';
+
 const mobile = useMobile();
 const password = ref('');
 const blocked = computed(() => ui.login || !!ui.panel || (mobile.value && ui.drawer));
+
+const activeProject = computed(() => {
+  if (chat.session) {
+    const active = history.list.find(row => String(row.id) === chat.session);
+    return active ? active.project ?? null : chat.project;
+  }
+  if (!chat.session) {
+    const saved = localStorage.getItem('luna.project');
+    if (saved !== null && saved !== '' && !isNaN(Number(saved))) {
+      const num = Number(saved);
+      if (history.projects.some(p => p.id === num)) return num;
+    }
+  }
+  return null;
+});
+
+const newSessionPending = ref(false);
+
+async function handleNewSession() {
+  if (newSessionPending.value) return;
+  newSessionPending.value = true;
+  try {
+    await newSession(activeProject.value);
+  } catch (e: any) {
+    addErr(e?.message || 'Failed to create new session');
+  } finally {
+    newSessionPending.value = false;
+  }
+}
+
 function keyboard(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     if (ui.panel) { e.preventDefault(); closePanel(); }
@@ -47,14 +79,14 @@ onUnmounted(() => document.removeEventListener('keydown', keyboard));
         <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
           <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" aria-controls="side" :aria-expanded="ui.drawer" @click="setDrawer(true)"><Menu :size="18" /></button>
           <div class="heading min-w-0 flex-1"><span id="title" class="block truncate text-sm font-medium">{{ chat.title }}</span></div>
-          <button id="stop" :disabled="stopDisabled" class="icon-button" aria-label="Stop" title="Stop" @click="stopRun"><Square :size="16" /></button>
+          <StatusBar />
+          <button id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
           <button id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
         </header>
         <Transcript />
         <Extras />
         <div id="compose" class="mx-auto w-full max-w-4xl shrink-0 px-4 pb-3 pt-2 md:px-8">
           <Composer />
-          <StatusBar />
         </div>
       </main>
       <div v-if="ui.view !== 'chat'" :inert="blocked" class="flex min-w-0 flex-1 overflow-hidden">
