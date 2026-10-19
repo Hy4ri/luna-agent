@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from "vue";
+import { ArrowUp, ArrowDown } from "@lucide/vue";
 import { chat, entryList, activityLabel } from "@/stores/chat";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
@@ -10,13 +11,20 @@ import Welcome from "./Welcome.vue";
 
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
+const jumpTopRef = ref<HTMLElement | null>(null);
 function scroll(force = false) {
   const log = logRef.value;
   if (log && (force || log.scrollHeight - log.scrollTop - log.clientHeight < 200)) log.scrollTop = log.scrollHeight;
+  handleScroll();
+}
+function jumpToTop() {
+  if (logRef.value) logRef.value.scrollTop = 0;
+  handleScroll();
 }
 function handleScroll() {
   const log = logRef.value;
   if (log && jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
+  if (log && jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
 }
 watch(() => chat.followTick, () => nextTick(() => scroll(true)));
 watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, chat.notices.length, activityLabel.value], () => nextTick(() => scroll()));
@@ -86,5 +94,8 @@ function backgroundReport(entry: any, message: any): boolean {
     </section>
     <div v-if="activityLabel" id="activity" role="status" aria-live="polite">{{ activityLabel }}</div>
   </div>
-  <button id="jump" ref="jumpRef" hidden @click="scroll(true)">Jump to bottom</button>
+  <div class="transcript-jumps">
+    <button id="jump-top" ref="jumpTopRef" type="button" hidden aria-label="Jump to top" title="Jump to top" @click="jumpToTop"><ArrowUp :size="18" aria-hidden="true" /></button>
+    <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="scroll(true)"><ArrowDown :size="18" aria-hidden="true" /></button>
+  </div>
 </template>

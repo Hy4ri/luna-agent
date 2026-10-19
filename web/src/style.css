@@ -531,7 +531,9 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
 .side-jobs { display: flex; flex-direction: column; gap: 10px; }
 .side-job { font-size: 12px; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); }
 .side-media { max-width: 100%; border-radius: 6px; margin-top: 8px; }
-#jump { position: absolute; right: 24px; bottom: 190px; border-radius: 20px; background: var(--secondary); box-shadow: var(--shadow); border: 1px solid var(--border); padding: 7px 14px; font-size: 11px; }
+.transcript-jumps { position: absolute; right: 24px; bottom: 190px; display: flex; flex-direction: column; gap: 6px; }
+.transcript-jumps button { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; background: var(--secondary); box-shadow: var(--shadow); border: 1px solid var(--border); }
+.transcript-jumps button[hidden] { display: none; }
 #extras { padding: 0 max(24px, calc((100% - 760px) / 2)); display: flex; flex-direction: column; gap: 8px; max-height: 28dvh; overflow: auto; flex-shrink: 0; }
 #extras:empty { display: none; }
 #extras .card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card); min-width: 0; }

@@ -1,5 +1,6 @@
 // Markdown builds DOM nodes only (never innerHTML). Links are limited to http(s)/mailto.
 import { h } from "./dom";
+import { copyToClipboard } from "./message";
 
 
 // ---- markdown: builds DOM nodes only (never innerHTML), links limited to http(s)/mailto ----
@@ -26,7 +27,21 @@ function safeLink(href: string, kids: (Node | string)[]) {
 }
 function codeBlock(code: string) {
   const pre = h("pre", { class: "code" }, code);
-  const btn = h("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(code); btn.textContent = "copied"; setTimeout(() => (btn.textContent = "copy"), 1200); } }, "copy");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const btn = h("button", {
+    type: "button",
+    "aria-label": "Copy code",
+    "aria-live": "polite",
+    onclick: async () => {
+      if (btn.disabled) return;
+      clearTimeout(timer);
+      btn.disabled = true;
+      const ok = await copyToClipboard(code);
+      btn.disabled = false;
+      btn.textContent = ok ? "copied" : "copy failed";
+      timer = setTimeout(() => { btn.textContent = "copy"; }, 2000);
+    },
+  }, "copy") as HTMLButtonElement;
   return h("div", { class: "codewrap" }, pre, btn);
 }
 export function markdown(src: string): DocumentFragment {
