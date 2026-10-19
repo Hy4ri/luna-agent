@@ -31,6 +31,33 @@ const initialEntries = [
     { role: 'toolResult', toolCallId: 'edit-2', toolName: 'edit', isError: true, timestamp: stamp + 7000, content: [{ type: 'text', text: 'Could not find the exact text in src/b.ts.' }] },
     { role: 'toolResult', toolCallId: 'bash-1', toolName: 'bash', isError: true, timestamp: stamp + 7000, content: [{ type: 'text', text: '\u001b[31mFAIL\u001b[0m 2 tests\n<harness>\n[error] Command exited with code 2\n</harness>' }] },
   ] },
+  { id: 9, kind: 'pi.assistant', model: [{ role: 'assistant', timestamp: stamp + 8000, content: [
+    { type: 'toolCall', id: 'write-1', name: 'write', arguments: { path: 'notes.md', content: 'one\ntwo\nthree\n' } },
+    { type: 'toolCall', id: 'read-2', name: 'read', arguments: { path: 'src/c.ts', offset: 120, limit: 2 } },
+    { type: 'toolCall', id: 'proc-1', name: 'process_start', arguments: { command: 'pnpm build' } },
+    { type: 'toolCall', id: 'todo-1', name: 'todo', arguments: { action: 'update', id: 2, status: 'completed' } },
+    { type: 'toolCall', id: 'search-1', name: 'web_search', arguments: { query: 'pi durable' } },
+    { type: 'toolCall', id: 'extract-1', name: 'web_extract', arguments: { url: 'https://example.com/a' } },
+    { type: 'toolCall', id: 'ask-1', name: 'ask_user_question', arguments: { questions: [{ question: 'Which scope?', header: 'Scope', options: [] }] } },
+    { type: 'toolCall', id: 'skill-1', name: 'skill_view', arguments: { name: 'luna-dev' } },
+    { type: 'toolCall', id: 'board-1', name: 'board', arguments: { action: 'update', id: 49, status: 'done' } },
+    { type: 'toolCall', id: 'click-1', name: 'browser_click', arguments: { tabId: 't', ref: 'e12' } },
+    { type: 'toolCall', id: 'mcp-1', name: 'mcp__x__lookup', arguments: { q: 'z' } },
+  ] }] },
+  { id: 10, kind: 'pi.tool', model: [
+    { role: 'toolResult', toolCallId: 'write-1', toolName: 'write', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: 'Successfully wrote to notes.md' }] },
+    { role: 'toolResult', toolCallId: 'read-2', toolName: 'read', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: 'line a\nline b\n<harness>\n[info] Showing lines 120-121 of 300. Use offset=122 to continue.\n</harness>' }] },
+    { role: 'toolResult', toolCallId: 'proc-1', toolName: 'process_start', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: JSON.stringify({ id: 'abc', running: false, status: 'exited', command: 'pnpm build', exitCode: 1, output: 'built\n\u001b[31merror\u001b[0m', truncated: false }) }] },
+    { role: 'toolResult', toolCallId: 'todo-1', toolName: 'todo', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: 'Updated #2 (in_progress → completed)' }],
+      details: { tasks: [{ id: 1, subject: 'Plan', status: 'completed' }, { id: 2, subject: 'Build', status: 'in_progress', activeForm: 'Building' }, { id: 3, subject: 'Gone', status: 'deleted' }, { id: 4, subject: 'Ship', status: 'pending' }] } },
+    { role: 'toolResult', toolCallId: 'search-1', toolName: 'web_search', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: JSON.stringify({ results: [{ title: 'Pi docs', url: 'https://www.example.com/docs', snippet: 'Durable runtime.' }, { title: 'Bad', url: 'javascript:alert(1)', snippet: '' }] }) }] },
+    { role: 'toolResult', toolCallId: 'extract-1', toolName: 'web_extract', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: JSON.stringify({ url: 'https://example.com/a', content: 'Page body text.' }) }] },
+    { role: 'toolResult', toolCallId: 'ask-1', toolName: 'ask_user_question', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: 'User has answered.' }], details: { answers: [{ questionIndex: 0, question: 'Which scope?', kind: 'option', answer: 'All tools' }] } },
+    { role: 'toolResult', toolCallId: 'skill-1', toolName: 'skill_view', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: '# Skill: luna-dev\n\nUse **this** skill.' }] },
+    { role: 'toolResult', toolCallId: 'board-1', toolName: 'board', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: 'Updated #49 [done|medium]' }] },
+    { role: 'toolResult', toolCallId: 'click-1', toolName: 'browser_click', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: 'Clicked.' }] },
+    { role: 'toolResult', toolCallId: 'mcp-1', toolName: 'mcp__x__lookup', isError: false, timestamp: stamp + 9000, content: [{ type: 'text', text: 'found' }] },
+  ] },
 ];
 const tasks = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, subject: `Task ${i + 1}`, activeForm: i === 1 ? 'Reading files' : undefined, status: i === 0 ? 'completed' : i === 1 ? 'in_progress' : 'pending', blockedBy: [] }));
 const sessions = new Map<string, any>([
@@ -108,7 +135,7 @@ try {
   assert.equal(await page.locator('.user').filter({ hasText: 'I mentioned background tasks' }).count(), 1);
   const failed = page.locator('.tool[data-call="read-1"]');
   assert.equal(await failed.getAttribute('data-state'), 'failed');
-  const details = failed.locator('details');
+  const details = failed.locator(':scope > details');
   if (await details.count()) await details.evaluate((el: any) => { el.open = false; });
   else await failed.evaluate((el: any) => { el.open = false; });
   await failed.getByText(failedText, { exact: true }).waitFor({ state: 'visible' });
@@ -124,6 +151,44 @@ try {
     [['skip', '', '…'], ['ctx', '9', '// keep'], ['del', '10', 'const a = 1;'], ['add', '10', 'const a = 2;'], ['add', '11', 'const b = 3;'], ['ctx', '11', 'export {};']]);
   assert.equal(await edit.locator('.tool-section-label', { hasText: 'Arguments' }).count(), 0, 'Edit shows a diff, not argument JSON');
   assert.equal(await edit.locator('.tool-raw').count(), 1, 'Raw arguments stay reachable');
+  const open = async (call: string) => { const tool = page.locator(`.tool[data-call="${call}"]`); await tool.locator(':scope > details > summary').click(); return tool; };
+  const write = await open('write-1');
+  assert.equal((await write.locator('.tool-counts').textContent()).trim(), '3 lines');
+  assert.deepEqual(await write.locator('.code-row').evaluateAll((r: any[]) => r.map(x => x.textContent)), ['1one', '2two', '3three']);
+  const read2 = await open('read-2');
+  assert.equal((await read2.locator('.tool-summary').textContent()).trim(), 'src/c.ts:120–121');
+  assert.deepEqual(await read2.locator('.code-row').evaluateAll((r: any[]) => r.map(x => x.textContent)), ['120line a', '121line b'], 'Read numbers lines from the offset');
+  await read2.locator('.tool-notes').getByText('Showing lines 120-121 of 300. Use offset=122 to continue.', { exact: true }).waitFor();
+  assert.ok(!(await read2.textContent()).includes('<harness>'));
+  const proc = await open('proc-1');
+  assert.equal((await proc.locator('.tool-exit').textContent()).trim(), 'exit 1');
+  assert.equal(await proc.locator('pre.terminal').textContent(), 'built\nerror');
+  assert.equal(await proc.locator('pre.terminal .ansi-red').textContent(), 'error');
+  const todoCall = await open('todo-1');
+  assert.deepEqual(await todoCall.locator('.tool-tasks li').evaluateAll((r: any[]) => r.map(x => [x.dataset.status, x.textContent.trim()])),
+    [['completed', '#1Plan'], ['in_progress', '#2Building'], ['pending', '#4Ship']], 'Deleted tasks are hidden; the active task shows its active form');
+  const search = await open('search-1');
+  assert.equal(await search.locator('.tool-hits li').count(), 1, 'Only http(s) results become links');
+  assert.equal(await search.locator('.tool-hits a').getAttribute('href'), 'https://www.example.com/docs');
+  assert.equal(await search.locator('.tool-hits a').getAttribute('rel'), 'noopener noreferrer');
+  assert.equal((await search.locator('.tool-host').textContent()).trim(), 'example.com');
+  const extract = await open('extract-1');
+  assert.equal(await extract.locator('.tool-link').getAttribute('href'), 'https://example.com/a');
+  await extract.locator('.tool-prose').getByText('Page body text.', { exact: true }).waitFor();
+  const ask = await open('ask-1');
+  assert.equal((await ask.locator('.tool-summary').textContent()).trim(), 'Which scope?');
+  assert.equal(await ask.locator('.tool-answers dd').textContent(), 'All tools');
+  const skill = await open('skill-1');
+  assert.equal(await skill.locator('.tool-md strong').textContent(), 'this', 'Skill text renders as markdown');
+  const boardCall = await open('board-1');
+  assert.equal((await boardCall.locator('.tool-summary').textContent()).trim(), 'update #49 done');
+  assert.equal(await boardCall.locator('.tool-section pre').textContent(), 'Updated #49 [done|medium]');
+  assert.equal(await boardCall.locator('.tool-section-label', { hasText: 'Arguments' }).count(), 0);
+  assert.equal((await page.locator('.tool[data-call="click-1"] .tool-summary').textContent()).trim(), 'ref e12');
+  const mcp = await open('mcp-1');
+  assert.equal(await mcp.getAttribute('data-tool'), null, 'Unknown tools keep the generic card');
+  await mcp.locator('.tool-section-label', { hasText: 'Arguments' }).waitFor();
+  await mcp.locator('.tool-section-label', { hasText: 'Output' }).waitFor();
   const failedEdit = page.locator('.tool[data-call="edit-2"]');
   await failedEdit.getByText('Could not find the exact text in src/b.ts.', { exact: true }).waitFor();
   assert.equal(await failedEdit.locator('.tool-counts').count(), 0, 'An edit that was not applied shows no change counts');
