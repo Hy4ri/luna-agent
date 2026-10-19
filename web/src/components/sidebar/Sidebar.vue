@@ -25,6 +25,7 @@ import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
+import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 
 const mobile = useMobile();
 const collapsed = computed(() => ui.collapsed && !mobile.value);
@@ -409,17 +410,22 @@ onMounted(() => {
                     class="session-open"
                     :class="{ on: String(s.id) === String(chat.session) }"
                     :aria-current="String(s.id) === String(chat.session) ? 'page' : undefined"
-                    :title="sessionTitle(s)"
+                    :aria-label="sessionTitle(s)"
+                    :title="sessionTitle(s) + (s.statusReason ? ' — ' + s.statusReason : '')"
                     @click="setDrawer(false); openSession(s.id)"
                   >
                     <span class="session-pin" aria-hidden="true" v-if="s.pinned">
                       <Pin :size="12" />
                     </span>
-                    <span class="session-title">{{ sessionTitle(s) }}</span>
+                    <span class="session-copy">
+                      <span class="session-title">{{ sessionTitle(s) }}</span>
+                      <span v-if="sessionState(s) !== 'ready'" class="session-status session-state" :data-status="sessionState(s)" :title="s.statusReason || (sessionState(s) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(s))">{{ sessionStatusLabel(s) }}</span>
+                    </span>
                   </button>
 
-                  <span class="session-running muted" data-running="true" role="img" aria-label="Running" title="Running" v-if="s.running">
-                    <LoaderCircle :size="14" class="motion-safe:animate-spin" />
+                  <span v-if="sessionState(s) !== 'ready'" class="session-running session-state" :data-status="sessionState(s)" :data-running="sessionState(s) === 'running' ? 'true' : undefined" role="img" :aria-label="sessionStatusLabel(s)" :title="s.statusReason || sessionStatusLabel(s)">
+                    <LoaderCircle v-if="sessionState(s) === 'running'" :size="14" class="motion-safe:animate-spin" />
+                    <span v-else class="session-state-dot" aria-hidden="true"></span>
                   </span>
 
                   <button

@@ -19,7 +19,7 @@ const Question = Type.Object({
   options: Type.Array(Option, { minItems: MIN_OPTIONS, maxItems: MAX_OPTIONS, description: "2-4 distinct choices. A free-text answer row is appended automatically; do NOT author it." }),
   multiSelect: Type.Optional(Type.Boolean({ default: false, description: "Allow selecting several options." })),
 });
-export const AskParams = Type.Object({ questions: Type.Array(Question, { minItems: 1, maxItems: MAX_QUESTIONS, description: "Questions to ask the user (1-4)" }) });
+export const AskParams = Type.Object({ purpose: Type.Optional(Type.Union([Type.Literal("input"), Type.Literal("approval")], { description: "Use approval when requesting permission; otherwise input (default)." })), questions: Type.Array(Question, { minItems: 1, maxItems: MAX_QUESTIONS, description: "Questions to ask the user (1-4)" }) });
 export type AskArgs = Static<typeof AskParams>;
 
 export type QuestionAnswer = {
@@ -33,7 +33,7 @@ export type QuestionAnswer = {
 };
 export type AskResult = { answers: QuestionAnswer[]; cancelled: boolean; globalNote?: string };
 type Q = { question: string; header: string; options: { label: string; description: string; preview?: string }[]; multiSelect?: boolean };
-export type PendingAsk = { callId: string; questions: Q[]; at: number };
+export type PendingAsk = { purpose?: "input" | "approval"; callId: string; questions: Q[]; at: number };
 
 /** Open questionnaires and their answers, per conversation. Answers are removed once the tool reads them. */
 export const AskDoc = defineDoc<{ pending: PendingAsk[]; answers: Record<string, AskResult> }>({
@@ -146,7 +146,7 @@ export function createAskExtension(o: AskOptions = {}) {
           const opened = await api.commit(async (tx) => {
             const doc = await tx.doc(AskDoc, api.conversationId);
             if (doc.pending.some((p) => p.callId === callId) || doc.answers[callId]) return false;
-            doc.pending.push({ callId, questions: JSON.parse(JSON.stringify(args.questions)), at: Date.now() } as never);
+            doc.pending.push({ callId, purpose: args.purpose ?? "input", questions: JSON.parse(JSON.stringify(args.questions)), at: Date.now() } as never);
             return true;
           }, context);
           if (opened && o.onAsk) void Promise.resolve(o.onAsk(api.conversationId as number, { callId, questions: args.questions, at: Date.now() })).catch(() => {});

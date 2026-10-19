@@ -327,6 +327,25 @@ aside#side.collapsed #history-rail {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.session-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.session-status {
+  font-size: 0.7rem;
+  line-height: 1.2;
+  font-weight: 400;
+}
+.session-state { color: var(--muted-foreground); }
+.session-state[data-status="running"] { color: #60a5fa; }
+.session-state[data-status="finished"] { color: #4ade80; }
+.session-state[data-status="needs_approval"] { color: #fbbf24; }
+.session-state[data-status="needs_input"] { color: #c084fc; }
+.session-state[data-status="limit_reached"] { color: #fb923c; }
+.session-state[data-status="failed"] { color: var(--destructive); }
+.session-state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .session-title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -357,7 +376,6 @@ aside#side.collapsed #history-rail {
   justify-content: center;
   width: 14px;
   height: 14px;
-  color: var(--primary);
   pointer-events: none;
 }
 .session-manage {

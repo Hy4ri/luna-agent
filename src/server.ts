@@ -13,6 +13,7 @@ import type { Extension } from "@earendil-works/pi-durable";
 import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { AskDoc, checkAnswer } from "./ask.js";
+import { readSessionStatus, type SessionState } from "./session-status.js";
 import { Children } from "./delegate.js";
 import { GoalDoc } from "./goal.js";
 import type { McpManager } from "./mcp.js";
@@ -88,7 +89,7 @@ const safeEq = (a: string, b: string) => {
 
 async function isRunning(tx: Tx, id: ConversationId) {
   for (const status of ["pending", "running", "waiting", "completing"] as const) {
-    if ((await tx.scanTasks({ conversationId: id, status }, 1)).items.length) return true;
+    if ((await tx.scanTasks({ conversationId: id, status, background: false }, 1)).items.length) return true;
   }
   return false;
 }
@@ -183,7 +184,7 @@ export function createApp(opts: ServerOptions) {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
       const links = opts.conversations?.projects.links();
-      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; lastActivity: number | null; createdAt: number | null })[] = [];
+      const out: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; lastActivity: number | null; createdAt: number | null })[] = [];
       let cursor;
       do {
         const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
@@ -193,9 +194,10 @@ export function createApp(opts: ServerOptions) {
           const user = head.find((e) => e.kind === "pi.user");
           const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
           const running = await isRunning(tx, r.id);
+          const sessionStatus = await readSessionStatus(tx, r.id, running);
           const createdAt = (await tx.doc(SessionCreated, r.id)).at ?? null;
           const lastActivity = await newestMessageTime(tx, r.id);
-          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, lastActivity, createdAt });
+          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, ...sessionStatus, lastActivity, createdAt });
         }
         cursor = page.next;
       } while (cursor);
@@ -324,10 +326,15 @@ export function createApp(opts: ServerOptions) {
     const todo = await harness.snapshot(TodoDoc, conv.id, context).catch(() => undefined);
     const ask = await harness.snapshot(AskDoc, conv.id, context).catch(() => undefined);
     const goal = await harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined);
-    const running = await harness.commit(tx => isRunning(tx, conv.id), context);
+    const { running, ...sessionStatus } = await harness.commit(async tx => {
+      const running = await isRunning(tx, conv.id);
+      return { running, ...await readSessionStatus(tx, conv.id, running) };
+    }, context);
     return c.json({
       id: conv.id,
       running,
+      status: sessionStatus.status,
+      statusReason: sessionStatus.statusReason,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       usage: usage ?? null,
       contextUsage: await contextUsage(conv),
@@ -600,7 +607,7 @@ export function createApp(opts: ServerOptions) {
     const boardChanged = () => { boardDirty = true; arm(); };
     // Register BEFORE the initial event, so creation during attachment cannot be missed.
     const unsubscribe = harness.subscribeCommits(publication => {
-      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission")) changed();
+      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission" || change.type === "document" && ["luna.ask", "luna.goal", "luna.session-handoff"].includes(change.record.kind))) changed();
     });
     const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
     const unsubscribeBoard = opts.conversations?.subscribeBoard(boardChanged);
