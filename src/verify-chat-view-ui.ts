@@ -178,6 +178,30 @@ try {
   emit('42', 'run_end', {});
   await page.locator('#activity').waitFor({ state: 'hidden' });
   assert.ok((await finalTool.boundingBox()).height > 60, 'Completed tool cards must not shrink into blank lines');
+  async function verifyJumpButtons() {
+    // Force real layout overflow without replacing browser scroll metrics.
+    await page.locator('#log > .msg').first().evaluate((el: any) => { el.style.minHeight = '3000px'; });
+    await page.locator('#log').evaluate((el: any) => { el.scrollTop = 500; el.dispatchEvent(new Event('scroll')); });
+    const up = page.getByRole('button', { name: 'Jump to top', exact: true });
+    const down = page.getByRole('button', { name: 'Jump to bottom', exact: true });
+    await up.waitFor(); await down.waitFor();
+    assert.equal(await up.textContent(), '', 'Top uses an icon, not visible text');
+    assert.equal(await down.textContent(), '', 'Bottom uses an icon, not visible text');
+    assert.equal(await up.locator('svg').count(), 1);
+    assert.equal(await down.locator('svg').count(), 1);
+    await up.click();
+    await page.waitForFunction(() => (globalThis as any).document.getElementById('log').scrollTop === 0);
+    assert.equal(await up.isVisible(), false);
+    await down.click();
+    await page.waitForFunction(() => {
+      const log = (globalThis as any).document.getElementById('log');
+      return log.scrollHeight - log.scrollTop - log.clientHeight < 2;
+    });
+    assert.equal(await down.isVisible(), false);
+    await up.waitFor();
+    await page.locator('#log > .msg').first().evaluate((el: any) => { el.style.minHeight = ''; });
+  }
+  await verifyJumpButtons();
   await page.screenshot({ path: '/tmp/luna-chat-desktop.png' });
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
@@ -185,6 +209,7 @@ try {
     assert.equal(await page.evaluate(() => (globalThis as any).document.documentElement.scrollWidth <= (globalThis as any).innerWidth), true);
     assert.equal(await page.locator('#main').evaluate((el: any) => el.scrollWidth <= el.clientWidth + 1), true, `No chat overflow at ${width}px`);
     const summary = await page.locator('#statusbar > summary').textContent(); assert.ok(summary.trim(), 'Mobile usage control cannot be blank');
+    await verifyJumpButtons();
   }
   await page.screenshot({ path: '/tmp/luna-chat-mobile.png' });
   await page.setViewportSize({ width: 1440, height: 1000 });
