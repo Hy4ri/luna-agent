@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
 import {
-  Boxes,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -251,7 +251,7 @@ onMounted(() => {
     <!-- Header -->
     <header class="side-head">
       <div class="brand">
-        <Boxes :size="20" class="text-primary" />
+        <Moon :size="20" class="text-primary" aria-hidden="true" />
         <h1 v-if="!collapsed">Luna</h1>
       </div>
       <button
@@ -406,7 +406,7 @@ onMounted(() => {
                     <span class="session-pin" aria-hidden="true" v-if="s.pinned">
                       <Pin :size="12" />
                     </span>
-                    <span>{{ sessionTitle(s) }}</span>
+                    <span class="session-title">{{ sessionTitle(s) }}</span>
                   </button>
 
                   <span class="session-running muted" data-running="true" role="img" aria-label="Running" title="Running" v-if="s.running">
