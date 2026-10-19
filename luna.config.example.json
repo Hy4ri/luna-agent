@@ -9,6 +9,7 @@
     "delegate",
     "cron",
     "improve",
+    "learn",
     "tool-search"
   ],
   "image_gen": {
@@ -62,6 +63,10 @@
   "improve": {
     "schedule": "0 3 * * *",
     "allowCommandBenchmarks": false
+  },
+  "learn": {
+    "idleMinutes": 30,
+    "schedule": "0 4 * * *"
   },
   "server": {
     "host": "127.0.0.1",

@@ -8,7 +8,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { parseCron } from "./cron-expr.js";
 
-export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal"] as const;
+export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 
 const name = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/, "1-40 letters, digits, _ or -");
@@ -106,6 +106,11 @@ export const ConfigSchema = z
     mcpServers: z.array(McpServerSchema).default([]),
     cron: z.strictObject({ notifyUrl: z.url().optional(), runTimeoutMinutes: z.number().positive().optional() }).prefault({}),
     improve: z.strictObject({ schedule: cronExpr.optional(), allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
+    /** Session learning: scan idle conversations for lessons; a daily cron pass diagnoses them and proposes fixes for review. */
+    learn: z.strictObject({
+      idleMinutes: z.number().positive().default(30),
+      schedule: cronExpr.default("0 4 * * *"),
+    }).prefault({}),
     server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787) }).prefault({}),
   })
   .superRefine((c, ctx) => {

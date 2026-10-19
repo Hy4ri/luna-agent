@@ -16,6 +16,8 @@ import { AskDoc, checkAnswer } from "./ask.js";
 import { Children } from "./delegate.js";
 import { GoalDoc } from "./goal.js";
 import type { McpManager } from "./mcp.js";
+import type { SkillImprover } from "./improve.js";
+import type { LearnStore } from "./learn.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderManager } from "./providers.js";
 import { context, type MemoryStore } from "./luna.js";
@@ -53,6 +55,8 @@ export interface ServerOptions {
   skillDirs?: string[];
   /** MCP servers: list, add, enable, remove at runtime. */
   mcp?: McpManager;
+  /** Session learning ledger and the improver that applies approved proposals. */
+  learn?: { store: LearnStore; improver: SkillImprover; scan?: () => Promise<unknown> | undefined };
 }
 
 type Input = SideInput;
@@ -823,6 +827,33 @@ export function createApp(opts: ServerOptions) {
     if (!opts.memory) return err(c, 404, "memory disabled");
     return opts.memory.forget(Number(c.req.param("id"))) ? c.json({ ok: true }) : err(c, 404, "no such memory");
   });
+
+  // ---- lessons: session learning review queue. Nothing is applied without approve. ----
+  const lessonView = (l: ReturnType<LearnStore["lesson"]> & {}) => {
+    const L = opts.learn!.store;
+    return {
+      ...l, needs_guard: !!l.needs_guard, tests: l.tests ? JSON.parse(l.tests) as string[] : [], sessions: L.sessions(l.id),
+      current: l.status === "proposed" && l.scope === "skill" && l.skill ? opts.learn!.improver.read(l.skill) ?? null : null,
+      evidence: L.evidence(l.id).map((s) => ({ id: s.id, kind: s.kind, session: s.conv, message: s.entry, summary: s.summary, ts: s.ts })),
+    };
+  };
+  const learnOff = (c: HonoContext) => opts.learn ? undefined : err(c, 404, "learning disabled");
+  app.get("/v1/lessons", (c) => learnOff(c) ?? c.json({
+    lessons: opts.learn!.store.lessons().map(lessonView),
+    unassigned: opts.learn!.store.unassigned(1000).length,
+  }));
+  app.post("/v1/lessons/scan", async (c) => { const no = learnOff(c); if (no) return no; await opts.learn!.scan?.(); return c.json({ ok: true }); });
+  const lessonAction = (action: (id: number, body: Record<string, unknown>) => unknown) => async (c: HonoContext) => {
+    const no = learnOff(c); if (no) return no;
+    const id = Number(c.req.param("id"));
+    if (!opts.learn!.store.lesson(id)) return err(c, 404, "no such lesson");
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    try { return c.json(lessonView(await action(id, body) as never)); }
+    catch (e) { return err(c, 409, (e as Error).message); }
+  };
+  app.post("/v1/lessons/:id/approve", lessonAction((id) => opts.learn!.store.approve(id, opts.learn!.improver, opts.memory)));
+  app.post("/v1/lessons/:id/reject", lessonAction((id, b) => opts.learn!.store.reject(id, typeof b.note === "string" ? b.note : "")));
+  app.post("/v1/lessons/:id/rollback", lessonAction((id) => opts.learn!.store.rollback(id, opts.learn!.improver)));
 
   // ---- skills (read-only; the model edits them through skill_propose) ----
   app.get("/v1/skills", (c) => {

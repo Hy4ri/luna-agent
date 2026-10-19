@@ -7,6 +7,7 @@ import MemoryPanel from "./MemoryPanel.vue";
 import SkillsPanel from "./SkillsPanel.vue";
 import ProvidersPanel from "./ProvidersPanel.vue";
 import McpPanel from "./McpPanel.vue";
+import LessonsPanel from "./LessonsPanel.vue";
 
 export const TITLES: Record<string, string> = {
   projects: "Projects",
@@ -18,6 +19,7 @@ export const TITLES: Record<string, string> = {
   skills: "Skills",
   providers: "Model providers",
   mcp: "MCP servers",
+  lessons: "Lessons",
 };
 
 export const DESCRIPTIONS: Record<string, string> = {
@@ -30,6 +32,7 @@ export const DESCRIPTIONS: Record<string, string> = {
   skills: "Browse the instructions available to Luna.",
   providers: "Connect accounts and choose your default model.",
   mcp: "Connect external tools and manage their access.",
+  lessons: "Review what Luna learned from past sessions before it changes skills or memory.",
 };
 
 export const PANELS: Record<string, { title: string; desc: string; component: Component }> = {
@@ -72,5 +75,10 @@ export const PANELS: Record<string, { title: string; desc: string; component: Co
     title: TITLES.mcp,
     desc: DESCRIPTIONS.mcp,
     component: McpPanel,
+  },
+  lessons: {
+    title: TITLES.lessons,
+    desc: DESCRIPTIONS.lessons,
+    component: LessonsPanel,
   },
 };

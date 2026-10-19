@@ -19,6 +19,7 @@ const app = createApp({
   harness: rt.harness, sideCommands: rt.sideCommands, token, agent: { model: rt.model },
   settings: rt.settings, compaction: rt.compaction, busyInput: rt.busyInput, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
+  ...(rt.learn ? { learn: { store: rt.learn, improver: rt.improver!, scan: rt.learnScan } } : {}),
 });
 const server = serve({ fetch: app.fetch, hostname: host, port }, (i) =>
   console.log(`luna listening on http://${i.address}:${i.port} provider=${cfg.provider} data=${cfg.dataDir} extensions=${cfg.extensions.join(",")} mcp=${rt.mcp.connections.map((c) => c.name).join(",") || "none"} auth=${token ? "on" : "off"}`));

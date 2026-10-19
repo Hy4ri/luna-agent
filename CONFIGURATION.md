@@ -11,7 +11,7 @@ The page has six tabs:
 - **Models:** main model, subagent defaults, custom model providers, and auxiliary models.
 - **Context:** default instructions and automatic compaction.
 - **Tools:** web and browser providers, background processes, MCP connections, extensions, and extra skill directories.
-- **Automation:** scheduled runs and self-improvement.
+- **Automation:** scheduled runs, self-improvement, and session learning.
 - **Workspace:** Subagents, Analytics, Memory, Skills, Model providers, and MCP servers.
 
 Every config field has a form control. All tabs share one unsaved draft.
@@ -39,7 +39,7 @@ The Providers and MCP panels also write this file, not separate settings files.
   Normal and forked children use these defaults. Children cannot delegate further.
 - `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
-- `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `server`: runtime settings.
+- `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `learn`, `server`: runtime settings.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
 
@@ -96,6 +96,27 @@ A disabled or disconnected selection fails explicitly. There is no silent fallba
 Run `verify:web-tools` for deterministic runtime checks.
 Run `verify:web-tools:live` to use the installed `/.local/bin/ddgs` against real web pages.
 The live gate uses a scripted model; it verifies tool execution, not real-model tool choice.
+
+## Session learning
+
+The `learn` extension finds lessons in past sessions. It does nothing during a live turn.
+
+1. **Detect.** After a conversation is idle for `learn.idleMinutes` (default `30`), a scan records signals:
+   user corrections, explicit user rules, and failed tool calls. It skips subagent and cron conversations.
+   A signal stores a redacted one-line summary and a pointer (session and message), not a transcript copy.
+   A tool error that the same tool recovers from later in the session becomes a tool lesson immediately.
+2. **Diagnose.** The daily `luna-learn` cron job (`learn.schedule`, default `0 4 * * *`) groups signals into lessons.
+   Each lesson has a cause: `missing`, `not_loaded`, `ignored`, or `wrong`.
+3. **Fix.** A lesson needs evidence from 2+ sessions or one explicit user rule. A skill proposal needs
+   regression phrases (`must_contain`), passes a dry-run verification, and can grow the skill by at most 1500 characters.
+   A `not_loaded` fix must change the skill description. An `ignored` rule is not rewritten; it is flagged for a code guard.
+4. **Review.** Proposals wait in **Settings → Workspace → Lessons** with a diff and evidence.
+   Approve applies the change with a backup, Reject stops it from being proposed again, and Roll back restores the backup.
+5. **Measure.** A recurrence after apply marks the lesson `ineffective`; a second failure flags it for a code guard.
+   Three later sessions that load the skill without a recurrence mark it `confirmed`.
+
+Data lives in `<dataDir>/learn.db`. HTTP: `GET /v1/lessons`, `POST /v1/lessons/scan`, and
+`POST /v1/lessons/:id/approve|reject|rollback` (`reject` takes an optional `note`).
 
 ## Native browser tools
 

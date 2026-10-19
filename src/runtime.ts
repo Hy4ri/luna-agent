@@ -22,6 +22,7 @@ import { createGoalExtension } from "./goal.js";
 import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
 import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
+import { createLearnExtension, LEARN_JOB, LEARN_PROMPT, LearnStore, scanIdle } from "./learn.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
 import { createBrowserToolsExtension } from "./browser-tools.js";
@@ -122,10 +123,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   })] }));
   if (on("delegate")) extensions.push(createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm()));
-  if (on("improve")) {
-    const imp = new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)] });
-    extensions.push(createImproveExtension(imp, { allowCommandBenchmarks: cfg.improve.allowCommandBenchmarks }));
-  }
+  const improver = on("improve") || on("learn")
+    ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
+    : undefined;
+  if (on("improve")) extensions.push(createImproveExtension(improver!, { allowCommandBenchmarks: cfg.improve.allowCommandBenchmarks }));
+  const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db")) : undefined;
+  if (learn) extensions.push(createLearnExtension(learn, improver!));
   if (on("tool-search")) extensions.push(createToolSearchExtension());
   if (on("todo")) extensions.push(Todo);
   // Installed always, selected only by project sessions (see openLuna). The store exists once the harness is open.
@@ -187,7 +190,27 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       ...(ask ? { exclude: [ask] } : {}),
     });
     syncImproveJob(cfg, store!);
+    syncJob(store!, LEARN_JOB, learn ? cfg.learn.schedule : undefined, LEARN_PROMPT);
     await scheduler.start();
+  }
+
+  // Session learning runs after a conversation goes idle, never inside a live turn.
+  let learnTimer: ReturnType<typeof setInterval> | undefined;
+  let learnRunning: Promise<unknown> | undefined;
+  const learnScan = () => {
+    if (!learn || learnRunning) return learnRunning;
+    const isCronRun = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
+    learnRunning = scanIdle({
+      store: learn, idleMs: cfg.learn.idleMinutes * 60_000, log,
+      commit: (fn) => harness.commit(fn, context),
+      skip: (id) => !!isCronRun?.get(String(id)),
+    }).catch((e) => log(`learn: scan failed: ${(e as Error).message}`)).finally(() => { learnRunning = undefined; });
+    return learnRunning;
+  };
+  if (learn) {
+    learnTimer = setInterval(learnScan, Math.max(60_000, Math.min(5 * 60_000, cfg.learn.idleMinutes * 60_000)));
+    learnTimer.unref();
+    void learnScan();
   }
 
   const sideCommands = new SideCommands({ harness, models: built.models, route: () => {
@@ -210,10 +233,16 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     memory: memory || undefined,
     skillDirs: on("skills") ? cfg.allSkillDirs : undefined,
     model: built.model,
+    learn,
+    improver,
+    /** Run one idle scan now (tests and manual triggers). */
+    learnScan,
     store,
     scheduler,
     mcp,
     async close() {
+      if (learnTimer) clearInterval(learnTimer);
+      await learnRunning;
       await sideCommands.close();
       providers.close();
       await scheduler?.stop();
@@ -222,16 +251,19 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       store?.close();
       if (memory) memory.close();
       recall?.close();
+      learn?.close();
     },
   };
 }
 
 /** Keep the built-in improve job in line with config: create, update, or disable it. */
-function syncImproveJob(cfg: LunaConfig, store: CronStore) {
-  const existing = store.listJobs().find((j) => j.name === IMPROVE_JOB);
-  const want = cfg.improve.schedule;
+function syncImproveJob(cfg: LunaConfig, store: CronStore) { syncJob(store, IMPROVE_JOB, cfg.improve.schedule, IMPROVE_PROMPT); }
+
+/** Keep one built-in job in line with config: create, update, or disable it (`want` undefined = disabled). */
+function syncJob(store: CronStore, name: string, want: string | undefined, prompt: string) {
+  const existing = store.listJobs().find((j) => j.name === name);
   if (!want) { if (existing?.enabled) store.setEnabled(existing.id, false); return; }
-  if (existing && (existing.expr !== want || existing.prompt !== IMPROVE_PROMPT)) store.removeJob(existing.id);
+  if (existing && (existing.expr !== want || existing.prompt !== prompt)) store.removeJob(existing.id);
   else if (existing) { if (!existing.enabled) store.setEnabled(existing.id, true); return; }
-  store.addJob(IMPROVE_JOB, want, IMPROVE_PROMPT);
+  store.addJob(name, want, prompt);
 }
