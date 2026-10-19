@@ -106,6 +106,8 @@ export interface ImproverOptions {
   benchmarks?: Record<string, Benchmark>;
   /** Allow the model to supply a shell command as benchmark. Default false: it runs arbitrary shell. */
   allowCommandBenchmarks?: boolean;
+  /** All skill dirs in scan order (default: skillsDir only), so `read` sees the skill that is actually active. */
+  readDirs?: string[];
 }
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -130,6 +132,17 @@ export class SkillImprover {
   private skillPath(name: string) {
     if (!NAME.test(name)) throw new Error(`invalid skill name "${name}" (lowercase letters, digits, - _)`);
     return join(this.skillsDir, name, "SKILL.md");
+  }
+
+  /** Current text of the active skill with this name (first match in scan order), or undefined. */
+  read(name: string): string | undefined {
+    const s = scanSkills(this.o.readDirs ?? [this.skillsDir]).find((x) => x.name === name);
+    return s ? readFileSync(s.path, "utf8") : undefined;
+  }
+
+  description(content: string): string {
+    const d = parseFrontmatter(content).data.description;
+    return typeof d === "string" ? d.trim() : "";
   }
 
   versions(name: string): number[] {

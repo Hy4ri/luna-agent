@@ -6,7 +6,7 @@ import { loadModels, models } from '@/stores/models'
 function getModels() { return models.list }
 import { json, post } from '@/lib/api'
 import ComponentField from './settings/ComponentField.vue'
-import { Menu, ArrowLeft, ChevronRight, Bot, BarChart2, Wrench, Database, Network, Terminal, AlertCircle } from '@lucide/vue'
+import { Menu, ArrowLeft, ChevronRight, Bot, BarChart2, Wrench, Database, Network, Terminal, AlertCircle, GraduationCap } from '@lucide/vue'
 
 const saved = ref<any>(null)
 const draft = ref<any>(null)
@@ -22,7 +22,7 @@ const groups: Record<string, string[]> = {
   models: ["provider", "model", "thinkingLevel", "subagents", "providers", "auxiliary"],
   context: ["instructions", "compaction"],
   tools: ["web", "browser", "processes", "mcpServers", "extensions", "skillDirs"],
-  automation: ["cron", "improve"],
+  automation: ["cron", "improve", "learn"],
   workspace: [],
 }
 
@@ -136,7 +136,7 @@ const titles: Record<string, string> = {
   dataDir: "Data directory", cwd: "Working directory", provider: "Provider", model: "Model ID",
   thinkingLevel: "Thinking level", instructions: "Default instructions", providers: "Custom AI providers",
   subagents: "Subagents", extensions: "Extensions", skillDirs: "Extra skill directories", mcpServers: "MCP servers",
-  cron: "Scheduled runs", improve: "Self-improvement", server: "HTTP server", notifyUrl: "Notification URL",
+  cron: "Scheduled runs", improve: "Self-improvement", learn: "Session learning", idleMinutes: "Idle time before a scan (minutes)", server: "HTTP server", notifyUrl: "Notification URL",
   runTimeoutMinutes: "Run timeout (minutes)", schedule: "Schedule (cron expression)", allowCommandBenchmarks: "Allow command benchmarks",
   host: "Host", port: "Port", id: "ID", name: "Name", api: "API format", baseUrl: "Base URL", models: "Models",
   contextWindow: "Context window (tokens)", maxTokens: "Maximum output tokens", reasoning: "Reasoning support", vision: "Image support",
@@ -296,6 +296,14 @@ function openWorkspacePanel(panelId: string) {
             <div class="workspace-info">
               <span class="workspace-name">Skills</span>
               <span class="workspace-desc">Browse the instructions available to Luna.</span>
+            </div>
+            <ChevronRight class="w-4 h-4 text-muted-foreground ml-auto" />
+          </button>
+          <button type="button" class="workspace-link" data-panel="lessons" @click="openWorkspacePanel('lessons')">
+            <GraduationCap class="w-5 h-5 text-muted-foreground" />
+            <div class="workspace-info">
+              <span class="workspace-name">Lessons</span>
+              <span class="workspace-desc">Review what Luna learned before it changes skills or memory.</span>
             </div>
             <ChevronRight class="w-4 h-4 text-muted-foreground ml-auto" />
           </button>

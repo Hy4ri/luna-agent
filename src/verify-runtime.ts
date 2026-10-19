@@ -36,7 +36,7 @@ if (process.argv[2] === "stdio-server") {
     bad({ improve: { schedule: "not cron" } }, /cron/, "bad improve schedule");
     bad({ provider: "anthropic" }, /model is required/, "provider without model");
     const def = parseConfig({}, d, {});
-    assert.deepEqual(def.extensions, ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal"]);
+    assert.deepEqual(def.extensions, ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn"]);
     assert.equal(def.improve.allowCommandBenchmarks, false);
     assert.equal(def.server.host, "127.0.0.1");
     writeFileSync(join(d, "cfg.json"), JSON.stringify({ dataDir: "./data", extensions: ["memory"] }));
