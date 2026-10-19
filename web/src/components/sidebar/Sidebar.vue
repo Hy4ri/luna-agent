@@ -369,7 +369,7 @@ onMounted(() => {
               <span class="group-count ml-auto text-xs text-muted-foreground">{{ g.sessions.length }}</span>
             </button>
 
-            <div :id="'group-' + g.key" class="group-body" :class="{ hidden: isGroupCollapsed(g.key) }">
+            <div v-show="!isGroupCollapsed(g.key)" :id="'group-' + g.key" class="group-body">
               <button
                 class="group-new"
                 :aria-label="'New session in ' + g.name"

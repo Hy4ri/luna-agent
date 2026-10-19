@@ -164,8 +164,37 @@ try {
     await waitFirst(group, created.id);
   }
 
+  // Collapsing a project hides every conversation and its creation control, not just the arrow.
+  const projectGroup = page.locator(`.session-group[data-project="${project.id}"]`);
+  const projectToggle = projectGroup.locator('.group-toggle');
+  const projectBody = page.locator(`#group-${project.id}`);
+  const assertProjectHidden = async () => {
+    assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await projectBody.isVisible(), false, 'collapsed project body must be hidden');
+    for (const conversation of await projectBody.locator('.session-row').all()) {
+      assert.equal(await conversation.isVisible(), false, 'all project conversations must be hidden');
+    }
+    assert.equal(await projectBody.locator('.group-new').isVisible(), false);
+    assert.equal(await row(normalOlder).isVisible(), true, 'other groups must remain visible');
+  };
+  await projectToggle.click();
+  await assertProjectHidden();
+  await page.reload();
+  await projectToggle.waitFor();
+  await assertProjectHidden();
+  await projectToggle.click();
+  assert.equal(await projectToggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(await row(projectOlder).isVisible(), true);
+  assert.equal(await row(projectNewer).isVisible(), true);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.locator('#menu').click();
+  await projectToggle.click();
+  await assertProjectHidden();
+  await projectToggle.click();
+  assert.equal(await row(projectOlder).isVisible(), true);
+
   assert.deepEqual(errors, []);
-  console.log("CONVERSATIONS_UI_OK: rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups, empty-session creation fallback and pin precedence");
+  console.log("CONVERSATIONS_UI_OK: project collapse visibility, persistence, independent groups, mobile collapse,  rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups, empty-session creation fallback and pin precedence");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }
