@@ -9,6 +9,7 @@ import { openConversationStorage, registerConversationStorage } from "./conversa
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
+import { SessionStatusExtension } from "./session-status.js";
 
 export const context = BACKGROUND_CONTEXT;
 // New incarnations of a deleted root must not inherit old process handles or deliveries.
@@ -56,6 +57,7 @@ export async function openLuna(opts: LunaOptions) {
     log: opts.log,
   });
   if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); }
+  registry.install(SessionStatusExtension);
   for (const e of opts.extensions ?? []) registry.install(e);
   if (opts.skillDirs?.length) registry.install(createSkillsExtension({ dirs: opts.skillDirs }));
   if (opts.memory !== false) {

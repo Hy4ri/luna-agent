@@ -14,9 +14,11 @@ import SettingsPage from '@/pages/SettingsPage.vue';
 import { ui, boot, login, setDrawer, closePanel, openPanel } from '@/stores/app';
 import { chat, newSession, addErr } from '@/stores/chat';
 import { history } from '@/stores/sessions';
+import { sessionState, sessionStatusLabel } from '@/lib/session-status';
 import { useMobile } from '@/lib/dom';
 
 const mobile = useMobile();
+const activeSession = computed(() => history.list.find(row => String(row.id) === chat.session));
 const password = ref('');
 const blocked = computed(() => ui.login || !!ui.panel || (mobile.value && ui.drawer));
 
@@ -78,7 +80,10 @@ onUnmounted(() => document.removeEventListener('keydown', keyboard));
       <main id="main" v-show="ui.view === 'chat'" :inert="blocked" class="relative flex min-w-0 flex-1 flex-col">
         <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
           <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" aria-controls="side" :aria-expanded="ui.drawer" @click="setDrawer(true)"><Menu :size="18" /></button>
-          <div class="heading min-w-0 flex-1"><span id="title" class="block truncate text-sm font-medium">{{ chat.title }}</span></div>
+          <div class="heading min-w-0 flex-1">
+            <span id="title" class="block truncate text-sm font-medium">{{ chat.title }}</span>
+            <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
+          </div>
           <StatusBar />
           <button id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
           <button id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>

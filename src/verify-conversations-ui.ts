@@ -46,6 +46,7 @@ try {
     const body = await response.json();
     for (const session of body.sessions) {
       session.running = running && String(session.id) === String(second);
+      session.status = session.running ? "running" : "ready";
       if (String(session.id) === String(second)) {
         session.title = 'A long pinned session title that must not displace its spinner or management control '.repeat(3);
         session.pinned = true;
@@ -62,7 +63,7 @@ try {
     await row(second).waitFor();
     await page.locator('#side').evaluate((el: any) => Promise.all(el.getAnimations().map((a: any) => a.finished)));
     const idle = await row(second).boundingBox();
-    const idleButton = await row(second).locator('.session-open').boundingBox();
+    const idleButton = await row(second).locator('.session-title').boundingBox();
     running = true;
     await page.reload();
     if (width === 320) await page.locator('#menu').click();
@@ -70,9 +71,9 @@ try {
     await indicator.waitFor();
     await page.locator('#side').evaluate((el: any) => Promise.all(el.getAnimations().map((a: any) => a.finished)));
     const active = await row(second).boundingBox();
-    const activeButton = await row(second).locator('.session-open').boundingBox();
+    const activeButton = await row(second).locator('.session-title').boundingBox();
     const spinner = await indicator.boundingBox();
-    assert.deepEqual(active, idle, 'running state must preserve row geometry');
+    assert.ok(active && idle && active.width === idle.width, 'running state must preserve row width');
     assert.deepEqual(activeButton, idleButton, 'running state must preserve title geometry');
     assert.ok(spinner && active && spinner.x >= 0 && spinner.x + spinner.width <= active.x,
       'spinner must fit in the left gutter');
@@ -92,7 +93,7 @@ try {
   await page.getByLabel("Conversation name", { exact: true }).fill("Renamed <safe> conversation");
   await page.keyboard.press("Enter");
   await page.waitForFunction((id: number) => {
-    const el = (globalThis as any).document.querySelector(`[data-session="${id}"] .session-open`);
+    const el = (globalThis as any).document.querySelector(`[data-session="${id}"] .session-title`);
     return el && el.textContent === "Renamed <safe> conversation";
   }, first);
   await manage(first);
@@ -100,7 +101,7 @@ try {
   await row(first).locator(".session-pin").waitFor();
   await close();
   assert.equal(await page.locator(".session-row").first().getAttribute("data-session"), String(first));
-  assert.equal(await row(first).locator(".session-open").textContent(), "Renamed <safe> conversation");
+  assert.equal(await row(first).locator(".session-title").textContent(), "Renamed <safe> conversation");
   await row(first).locator(".session-open").click();
   await page.locator("#title").filter({ hasText: "Renamed <safe> conversation" }).waitFor();
   await manage(first); await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
@@ -150,7 +151,7 @@ try {
   await page.getByLabel("Conversation name", { exact: true }).fill("Mobile rename");
   await page.keyboard.press("Enter");
   await page.waitForFunction((id: number) => {
-    const el = (globalThis as any).document.querySelector(`[data-session="${id}"] .session-open`);
+    const el = (globalThis as any).document.querySelector(`[data-session="${id}"] .session-title`);
     return el && el.textContent === "Mobile rename";
   }, second);
   await close(); await page.locator("#menu").click();

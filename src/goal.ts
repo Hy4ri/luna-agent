@@ -5,6 +5,7 @@
 // questionnaire and slash commands (the web UI and PATCH /v1/sessions/:id/goal cover pause/resume/clear).
 // One goal per conversation; state lives in a conversation document.
 import { Type } from "typebox";
+import { newestInputBoundary, readSessionHandoff } from "./session-status.js";
 import { configure, defineDoc, defineExtension, defineTool, GenerationTask, hook, section, UsageDoc, type Harness, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { Context } from "@earendil-works/chord/context";
@@ -23,6 +24,8 @@ export type Goal = {
   runs: number;
   /** Automatic continuations allowed before the goal pauses; 0 disables continuation. */
   maxRuns: number;
+  /** Input boundary where an automatic continuation limit stopped work. */
+  limitInput?: number;
   tokenBudget?: number;
   baseTokens: number;
   tokensUsed: number;
@@ -284,8 +287,9 @@ export function createGoalExtension(o: { harness: () => Harness | undefined }) {
           const x = d.goal as Goal | null;
           if (!x || x.id !== g.id || x.status !== "active") return false;
           x.tokensUsed = Math.max(0, used);
-          if (x.tokenBudget && used >= x.tokenBudget) { x.status = "budget_limited"; x.statusReason = `token budget ${x.tokenBudget} reached`; return false; }
-          if (x.runs >= x.maxRuns) { if (x.maxRuns > 0) { x.status = "paused"; x.statusReason = `run allowance ${x.maxRuns} reached`; } return false; }
+          if (await readSessionHandoff(tx, api.conversationId)) return false;
+          if (x.tokenBudget && used >= x.tokenBudget) { x.limitInput = await newestInputBoundary(tx, api.conversationId); x.status = "budget_limited"; x.statusReason = `token budget ${x.tokenBudget} reached`; return false; }
+          if (x.runs >= x.maxRuns) { if (x.maxRuns > 0) { x.limitInput = await newestInputBoundary(tx, api.conversationId); x.status = "paused"; x.statusReason = `run allowance ${x.maxRuns} reached`; } return false; }
           x.runs += 1;
           return true;
         }, context);
