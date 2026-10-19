@@ -5,6 +5,18 @@ import { GoalDoc } from "./goal.js";
 
 export type SessionStatus = "ready" | "running" | "finished" | "needs_approval" | "needs_input" | "limit_reached" | "failed" | "stopped";
 export interface SessionState { status: SessionStatus; statusReason: string | null }
+
+/** Tracks when the user last opened (read) this session. */
+export const SessionReadDoc = defineDoc<{ at: number | null }>({
+  kind: "luna.session-read", version: 1, scope: "conversation", history: "latest", fork: "initial",
+  initial: () => ({ at: null }),
+});
+
+/** Record the current wall-clock time as the read timestamp. Call inside a commit that also reads status. */
+export async function markSessionRead(tx: Tx, id: ConversationId): Promise<void> {
+  const doc = await tx.doc(SessionReadDoc, id);
+  doc.at = Date.now();
+}
 type Handoff = { status: "needs_approval" | "needs_input"; reason: string; boundary: number };
 export const SessionHandoffDoc = defineDoc<{ handoff: Handoff | null }>({
   kind: "luna.session-handoff", version: 1, scope: "conversation", history: "latest", fork: "initial",
@@ -94,5 +106,13 @@ export async function readSessionStatus(tx: Tx, id: ConversationId, running: boo
   }
   const handoff = (await tx.doc(SessionHandoffDoc, id)).handoff;
   if (handoff && handoff.boundary === tail.boundary) return state(handoff.status, handoff.reason);
-  return state(message ? "finished" : "ready");
+  if (!message) return state("ready");
+
+  // Finished: clear to ready once the user opens the session after the response arrived.
+  const readDoc = await tx.doc(SessionReadDoc, id);
+  const readAt = readDoc.at;
+  const lastMessageAt = (message as any).timestamp ?? 0;
+  if (readAt !== null && readAt >= lastMessageAt) return state("ready");
+
+  return state("finished");
 }
