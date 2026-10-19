@@ -13,7 +13,7 @@ import type { Extension } from "@earendil-works/pi-durable";
 import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { AskDoc, checkAnswer } from "./ask.js";
-import { readSessionStatus, type SessionState } from "./session-status.js";
+import { readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
 import { Children } from "./delegate.js";
 import { GoalDoc } from "./goal.js";
 import type { McpManager } from "./mcp.js";
@@ -318,7 +318,11 @@ export function createApp(opts: ServerOptions) {
     const goal = await harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined);
     const { running, ...sessionStatus } = await harness.commit(async tx => {
       const running = await isRunning(tx, conv.id);
-      return { running, ...await readSessionStatus(tx, conv.id, running) };
+      const status = await readSessionStatus(tx, conv.id, running);
+      // Mark read in the same commit. readSessionStatus reads the doc before the mark,
+      // so this GET returns "finished"; subsequent reads see "ready".
+      if (!running && status.status === "finished") await markSessionRead(tx, conv.id);
+      return { running, ...status };
     }, context);
     return c.json({
       id: conv.id,
@@ -597,7 +601,7 @@ export function createApp(opts: ServerOptions) {
     const boardChanged = () => { boardDirty = true; arm(); };
     // Register BEFORE the initial event, so creation during attachment cannot be missed.
     const unsubscribe = harness.subscribeCommits(publication => {
-      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission" || change.type === "document" && ["luna.ask", "luna.goal", "luna.session-handoff"].includes(change.record.kind))) changed();
+      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission" || change.type === "document" && ["luna.ask", "luna.goal", "luna.session-handoff", "luna.session-read"].includes(change.record.kind))) changed();
     });
     const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
     const unsubscribeBoard = opts.conversations?.subscribeBoard(boardChanged);

@@ -49,10 +49,13 @@ try {
   await page.locator("#input").fill("Please work"); await page.locator("#send").click(); await started;
   await expectStatus("running", "Running");
   assert.equal(await row().locator(".session-running svg").count(), 1);
-  release!(); await conv.waitForIdle(context); await expectStatus("finished", "Finished");
+  release!(); await conv.waitForIdle(context);
+  // The active session's detail GET (triggered by the live feed) marks it read immediately,
+  // so the sidebar shows ready (nothing) rather than finished for the current session.
+  await expectStatus("ready", "Ready");
   assert.equal(await row().locator(".session-running svg").count(), 0);
-  await page.reload(); await expectStatus("finished", "Finished");
-  console.log("OK real ready/running/finished events update both sidebar and current chat; reload preserves outcome");
+  await page.reload(); await expectStatus("ready", "Ready");
+  console.log("OK real ready/running/finished; active session clears finished to ready immediately");
 
   const questions = [{ header: "Target", question: "Which target should I use?", options: [{ label: "Local", description: "Local target" }, { label: "Remote", description: "Remote target" }] }];
   faux.setResponses([fauxAssistantMessage([fauxToolCall("ask_user_question", { questions })], { stopReason: "toolUse" }), fauxAssistantMessage("Answer received.")]);

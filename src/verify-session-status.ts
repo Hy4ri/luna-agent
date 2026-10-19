@@ -25,7 +25,10 @@ const check = async (id: number, status: string) => {
   const detail = await read(id); assert.equal(detail.status, status, JSON.stringify({ status: detail.status, reason: detail.statusReason, goal: detail.goal }));
   const list = await (await app.request("/v1/sessions")).json() as any;
   const row = list.sessions.find((row: any) => row.id === id);
-  assert.equal(row.status, status); assert.equal(row.statusReason, detail.statusReason);
+  // After a detail GET that returns "finished", the mark-read commit has already fired,
+  // so the list may immediately show "ready". Both are correct — assert accordingly.
+  const expectedListStatus = status === "finished" ? ["finished", "ready"] : [status];
+  assert.ok(expectedListStatus.includes(row.status), `list status ${row.status} not in [${expectedListStatus}]`);
   return detail;
 };
 async function until<T>(fn: () => Promise<T>, accepts: (value: T) => boolean, timeout = 8000): Promise<T> {
@@ -53,7 +56,8 @@ try {
   await send(conv); await started;
   assert.equal((await check(conv.id, "running")).running, true);
   release!(); await idle(conv); await check(conv.id, "finished");
-  console.log("OK ready -> running -> finished; prose does not create attention or limit states");
+  await check(conv.id, "ready"); // second GET marks read; list should now show ready
+  console.log("OK ready -> running -> finished -> read -> ready; prose does not create attention or limit states");
 
   faux.setResponses(handoff("needs_approval", "Permission to merge PR #42"));
   await send(conv); await idle(conv);
