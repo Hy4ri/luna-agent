@@ -68,6 +68,11 @@ async function act(run: () => Promise<unknown>) {
 }
 export const renameSession = (s: SessionMeta, title: string) =>
   act(() => post(`/v1/sessions/${s.id}/metadata`, { title }, "PATCH"));
+/** Whether a session-title model is configured. Checked on every menu open, so Settings changes apply at once. */
+export const titleModelAvailable = () =>
+  json<{ available: boolean }>("/v1/session-titles").then(r => !!r.available, () => false);
+export const generateTitle = (s: SessionMeta) =>
+  act(() => post(`/v1/sessions/${s.id}/title`, {}));
 export const togglePinned = (s: SessionMeta) =>
   act(() => post(`/v1/sessions/${s.id}/metadata`, { pinned: !s.pinned }, "PATCH"));
 export const toggleArchived = (s: SessionMeta) => act(async () => {

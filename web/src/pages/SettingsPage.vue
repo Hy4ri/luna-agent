@@ -129,7 +129,7 @@ function setVal(path: (string | number)[], value: any) {
 }
 
 const titles: Record<string, string> = {
-  auxiliary: "Auxiliary models", side_question: "Side questions",
+  auxiliary: "Auxiliary models", side_question: "Side questions", session_title: "Session titles",
   browser: "Browser tools", camofox: "Camofox",
   processes: "Background processes", retentionHours: "Completed output retention (hours)", maxOutputBytes: "Retained output per process (bytes)",
   web: "Web tools", searchProvider: "Search provider", extractProvider: "Extraction provider", ddgs: "DDGS", mcpServer: "MCP server name", backend: "Search backend", region: "Search region", safesearch: "Safe search",

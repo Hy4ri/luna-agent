@@ -43,6 +43,12 @@ export class RecallIndex {
     `);
   }
   close() { this.db.close(); }
+  private stored?: (id: number) => string | null;
+  /** Prefer stored session titles (user renames, generated titles) over the first-message fallback. */
+  titles(resolve: (id: number) => string | null) { this.stored = resolve; }
+  private title(id: number, fallback: string | null) {
+    try { return this.stored?.(id) ?? fallback; } catch { return fallback; }
+  }
 
   /** Remove both the text rows and their FTS entries. Safe to repeat after a crash. */
   forget(ids: number[]) {
@@ -125,12 +131,13 @@ export class RecallIndex {
         WHERE ${where || "1"} AND (? IS NULL OR m.conv <> ?) ORDER BY m.entry DESC LIMIT ?`).all(...args, opts.exclude ?? null, opts.exclude ?? null, limit) as Row[])
         .map((r) => { const i = r.snip.toLowerCase().indexOf(words[0]!.toLowerCase()); return { ...r, snip: (i > 60 ? "…" : "") + r.snip.slice(Math.max(0, i - 60), Math.max(0, i - 60) + 160) + "…" }; });
     }
-    return rows;
+    return rows.map((r) => ({ ...r, title: this.title(r.conv, r.title) }));
   }
 
   browse(limit = 5, exclude?: number) {
-    return this.db.prepare("SELECT id, title, started FROM convs WHERE title IS NOT NULL AND (? IS NULL OR id <> ?) ORDER BY id DESC LIMIT ?")
-      .all(exclude ?? null, exclude ?? null, Math.min(Math.max(limit, 1), 10)) as { id: number; title: string; started: number | null }[];
+    return (this.db.prepare("SELECT id, title, started FROM convs WHERE title IS NOT NULL AND (? IS NULL OR id <> ?) ORDER BY id DESC LIMIT ?")
+      .all(exclude ?? null, exclude ?? null, Math.min(Math.max(limit, 1), 10)) as { id: number; title: string; started: number | null }[])
+      .map((c) => ({ ...c, title: this.title(c.id, c.title)! }));
   }
 
   messages(conv: number, around?: number, window = 5) {

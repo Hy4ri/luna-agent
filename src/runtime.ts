@@ -31,6 +31,7 @@ import { createWebToolsExtension } from "./web-tools.js";
 import { createDdgsWebProvider } from "./ddgs-web-provider.js";
 import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
+import { SessionTitler } from "./titles.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
@@ -218,8 +219,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     return route ? { provider: route.provider, modelId: route.model } : undefined;
   } });
 
+  // Session titles use their own route, else the side-question route; never the session model.
+  const titler = new SessionTitler({ harness, conversations, models: built.models, route: () => {
+    const aux = (settings?.resolved() ?? cfg).auxiliary, route = aux.session_title ?? aux.side_question;
+    return route ? { provider: route.provider, modelId: route.model } : undefined;
+  } });
+  titler.start();
+  recall?.titles((id) => conversations.get(id).title);
+
   return {
     sideCommands,
+    titler,
     config: cfg,
     settings,
     compaction,
@@ -243,6 +253,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     async close() {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
+      await titler.close();
       await sideCommands.close();
       providers.close();
       await scheduler?.stop();

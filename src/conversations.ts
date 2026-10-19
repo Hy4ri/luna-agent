@@ -22,6 +22,9 @@ export class ConversationStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_conversations (
         id INTEGER PRIMARY KEY, title TEXT, archived INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0
       ) STRICT;`);
+    // NULL source on an existing title means a user rename from before sources were stored.
+    const cols = this.db.prepare("PRAGMA table_info(luna_conversations)").all() as { name: string }[];
+    if (!cols.some(c => c.name === "title_source")) this.db.exec("ALTER TABLE luna_conversations ADD COLUMN title_source TEXT");
     this.projects = new ProjectStore(this.db, id => this.board.deleteProject(id));
     this.board = new BoardStore(this.db);
   }
@@ -48,13 +51,30 @@ export class ConversationStore {
     const res = await this.harness.commit(async tx => {
       if (!await tx.conversation(id as never)) throw new ConversationError(404, "no such session");
       const next = { ...this.get(id), ...changes };
-      this.db.prepare(`INSERT INTO luna_conversations(id,title,archived,pinned) VALUES (?,?,?,?)
-        ON CONFLICT(id) DO UPDATE SET title=excluded.title,archived=excluded.archived,pinned=excluded.pinned`)
-        .run(id, next.title, Number(next.archived), Number(next.pinned));
+      const source = "title" in changes ? "user" : null;
+      this.db.prepare(`INSERT INTO luna_conversations(id,title,archived,pinned,title_source) VALUES (?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET title=excluded.title,archived=excluded.archived,pinned=excluded.pinned,
+          title_source=COALESCE(excluded.title_source,luna_conversations.title_source)`)
+        .run(id, next.title, Number(next.archived), Number(next.pinned), source);
       return next;
     }, context);
     this.notify();
     return res;
+  }
+  /**
+   * Store a generated title. Without `force` it never replaces a user title: the condition is checked in the same
+   * statement as the write, so a rename that lands first always wins. Returns whether the title was written.
+   */
+  async autoTitle(id: number, title: string, force = false): Promise<boolean> {
+    const written = await this.harness.commit(async tx => {
+      if (!await tx.conversation(id as never)) return false;
+      const r = this.db.prepare(`INSERT INTO luna_conversations(id,title,title_source) VALUES (?,?,'auto')
+        ON CONFLICT(id) DO UPDATE SET title=excluded.title,title_source='auto'
+        WHERE ? OR luna_conversations.title IS NULL OR luna_conversations.title_source='auto'`).run(id, title, Number(force));
+      return Number(r.changes) > 0;
+    }, context);
+    if (written) this.notify();
+    return written;
   }
   async delete(id: number) {
     // A busy conversation must be stopped first. Do not race an invocation that can still write its result.

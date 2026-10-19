@@ -443,6 +443,29 @@ HTTP clients use the normal message endpoint. Side commands return HTTP 202 with
 The session event stream sends `side_jobs` on connection and `side_job` for state changes.
 Retries with the same request ID reuse the same job; conflicting reuse is rejected.
 
+## Session titles
+
+A session without a title shows its first message, shortened to 60 characters.
+Automatic titles replace that fallback with a short generated title:
+
+```json
+"auxiliary": {
+  "session_title": { "provider": "openai", "model": "gpt-4.1-mini" }
+}
+```
+
+Without `session_title`, titles use the `side_question` route. Without either route, automatic titles are off.
+The session's own model is never used, so a large session model does not change the cost.
+
+- Timing: once, after the first finished answer of a top-level session. Forks and subagent children are skipped.
+- Cost: one call. Thinking is always off, whatever the session's thinking level.
+  Input is the first user message (1,200 characters) and the first answer (800 characters). Output is at most 40 tokens.
+  Usage is recorded against the session.
+- Failure: no retry. The first-message fallback stays.
+- User titles win. Automatic titles never replace a rename, including a rename made while the call runs.
+- **Generate title** in the session menu replaces the current title on request. It is unavailable without a route.
+- `session_search` shows stored titles (renames and generated titles) instead of the first message.
+
 ## Web frontend development
 
 The web frontend uses Vue 3, Vite, TypeScript, Tailwind CSS, and shadcn-vue.
