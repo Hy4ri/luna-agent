@@ -63,6 +63,14 @@ export const ConfigSchema = z
       subagent_max_calls_per_image: z.number().int().nonnegative().default(3),
       profiles: z.record(z.string(), z.strictObject({ tool_result_images: z.boolean() })).default({}),
     }).prefault({}),
+    image_gen: z.strictObject({
+      provider: z.string().trim().min(1).optional(),
+      "openai-codex": z.strictObject({
+        model: z.literal("gpt-image-2").default("gpt-image-2"),
+        quality: z.enum(["low", "medium", "high"]).default("low"),
+        codexHome: z.string().min(1).optional(), codexCommand: z.string().min(1).optional(),
+      }).prefault({}),
+    }).prefault({}),
     providers: z.array(CustomProviderSchema).default([]),
     // Agent-facing web tools use a common interface; options belong to each provider.
     web: z.strictObject({
@@ -145,6 +153,7 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
     dataDir,
     subagents: { ...c.subagents, ...(c.subagents.cwd ? { cwd: expand(c.subagents.cwd, base) } : {}) },
     cwd: c.cwd ? expand(c.cwd, base) : undefined,
+    image_gen: { ...c.image_gen, "openai-codex": { ...c.image_gen["openai-codex"], ...(c.image_gen["openai-codex"].codexHome ? { codexHome: expand(c.image_gen["openai-codex"].codexHome, base) } : {}) } },
     skillDirs: c.skillDirs.map((d) => expand(d, base)),
     allSkillDirs: [join(dataDir, "skills"), ...c.skillDirs.map((d) => expand(d, base))],
     mcpServers: c.mcpServers.map((s) => (s.transport === "stdio" && s.cwd ? { ...s, cwd: expand(s.cwd, base) } : s)),

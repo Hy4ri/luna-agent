@@ -11,6 +11,9 @@
     "improve",
     "tool-search"
   ],
+  "image_gen": {
+    "openai-codex": { "model": "gpt-image-2", "quality": "low" }
+  },
   "skillDirs": [],
   "mcpServers": [
     {
