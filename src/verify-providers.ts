@@ -3,7 +3,7 @@
 // auth_url event, manual code), custom OpenAI-compatible provider (auto-detect + a real streamed chat turn
 // against a local fake server), default model persistence, and /v1/models listing only connected providers.
 import { createServer } from "node:http";
-import { mkdtempSync, rmSync, statSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { createModels, createProvider, fauxProvider, type MutableModels } from "@earendil-works/pi-ai";
@@ -19,7 +19,7 @@ const d = mkdtempSync(join(process.cwd(), ".vprov-"));
 // Fake OpenAI-compatible server: GET /v1/models, POST /v1/chat/completions (streamed). Records the auth header.
 let seenAuth = "";
 const fake = createServer((req, res) => {
-  if (req.url === "/v1/models") { res.writeHead(200, { "content-type": "application/json" }); return void res.end(JSON.stringify({ data: [{ id: "tiny-1" }, { id: "tiny-2" }] })); }
+  if (req.url === "/v1/models") { res.writeHead(200, { "content-type": "application/json" }); return void res.end(JSON.stringify({ data: [{ id: "tiny-1", context_length: 1000000, top_provider: { max_completion_tokens: 64000 } }, { id: "tiny-2" }] })); }
   if (req.url === "/v1/chat/completions" && req.method === "POST") {
     seenAuth = String(req.headers.authorization ?? "");
     req.resume();
@@ -165,6 +165,7 @@ try {
   const add = await J("/v1/providers/custom", send("POST", { id: "local", name: "Local LLM", baseUrl: base + "/", key: "sk-local" }));
   assert.equal(add.status, 201, JSON.stringify(add.body));
   assert.deepEqual(add.body.models.map((m: any) => m.id), ["tiny-1", "tiny-2"]);
+  assert.deepEqual(add.body.models, [{ id: "tiny-1", contextWindow: 1000000, maxTokens: 64000 }, { id: "tiny-2" }], "reported limits are saved");
   pv = (await J("/v1/providers")).body;
   assert.equal(by("local").custom, true); assert.equal(by("local").connected, true); assert.equal(by("local").models, 2);
   ms = (await J("/v1/models")).body;
@@ -188,6 +189,22 @@ try {
   assert.equal((await again.models.checkAuth("local"))?.type, "api_key");
   assert.equal((await again.models.checkAuth("subby").catch(() => undefined)), undefined, "subby is a test-only provider, not restored");
   ok("providers.json + auth.json restore custom providers, default model and keys after restart");
+
+  // A provider saved before limits were detected picks them up on refresh; a saved value still wins.
+  const legacyDir = mkdtempSync(join(d, "legacy-"));
+  writeFileSync(join(legacyDir, "providers.json"), JSON.stringify({ custom: [{ id: "old", name: "Old", api: "openai-completions", baseUrl: base,
+    models: [{ id: "tiny-1" }, { id: "tiny-2" }, { id: "pinned", contextWindow: 32000 }] }] }));
+  writeFileSync(join(legacyDir, "auth.json"), JSON.stringify({ old: { type: "api_key", key: "sk-old" } }), { mode: 0o600 });
+  const legacy = new ProviderManager({ dataDir: legacyDir, fallbackModel: { provider: "faux", modelId: "x" } });
+  assert.equal(legacy.models.getModel("old", "tiny-1")!.contextWindow, 128000);
+  assert.deepEqual(legacy.customIds(), ["old"]);
+  const refreshed = await legacy.models.refresh({ providers: legacy.customIds(), allowNetwork: true });
+  assert.equal(refreshed.errors.size, 0, [...refreshed.errors.values()].join());
+  assert.equal(legacy.models.getModel("old", "tiny-1")!.contextWindow, 1000000);
+  assert.equal(legacy.models.getModel("old", "tiny-1")!.maxTokens, 64000);
+  assert.equal(legacy.models.getModel("old", "tiny-2")!.contextWindow, 128000, "no reported window keeps the fallback");
+  assert.equal(legacy.models.getModel("old", "pinned")!.contextWindow, 32000, "saved window wins");
+  ok("refresh applies endpoint-reported context windows to saved custom models");
 
   assert.equal((await J("/v1/providers/custom/anthropic", send("DELETE"))).status, 400);
   assert.equal((await J("/v1/providers/custom/local", send("DELETE"))).status, 200);

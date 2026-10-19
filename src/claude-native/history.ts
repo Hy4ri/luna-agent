@@ -160,6 +160,12 @@ export function nativeModel(model: string): string {
   return model;
 }
 
+/** The window the CLI actually runs `model` at: 1M only when nativeModel routes it to a `[1m]` variant. */
+export function nativeContextWindow(model: string): number {
+  try { return nativeModel(model).endsWith("[1m]") ? 1_000_000 : 200_000; }
+  catch { return 200_000; }
+}
+
 /** Bottom-up map over a schema tree, as Hermes' schema_sanitizer._rewrite. Never mutates its input. */
 function rewrite(schema: unknown, fn: (node: Json) => unknown): unknown {
   if (Array.isArray(schema)) return schema.map(item => rewrite(item, fn));

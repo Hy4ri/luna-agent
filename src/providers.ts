@@ -81,14 +81,23 @@ interface ProvidersFile { custom: CustomProviderDef[]; defaultModel?: ModelRef; 
 const API_IMPL = { "openai-completions": openAICompletionsApi, "openai-responses": openAIResponsesApi, "anthropic-messages": anthropicMessagesApi };
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
-function customProvider(def: CustomProviderDef): Provider {
+function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch = fetch): Provider {
   const baseUrl = def.baseUrl.replace(/\/+$/, "");
-  const models: Model<CustomApi>[] = def.models.map((m) => ({
+  const toModel = (m: CustomModelDef): Model<CustomApi> => ({
     id: m.id, name: m.name || m.id, api: def.api, provider: def.id, baseUrl,
     input: m.vision ? ["text", "image"] : ["text"], reasoning: m.reasoning ?? false,
     contextWindow: m.contextWindow ?? 128_000, maxTokens: m.maxTokens ?? 16_384,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  }));
+  });
+  const models = def.models.map(toModel);
+  // Re-read limits the endpoint reports. Only the saved model list is kept; a saved value wins.
+  const fetchModels = def.api === "anthropic-messages" ? undefined : async ({ credential }: { credential?: { type: string; key?: string } }) => {
+    const live = new Map((await detectModels(baseUrl, credential?.type === "api_key" ? credential.key : undefined, fetchImpl)).map((m) => [m.id, m]));
+    return def.models.filter((m) => live.get(m.id)?.contextWindow !== undefined && m.contextWindow === undefined).map((m) => {
+      const l = live.get(m.id)!;
+      return toModel({ ...m, contextWindow: l.contextWindow, maxTokens: m.maxTokens ?? l.maxTokens });
+    });
+  };
   return createProvider({
     id: def.id, name: def.name, baseUrl,
     auth: {
@@ -100,21 +109,44 @@ function customProvider(def: CustomProviderDef): Provider {
       },
     },
     models,
+    ...(fetchModels ? { fetchModels } : {}),
     api: API_IMPL[def.api](),
   });
 }
 
-/** Ask an OpenAI-compatible endpoint for its model ids (GET <baseUrl>/models). */
-export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+/** First positive integer >= 1000 among `keys` (dotted paths allowed). */
+function limit(m: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    const v = k.split(".").reduce<unknown>((o, p) => (o && typeof o === "object" ? (o as Record<string, unknown>)[p] : undefined), m);
+    const n = typeof v === "string" ? Number(v) : v;
+    if (typeof n === "number" && Number.isInteger(n) && n >= 1000) return n;
+  }
+  return undefined;
+}
+// OpenRouter/ZenMux: context_length; vLLM: max_model_len; others: context_window / max_context_length.
+const CONTEXT_KEYS = ["context_length", "context_window", "max_context_length", "max_model_len", "top_provider.context_length", "contextWindow"];
+const OUTPUT_KEYS = ["max_completion_tokens", "max_output_tokens", "top_provider.max_completion_tokens", "max_tokens", "maxTokens"];
+
+/** Ask an OpenAI-compatible endpoint for its models (GET <baseUrl>/models), with any context/output limits it reports. */
+export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch): Promise<CustomModelDef[]> {
   const r = await fetchImpl(baseUrl.replace(/\/+$/, "") + "/models", {
     headers: key && key !== "none" ? { authorization: `Bearer ${key}` } : {},
     signal: AbortSignal.timeout(15_000),
   });
   if (!r.ok) throw new Error(`GET /models: HTTP ${r.status}`);
-  const body = await r.json() as { data?: { id?: unknown }[]; models?: { id?: unknown; name?: unknown }[] };
-  const ids = (body.data ?? body.models ?? []).map((m) => String((m as { id?: unknown }).id ?? (m as { name?: unknown }).name ?? "")).filter(Boolean);
-  if (!ids.length) throw new Error("the endpoint listed no models; enter model ids by hand");
-  return ids;
+  const body = await r.json() as { data?: Record<string, unknown>[]; models?: Record<string, unknown>[] };
+  const models: CustomModelDef[] = [];
+  for (const m of body.data ?? body.models ?? []) {
+    const id = String(m.id ?? m.name ?? "");
+    if (!id) continue;
+    const def: CustomModelDef = { id };
+    const cw = limit(m, CONTEXT_KEYS), mt = limit(m, OUTPUT_KEYS);
+    if (cw !== undefined) def.contextWindow = cw;
+    if (mt !== undefined && (cw === undefined || mt <= cw)) def.maxTokens = mt;
+    models.push(def);
+  }
+  if (!models.length) throw new Error("the endpoint listed no models; enter model ids by hand");
+  return models;
 }
 
 // ---------------------------------------------------------------- interactive logins
@@ -163,9 +195,12 @@ export class ProviderManager {
     for (const make of BUILTIN_PROVIDERS) { const p = make(); if (!this.models.getProvider(p.id)) this.models.setProvider(p); }
     for (const def of this.state.custom) {
       if (this.models.getProvider(def.id)) throw new Error(`provider ${def.id} conflicts with a built-in provider`);
-      this.models.setProvider(customProvider(def));
+      this.models.setProvider(customProvider(def, this.fetchImpl));
     }
   }
+
+  /** Ids of user-defined providers, for refreshing the limits their endpoints report. */
+  customIds(): string[] { return this.state.custom.map((c) => c.id); }
 
   private load(): ProvidersFile {
     if (this.settings) return { custom: this.settings.read().providers };
@@ -265,7 +300,7 @@ export class ProviderManager {
       models = input.models.map((m) => (typeof m === "string" ? { id: m.trim() } : (m as CustomModelDef))).filter((m) => m.id);
     } else {
       if (api === "anthropic-messages") throw new Error("list the model ids (auto-detect works for OpenAI-compatible endpoints)");
-      models = (await detectModels(baseUrl, key, this.fetchImpl)).map((mid) => ({ id: mid }));
+      models = await detectModels(baseUrl, key, this.fetchImpl);
     }
     if (!models.length) throw new Error("at least one model id is required");
     for (const m of models) {
@@ -276,7 +311,7 @@ export class ProviderManager {
       if (m.contextWindow === undefined) console.warn(`provider ${id}/${m.id}: no contextWindow given, assuming 128000; compaction triggers late if the real window is smaller`);
     }
     const def: CustomProviderDef = { id, name: String(input.name ?? "").trim() || id, api, baseUrl, models };
-    this.models.setProvider(customProvider(def));
+    this.models.setProvider(customProvider(def, this.fetchImpl));
     await this.setApiKey(id, key);
     this.state.custom.push(def);
     this.save();
