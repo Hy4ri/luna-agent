@@ -116,7 +116,7 @@ try {
   faux.setResponses(Array(12).fill(() => fauxAssistantMessage("activity reply")));
   await page.reload();
   await row(normalNewer).waitFor();
-  const groupKeys = await page.locator('.session-group > .group-toggle').evaluateAll((els: any[]) => els.map(el => el.getAttribute('aria-controls')));
+  const groupKeys = await page.locator('.session-group > .group-header > .group-toggle').evaluateAll((els: any[]) => els.map(el => el.getAttribute('aria-controls')));
   assert.deepEqual(groupKeys, ['group-' + project.id, 'group-none'], "project groups must precede Chats");
   const waitFirst = async (group: string, id: number) => page.waitForFunction(({ group, id }: { group: string; id: number }) => {
     const doc = (globalThis as any).document;
@@ -164,7 +164,20 @@ try {
     await waitFirst(group, created.id);
   }
 
-  // Collapsing a project hides every conversation and its creation control, not just the arrow.
+  // The compact creation control stays in each header, independent of group collapse.
+  assert.equal(await page.locator('.group-count').count(), 0, 'session counts are removed');
+  assert.equal(await page.locator('.group-body .group-new').count(), 0, 'no separate creation row');
+  for (const group of await page.locator('.session-group').all()) {
+    const add = group.locator('.group-header > .group-new');
+    assert.equal(await add.isVisible(), true);
+    assert.equal((await add.textContent()).trim(), '', 'creation uses only the plus icon');
+    assert.equal(await add.locator('svg').count(), 1);
+    const toggleBounds = await group.locator('.group-toggle').boundingBox();
+    const addBounds = await add.boundingBox();
+    assert.ok(toggleBounds && addBounds && Math.abs(toggleBounds.y - addBounds.y) < 2, 'plus shares the group header row');
+  }
+
+  // Collapsing a project hides every conversation, but keeps its header action visible.
   const projectGroup = page.locator(`.session-group[data-project="${project.id}"]`);
   const projectToggle = projectGroup.locator('.group-toggle');
   const projectBody = page.locator(`#group-${project.id}`);
@@ -174,7 +187,7 @@ try {
     for (const conversation of await projectBody.locator('.session-row').all()) {
       assert.equal(await conversation.isVisible(), false, 'all project conversations must be hidden');
     }
-    assert.equal(await projectBody.locator('.group-new').isVisible(), false);
+    assert.equal(await projectGroup.locator('.group-header > .group-new').isVisible(), true);
     assert.equal(await row(normalOlder).isVisible(), true, 'other groups must remain visible');
   };
   await projectToggle.click();
@@ -190,7 +203,16 @@ try {
   await page.locator('#menu').click();
   await projectToggle.click();
   await assertProjectHidden();
+  // Creating while collapsed must keep the group collapsed and use the correct project.
+  const createdResponse = page.waitForResponse((response: any) => response.url().endsWith('/v1/sessions') && response.request().method() === 'POST');
+  await projectGroup.locator('.group-new').click();
+  const created = await (await createdResponse).json() as { id: number };
+  const createdList = await (await app.request('/v1/sessions', { headers })).json() as { sessions: any[] };
+  assert.equal(createdList.sessions.find(s => s.id === created.id)?.project, project.id);
+  await page.locator('#menu').click();
+  await assertProjectHidden();
   await projectToggle.click();
+  await row(created.id).waitFor();
   assert.equal(await row(projectOlder).isVisible(), true);
 
   assert.deepEqual(errors, []);

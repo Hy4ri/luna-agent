@@ -247,11 +247,16 @@ aside#side.collapsed #history-rail {
 .session-group {
   margin-bottom: 4px;
 }
+.group-header {
+  display: flex;
+  align-items: center;
+}
 .group-toggle {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
   padding: 6px 8px;
   background: transparent;
   border: none;
@@ -271,18 +276,25 @@ aside#side.collapsed #history-rail {
   flex-direction: column;
   gap: 2px;
 }
+.group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .group-new {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   background: transparent;
   border: none;
   color: var(--muted-foreground);
   font-size: 0.8rem;
   cursor: pointer;
   border-radius: var(--radius-sm);
-  width: 100%;
 }
 .group-new:hover {
   background: var(--sidebar-accent);
