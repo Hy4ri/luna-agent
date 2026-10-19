@@ -37,7 +37,7 @@ try {
   await screen.getByRole("heading", { name: "Settings", exact: true }).waitFor(); await field("dataDir").waitFor();
   assert.equal(await page.locator("#main").isVisible(), false); assert.equal(await page.locator("#panel").isVisible(), false);
   assert.equal(await page.locator('[data-panel="settings"]').getAttribute("aria-current"), "page");
-  assert.equal(await screen.getByRole("tab").count(), 5); assert.equal(new URL(page.url()).hash, "#settings");
+  assert.equal(await screen.getByRole("tab").count(), 6); assert.equal(new URL(page.url()).hash, "#settings");
   await tab("general").focus(); await page.keyboard.press("ArrowRight");
   await field("thinkingLevel").waitFor(); assert.equal(await tab("models").getAttribute("aria-selected"), "true");
   await field("thinkingLevel").selectOption("high"); await tab("context").click(); await field("instructions").fill("Settings draft instruction");
@@ -100,7 +100,10 @@ try {
   assert.equal(await field("processes.maxOutputBytes").inputValue(), "8192");
   // Small screens keep navigation available, preserve chat, and do not overflow horizontally.
   await page.setViewportSize({ width: 390, height: 844 });
-  await screen.locator("#settings-menu").click(); await page.locator('[data-panel="analytics"]').click(); await page.locator("#analytics-screen").waitFor({ state: "visible" }); assert.equal(await screen.isVisible(), false);
+  await screen.locator("#settings-menu").click();
+  await page.locator('[data-panel="settings"]').click();
+  await page.locator('[data-settings-tab="workspace"]').click();
+  await page.locator('#settings-screen [data-panel="analytics"]').click(); await page.locator("#analytics-screen").waitFor({ state: "visible" }); assert.equal(await screen.isVisible(), false);
   await page.locator("#analytics-menu").click(); await page.locator('[data-panel="settings"]').click(); await field("dataDir").waitFor();
   await tab("tools").click(); await field("web.providers.ddgs.region").waitFor();
   assert.equal(await page.evaluate(() => { const d = (globalThis as any).document; return d.documentElement.scrollWidth <= d.documentElement.clientWidth; }), true);
@@ -115,7 +118,7 @@ try {
   await tab("tools").click(); await screen.locator('[data-section="processes"]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: "/tmp/luna18-settings-desktop.png" });
   assert.deepEqual(errors, []);
-  console.log("SETTINGS_PAGE_UI_OK: full page, five tabs, keyboard, web/browser/process drafts and persistence, secrets, failure/retry, deep links, mobile navigation");
+  console.log("SETTINGS_PAGE_UI_OK: full page, six tabs, keyboard, web/browser/process drafts and persistence, secrets, failure/retry, deep links, mobile navigation");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }

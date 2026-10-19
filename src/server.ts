@@ -6,7 +6,7 @@ import { ConversationError, type ConversationStore, type ConversationMeta } from
 import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
@@ -73,8 +73,6 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-// Web UI modules and styles (src/web). Keep this list in step with FILES in src/web/sw.ts.
-const STATIC: Record<string, string> = { "/js/dom.js": "text/javascript", "/js/api.js": "text/javascript", "/js/markdown.js": "text/javascript", "/js/transcript.js": "text/javascript", "/js/models.js": "text/javascript", "/js/sidebar.js": "text/javascript", "/js/composer.js": "text/javascript", "/js/extras.js": "text/javascript", "/js/session.js": "text/javascript", "/js/panels.js": "text/javascript", "/js/shell.js": "text/javascript", "/js/main.js": "text/javascript", "/css/tokens.css": "text/css", "/css/app.css": "text/css", "/cron.css": "text/css", "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/settings.css": "text/css", "/cron.js": "text/javascript", "/analytics.js": "text/javascript", "/analytics.css": "text/css", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -126,13 +124,18 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
-  const page = readFileSync(new URL("./web/index.html", import.meta.url), "utf8");
-  app.get("/", (c) => c.html(page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer" }));
-  const swCode = stripTypeScriptTypes(readFileSync(new URL("./web/sw.ts", import.meta.url), "utf8"));
+  const root = new URL("../dist/web/", import.meta.url);
+  let page: string | null = null;
+  const assets: string[] = [];
+  try { page = readFileSync(new URL("index.html", root), "utf8"); assets.push(...readdirSync(new URL("assets/", root)).map(name => "/assets/" + name)); } catch { /* Build required. API remains available. */ }
+  app.get("/", (c) => page === null ? c.text("Web UI is not built. Run pnpm run build:web.", 503) : c.html(page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer" }));
+  const files = ["/", "/manifest.webmanifest", "/icon.svg", ...assets];
+  const version = "luna-vue-" + assets.join("-");
+  const swCode = stripTypeScriptTypes(readFileSync(new URL("../web/sw.ts", import.meta.url), "utf8")).replace("__SHELL_VERSION__", version).replace("__SHELL_FILES__", JSON.stringify(files));
   app.get("/sw.js", (c) => c.body(swCode, 200, { "content-type": "text/javascript", "cache-control": "no-cache" }));
-  for (const [path, type] of Object.entries(STATIC)) {
-    const body = readFileSync(new URL("./web" + path, import.meta.url));
-    app.get(path, (c) => c.body(body, 200, { "content-type": type, "cache-control": "no-cache" }));
+  for (const path of files.filter(p => p !== "/")) {
+    const type = path.endsWith(".js") ? "text/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".svg") ? "image/svg+xml" : "application/manifest+json";
+    app.get(path, c => { try { return c.body(readFileSync(new URL(path.slice(1), root)), 200, { "content-type": type, "cache-control": path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache" }); } catch { return c.notFound(); } });
   }
   app.get("/health", async c => {
     if (opts.token) return c.json({ ok: true, auth: true });

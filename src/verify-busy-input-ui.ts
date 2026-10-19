@@ -41,7 +41,7 @@ try {
   assert.deepEqual(rt.busyInput(), { mode: "queue", acknowledgements: false });
   assert.equal(rt.settings!.restartRequired, false);
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).busyInput, rt.busyInput());
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Back to chat", exact: true }).click();
   let modelStarted!: () => void; const started = new Promise<void>(resolve => { modelStarted = resolve; });
   const held = new Promise<void>(resolve => { release = resolve; });
   faux.setResponses([async () => { modelStarted(); await held; return fauxAssistantMessage("Original answer"); }, fauxAssistantMessage("Queued answer")]);

@@ -116,7 +116,13 @@ try {
   const app = createApp({ harness, models, store, scheduler, agent: { model }, token: "test" });
   const req = (p: string, method = "GET", body?: unknown) => app.request(p, { method, headers: { authorization: "Bearer test", "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
   assert.equal((await app.request("/v1/cron/reports")).status, 401);
-  assert.equal((await req("/cron.js")).status, 200);
+  const shell = await (await req("/")).text();
+  const asset = /src="([^"]+\.js)"/.exec(shell)?.[1];
+  assert.ok(asset?.startsWith("/assets/"), "Vue shell references a built script");
+  const builtScript = await req(asset!);
+  assert.equal(builtScript.status, 200);
+  assert.ok(builtScript.headers.get("content-type")?.startsWith("text/javascript"));
+  assert.equal((await req("/cron.js")).status, 404, "Legacy frontend is not served");
   const snapshot: any = await (await req("/v1/cron")).json();
   assert.equal(typeof snapshot.timezone, "string"); assert.equal(snapshot.unreadCount, store.unreadCount());
   assert.ok(snapshot.jobs.every((j: any) => "lastRun" in j));

@@ -164,9 +164,15 @@ export async function runVerifyAnalytics() {
       assert.equal(entryOnly.sessions, 0); assert.equal(entryOnly.firstSeen, null); assert.deepEqual(entryOnly.daily, []);
       assert.equal(data.tools.length, 1); assert.equal(data.tools[0].name, "search");
       assert.equal(data.tools[0].usage.totalTokens, 105 * 120 + 9999);
-      for (const [path, mime] of [["/analytics.js", "text/javascript"], ["/analytics.css", "text/css"]]) {
-        const r = await app.request(path!); assert.equal(r.status, 200); assert.ok(r.headers.get("content-type")!.startsWith(mime!));
+      const shell = await (await app.request("/")).text();
+      for (const [extension, mime] of [["js", "text/javascript"], ["css", "text/css"]]) {
+        const match = new RegExp(`(?:src|href)="([^"]+\\.${extension})"`).exec(shell);
+        assert.ok(match?.[1]?.startsWith("/assets/"), `Vue shell references built ${extension}`);
+        const r = await app.request(match![1]!);
+        assert.equal(r.status, 200); assert.ok(r.headers.get("content-type")!.startsWith(mime!));
       }
+      assert.equal((await app.request("/analytics.js")).status, 404);
+      assert.equal((await app.request("/analytics.css")).status, 404);
       assert.equal((await app.request("/v1/analytics", { headers: { authorization: "Bearer wrong" } })).status, 401);
       const broken = new Proxy(rt.harness, { get(target, key, receiver) {
         if (key === "commit") return async () => { throw new Error("Storage unavailable"); };

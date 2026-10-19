@@ -5,13 +5,14 @@ An explicit path must exist. Without an explicit path, startup creates the defau
 Use `luna.config.example.json` as an example.
 
 Open **Settings** in the Web UI to edit the same file on a full page.
-The page has five tabs:
+The page has six tabs:
 
 - **General:** data directory, working directory, HTTP server, and busy chat input.
 - **Models:** main model, subagent defaults, custom model providers, and auxiliary models.
 - **Context:** default instructions and automatic compaction.
 - **Tools:** web and browser providers, background processes, MCP connections, extensions, and extra skill directories.
 - **Automation:** scheduled runs and self-improvement.
+- **Workspace:** Subagents, Analytics, Memory, Skills, Model providers, and MCP servers.
 
 Every config field has a form control. All tabs share one unsaved draft.
 Leaving with unsaved changes requires confirmation. Direct links such as `/#settings/tools` open a specific tab.
@@ -420,3 +421,10 @@ HTTP clients use the normal message endpoint. Side commands return HTTP 202 with
 `GET /v1/sessions/:id/side-jobs` lists only that chat's jobs.
 The session event stream sends `side_jobs` on connection and `side_job` for state changes.
 Retries with the same request ID reuse the same job; conflicting reuse is rejected.
+
+## Web frontend development
+
+The web frontend uses Vue 3, Vite, TypeScript, Tailwind CSS, and shadcn-vue.
+Run `pnpm run build:web` before starting the server. The server serves the build from `dist/web`.
+Run `pnpm run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
+Use `pnpm run typecheck:web` to check Vue components. `pnpm run test` includes frontend type checking and the production build.

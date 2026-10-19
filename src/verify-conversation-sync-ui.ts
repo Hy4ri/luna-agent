@@ -148,9 +148,9 @@ try {
   await row(two, meta).getByRole("button", { name: "Shared name", exact: true }).waitFor();
   assert.equal(await two.locator(".session-row").first().getAttribute("data-session"), String(meta));
   assert.equal((await mutate(meta, { archived: true })).status, 200); await row(two, meta).waitFor({ state: "hidden" });
-  await two.locator("#history-view").selectOption("archived"); await row(two, meta).waitFor();
+  await two.locator("#history-view").click(); await row(two, meta).waitFor();
   assert.equal((await mutate(meta, { archived: false })).status, 200); await row(two, meta).waitFor({ state: "hidden" });
-  await two.locator("#history-view").selectOption("active"); await row(two, meta).waitFor();
+  await two.locator("#history-view").click(); await row(two, meta).waitFor();
   assert.equal((await app.request(`/v1/sessions/${meta}`, { method: "DELETE", headers })).status, 200);
   await row(two, meta).waitFor({ state: "hidden" }); await two.locator("#welcome").waitFor();
   assert.equal(await two.locator("#title").textContent(), "New conversation");

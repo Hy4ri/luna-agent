@@ -19,7 +19,7 @@
     "verify:claude-cli:budget": "node --experimental-test-module-mocks --import tsx src/verify-claude-cli-budget.ts",
     "verify:claude-cli:native": "node --import tsx --test src/verify-claude-native.ts src/verify-claude-native-units.ts src/verify-claude-transport.ts",
     "verify:claude-cli:wire": "tsx src/claude-native/evals/cache-wire.ts",
-    "test": "pnpm run typecheck && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:claude-cli:budget && pnpm run verify:claude-cli:native && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui && pnpm run verify:conversations && pnpm run verify:projects && pnpm run verify:conversations-ui && pnpm run verify:conversation-sync && pnpm run verify:conversation-sync-ui && pnpm run verify:cron-screen && pnpm run verify:cron-screen-ui && pnpm run verify:compaction && pnpm run verify:context-usage && pnpm run verify:compaction-ui && pnpm run verify:analytics && pnpm run verify:analytics-ui && pnpm run verify:busy-input && pnpm run verify:busy-tools && pnpm run verify:busy-input-ui && pnpm run verify:side-commands && pnpm run verify:side-delivery && pnpm run verify:side-cli && pnpm run verify:web-tools && pnpm run verify:settings-ui && pnpm run verify:settings-page-ui && pnpm run verify:browser-tools && pnpm run verify:browser-image-ui && pnpm run verify:web-ui && pnpm run verify:process-tools",
+    "test": "pnpm run typecheck && pnpm run typecheck:web && pnpm run build:web && pnpm run smoke && pnpm run verify && pnpm run verify:memory && pnpm run verify:delegate && pnpm run verify:mcp && pnpm run verify:cron && pnpm run verify:skills && pnpm run verify:improve && pnpm run verify:runtime && pnpm run verify:web && pnpm run verify:providers && pnpm run verify:claude-cli:budget && pnpm run verify:claude-cli:native && pnpm run verify:mcp-manage && pnpm run verify:plugins && pnpm run verify:settings && pnpm run verify:model-picker-ui && pnpm run verify:conversations && pnpm run verify:projects && pnpm run verify:conversations-ui && pnpm run verify:conversation-sync && pnpm run verify:conversation-sync-ui && pnpm run verify:cron-screen && pnpm run verify:cron-screen-ui && pnpm run verify:compaction && pnpm run verify:context-usage && pnpm run verify:compaction-ui && pnpm run verify:analytics && pnpm run verify:analytics-ui && pnpm run verify:busy-input && pnpm run verify:busy-tools && pnpm run verify:busy-input-ui && pnpm run verify:side-commands && pnpm run verify:side-delivery && pnpm run verify:side-cli && pnpm run verify:web-tools && pnpm run verify:settings-ui && pnpm run verify:settings-page-ui && pnpm run verify:browser-tools && pnpm run verify:browser-image-ui && pnpm run verify:web-ui && pnpm run verify:process-tools",
     "verify:web": "tsx src/verify-web.ts",
     "verify:mcp-manage": "tsx src/verify-mcp-manage.ts",
     "verify:plugins": "tsx src/verify-plugins.ts",
@@ -52,7 +52,10 @@
     "verify:browser-tools:live": "tsx src/verify-browser-tools-live.ts",
     "verify:browser-image-ui": "tsx src/verify-browser-image-ui.ts",
     "verify:web-ui": "tsx src/verify-web-ui.ts",
-    "verify:process-tools": "tsx src/verify-process-tools.ts"
+    "verify:process-tools": "tsx src/verify-process-tools.ts",
+    "build:web": "vite build -c web/vite.config.ts",
+    "dev:web": "vite -c web/vite.config.ts",
+    "typecheck:web": "node web/typecheck.cjs -p web/tsconfig.json"
   },
   "keywords": [],
   "author": "",
@@ -78,8 +81,23 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@lucide/vue": "^1.59.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vueuse/core": "^15.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "playwright": "^1.64.1",
+    "reka-ui": "^2.11.0",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^7.0.2",
+    "typescript5": "npm:typescript@5.9.3",
+    "vite": "^8.3.4",
+    "vue": "^3.5.44",
+    "vue-tsc": "^3.3.13"
   }
 }

@@ -89,7 +89,7 @@ try {
     await screen.locator('[data-setting="dataDir"]').waitFor();
     assert.equal(await page.locator("#main").isVisible(), false);
     assert.equal(await page.locator("#panel").isVisible(), false);
-    assert.equal(await screen.getByRole("tab").count(), 5);
+    assert.equal(await screen.getByRole("tab").count(), 6);
     await screen.locator('[data-settings-tab="tools"]').click();
     assert.equal(await screen.locator('[data-setting="browser.provider"]').inputValue(), "disabled");
     assert.equal(await screen.locator('[data-setting="browser.providers.camofox.mcpServer"]').inputValue(), "camofox");
@@ -100,11 +100,33 @@ try {
     assert.equal(await page.locator("#input").evaluate((input: any) => input === document.activeElement), true);
   }
 
+  async function checkAnalyticsPage() {
+    const screen = page.locator('#analytics-screen');
+    await screen.waitFor({ state: 'visible' });
+    await screen.getByLabel('Model usage table', { exact: true }).waitFor();
+    assert.equal(await page.locator('#panel').isVisible(), false);
+    await page.keyboard.press('Escape');
+    assert.equal(await screen.isVisible(), true);
+    assert.equal(await screen.evaluate((p: any) => p.scrollWidth <= p.clientWidth + 1), true);
+    await screen.getByRole('button', { name: 'Back to chat', exact: true }).click();
+  }
+  async function showNavigation() {
+    if (page.viewportSize().width <= 760 && !(await page.locator('#side').evaluate((el: any) => el.classList.contains('open')))) await page.locator('#menu').click();
+  }
+
   // Real API-backed workspace content, not static fixtures.
-  for (const name of ["agents", "cron", "memory", "skills", "providers", "mcp", "settings"]) {
+  for (const name of ["cron", "settings"]) {
+    await showNavigation();
     await page.locator(`[data-panel=${name}]`).click();
     if (name === "cron") { await checkCronPage(); continue; }
     if (name === "settings") { await checkSettingsPage(); continue; }
+  }
+  for (const name of ["agents", "analytics", "memory", "skills", "providers", "mcp"]) {
+    await showNavigation();
+    await page.locator('[data-panel="settings"]').click();
+    await page.locator('[data-settings-tab="workspace"]').click();
+    await page.locator(`#settings-screen [data-panel="${name}"]`).click();
+    if (name === "analytics") { await checkAnalyticsPage(); continue; }
     await page.getByText("Loading…", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await page.locator("#pbody .msg.err").count(), 0, name);
     assert.ok((await page.locator("#pbody").textContent()).trim().length, name);
@@ -114,8 +136,10 @@ try {
     await page.keyboard.press("Escape");
     await page.locator("#panel").waitFor({ state: "hidden" });
   }
-  console.log("OK five workspace panels, full-page Cron and Settings, browser provider controls, no overflow, panel focus and Escape, return to chat");
-  await page.locator('[data-panel="memory"]').click();
+  console.log("OK workspace panels via Settings workspace tab, full-page Cron and Settings, browser provider controls, no overflow, panel focus and Escape, return to chat");
+  await page.locator('[data-panel="settings"]').click();
+  await page.locator('[data-settings-tab="workspace"]').click();
+  await page.locator('#settings-screen [data-panel="memory"]').click();
   await page.getByLabel("key (optional, e.g. user.timezone)").fill("ui.test");
   await page.getByLabel("fact or note", { exact: true }).fill("Browser test fact");
   await page.locator("#pbody").getByRole("button", { name: "Save", exact: true }).click();
@@ -126,16 +150,27 @@ try {
   await page.locator('[data-panel="settings"]').click();
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await page.getByText("Settings saved. Compaction changes apply now. New sessions and subagents use the new defaults.", { exact: true }).waitFor();
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Back to chat", exact: true }).click();
   console.log("OK memory write/remove and settings save through the real server");
   await page.locator("#file").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==", "base64") });
   await page.getByRole("button", { name: "Remove attached image 1" }).click();
   assert.equal(await page.locator("#atts img").count(), 0);
+  await page.locator("#search-toggle").click();
   await page.locator("#search").fill("not-a-conversation");
   await page.getByText("No matching conversations.", { exact: true }).waitFor();
   await page.locator("#search").fill("");
   await page.screenshot({ path: process.env.LUNA_UI_SCREENSHOTS ? join(process.env.LUNA_UI_SCREENSHOTS, "luna-desktop.png") : join(dir, "desktop.png") });
 
+  await page.locator('#side-collapse').click();
+  assert.equal(await page.locator('#side-collapse').getAttribute('aria-label'), 'Expand sidebar');
+  assert.equal(await page.evaluate(() => localStorage.getItem('luna.side.collapsed')), '1');
+  await page.waitForFunction(() => document.getElementById('side')!.getBoundingClientRect().width <= 64);
+  await page.locator('#side-collapse').click();
+  const separator = page.locator('#side-resize');
+  await separator.focus(); await page.keyboard.press('ArrowRight');
+  assert.equal(await separator.getAttribute('aria-valuenow'), '280');
+  await separator.dblclick();
+  assert.equal(await separator.getAttribute('aria-valuenow'), '264');
   for (const viewport of [{ width: 320, height: 568 }, { width: 360, height: 800 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     const mobile = viewport.width <= 760;
@@ -149,21 +184,30 @@ try {
       assert.equal(await page.locator("#menu").getAttribute("aria-expanded"), "false");
       await page.locator("#menu").click();
     }
-    for (const name of ["agents", "cron", "memory", "skills", "providers", "mcp", "settings"]) {
-      await page.locator(`[data-panel=${name}]`).click();
-      if (name === "cron") {
-        await checkCronPage();
-        if (mobile) await page.locator("#menu").click();
-        continue;
-      }
-      if (name === "settings") { await checkSettingsPage(); continue; }
-      await page.getByText("Loading…", { exact: true }).waitFor({ state: "hidden" });
-      assert.equal(await page.evaluate(() => { const p = document.getElementById("pbody")!; return p.scrollWidth <= p.clientWidth + 1; }), true, `${name} at ${viewport.width}`);
-      if (name === "providers" && viewport.width === 390 && process.env.LUNA_UI_SCREENSHOTS) await page.screenshot({ path: join(process.env.LUNA_UI_SCREENSHOTS, "luna-mobile-providers.png") });
-      await page.locator("#pclose").click();
-      if (mobile && name !== "settings") await page.locator("#menu").click();
+  for (const name of ["cron", "settings"]) {
+    await showNavigation();
+    await page.locator(`[data-panel=${name}]`).click();
+    if (name === "cron") {
+      await checkCronPage();
+      if (mobile) await page.locator("#menu").click();
+      continue;
     }
+    if (name === "settings") { await checkSettingsPage(); continue; }
+  }
+  for (const name of ["agents", "analytics", "memory", "skills", "providers", "mcp"]) {
+    await showNavigation();
+    await page.locator('[data-panel="settings"]').click();
+    await page.locator('[data-settings-tab="workspace"]').click();
+    await page.locator(`#settings-screen [data-panel="${name}"]`).click();
+    if (name === "analytics") { await checkAnalyticsPage(); continue; }
+    await page.getByText("Loading…", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => { const p = document.getElementById("pbody")!; return p.scrollWidth <= p.clientWidth + 1; }), true, `${name} at ${viewport.width}`);
+    if (name === "providers" && viewport.width === 390 && process.env.LUNA_UI_SCREENSHOTS) await page.screenshot({ path: join(process.env.LUNA_UI_SCREENSHOTS, "luna-mobile-providers.png") });
+    await page.locator("#pclose").click();
+    if (mobile) await page.locator("#menu").click();
+  }
     if (mobile) {
+      if (await page.locator("#side").evaluate((el: any) => el.classList.contains("open"))) await page.keyboard.press("Escape");
       await page.locator("#input").fill("Line one");
       await page.locator("#input").press("Enter");
       assert.equal(await page.locator("#input").inputValue(), "Line one\n");
