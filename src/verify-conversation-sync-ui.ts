@@ -64,7 +64,10 @@ try {
   await row(two, a).waitFor(); // Live list discovery, without a reload.
   const b = await create(one); await send(one, "BETA"); await bounded(gates.get("BETA")!.entered.promise, "BETA entered");
   assert.equal((await state(a)).running, true); assert.equal((await state(b)).running, true);
-  await row(one, a).locator("[data-running]").waitFor();
+  const runningIcon = row(one, a).locator('[data-running][aria-label="Running"][title="Running"]');
+  await runningIcon.waitFor();
+  assert.equal((await runningIcon.textContent()).trim(), "", "running state must be icon-only");
+  assert.equal(await runningIcon.locator("svg").count(), 1);
   assert.equal(await one.locator("#log").getByText("ALPHA", { exact: true }).count(), 0);
   gates.get("BETA")!.release.resolve(); await one.getByText("Reply to BETA.", { exact: true }).waitFor(); await idle(one);
   // Attach the other device before the first run produces any answer, then receive its partial in real time.
@@ -148,9 +151,9 @@ try {
   await row(two, meta).getByRole("button", { name: "Shared name", exact: true }).waitFor();
   assert.equal(await two.locator(".session-row").first().getAttribute("data-session"), String(meta));
   assert.equal((await mutate(meta, { archived: true })).status, 200); await row(two, meta).waitFor({ state: "hidden" });
-  await two.locator("#history-view").selectOption("archived"); await row(two, meta).waitFor();
+  await two.locator("#history-view").click(); await row(two, meta).waitFor();
   assert.equal((await mutate(meta, { archived: false })).status, 200); await row(two, meta).waitFor({ state: "hidden" });
-  await two.locator("#history-view").selectOption("active"); await row(two, meta).waitFor();
+  await two.locator("#history-view").click(); await row(two, meta).waitFor();
   assert.equal((await app.request(`/v1/sessions/${meta}`, { method: "DELETE", headers })).status, 200);
   await row(two, meta).waitFor({ state: "hidden" }); await two.locator("#welcome").waitFor();
   assert.equal(await two.locator("#title").textContent(), "New conversation");

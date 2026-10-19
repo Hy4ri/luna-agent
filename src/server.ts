@@ -6,8 +6,8 @@ import { ConversationError, type ConversationStore, type ConversationMeta } from
 import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
+import { createWebApp } from "./web-assets.js";
+import { newestMessageTime, SessionCreated } from "./session-activity.js";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
 import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
@@ -73,8 +73,6 @@ function parseInput(v: unknown): Input | string {
   if (images > 8) return "at most 8 images per message";
   return v as Input;
 }
-// Web UI modules and styles (src/web). Keep this list in step with FILES in src/web/sw.ts.
-const STATIC: Record<string, string> = { "/js/dom.js": "text/javascript", "/js/api.js": "text/javascript", "/js/markdown.js": "text/javascript", "/js/transcript.js": "text/javascript", "/js/models.js": "text/javascript", "/js/sidebar.js": "text/javascript", "/js/composer.js": "text/javascript", "/js/extras.js": "text/javascript", "/js/session.js": "text/javascript", "/js/panels.js": "text/javascript", "/js/shell.js": "text/javascript", "/js/main.js": "text/javascript", "/css/tokens.css": "text/css", "/css/app.css": "text/css", "/cron.css": "text/css", "/sync.js": "text/javascript", "/settings.js": "text/javascript", "/settings.css": "text/css", "/cron.js": "text/javascript", "/analytics.js": "text/javascript", "/analytics.css": "text/css", "/manifest.webmanifest": "application/manifest+json", "/icon.svg": "image/svg+xml" };
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -126,14 +124,8 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
-  const page = readFileSync(new URL("./web/index.html", import.meta.url), "utf8");
-  app.get("/", (c) => c.html(page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer" }));
-  const swCode = stripTypeScriptTypes(readFileSync(new URL("./web/sw.ts", import.meta.url), "utf8"));
-  app.get("/sw.js", (c) => c.body(swCode, 200, { "content-type": "text/javascript", "cache-control": "no-cache" }));
-  for (const [path, type] of Object.entries(STATIC)) {
-    const body = readFileSync(new URL("./web" + path, import.meta.url));
-    app.get(path, (c) => c.body(body, 200, { "content-type": type, "cache-control": "no-cache" }));
-  }
+  const webApp = createWebApp(new URL("../dist/web/", import.meta.url));
+  app.route("/", webApp);
   app.get("/health", async c => {
     if (opts.token) return c.json({ ok: true, auth: true });
     const inspection = await harness.inspect(context);
@@ -184,7 +176,7 @@ export function createApp(opts: ServerOptions) {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
       const links = opts.conversations?.projects.links();
-      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean })[] = [];
+      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; lastActivity: number | null; createdAt: number | null })[] = [];
       let cursor;
       do {
         const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
@@ -194,11 +186,13 @@ export function createApp(opts: ServerOptions) {
           const user = head.find((e) => e.kind === "pi.user");
           const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
           const running = await isRunning(tx, r.id);
-          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running });
+          const createdAt = (await tx.doc(SessionCreated, r.id)).at ?? null;
+          const lastActivity = await newestMessageTime(tx, r.id);
+          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, lastActivity, createdAt });
         }
         cursor = page.next;
       } while (cursor);
-      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id));
     }, context);
     return c.json({ sessions });
   });

@@ -165,7 +165,8 @@ try {
   await page.route("**/v1/cron?summary=1", (route: any) => route.fulfill({ status: 401, json: { error: "unauthorized" } }));
   await page.locator("#login").waitFor({ state: "visible" });
   assert.equal(await screen.isVisible(), false);
-  assert.equal(await screen.evaluate((el: any) => el.inert), true);
+  assert.equal(await screen.count(), 0, "Cron view is unmounted during login");
+  assert.equal(await page.locator("#main").evaluate((el: any) => el.inert), true, "Chat is inert behind login");
   await page.unroute("**/v1/cron?summary=1");
   await page.locator("#token").fill("test"); await page.locator("#loginForm button").click();
   await page.locator("#login").waitFor({ state: "hidden" }); await screen.waitFor();

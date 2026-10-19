@@ -1,0 +1,115 @@
+// Composer: per-conversation drafts, attachments, durable submission with idempotency and retry.
+// Port of vanilla composer.js.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { markRaw, reactive } from "vue";
+import { post } from "@/lib/api";
+import { addErr, chat, newSession, putSideJob } from "./chat";
+import { loadSessions } from "./sessions";
+
+export interface Attachment { mimeType: string; data: string; url: string }
+interface Draft { text: string; attachments: Attachment[] }
+
+const drafts = new Map<string | null, Draft>();
+try {
+  for (const [id, text] of JSON.parse(sessionStorage.getItem("luna.drafts") || "[]")) {
+    if ((id === null || typeof id === "string") && typeof text === "string") drafts.set(id, { text, attachments: [] });
+  }
+} catch {}
+
+export const composer = reactive({
+  text: "",
+  attachments: [] as Attachment[],
+  /** Conversations with an unconfirmed submission in flight. */
+  submitting: new Set<string>(),
+  /** Last failed submission per conversation, for "Retry send". */
+  sendErrors: new Map<string, { body: any; message: string }>(),
+});
+let owner: string | null | undefined; // conversation the visible draft belongs to
+
+export function saveDraft() {
+  if (owner === undefined) return;
+  drafts.set(owner, { text: composer.text, attachments: composer.attachments });
+  try { sessionStorage.setItem("luna.drafts", JSON.stringify([...drafts].map(([id, d]) => [id, d.text]))); } catch {}
+}
+export function restoreDraft() {
+  owner = chat.session;
+  const draft = drafts.get(owner);
+  composer.text = draft?.text || ""; composer.attachments = draft?.attachments || [];
+}
+
+// ---- attachments ----
+export async function addAttachment(file: File) {
+  const target = composer.attachments, from = chat.session;
+  if (!/^(image\/(png|jpeg|gif|webp)|audio\/(mpeg|mp3|wav|x-wav|ogg|webm|mp4|flac))$/.test(file.type)) return addErr("Unsupported image or audio type.");
+  if (target.length >= 8) return addErr("At most 8 attachments per message.");
+  const blob = file.type.startsWith("audio/") ? file : await shrink(file);
+  const data = await new Promise<string>(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(",")[1]); fr.readAsDataURL(blob); });
+  if (target.length >= 8) return;
+  target.push(markRaw({ mimeType: blob.type, data, url: URL.createObjectURL(blob) }));
+  void from;
+}
+export function removeAttachment(i: number) {
+  const [a] = composer.attachments.splice(i, 1);
+  if (a) URL.revokeObjectURL(a.url);
+}
+// Downscale big photos to 2000px max so uploads stay small; GIFs pass through.
+async function shrink(file: File): Promise<Blob> {
+  if (file.type === "image/gif") return file;
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp || Math.max(bmp.width, bmp.height) <= 2000) return file;
+  const k = 2000 / Math.max(bmp.width, bmp.height);
+  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise(r => c.toBlob(b => r(b || file), "image/jpeg", 0.88));
+}
+
+// ---- submission ----
+export async function submitMessage(sid: string, body: any) {
+  if (composer.submitting.has(sid)) return;
+  composer.submitting.add(sid);
+  try {
+    const result = await post(`/v1/sessions/${sid}/messages?async=1`, body);
+    if (chat.session === sid && result) {
+      if (result.job) {
+        const old = chat.sideJobs.get(result.job.id);
+        if (!old || old.status === "running") putSideJob(result.job);
+      }
+      const lines = [result.tip, result.notice, ...(result.queue || []).map((row: any) => `${row.number}. ${typeof row.content === "string" ? row.content : JSON.stringify(row.content)}`)].filter(Boolean);
+      if (lines.length) chat.busyFeedback = lines.join("\n");
+    }
+    composer.sendErrors.delete(sid);
+  } catch (e) {
+    if ((e as Error).message !== "unauthorized") composer.sendErrors.set(sid, { body, message: (e as Error).message });
+  } finally {
+    composer.submitting.delete(sid);
+    loadSessions().catch(() => {});
+  }
+}
+export function retrySend() {
+  const sid = chat.session, error = sid ? composer.sendErrors.get(sid) : undefined;
+  if (sid && error) void submitMessage(sid, error.body);
+}
+function randomId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
+      (+c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))).toString(16));
+  }
+  return "req-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+export async function send(text: string, atts: Attachment[]) {
+  let sid = chat.session;
+  const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map(a => ({ type: a.mimeType.startsWith("audio/") ? "audio" : "image", data: a.data, mimeType: a.mimeType }))] : text;
+  for (const a of atts) URL.revokeObjectURL(a.url);
+  if (!sid) { const id = await newSession(); if (!id) return; sid = String(id); }
+  await submitMessage(sid, { content, requestId: randomId() });
+}
+/** Form submit: takes the draft and sends it. The caller checks the send button state. */
+export function submitDraft() {
+  const text = composer.text.trim();
+  if (!text && !composer.attachments.length) return;
+  const atts = composer.attachments;
+  composer.attachments = []; composer.text = ""; saveDraft();
+  const epoch = chat.epoch;
+  send(text, atts).catch(error => { if (epoch === chat.epoch) addErr((error as Error).message); });
+}
