@@ -25,6 +25,7 @@ import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
 import { readAnalytics } from "./analytics.js";
+import type { SessionTitler } from "./titles.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, readSideMedia } from "./side-media.js";
 import { activeContextTokens } from "./context-usage.js";
@@ -34,6 +35,8 @@ type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export interface ServerOptions {
   harness: Harness;
   sideCommands?: SideCommands;
+  /** Automatic and on-demand session titles. Absent: no title generation. */
+  titler?: SessionTitler;
   settings?: SettingsStore;
   /** Policy for a runtime without a file-backed settings store. */
   compaction?: () => { enabled: boolean; triggerPercent: number };
@@ -210,6 +213,13 @@ export function createApp(opts: ServerOptions) {
     const id = Number(c.req.param("id")); if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
     const changes = { ...b, ...("title" in b ? { title: b.title.trim() } : {}) } as Partial<ConversationMeta>;
     return c.json(await opts.conversations.update(id, changes));
+  });
+  app.get("/v1/session-titles", c => c.json({ available: !!opts.titler?.available() }));
+  app.post("/v1/sessions/:id/title", async c => {
+    if (!opts.conversations || !opts.titler) return err(c, 404, "session titles disabled");
+    const id = Number(c.req.param("id")); if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
+    try { return c.json({ title: await opts.titler.generate(id, true) }); }
+    catch (e) { const m = (e as Error).message; return err(c, m === "no such session" ? 404 : m.startsWith("No session-title") || m.startsWith("The session needs") ? 409 : 500, m); }
   });
   app.delete("/v1/sessions/:id", async c => {
     if (!opts.conversations) return err(c, 404, "conversation management disabled");

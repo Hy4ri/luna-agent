@@ -88,6 +88,14 @@ try {
   await page.reload();
   console.log('OK running spinner gutter, stable desktop/mobile geometry, crescent brand');
   await manage(first);
+  // No title route in this runtime: the item is visible but greyed out, never a fake control.
+  const gen = page.getByRole("menuitem", { name: "Generate title", exact: true });
+  await gen.waitFor(); await page.waitForTimeout(200); assert.equal(await gen.isDisabled(), true);
+  await page.keyboard.press("Escape");
+  await page.route("**/v1/session-titles", (r: { fulfill: (o: object) => Promise<void> }) => r.fulfill({ json: { available: true } }));
+  await manage(first); await page.waitForFunction(`[...document.querySelectorAll("#session-menu button")].some(b => b.textContent.includes("Generate title") && !b.disabled)`);
+  await page.unroute("**/v1/session-titles");
+  console.log("OK Generate title is disabled without a title model and enabled with one");
   await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await page.getByLabel("Conversation name", { exact: true }).fill("Renamed <safe> conversation");
   await page.keyboard.press("Enter");

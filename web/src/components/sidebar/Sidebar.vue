@@ -16,6 +16,7 @@ import {
   Pin,
   Ellipsis,
   Pencil,
+  Sparkles,
   Trash2,
   Settings as SettingsIcon,
   LoaderCircle,
@@ -23,7 +24,7 @@ import {
 import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
-import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
+import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 
 const mobile = useMobile();
 const collapsed = computed(() => ui.collapsed && !mobile.value);
@@ -37,6 +38,8 @@ const renameValue = ref("");
 const activeMenuSession = ref<any | null>(null);
 const activeMenuBtnEl = ref<HTMLElement | null>(null);
 const menuPos = ref({ top: 0, left: 0 });
+const titleAvailable = ref(false);
+const titling = ref(false);
 
 const filteredSessions = computed(() => {
   const q = history.query.trim().toLowerCase();
@@ -192,9 +195,11 @@ function openSessionMenu(s: any, event: MouseEvent) {
   }
   activeMenuSession.value = s;
   activeMenuBtnEl.value = btn;
+  titleAvailable.value = false;
+  void titleModelAvailable().then(ok => { if (activeMenuSession.value?.id === s.id) titleAvailable.value = ok; });
   const rect = btn.getBoundingClientRect();
   menuPos.value = {
-    top: Math.min(rect.top, window.innerHeight - 200),
+    top: Math.min(rect.top, window.innerHeight - 240),
     left: Math.min(rect.right + 4, window.innerWidth - 180),
   };
   void nextTick(() => document.querySelector<HTMLButtonElement>('#session-menu button:not(:disabled)')?.focus());
@@ -207,6 +212,10 @@ async function handleMenuAction(action: string, s: any) {
   } else if (action === "rename") {
     closeMenu();
     startRename(s);
+  } else if (action === "title") {
+    titling.value = true;
+    try { await generateTitle(s); } finally { titling.value = false; }
+    closeMenu();
   } else if (action === "archive") {
     await toggleArchived(s);
     closeMenu();
@@ -471,6 +480,15 @@ onMounted(() => {
       >
         <Pencil :size="14" />
         <span>Rename</span>
+      </button>
+      <button
+        role="menuitem"
+        :disabled="!titleAvailable || titling"
+        :title="titleAvailable ? undefined : 'Set a session-title or side-question model in Settings'"
+        @click="handleMenuAction('title', activeMenuSession)"
+      >
+        <Sparkles :size="14" />
+        <span>{{ titling ? 'Generating title…' : 'Generate title' }}</span>
       </button>
       <button
         role="menuitem"
