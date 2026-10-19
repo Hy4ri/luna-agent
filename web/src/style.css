@@ -312,6 +312,7 @@ aside#side.collapsed #history-rail {
 }
 .session-open {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -326,12 +327,18 @@ aside#side.collapsed #history-rail {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .session-open[aria-current="page"] {
   color: var(--primary);
   font-weight: 500;
 }
 .session-rename {
   flex: 1;
+  min-width: 0;
   padding: 4px 8px;
   margin: 2px;
   background: var(--input);
@@ -341,14 +348,20 @@ aside#side.collapsed #history-rail {
   font-size: 0.85rem;
 }
 .session-running {
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  background: var(--acc-soft);
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   color: var(--primary);
-  border-radius: 4px;
-  margin-right: 4px;
+  pointer-events: none;
 }
 .session-manage {
+  flex-shrink: 0;
   opacity: 0;
   width: 28px;
   height: 28px;

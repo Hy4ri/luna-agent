@@ -38,6 +38,55 @@ try {
     await page.locator("#session-menu").waitFor({ state: "visible" });
   };
   const close = async () => { await page.keyboard.press("Escape"); };
+  // Running indicators occupy only the left gutter, never the title or control columns.
+  let running = false;
+  await page.route('**/v1/sessions', async (route: any) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const session of body.sessions) {
+      session.running = running && String(session.id) === String(second);
+      if (String(session.id) === String(second)) {
+        session.title = 'A long pinned session title that must not displace its spinner or management control '.repeat(3);
+        session.pinned = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  for (const width of [1440, 200, 320]) {
+    await page.setViewportSize({ width: width === 200 ? 1440 : width, height: 1000 });
+    await page.evaluate((w: number) => localStorage.setItem('luna.side.width', String(w === 200 ? 200 : 264)), width);
+    running = false;
+    await page.reload();
+    if (width === 320) await page.locator('#menu').click();
+    await row(second).waitFor();
+    await page.locator('#side').evaluate((el: any) => Promise.all(el.getAnimations().map((a: any) => a.finished)));
+    const idle = await row(second).boundingBox();
+    const idleButton = await row(second).locator('.session-open').boundingBox();
+    running = true;
+    await page.reload();
+    if (width === 320) await page.locator('#menu').click();
+    const indicator = row(second).getByRole('img', { name: 'Running', exact: true });
+    await indicator.waitFor();
+    await page.locator('#side').evaluate((el: any) => Promise.all(el.getAnimations().map((a: any) => a.finished)));
+    const active = await row(second).boundingBox();
+    const activeButton = await row(second).locator('.session-open').boundingBox();
+    const spinner = await indicator.boundingBox();
+    assert.deepEqual(active, idle, 'running state must preserve row geometry');
+    assert.deepEqual(activeButton, idleButton, 'running state must preserve title geometry');
+    assert.ok(spinner && active && spinner.x >= 0 && spinner.x + spinner.width <= active.x,
+      'spinner must fit in the left gutter');
+    assert.equal(await page.locator('#sessions').evaluate((el: any) => el.scrollWidth <= el.clientWidth), true);
+    const title = await row(second).locator('.session-title').boundingBox();
+    const control = await row(second).locator('.session-manage').boundingBox();
+    assert.ok(title && control && title.x + title.width <= control.x, 'long pinned title must not cover management control');
+    assert.equal(await page.locator('.brand .lucide-moon').count(), 1, 'main app icon is a crescent');
+  }
+  running = false;
+  await page.unroute('**/v1/sessions');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  console.log('OK running spinner gutter, stable desktop/mobile geometry, crescent brand');
   await manage(first);
   await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await page.getByLabel("Conversation name", { exact: true }).fill("Renamed <safe> conversation");
