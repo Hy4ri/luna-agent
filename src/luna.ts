@@ -1,4 +1,5 @@
 import { BusyExecutions } from "./busy-tools.js";
+import { SessionCreated } from "./session-activity.js";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -76,6 +77,7 @@ export async function openLuna(opts: LunaOptions) {
       },
       conversationCreated: async (tx, conversation) => {
         (await tx.doc(ProcessOwner, conversation.id)).token = randomUUID();
+        (await tx.doc(SessionCreated, conversation.id)).at = Date.now();
         // The reserved root ID can be reused after deletion. Give each incarnation a unique context boundary,
         // so pi-durable cannot extend a retained model-context range from its deleted incarnation.
         if (conversation.id === ROOT_CONVERSATION_ID) await tx.appendEntry(conversation.id, { kind: "luna.context-start", head: "self" });

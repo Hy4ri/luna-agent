@@ -7,6 +7,7 @@ import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
 import { createWebApp } from "./web-assets.js";
+import { newestMessageTime, SessionCreated } from "./session-activity.js";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
 import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
@@ -175,7 +176,7 @@ export function createApp(opts: ServerOptions) {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
       const links = opts.conversations?.projects.links();
-      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; lastActivity: number | null })[] = [];
+      const out: ({ id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; lastActivity: number | null; createdAt: number | null })[] = [];
       let cursor;
       do {
         const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
@@ -185,26 +186,13 @@ export function createApp(opts: ServerOptions) {
           const user = head.find((e) => e.kind === "pi.user");
           const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
           const running = await isRunning(tx, r.id);
-          // Only message times count. Renaming, pinning and other bookkeeping must not move a session.
-          let lastActivity: number | null = null;
-          let entryCursor;
-          do {
-            const entries = await tx.scanEntries({ conversationId: r.id, order: "descending" }, 200, entryCursor);
-            for (const entry of entries.items) {
-              const role = entry.kind === "pi.user" ? "user" : entry.kind === "pi.assistant" ? "assistant" : null;
-              if (!role) continue;
-              for (const message of entry.model ?? []) {
-                if (message.role !== role || !Number.isFinite(message.timestamp) || message.timestamp < 0) continue;
-                lastActivity = Math.max(lastActivity ?? 0, message.timestamp);
-              }
-            }
-            entryCursor = entries.next;
-          } while (entryCursor);
-          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, lastActivity });
+          const createdAt = (await tx.doc(SessionCreated, r.id)).at ?? null;
+          const lastActivity = await newestMessageTime(tx, r.id);
+          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, lastActivity, createdAt });
         }
         cursor = page.next;
       } while (cursor);
-      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? 0) - (a.lastActivity ?? 0) || Number(b.id) - Number(a.id));
+      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id));
     }, context);
     return c.json({ sessions });
   });

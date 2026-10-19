@@ -144,10 +144,28 @@ try {
     await manage(newer); await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
     await row(newer).locator('.session-pin').waitFor({ state: 'hidden' });
     await waitFirst(group, older);
+    // Use the real group action, not an API fixture, to create an empty session after message activity.
+    await manage(newer); await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+    await row(newer).locator('.session-pin').waitFor();
+    const createdResponse = page.waitForResponse((response: any) => response.url().endsWith('/v1/sessions') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: group === 'group-none' ? 'New session in Chats' : 'New session in Activity project', exact: true }).click();
+    const created = await (await createdResponse).json() as { id: number };
+    await row(created.id).waitFor();
+    await waitFirst(group, newer);
+    assert.equal(await page.locator(`#${group} .session-row`).nth(1).getAttribute('data-session'), String(created.id), 'new empty session appears immediately below the pinned row');
+    await manage(newer); await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
+    await row(newer).locator('.session-pin').waitFor({ state: 'hidden' });
+    await waitFirst(group, created.id);
+    const list = await (await app.request('/v1/sessions', { headers })).json() as { sessions: any[] };
+    const empty = list.sessions.find(s => s.id === created.id);
+    assert.equal(empty.lastActivity, null);
+    assert.equal(typeof empty.createdAt, 'number');
+    await page.reload();
+    await waitFirst(group, created.id);
   }
 
   assert.deepEqual(errors, []);
-  console.log("CONVERSATIONS_UI_OK: rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups and pin precedence");
+  console.log("CONVERSATIONS_UI_OK: rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups, empty-session creation fallback and pin precedence");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }

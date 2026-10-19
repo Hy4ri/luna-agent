@@ -48,8 +48,8 @@ function sortSessions(sessions: any[]) {
     if (!!b.pinned !== !!a.pinned) {
       return Number(b.pinned) - Number(a.pinned);
     }
-    const timeB = b.lastActivity ?? 0;
-    const timeA = a.lastActivity ?? 0;
+    const timeB = b.lastActivity ?? b.createdAt ?? 0;
+    const timeA = a.lastActivity ?? a.createdAt ?? 0;
     if (timeB !== timeA) {
       return timeB - timeA;
     }

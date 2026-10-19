@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { defineDoc, defineDocFamily } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
+import { SessionCreated } from "./session-activity.js";
 import { RecallIndex } from "./recall.js";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -40,6 +41,7 @@ try {
     assert.equal(unauthRes.status, 401);
 
     // 2. Create some conversations and check listing & sorting (pinned first, last message activity, descending ID for ties)
+    const creationStart = Date.now();
     const s1Res = await app.request("/v1/sessions", { method: "POST", headers, body: JSON.stringify({}) });
     assert.equal(s1Res.status, 201);
     const s1 = await s1Res.json() as { id: number };
@@ -51,6 +53,8 @@ try {
     const emptyList = (await (await app.request("/v1/sessions", { headers })).json() as { sessions: any[] }).sessions;
     assert.deepEqual(emptyList.map(s => s.id), [s2.id, s1.id], "empty sessions use descending ID ties");
     assert.ok(emptyList.every(s => s.lastActivity === null), "empty sessions have no message activity");
+    assert.ok(emptyList.every(s => typeof s.createdAt === "number" && s.createdAt >= creationStart && s.createdAt <= Date.now()));
+    const s2CreatedAt = emptyList.find(s => s.id === s2.id).createdAt;
 
     // Pin s1
     const pinRes = await app.request(`/v1/sessions/${s1.id}/metadata`, {
@@ -96,6 +100,7 @@ try {
     for (const metadata of [{ title: "Activity rename" }, { pinned: true }, { archived: false }]) {
       assert.equal((await app.request(`/v1/sessions/${s2.id}/metadata`, { method: "PATCH", headers, body: JSON.stringify(metadata) })).status, 200);
       assert.equal((await sessions()).find(s => s.id === s2.id).lastActivity, expectedActivity, "metadata must not change last activity");
+      assert.equal((await sessions()).find(s => s.id === s2.id).createdAt, s2CreatedAt, "metadata must not change creation time");
     }
     // Restore the original fixture state for the persistence and deletion scenarios below.
     assert.equal((await app.request(`/v1/sessions/${s2.id}/metadata`, { method: "PATCH", headers, body: JSON.stringify({ title: "Session Two", pinned: false, archived: true }) })).status, 200);
@@ -103,6 +108,26 @@ try {
       for (let i = 0; i < 205; i++) await tx.appendEntry(conv2.id, { kind: "test.bookkeeping", data: { timestamp: expectedActivity + 10000, i } });
     }, context);
     assert.equal((await sessions()).find(s => s.id === s2.id).lastActivity, expectedActivity, "message scan must continue beyond the first page and ignore bookkeeping times");
+
+    // A newly created empty session sorts above older message activity, but below pins.
+    const emptyStart = Date.now();
+    const newEmpty = await (await app.request("/v1/sessions", { method: "POST", headers, body: "{}" })).json() as { id: number };
+    const withEmpty = await sessions();
+    assert.deepEqual(withEmpty.slice(0, 2).map(s => s.id), [s1.id, newEmpty.id]);
+    const emptyMeta = withEmpty.find(s => s.id === newEmpty.id);
+    assert.equal(emptyMeta.lastActivity, null);
+    assert.ok(emptyMeta.createdAt >= emptyStart && emptyMeta.createdAt <= Date.now());
+    // Simulate an older database without a recorded creation time. A GET must not invent one.
+    await rt.harness.commit(tx => tx.retireDoc(SessionCreated, newEmpty.id as never), context);
+    assert.equal((await sessions()).find(s => s.id === newEmpty.id).createdAt, null);
+    assert.equal((await sessions()).find(s => s.id === newEmpty.id).createdAt, null);
+    assert.equal((await app.request(`/v1/sessions/${newEmpty.id}`, { method: "DELETE", headers })).status, 200);
+    const forkStart = Date.now();
+    const activityFork = await conv2.fork(entries[0]!.id, { ownership: { kind: "ownerless" } }, context);
+    const forkMeta = (await sessions()).find(s => s.id === activityFork.id);
+    assert.ok(forkMeta.createdAt >= forkStart && forkMeta.createdAt <= Date.now(), "fork has its own creation time");
+    assert.notEqual(forkMeta.createdAt, s2CreatedAt);
+    assert.equal((await app.request(`/v1/sessions/${activityFork.id}`, { method: "DELETE", headers })).status, 200);
 
     // 3. Invalid metadata payload tests
     const badMeta1 = await app.request(`/v1/sessions/${s1.id}/metadata`, {
@@ -165,6 +190,7 @@ try {
       assert.equal(persistedS2.archived, true);
       assert.equal(persistedS2.title, "Session Two");
       assert.equal(persistedS2.lastActivity, expectedActivity, "message activity survives runtime restart");
+      assert.equal(persistedS2.createdAt, s2CreatedAt, "creation time survives runtime restart");
 
       // 5. Hard deletion tests (including fork/child rows, recall data, busy rejection, unrelated preservation, repeated delete 404)
       const unrelatedRes = await app2.request("/v1/sessions", { method: "POST", headers, body: JSON.stringify({}) });

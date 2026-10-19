@@ -6,6 +6,7 @@ export interface SessionMeta {
   running?: boolean;
   project?: number | null;
   lastActivity?: number | null;
+  createdAt?: number | null;
   [key: string]: any;
 }
 
