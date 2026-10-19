@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { ArrowUp, Square } from "@lucide/vue";
 import { composer, addAttachment, removeAttachment, saveDraft, restoreDraft, submitDraft, retrySend } from "@/stores/composer";
-import { chat, sendDisabled, openSession, newSession } from "@/stores/chat";
-import { models, modelLabel, selectedKey, chooseModel, setThinking, modelKey, togglePin, setSelectedModel } from "@/stores/models";
+import { chat, busy, sendDisabled, stopDisabled, stopRun } from "@/stores/chat";
+import { models, modelLabel, setThinking } from "@/stores/models";
 import { focusInput } from "@/stores/app";
 import ModelPicker from "./ModelPicker.vue";
 
@@ -11,6 +12,10 @@ const fileRef = ref<HTMLInputElement | null>(null);
 const pickerOpen = ref(false);
 
 const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+const hasDraft = computed(() => composer.text.trim().length > 0 || composer.attachments.length > 0);
+const showStop = busy;
+const sendHidden = computed(() => showStop.value && !hasDraft.value);
 
 function grow() {
   if (!inputRef.value) return;
@@ -194,18 +199,32 @@ onUnmounted(() => {
           </select>
         </div>
 
-        <span class="compose-hint">Enter to send · Shift+Enter for a new line</span>
+        <div class="compose-actions">
+          <button
+            v-if="showStop"
+            id="stop"
+            type="button"
+            class="icon-button"
+            aria-label="Stop"
+            title="Stop"
+            :disabled="stopDisabled"
+            @click="stopRun"
+          >
+            <Square :size="16" aria-hidden="true" />
+          </button>
 
-        <button
-          id="send"
-          type="submit"
-          class="primary"
-          aria-label="Send"
-          :disabled="sendDisabled"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
-          <span>Send</span>
-        </button>
+          <button
+            id="send"
+            type="submit"
+            class="icon-button primary"
+            aria-label="Send"
+            title="Send"
+            :disabled="sendDisabled || !hasDraft"
+            v-show="!sendHidden"
+          >
+            <ArrowUp :size="18" aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </form>
 

@@ -56,13 +56,13 @@ try {
   await page.getByText("Browser images delivered", { exact: true }).waitFor();
   async function verifyImages() {
     await page.waitForFunction(() => (globalThis as any).document.querySelectorAll("img.tool-image").length === 2);
-    await page.locator("details.tool").evaluateAll((items: any[]) => items.forEach(item => item.open = true));
+    await page.locator(".tool details").evaluateAll((items: any[]) => items.forEach(item => item.open = true));
     await page.waitForFunction(() => [...(globalThis as any).document.querySelectorAll("img.tool-image")].every((img: any) => img.complete && img.naturalWidth === 1));
     const images = page.locator("img.tool-image"); assert.equal(await images.count(), 2);
     assert.equal(await images.first().getAttribute("src"), `data:image/png;base64,${png}`);
     assert.equal(await page.getByAltText("browser_screenshot result").count(), 1);
     assert.equal(await page.getByAltText("browser_snapshot result").count(), 1);
-    assert.ok(!(await page.locator("details.tool pre").allTextContents()).join("").includes(png), "Do not print image bytes as JSON text");
+    assert.ok(!(await page.locator(".tool pre").allTextContents()).join("").includes(png), "Do not print image bytes as JSON text");
   }
   await verifyImages(); await page.reload(); await verifyImages();
   await page.setViewportSize({ width: 390, height: 844 }); await verifyImages();

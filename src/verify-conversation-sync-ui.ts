@@ -49,14 +49,14 @@ try {
   const device1 = await browser.newContext(), device2 = await browser.newContext();
   const one = await device1.newPage(), two = await device2.newPage();
   const errors: string[] = []; for (const p of [one, two]) p.on("pageerror", (e: Error) => errors.push(e.message));
-  const ready = async (p: any) => { await p.waitForFunction(() => !(globalThis as any).document.getElementById("send").disabled); };
+  const ready = async (p: any) => { await p.waitForFunction(() => (globalThis as any).document.getElementById("input") && !(globalThis as any).document.getElementById("activity")?.textContent?.includes("Reconnecting")); };
   const login = async (p: any) => { await p.goto(url); await p.locator("#token").fill("test"); await p.locator("#loginForm button").click(); await p.locator("#login").waitFor({ state: "hidden" }); await ready(p); };
   const row = (p: any, id: number) => p.locator(`[data-session="${id}"]`);
   const selected = (p: any): Promise<number> => p.evaluate(() => Number((globalThis as any).localStorage.getItem("luna.session")));
   const create = async (p: any) => { const old = await selected(p); await p.locator("#new").click(); await p.waitForFunction((previous: number) => Number((globalThis as any).localStorage.getItem("luna.session")) !== previous, old); await ready(p); return selected(p); };
   const choose = async (p: any, id: number) => { await row(p, id).locator(".session-open").click(); await ready(p); };
   const send = async (p: any, text: string) => { await ready(p); await p.locator("#input").fill(text); await p.locator("#send").click(); };
-  const idle = async (p: any) => { await p.waitForFunction(() => (globalThis as any).document.getElementById("status").textContent === "Ready"); };
+  const idle = async (p: any) => { await p.waitForFunction(() => !(globalThis as any).document.getElementById("activity")); };
   const state = async (id: number) => (await (await app.request(`/v1/sessions/${id}?limit=500`, { headers })).json()) as any;
   const mutate = (id: number, changes: object) => app.request(`/v1/sessions/${id}/metadata`, { method: "PATCH", headers, body: JSON.stringify(changes) });
   await login(one); await login(two);
@@ -76,7 +76,8 @@ try {
   gates.get("ALPHA")!.release.resolve();
   await two.locator(".assistant").filter({ hasText: "ALPHA partial" }).waitFor();
   assert.equal((await state(a)).running, true, "snapshot must be observed during generation, not after it");
-  assert.equal(await one.locator("#log").textContent(), "BETAReply to BETA.");
+  assert.equal(await one.locator(".user .user-content").textContent(), "BETA");
+  assert.equal(await one.locator(".assistant .md").textContent(), "Reply to BETA.");
   await choose(one, a); await one.locator(".assistant").filter({ hasText: "ALPHA partial" }).waitFor();
   await choose(one, b); await idle(two);
   assert.ok(!(await one.locator("#log").textContent()).includes("ALPHA"));

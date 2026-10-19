@@ -35,7 +35,7 @@ try {
   const errors: string[] = []; page.on("pageerror", (e: Error) => errors.push(e.message));
   await page.addInitScript((id: string) => { localStorage.setItem("luna.token", "test"); localStorage.setItem("luna.session", id); }, String(conv.id));
   await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
-  await page.waitForFunction(() => !(globalThis as any).document.getElementById("send").disabled);
+  await page.waitForFunction(() => (globalThis as any).document.getElementById("input") && !(globalThis as any).document.getElementById("activity")?.textContent?.includes("Reconnecting"));
   let mainCancelled = false, mainCompleted = false;
   faux.setResponses([async (_ctx, options) => {
     options?.signal?.addEventListener("abort", () => { if (!mainCompleted) mainCancelled = true; }, { once: true });
@@ -43,7 +43,7 @@ try {
   }, async () => { btwStarted.resolve(); await btwRelease.promise; return fauxAssistantMessage("BTW answer"); },
   async () => { bgStarted.resolve(); await bgRelease.promise; return fauxAssistantMessage(`Before media\nMEDIA:${png}\nAfter media`); }]);
   async function send(text: string) {
-    await page.waitForFunction(() => !(globalThis as any).document.getElementById("send").disabled);
+    await page.waitForFunction(() => (globalThis as any).document.getElementById("input") && !(globalThis as any).document.getElementById("activity")?.textContent?.includes("Reconnecting"));
     await page.locator("#input").fill(text); await page.locator("#send").click();
   }
   await send("Main task"); await mainStarted.promise;
@@ -74,7 +74,7 @@ try {
     await route.fulfill({ response });
   });
   await send("/btw fast question");
-  await page.waitForFunction(() => !(globalThis as any).document.getElementById("send").disabled);
+  await page.waitForFunction(() => (globalThis as any).document.getElementById("input") && !(globalThis as any).document.getElementById("activity")?.textContent?.includes("Reconnecting"));
   const fast = page.locator(".side-job").filter({ hasText: "fast question" });
   assert.ok((await fast.textContent()).includes("Complete")); assert.ok((await fast.textContent()).includes("FAST_ANSWER"));
   await page.unroute("**/messages?async=1");

@@ -54,7 +54,7 @@ try {
   await page.locator("#input").fill("Show me a response");
   await page.locator("#send").click();
   await page.locator(".assistant h2").waitFor();
-  await page.waitForFunction(() => document.getElementById("status")?.textContent === "Ready");
+  await page.waitForFunction(() => !document.getElementById("activity"));
   assert.equal(await page.locator(".assistant strong").textContent(), "chat");
   assert.equal(await page.evaluate(() => (window as any).injected), undefined);
   assert.equal(await page.locator("#welcome").count(), 0);
@@ -161,10 +161,11 @@ try {
   await page.locator("#search").fill("");
   await page.screenshot({ path: process.env.LUNA_UI_SCREENSHOTS ? join(process.env.LUNA_UI_SCREENSHOTS, "luna-desktop.png") : join(dir, "desktop.png") });
 
-  const stopButton = page.getByRole('button', { name: 'Stop', exact: true });
-  assert.equal(await stopButton.getAttribute('title'), 'Stop');
-  assert.equal((await stopButton.textContent()).trim(), '', 'Stop must be icon-only');
-  assert.equal(await stopButton.locator('svg').count(), 1);
+  assert.equal(await page.locator('#top #stop').count(), 0, 'Stop belongs to the composer, not the header');
+  const newSessionButton = page.locator('#new-session');
+  assert.equal(await newSessionButton.getAttribute('title'), 'New session in current project');
+  assert.equal((await newSessionButton.textContent()).trim(), '', 'New session is icon-only');
+  assert.equal(await newSessionButton.locator('svg').count(), 1);
   const expandedHistoryIcon = await page.locator('.history-head > svg').getAttribute('class');
   assert.ok(expandedHistoryIcon?.includes('lucide-history'), 'expanded History uses the Lucide History icon');
   await page.locator('#side-collapse').click();
