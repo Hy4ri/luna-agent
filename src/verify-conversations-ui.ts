@@ -235,7 +235,7 @@ try {
     assert.ok(toggleBounds && addBounds && Math.abs(toggleBounds.y - addBounds.y) < 2, 'plus shares the group header row');
   }
 
-  // Collapsing a project hides every conversation, but keeps its header action visible.
+  // Collapsing a project hides unpinned Ready conversations, but keeps its header action visible.
   const projectGroup = page.locator(`.session-group[data-project="${project.id}"]`);
   const projectToggle = projectGroup.locator('.group-toggle');
   const projectBody = page.locator(`#group-${project.id}`);
@@ -273,8 +273,96 @@ try {
   await row(created.id).waitFor();
   assert.equal(await row(projectOlder).isVisible(), true);
 
+  // Collapsed projects keep pins and all states except Ready/Stopped underneath their own header.
+  // Only status rendering is scripted. Metadata, pin actions, filtering, and list refresh use real routes.
+  const states = ['ready', 'stopped', 'running', 'finished', 'needs_approval', 'needs_input', 'limit_reached', 'failed'] as const;
+  const previews: { id: number; status: string; pinned: boolean }[] = [];
+  for (const status of [...states, 'ready', 'stopped']) {
+    const id = await create(project.id), pinned = previews.length >= states.length;
+    await rt.conversations.update(id, { title: `${pinned ? 'Pinned' : 'Preview'} ${status}`, pinned });
+    previews.push({ id, status, pinned });
+  }
+  const legacy = await create(project.id);
+  await rt.conversations.update(legacy, { title: 'Legacy running session' });
+  await page.route('**/v1/sessions', async (route: any) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const response = await route.fetch(), body = await response.json();
+    for (const session of body.sessions) {
+      const preview = previews.find(s => s.id === session.id);
+      if (preview) {
+        session.status = preview.status;
+        session.running = ['running', 'needs_approval', 'needs_input'].includes(preview.status);
+      }
+      if (session.id === legacy) { delete session.status; session.running = true; }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  const visibleIds = (): Promise<number[]> => projectBody.locator('.session-row:visible').evaluateAll((rows: any[]) => rows.map(r => Number(r.dataset.session)));
+  const expected = new Set([...previews.filter(s => s.pinned || !['ready', 'stopped'].includes(s.status)).map(s => s.id), legacy]);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
+    await page.reload();
+    if (width === 390) await page.locator('#menu').click();
+    await row(legacy).waitFor();
+    if (await projectToggle.getAttribute('aria-expanded') === 'false') await projectToggle.click();
+    const expandedIds = await visibleIds();
+    await projectToggle.click();
+    for (const preview of previews) {
+      assert.equal(await row(preview.id).isVisible(), expected.has(preview.id), `${width}/${preview.status}/pinned=${preview.pinned}: collapsed visibility`);
+      assert.equal(await page.locator(`[data-session="${preview.id}"]`).count(), 1, 'session is rendered once');
+    }
+    assert.equal(await row(legacy).isVisible(), true, 'legacy running-only sessions remain visible');
+    assert.deepEqual(await visibleIds(), expandedIds.filter(id => expected.has(id)), 'collapse preserves pin and activity order');
+    const header = await projectGroup.locator('.group-header').boundingBox();
+    const firstRow = await projectBody.locator('.session-row:visible').first().boundingBox();
+    assert.ok(header && firstRow && firstRow.y >= header.y + header.height && firstRow.x > header.x, 'previews stay indented below their project header');
+    assert.equal(await page.locator('#sessions').evaluate((el: any) => el.scrollWidth <= el.clientWidth), true, 'previews do not overflow');
+    assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false', 'previews do not expand the group');
+    assert.equal(await row(normalOlder).isVisible(), true, 'other groups stay unchanged');
+    await page.reload();
+    if (width === 390) await page.locator('#menu').click();
+    await row(legacy).waitFor();
+    assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(await visibleIds(), expandedIds.filter(id => expected.has(id)), 'collapsed previews survive reload');
+    // Expanding restores every row exactly once, in the original order.
+    await projectToggle.click();
+    assert.deepEqual(await visibleIds(), expandedIds);
+    await projectToggle.click();
+    await projectGroup.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `/tmp/luna-collapsed-sessions-${width}.png` });
+  }
+  // Pins remain actionable while collapsed; unpinning a Ready or Stopped session hides it immediately.
+  for (const preview of previews.filter(s => s.pinned)) {
+    await manage(preview.id); await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
+    await row(preview.id).waitFor({ state: 'hidden' });
+    await projectToggle.click();
+    await manage(preview.id); await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+    await row(preview.id).locator('.session-pin').waitFor();
+    await projectToggle.click();
+    assert.equal(await row(preview.id).isVisible(), true);
+  }
+  await page.locator('#search-toggle').click();
+  await page.locator('#search').fill('Preview needs_input');
+  await row(previews.find(s => s.status === 'needs_input')!.id).waitFor();
+  assert.equal(await page.locator('.session-row:visible').count(), 1, 'previews respect search');
+  await page.locator('#search').fill('');
+  await row(legacy).waitFor();
+  // A real background response appears live, then disappears after opening marks it read.
+  const background = await create(project.id);
+  await rt.conversations.update(background, { title: 'Background response' });
+  faux.setResponses([fauxAssistantMessage('Background reply')]);
+  const reply = await app.request(`/v1/sessions/${background}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: 'Work in background' }) });
+  assert.equal(reply.status, 200);
+  await row(background).locator('.session-status[data-status="finished"]').waitFor();
+  assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false');
+  await row(background).locator('.session-open').click();
+  await page.locator('#log .assistant').filter({ hasText: 'Background reply' }).waitFor();
+  await page.locator('#menu').click();
+  await row(background).waitFor({ state: 'hidden' });
+  assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false', 'reading a preview does not expand its project');
+
   assert.deepEqual(errors, []);
-  console.log("CONVERSATIONS_UI_OK: project collapse visibility, persistence, independent groups, mobile collapse,  rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups, empty-session creation fallback and pin precedence");
+  console.log("CONVERSATIONS_UI_OK: collapsed pinned/status previews, ready/stopped exclusion, live background read transition, legacy running, search, order, persistence, independent groups, mobile collapse, rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups, empty-session creation fallback and pin precedence");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }
