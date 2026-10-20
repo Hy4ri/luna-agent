@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from "vue";
-import { ArrowUp, ArrowDown } from "@lucide/vue";
-import { chat, entryList, activityLabel } from "@/stores/chat";
+import { ArrowUp, ArrowDown, X } from "@lucide/vue";
+import { chat, entryList, activityLabel, dismissNotice } from "@/stores/chat";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
 import AssistantText from "./AssistantText.vue";
@@ -105,7 +105,10 @@ function backgroundReport(entry: any, message: any): boolean {
       <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre>{{ chat.liveThinking }}</pre></details>
       <Markdown v-if="chat.liveText" :content="chat.liveText" />
     </div>
-    <div v-for="notice in chat.notices" :key="notice.id" :class="['msg', notice.kind === 'err' ? 'err' : 'muted']">{{ notice.text }}</div>
+    <div v-for="notice in chat.notices" :key="notice.id" :data-notice="notice.id" :class="['msg', 'chat-notice', notice.kind === 'err' ? 'err' : 'muted']">
+      <span>{{ notice.text }}</span>
+      <button type="button" aria-label="Dismiss notice" title="Dismiss notice" @click="dismissNotice(notice.id)"><X :size="16" aria-hidden="true" /></button>
+    </div>
     <section v-if="chat.sideJobs.size" class="side-jobs" aria-label="Side questions and background tasks">
       <div v-for="job in [...chat.sideJobs.values()].sort((a, b) => a.createdAt - b.createdAt)" :key="job.id" class="msg assistant side-job" :data-side-job="job.id">
         <p class="muted">/{{ job.kind }} · {{ job.status === 'running' ? 'Started' : job.status === 'complete' ? 'Complete' : 'Failed' }} · {{ job.id }} · Not in main history</p>

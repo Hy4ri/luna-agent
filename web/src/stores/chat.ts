@@ -9,7 +9,7 @@ import { composer, restoreDraft, saveDraft } from "./composer";
 import { models, setSelectedModel } from "./models";
 import { history, loadSessions, resetHistoryView } from "./sessions";
 
-export interface Notice { id: number; text: string; kind: "err" | "muted" }
+export interface Notice { id: number; text: string; kind: "err" | "muted"; scope: "session" | "run" }
 export interface SideMedia { directive: string; name: string; url: string; type: string }
 export interface SideJob { id: string; kind: string; status: string; prompt: string; text?: string; media?: SideMedia[]; createdAt: number }
 export interface ContextValue {
@@ -72,7 +72,9 @@ let entries = new Map<number, any>();
 export const entryList = computed(() => { void chat.rev; return [...entries.values()].sort((a, b) => a.id - b.id); });
 
 let noticeId = 0;
-export function addErr(text: string, kind: Notice["kind"] = "err") { chat.notices.push({ id: ++noticeId, text, kind }); }
+export function addErr(text: string, kind: Notice["kind"] = "err", scope: Notice["scope"] = "session") { chat.notices.push({ id: ++noticeId, text, kind, scope }); }
+export function dismissNotice(id: number) { chat.notices = chat.notices.filter(notice => notice.id !== id); }
+function clearRunNotices() { chat.notices = chat.notices.filter(notice => notice.scope !== "run"); }
 
 // ---- run controls / status ----
 export const sending = computed(() => !!chat.session && composer.submitting.has(chat.session));
@@ -309,12 +311,12 @@ function onSessionEvent(type: string, e: any, epoch: number) {
   } else if (type === "message_end" || type === "entry_appended") {
     if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(); }
     putEntry(e.entry); scheduleExtras(); scheduleContext();
-  } else if (type === "run_start") chat.runActive = true;
+  } else if (type === "run_start") { clearRunNotices(); chat.runActive = true; }
   else if (type === "run_end") {
     chat.runActive = chat.generationActive = false; chat.activeTools = new Set(); liveMessage = null; syncLive();
     scheduleExtras(); scheduleContext();
   }
-  else if (type === "turn_start") chat.generationActive = true;
+  else if (type === "turn_start") { clearRunNotices(); chat.generationActive = true; }
   else if (type === "turn_end") chat.generationActive = false;
   else if (type === "inbox_update") chat.queuedCount = e.items.length;
   else if (type === "agent_changed") { applyAgent(e.agent); scheduleContext(); }
@@ -348,10 +350,10 @@ function onSessionEvent(type: string, e: any, epoch: number) {
     if (call) {
       chat.activeTools.delete(call);
       chat.toolResults[call] = { isError: true, content: e.message, timestamp: Date.now() };
-    } else addErr(e.message);
+    } else addErr(e.message, "err", "run");
   }
   else if (type === "submission") {
-    if (e.record.status === "unanswered") addErr(e.record.reason + (e.record.detail ? ": " + (typeof e.record.detail === "string" ? e.record.detail : JSON.stringify(e.record.detail)) : ""));
+    if (e.record.status === "unanswered") addErr(e.record.reason + (e.record.detail ? ": " + (typeof e.record.detail === "string" ? e.record.detail : JSON.stringify(e.record.detail)) : ""), "err", "run");
     scheduleExtras();
   }
 }
