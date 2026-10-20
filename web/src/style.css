@@ -967,3 +967,8 @@ aside#side.collapsed .pill { display:none; }
 :is(#pbody, .settings-manager) details.card[open] > summary > svg { transform: rotate(90deg); }
 :is(#pbody, .settings-manager) details.card > summary:hover { background: var(--accent); }
 :is(#pbody, .settings-manager) details.card > .manager-body { padding: 16px; border-top: 1px solid var(--border); }
+
+/* Transient notices can be dismissed without changing durable history. */
+.chat-notice { display: flex; align-items: flex-start; gap: 12px; }
+.chat-notice > span { flex: 1; min-width: 0; }
+.chat-notice > button { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; color: inherit; }
