@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Dependabot uses the npm ecosystem for pnpm manifests and lockfiles.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # These versions have local patches. Update them with their patches manually.
+    ignore:
+      - dependency-name: "@earendil-works/pi-ai"
+      - dependency-name: "@earendil-works/pi-durable"
