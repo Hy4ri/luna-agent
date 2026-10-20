@@ -17,6 +17,7 @@ import { AskDoc, checkAnswer } from "./ask.js";
 import { readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
 import { Children } from "./delegate.js";
 import { GoalDoc } from "./goal.js";
+import { LEARN_USAGE, learnPrompt, parseLearn } from "./learn-command.js";
 import type { McpManager } from "./mcp.js";
 import type { SkillImprover } from "./improve.js";
 import type { LearnStore } from "./learn.js";
@@ -573,6 +574,12 @@ export function createApp(opts: ServerOptions) {
     const slash = plain === undefined ? null : /^\/(queue|steer|redirect|stop|model|compress|compact|retry)(?:\s+([\s\S]*))?$/.exec(plain.trim());
     let input = content as Input;
     let override: BusyMode | undefined;
+    const learn = plain === undefined ? null : /^\/learn(?:\s+([\s\S]*))?$/.exec(plain.trim());
+    if (learn) {
+      const req = parseLearn(learn[1] ?? "");
+      if (!req) return err(c, 400, LEARN_USAGE);
+      input = learnPrompt(req);
+    }
     if (slash) {
       const command = slash[1]!, args = (slash[2] ?? "").trim();
       if (command === "stop") {
