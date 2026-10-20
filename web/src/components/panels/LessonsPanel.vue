@@ -145,10 +145,10 @@ onMounted(load);
 </template>
 
 <style scoped>
-.lesson-diff { max-height: 320px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+.lesson-diff { max-height: 320px; overflow: auto; font-size: 13.5px; font-weight: 450; white-space: pre-wrap; }
 .lesson-diff span { display: block; }
 .lesson-diff .add { color: var(--color-green-500, #3fb950); }
 .lesson-diff .del { color: var(--color-red-500, #f85149); text-decoration: line-through; opacity: .8; }
-.evidence { margin: 0; padding-left: 1rem; font-size: 12px; display: grid; gap: 6px; }
-.link-button { justify-self: start; background: none; border: 0; padding: 0; color: var(--muted-foreground); text-decoration: underline; cursor: pointer; font-size: 12px; }
+.evidence { margin: 0; padding-left: 1rem; font-size: 13.5px; font-weight: 440; display: grid; gap: 6px; }
+.link-button { justify-self: start; background: none; border: 0; padding: 0; color: var(--muted-foreground); text-decoration: underline; cursor: pointer; font-size: 13px; }
 </style>

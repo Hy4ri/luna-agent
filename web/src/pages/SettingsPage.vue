@@ -283,8 +283,8 @@ onUnmounted(() => { mounted = false; setSettingsGuard(null) })
 .settings-screen { width: 100%; min-width: 0; height: 100%; flex: 1; display: flex; flex-direction: column; background: var(--background); }
 .settings-header { display: flex; align-items: center; gap: 16px; padding: 20px 32px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .settings-heading { flex: 1; min-width: 0; }
-.settings-heading h1 { font-size: 22px; font-weight: 650; letter-spacing: -.025em; }
-.settings-heading p, .section-heading p { color: var(--muted-foreground); font-size: 14px; margin-top: 4px; }
+.settings-heading h1 { font-size: 24px; font-weight: 650; letter-spacing: -.025em; }
+.settings-heading p, .section-heading p { color: var(--muted-foreground); font-size: 15px; margin-top: 4px; }
 .settings-layout { display: flex; min-height: 0; flex: 1; }
 .settings-nav { flex: 0 0 208px; padding: 20px 12px; border-right: 1px solid var(--border); overflow-y: auto; }
 .settings-tabs { display: flex; flex-direction: column; gap: 4px; }
@@ -295,16 +295,16 @@ onUnmounted(() => { mounted = false; setSettingsGuard(null) })
 .settings-scroll { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
 .settings-content { padding: 28px 32px 40px; min-width: 0; }
 .section-heading { margin-bottom: 24px; }
-.section-heading h2 { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+.section-heading h2 { font-size: 21.5px; font-weight: 600; letter-spacing: -.02em; }
 .settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; min-width: 0; padding: 0; margin: 0; border: 0; }
-.section-description, .help { color: var(--muted-foreground); line-height: 1.6; font-size: 13px; max-width: 76ch; }
+.section-description, .help { color: var(--muted-foreground); line-height: 1.6; font-size: 14px; max-width: 76ch; }
 .settings-subtabs { display: flex; gap: 20px; margin: -8px 0 24px; border-bottom: 1px solid var(--border); overflow-x: auto; min-width: 0; }
-.settings-subtabs button { min-height: 44px; padding: 10px 2px; flex-shrink: 0; border-bottom: 2px solid transparent; font-size: 14px; color: var(--muted-foreground); cursor: pointer; white-space: nowrap; }
+.settings-subtabs button { min-height: 44px; padding: 10px 2px; flex-shrink: 0; border-bottom: 2px solid transparent; font-size: 15px; color: var(--muted-foreground); cursor: pointer; white-space: nowrap; }
 .settings-subtabs button:hover { color: var(--foreground); }
 .settings-subtabs button[aria-selected="true"] { color: var(--primary); border-color: var(--primary); font-weight: 600; }
 .settings-management { min-width: 0; }
-.manager-description { color: var(--muted-foreground); font-size: 14px; line-height: 1.6; margin-bottom: 16px; }
-.manager-notice { border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; font-size: 13px; color: var(--muted-foreground); }
+.manager-description { color: var(--muted-foreground); font-size: 15px; line-height: 1.6; margin-bottom: 16px; }
+.manager-notice { border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: var(--muted-foreground); }
 .settings-manager { border: 0; padding: 0; margin: 0; min-width: 0; }
 .settings-manager :deep(button:not(.icon-button)) { min-height: 44px; }
 .settings-manager :deep(.card:not(details)) { padding: 16px; }
@@ -313,46 +313,46 @@ onUnmounted(() => { mounted = false; setSettingsGuard(null) })
 .manager-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 12px; margin-bottom: 24px; }
 .manager-link { display: flex; align-items: flex-start; gap: 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 8px; text-align: left; cursor: pointer; min-width: 0; }
 .manager-link:hover { background: var(--accent); border-color: var(--muted-foreground); }
-.manager-link strong { font-size: 14px; font-weight: 550; }
-.manager-link p { font-size: 13px; color: var(--muted-foreground); line-height: 1.55; margin-top: 4px; }
+.manager-link strong { font-size: 15px; font-weight: 550; }
+.manager-link p { font-size: 14px; color: var(--muted-foreground); line-height: 1.55; margin-top: 4px; }
 .manager-link div { flex: 1; min-width: 0; }
 .manager-link svg { flex-shrink: 0; color: var(--muted-foreground); margin-top: 2px; }
-.field-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; min-width: 0; }
-.field-label small { font-size: 13px; line-height: 1.55; color: var(--muted-foreground); font-weight: 400; }
+.field-label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 500; min-width: 0; }
+.field-label small { font-size: 14px; line-height: 1.55; color: var(--muted-foreground); font-weight: 400; }
 .input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); }
 .advanced-fields { border-top: 1px solid var(--border); padding-top: 8px; }
-.advanced-fields summary { cursor: pointer; color: var(--muted-foreground); font-size: 13px; padding-block: 8px; }
+.advanced-fields summary { cursor: pointer; color: var(--muted-foreground); font-size: 14px; padding-block: 8px; }
 .advanced-fields[open] summary { margin-bottom: 12px; }
 .advanced-fields :deep(.field) { margin-bottom: 16px; }
 .settings-footer { flex-shrink: 0; display: flex; align-items: center; gap: 16px; justify-content: space-between; padding: 16px 32px; border-top: 1px solid var(--border); background: var(--background); }
 .save-state { min-width: 0; }
-.save-state strong { font-size: 13px; font-weight: 550; }
-.save-state p { font-size: 12px; line-height: 1.5; color: var(--muted-foreground); margin-top: 4px; overflow-wrap: anywhere; }
+.save-state strong { font-size: 14px; font-weight: 550; }
+.save-state p { font-size: 13px; line-height: 1.5; color: var(--muted-foreground); margin-top: 4px; overflow-wrap: anywhere; }
 .save-state p.save-error { color: var(--destructive); }
 .save-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.settings-button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.settings-button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
 .settings-button:hover { background: var(--accent); }
 .settings-button.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 .settings-button.primary:hover { filter: brightness(1.08); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 .settings-loading, .settings-error { padding: 24px 0; color: var(--muted-foreground); }
 .settings-error p { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--destructive); }
-.config-path { font-family: monospace; font-size: 13px; overflow-wrap: anywhere; }
+.config-path { font-family: monospace; font-size: 14px; overflow-wrap: anywhere; }
 .mobile-only { display: none; }
 .refresh-spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (min-width: 1400px) { .settings-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } .full-span { grid-column: 1 / -1; } }
-@media (max-width: 1000px) and (min-width: 761px) { .settings-nav { flex-basis: 180px; padding-inline: 8px; } .settings-content { padding: 24px; } .settings-tabs button { font-size: 13px; padding-inline: 8px; gap: 8px; } }
+@media (max-width: 1000px) and (min-width: 761px) { .settings-nav { flex-basis: 180px; padding-inline: 8px; } .settings-content { padding: 24px; } .settings-tabs button { font-size: 14px; padding-inline: 8px; gap: 8px; } }
 @media (max-width: 760px) {
   .settings-header { padding: 12px 16px; gap: 12px; }
-  .settings-heading h1 { font-size: 18px; }
+  .settings-heading h1 { font-size: 19.5px; }
   .settings-heading p { display: none; }
   .mobile-only { display: inline-flex; width: 44px; height: 44px; }
   .back-button { padding-inline: 12px; }
   .settings-layout { flex-direction: column; }
   .settings-nav { flex: 0 0 auto; width: 100%; padding: 8px 16px; border-right: 0; border-bottom: 1px solid var(--border); overflow: hidden; }
   .settings-tabs { flex-direction: row; overflow-x: auto; gap: 4px; padding: 4px; scroll-padding-inline: 4px; }
-  .settings-tabs button { white-space: nowrap; font-size: 13px; }
+  .settings-tabs button { white-space: nowrap; font-size: 14px; }
   .settings-content { padding: 24px 16px 32px; }
   .settings-body { gap: 16px; }
   .settings-footer { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
@@ -361,7 +361,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .save-state p { margin: 0; max-height: 4.5em; overflow-y: auto; }
   .save-actions { width: 100%; justify-content: flex-end; }
   .manager-link { padding: 16px; }
-  .input { font-size: 16px; min-height: 44px; }
+  .input { font-size: 16.5px; min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { .refresh-spin { animation: none; } }
 </style>

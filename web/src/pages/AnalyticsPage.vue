@@ -6,8 +6,8 @@
       </Button>
       <div class="flex-1 a-heading">
         <div class="eyebrow text-xs uppercase tracking-wider text-muted-foreground">Workspace / Usage</div>
-        <h1 tabindex="-1" class="m-0 text-[22px] font-semibold tracking-tight leading-[1.3]">Analytics</h1>
-        <p class="m-0 text-[13px] text-muted-foreground">Model usage, token flow, and recorded cost.</p>
+        <h1 tabindex="-1" class="m-0 text-[24px] font-semibold tracking-tight leading-[1.3]">Analytics</h1>
+        <p class="m-0 text-[14px] text-muted-foreground">Model usage, token flow, and recorded cost.</p>
       </div>
       <Button type="button" variant="outline" class="h-9 px-4 text-xs font-medium text-foreground bg-card border-border hover:bg-accent" @click="navigate('chat')">Back to chat</Button>
     </header>
@@ -30,7 +30,7 @@
       <span class="text-muted-foreground text-xs ml-auto self-center a-updated">{{ updatedText }}</span>
     </div>
 
-    <p class="a-status max-w-[1180px] mx-auto mb-4 text-[13px]" :class="{ 'error': statusIsError }" role="status" aria-live="polite">{{ statusText }}</p>
+    <p class="a-status max-w-[1180px] mx-auto mb-4 text-[14px]" :class="{ 'error': statusIsError }" role="status" aria-live="polite">{{ statusText }}</p>
 
     <div data-analytics-content class="max-w-[1180px] mx-auto">
       <template v-if="snapshot">
@@ -38,45 +38,45 @@
         <div class="grid grid-cols-4 max-[1100px]:grid-cols-2 gap-3 my-[12px] mb-[22px]">
           <div class="border border-border rounded-[var(--radius)] p-[18px] max-[760px]:p-[14px] bg-card a-kpi">
             <span class="eyebrow text-xs uppercase tracking-wider text-muted-foreground">Total tokens</span>
-            <strong class="block my-[7px] text-[28px] max-[1700px]:text-[32px] max-[760px]:text-[24px] font-medium leading-[1.25] tracking-tight tabular-nums a-value" :title="full(activeUsage.totalTokens)">{{ compact(activeUsage.totalTokens) }}</strong>
+            <strong class="block my-[7px] text-[30px] max-[1700px]:text-[34px] max-[760px]:text-[25px] font-medium leading-[1.25] tracking-tight tabular-nums a-value" :title="full(activeUsage.totalTokens)">{{ compact(activeUsage.totalTokens) }}</strong>
             <small class="text-muted-foreground text-xs block">{{ activeSelectedModel ? full(activeSelectedModel.responses) + ' observed responses' : full(responsesCount) + ' observed responses' }}</small>
           </div>
           <div class="border border-border rounded-[var(--radius)] p-[18px] max-[760px]:p-[14px] bg-card a-kpi">
             <span class="eyebrow text-xs uppercase tracking-wider text-muted-foreground">Recorded cost · USD</span>
-            <strong class="block my-[7px] text-[28px] max-[1700px]:text-[32px] max-[760px]:text-[24px] font-medium leading-[1.25] tracking-tight tabular-nums a-value">{{ usd(activeUsage.cost.total) }}</strong>
+            <strong class="block my-[7px] text-[30px] max-[1700px]:text-[34px] max-[760px]:text-[25px] font-medium leading-[1.25] tracking-tight tabular-nums a-value">{{ usd(activeUsage.cost.total) }}</strong>
             <small class="text-muted-foreground text-xs block">Estimate, not an invoice</small>
           </div>
           <div class="border border-border rounded-[var(--radius)] p-[18px] max-[760px]:p-[14px] bg-card a-kpi">
             <span class="eyebrow text-xs uppercase tracking-wider text-muted-foreground">Cache hit rate</span>
-            <strong class="block my-[7px] text-[28px] max-[1700px]:text-[32px] max-[760px]:text-[24px] font-medium leading-[1.25] tracking-tight tabular-nums a-value">{{ pct(activeUsage.cacheHitRate) }}</strong>
+            <strong class="block my-[7px] text-[30px] max-[1700px]:text-[34px] max-[760px]:text-[25px] font-medium leading-[1.25] tracking-tight tabular-nums a-value">{{ pct(activeUsage.cacheHitRate) }}</strong>
             <small class="text-muted-foreground text-xs block">{{ cacheTotal ? `${full(activeUsage.cacheRead)} / ${full(cacheTotal)} input tokens` : 'No input tokens recorded' }}</small>
           </div>
           <div class="border border-border rounded-[var(--radius)] p-[18px] max-[760px]:p-[14px] bg-card a-kpi">
             <span class="eyebrow text-xs uppercase tracking-wider text-muted-foreground">{{ selected ? 'Model sessions' : 'Retained sessions' }}</span>
-            <strong class="block my-[7px] text-[28px] max-[1700px]:text-[32px] max-[760px]:text-[24px] font-medium leading-[1.25] tracking-tight tabular-nums a-value">{{ full(selected ? activeSelectedModel?.sessions : snapshot.sessions) }}</strong>
+            <strong class="block my-[7px] text-[30px] max-[1700px]:text-[34px] max-[760px]:text-[25px] font-medium leading-[1.25] tracking-tight tabular-nums a-value">{{ full(selected ? activeSelectedModel?.sessions : snapshot.sessions) }}</strong>
             <small class="text-muted-foreground text-xs block">{{ selected ? activeSelectedModel?.provider : `${full(snapshot.models.length)} models · includes subagents` }}</small>
           </div>
         </div>
 
         <template v-if="!snapshot.models.length">
-          <p class="a-empty py-[26px] text-muted-foreground text-[13px]">No model usage recorded yet. Usage will appear after a model response.</p>
+          <p class="a-empty py-[26px] text-muted-foreground text-[14px]">No model usage recorded yet. Usage will appear after a model response.</p>
         </template>
         <template v-else>
           <!-- Grid 1: Timeline & Composition -->
           <div class="grid grid-cols-[1.45fr_1fr] max-[1100px]:grid-cols-1 gap-4 mb-[18px]">
             <!-- Daily token activity -->
             <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card">
-              <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Daily token activity</h2>
+              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Daily token activity</h2>
               <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Last 30 active days · UTC · Dated assistant responses only; compaction attempts are not included.</p>
 
               <template v-if="!visibleTimeline.length">
-                <p class="a-empty py-[26px] text-muted-foreground text-[13px]">No dated response history is available.</p>
+                <p class="a-empty py-[26px] text-muted-foreground text-[14px]">No dated response history is available.</p>
               </template>
               <template v-else>
                 <svg viewBox="0 0 640 235" class="w-full h-auto block overflow-visible mt-[18px] a-chart" role="img" aria-label="Daily token activity: stacked input, output, cache read and cache write tokens">
                   <g v-for="r in [0, 0.5, 1]" :key="r">
                     <line :x1="leftMargin" :y1="topMargin + chartHeight * (1 - r)" :x2="632" :y2="topMargin + chartHeight * (1 - r)" stroke="var(--border)" stroke-dasharray="3 5" />
-                    <text :x="leftMargin - 9" :y="topMargin + chartHeight * (1 - r) + 4" text-anchor="end" class="fill-muted-foreground text-[11px] font-sans">{{ compact(maxTimeline * r) }}</text>
+                    <text :x="leftMargin - 9" :y="topMargin + chartHeight * (1 - r) + 4" text-anchor="end" class="fill-muted-foreground text-[12px] font-sans">{{ compact(maxTimeline * r) }}</text>
                   </g>
                   <g v-for="(day, index) in visibleTimeline" :key="day.date">
                     <title>{{ day.date }} UTC · {{ full(day.responses) }} responses&#10;{{ fields.map(([key, label]) => `${label}: ${full(day[key] as number)}`).join('\n') }}</title>
@@ -95,7 +95,7 @@
                       :x="leftMargin + index * timelineStep + timelineStep / 2"
                       y="207"
                       text-anchor="middle"
-                      class="fill-muted-foreground text-[11px] font-sans"
+                      class="fill-muted-foreground text-[12px] font-sans"
                     >{{ day.date.slice(5) }}</text>
                   </g>
                 </svg>
@@ -112,9 +112,9 @@
                       <caption class="text-muted-foreground text-left mb-2">Daily values (UTC)</caption>
                       <thead>
                         <tr>
-                          <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-left">Date</th>
-                          <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
-                          <th v-for="([_, label]) in fields" :key="label" scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">{{ label }}</th>
+                          <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Date</th>
+                          <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
+                          <th v-for="([_, label]) in fields" :key="label" scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">{{ label }}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -132,7 +132,7 @@
 
             <!-- Token composition -->
             <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card">
-              <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Token composition</h2>
+              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Token composition</h2>
               <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Input excludes cache reads and writes. Subsets are not counted twice.</p>
 
               <div class="h-4 rounded-[4px] overflow-hidden flex bg-secondary my-[22px] a-split" role="img" :aria-label="fields.map(([key, label]) => `${label}: ${full(activeUsage[key] as number)}`).join(', ')">
@@ -146,15 +146,15 @@
               </div>
 
               <div class="grid gap-[10px] a-breakdown">
-                <div v-for="([key, label]) in fields" :key="key" class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                <div v-for="([key, label]) in fields" :key="key" class="flex gap-3 items-baseline text-[14px] a-stat-row">
                   <span class="flex-1 text-muted-foreground">{{ label }}</span>
                   <strong class="font-medium tabular-nums">{{ full(activeUsage[key] as number) }}</strong>
                 </div>
-                <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                   <span class="flex-1 text-muted-foreground">Reasoning · part of output</span>
                   <strong class="font-medium tabular-nums">{{ activeUsage.reasoning == null ? "Not reported" : full(activeUsage.reasoning) }}</strong>
                 </div>
-                <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                   <span class="flex-1 text-muted-foreground">1h writes · part of cache write</span>
                   <strong class="font-medium tabular-nums">{{ activeUsage.cacheWrite1h == null ? "Not reported" : full(activeUsage.cacheWrite1h) }}</strong>
                 </div>
@@ -173,7 +173,7 @@
           <div class="grid grid-cols-[1.45fr_1fr] max-[1100px]:grid-cols-1 gap-4 mb-[18px]">
             <!-- Model comparison -->
             <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card">
-              <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Model comparison</h2>
+              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Model comparison</h2>
               <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Compare the models in the current selection.</p>
 
               <label class="grid gap-[5px] text-xs text-muted-foreground mb-4">
@@ -190,7 +190,7 @@
 
               <div class="grid gap-[15px] mt-[18px] a-bars">
                 <template v-if="!comparisonSorted.length || comparisonMax === 0">
-                  <p class="a-empty py-[26px] text-muted-foreground text-[13px]">{{ comparisonMetric === 'cost' ? 'No nonzero cost is recorded. This does not mean usage was free.' : 'No tokens recorded.' }}</p>
+                  <p class="a-empty py-[26px] text-muted-foreground text-[14px]">{{ comparisonMetric === 'cost' ? 'No nonzero cost is recorded. This does not mean usage was free.' : 'No tokens recorded.' }}</p>
                 </template>
                 <template v-else>
                   <div v-for="m in comparisonSorted" :key="m.key">
@@ -208,15 +208,15 @@
 
             <!-- Recorded cost -->
             <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card">
-              <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Recorded cost</h2>
+              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Recorded cost</h2>
               <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">USD estimates recorded with each response. Not an invoice or subscription charge.</p>
 
               <div class="grid gap-[10px] a-breakdown">
-                <div v-for="([key, label]) in fields" :key="key" class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                <div v-for="([key, label]) in fields" :key="key" class="flex gap-3 items-baseline text-[14px] a-stat-row">
                   <span class="flex-1 text-muted-foreground">{{ label }}</span>
                   <strong class="font-medium tabular-nums">{{ usd((activeUsage.cost as Record<string, number>)[key]) }}</strong>
                 </div>
-                <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                   <span class="flex-1 text-muted-foreground">Total</span>
                   <strong class="font-medium tabular-nums">{{ usd(activeUsage.cost.total) }}</strong>
                 </div>
@@ -228,28 +228,28 @@
 
           <!-- Model breakdown table -->
           <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
-            <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Model breakdown</h2>
+            <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Model breakdown</h2>
             <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Select a model name for its full detail. Scroll the table to see every counter.</p>
 
             <div class="overflow-auto mt-4 a-scroll" tabindex="0" aria-label="Model usage table">
               <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
                 <thead>
                   <tr class="border-b border-border">
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-left">Model</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Total tokens</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Input</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Output</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Cache read</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Cache write</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Hit rate</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
-                    <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Model</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Total tokens</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Input</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Output</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cache read</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cache write</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Hit rate</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="m in snapshot.models" :key="m.key" class="border-b border-border last:border-0">
                     <td class="p-3 text-left">
-                      <button type="button" class="p-0 min-h-[32px] border-0 text-primary bg-transparent text-[13px] text-left hover:underline cursor-pointer" @click="selected = m.key">
+                      <button type="button" class="p-0 min-h-[32px] border-0 text-primary bg-transparent text-[14px] text-left hover:underline cursor-pointer" @click="selected = m.key">
                         {{ m.model }}
                       </button>
                       <small class="text-muted-foreground block">{{ m.provider }}</small>
@@ -272,30 +272,30 @@
           <template v-if="activeSelectedModel">
             <div class="grid grid-cols-2 max-[1100px]:grid-cols-1 gap-4 my-[22px] a-grid a-section">
               <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card">
-                <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Response history</h2>
+                <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Response history</h2>
                 <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Observed assistant messages, not all model calls.</p>
                 <div class="grid gap-[10px] a-breakdown">
-                  <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                  <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                     <span class="flex-1 text-muted-foreground">Responses</span>
                     <strong class="font-medium tabular-nums">{{ full(activeSelectedModel.responses) }}</strong>
                   </div>
-                  <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                  <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                     <span class="flex-1 text-muted-foreground">Error responses</span>
                     <strong class="font-medium tabular-nums">{{ full(activeSelectedModel.errors) }}</strong>
                   </div>
-                  <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                  <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                     <span class="flex-1 text-muted-foreground">Aborted responses</span>
                     <strong class="font-medium tabular-nums">{{ full(activeSelectedModel.aborted) }}</strong>
                   </div>
-                  <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                  <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                     <span class="flex-1 text-muted-foreground">Sessions with ledger usage</span>
                     <strong class="font-medium tabular-nums">{{ full(activeSelectedModel.sessions) }}</strong>
                   </div>
-                  <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                  <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                     <span class="flex-1 text-muted-foreground">First response</span>
                     <strong class="font-medium tabular-nums">{{ when(activeSelectedModel.firstSeen) }}</strong>
                   </div>
-                  <div class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                  <div class="flex gap-3 items-baseline text-[14px] a-stat-row">
                     <span class="flex-1 text-muted-foreground">Latest response</span>
                     <strong class="font-medium tabular-nums">{{ when(activeSelectedModel.lastSeen) }}</strong>
                   </div>
@@ -303,10 +303,10 @@
               </section>
 
               <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card">
-                <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Current model rates</h2>
+                <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Current model rates</h2>
                 <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">USD per 1M tokens · Current catalog rates, not historical billing rates.</p>
                 <div class="grid gap-[10px] a-breakdown">
-                  <div v-for="([key, label]) in fields" :key="key" class="flex gap-3 items-baseline text-[13px] a-stat-row">
+                  <div v-for="([key, label]) in fields" :key="key" class="flex gap-3 items-baseline text-[14px] a-stat-row">
                     <span class="flex-1 text-muted-foreground">{{ label }}</span>
                     <strong class="font-medium tabular-nums">{{ activeSelectedModel.rates && (activeSelectedModel.rates as Record<string, number>)[key] > 0 ? usd((activeSelectedModel.rates as Record<string, number>)[key]) : 'Not priced' }}</strong>
                   </div>
@@ -318,20 +318,20 @@
           <!-- Tool reported usage (only when !selected) -->
           <template v-if="!selected && snapshot.tools.length">
             <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
-              <h2 class="m-0 mb-[6px] text-[16px] font-semibold">Tool-reported usage</h2>
+              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Tool-reported usage</h2>
               <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Separate counters. Not added to model totals because usage can overlap.</p>
 
               <div class="overflow-auto mt-4 a-scroll" tabindex="0" aria-label="Tool usage table">
                 <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
                   <thead>
                     <tr class="border-b border-border">
-                      <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-left">Tool</th>
-                      <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Input</th>
-                      <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Output</th>
-                      <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Cache read</th>
-                      <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Cache write</th>
-                      <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Total tokens</th>
-                      <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Tool</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Input</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Output</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cache read</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cache write</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Total tokens</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
                     </tr>
                   </thead>
                   <tbody>

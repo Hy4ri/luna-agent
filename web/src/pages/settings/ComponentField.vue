@@ -138,33 +138,33 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
 
 <style scoped>
 .field-stack { display: grid; gap: 16px; min-width: 0; }
-.field-label { display: grid; gap: 6px; min-width: 0; font-size: 13px; font-weight: 500; }
-.field-label small, .boolean-field small, .field-help { display: block; font-size: 12px; color: var(--muted-foreground); line-height: 1.6; font-weight: 400; }
-.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 13px; }
+.field-label { display: grid; gap: 6px; min-width: 0; font-size: 14px; font-weight: 500; }
+.field-label small, .boolean-field small, .field-help { display: block; font-size: 13px; color: var(--muted-foreground); line-height: 1.6; font-weight: 400; }
+.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 14px; }
 .input:not(button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .readonly-value { color: var(--muted-foreground); background: var(--muted); cursor: text; }
 .field-group { min-width: 0; border: 1px solid var(--border); border-radius: 6px; }
-.field-group > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 12px; cursor: pointer; font-size: 13px; list-style: none; }
+.field-group > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 12px; cursor: pointer; font-size: 14px; list-style: none; }
 summary::-webkit-details-marker { display: none; }
 summary svg { flex-shrink: 0; color: var(--muted-foreground); }
 summary span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-summary small { font-size: 11px; color: var(--muted-foreground); overflow-wrap: anywhere; max-width: 50%; }
+summary small { font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; max-width: 50%; }
 .field-group[open] > summary > svg { transform: rotate(90deg); }
 .group-body { padding: 16px; border-top: 1px solid var(--border); }
 .subtle-group { border: 0; border-top: 1px solid var(--border); border-radius: 0; }
 .field-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-.field-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; cursor: pointer; }
+.field-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; cursor: pointer; }
 .field-button:hover { background: var(--accent); }
 .danger { color: var(--destructive); }
 .field-actions { display: flex; justify-content: flex-end; }
-.empty-value { font-size: 12px; color: var(--muted-foreground); padding-block: 8px; }
-.field-error { color: var(--destructive); font-size: 12px; }
+.empty-value { font-size: 13px; color: var(--muted-foreground); padding-block: 8px; }
+.field-error { color: var(--destructive); font-size: 13px; }
 .boolean-field { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 44px; cursor: pointer; }
-.boolean-title { font-size: 13px; font-weight: 500; }
+.boolean-title { font-size: 14px; font-weight: 500; }
 .boolean-field input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--primary); }
 .string-item { display: flex; align-items: flex-end; gap: 8px; }
 .string-item > :first-child { flex: 1; min-width: 0; }
 .choice-trigger { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-textarea.input { min-height: 100px; resize: vertical; }
-@media (max-width: 760px) { .input { min-height: 44px; font-size: 16px; } .field-button { min-height: 44px; } .group-body { padding: 12px; } }
+textarea.input { min-height: 100px; resize: vertical; font-size: 15px; font-weight: 450; }
+@media (max-width: 760px) { .input { min-height: 44px; font-size: 16.5px; } .field-button { min-height: 44px; } .group-body { padding: 12px; } }
 </style>

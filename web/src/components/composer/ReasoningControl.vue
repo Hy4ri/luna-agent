@@ -90,10 +90,10 @@ onUnmounted(() => window.removeEventListener("resize", position));
 #think svg { width: 25px; height: 25px; }
 #reasoning-picker { position: fixed; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow); }
 .reasoning-heading, .reasoning-endpoints { display: flex; align-items: center; justify-content: space-between; }
-.reasoning-heading { font-size: 12px; margin-bottom: 14px; gap: 16px; }
+.reasoning-heading { font-size: 13px; margin-bottom: 14px; gap: 16px; }
 .reasoning-heading output { color: var(--reasoning-color); font-weight: 600; }
 #reasoning-slider { display: block; width: 100%; min-height: 28px; margin: 0; padding: 0; accent-color: var(--reasoning-color); cursor: pointer; }
 .reasoning-stops { display: flex; justify-content: space-between; padding: 0 7px; pointer-events: none; }
 .reasoning-stops span { height: 3px; width: 1px; background: var(--muted-foreground); opacity: .5; }
-.reasoning-endpoints { margin-top: 6px; font-size: 11px; color: var(--muted-foreground); }
+.reasoning-endpoints { margin-top: 6px; font-size: 12px; color: var(--muted-foreground); }
 </style>

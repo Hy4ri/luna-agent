@@ -844,7 +844,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-top-title h1 {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 650;
   letter-spacing: -0.02em;
   margin: 0;
@@ -852,7 +852,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-tz-tag {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
   padding: 2px 7px;
   border-radius: 4px;
@@ -876,7 +876,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   border: none;
   background: transparent;
   color: var(--muted-foreground);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -899,7 +899,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-mini-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 99px;
@@ -934,7 +934,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   border-radius: 6px;
   background: var(--card);
   color: var(--foreground);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -964,7 +964,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-btn.sm {
   height: 29px;
   padding: 0 9px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .cron-status-banner {
@@ -972,7 +972,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   padding: 8px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .cron-status-banner.cron-error {
@@ -1023,7 +1023,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted-foreground);
   flex: 1;
   min-width: 120px;
@@ -1038,7 +1038,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   border: 1px solid var(--input);
   background: var(--card);
   color: var(--foreground);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .cron-master-scroll {
@@ -1072,7 +1072,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-editor-head h2 {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   margin: 0;
   color: var(--primary);
@@ -1089,7 +1089,12 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   background: var(--background);
   color: var(--foreground);
   padding: 7px 10px;
-  font-size: 13px;
+  font-size: 14px;
+}
+
+.cron-editor-card textarea {
+  font-size: 15px;
+  font-weight: 450;
 }
 
 .cron-preset-row {
@@ -1105,7 +1110,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   border: 1px solid var(--border);
   background: var(--secondary);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
   cursor: pointer;
 }
@@ -1116,7 +1121,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-help-note {
-  font-size: 11.5px;
+  font-size: 12.5px;
   margin: 0;
 }
 
@@ -1168,7 +1173,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-job-title {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--foreground);
   display: inline-flex;
@@ -1188,7 +1193,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-time-stamp {
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -1198,12 +1203,12 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .cron-expr-pill {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--secondary);
@@ -1211,7 +1216,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-meta-line {
-  font-size: 11.5px;
+  font-size: 12.5px;
   line-height: 1.4;
 }
 
@@ -1223,14 +1228,15 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   background: var(--background);
   border: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 13px;
+  font-weight: 450;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .cron-prompt-details summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted-foreground);
 }
 
@@ -1254,7 +1260,8 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-feed-snippet {
-  font-size: 12.5px;
+  font-size: 14px;
+  font-weight: 440;
   color: var(--muted-foreground);
   line-height: 1.45;
   display: -webkit-box;
@@ -1273,7 +1280,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .pill {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
   padding: 1px 7px;
   border-radius: 4px;
@@ -1310,7 +1317,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-tag-mono {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -1323,7 +1330,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-inline-meta {
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-family: var(--mono);
   display: grid;
   gap: 4px;
@@ -1332,7 +1339,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-empty-msg {
   padding: 20px 16px;
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .cron-more-wrap {
@@ -1346,7 +1353,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-history > summary {
   cursor: pointer;
   padding: 12px 16px;
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--muted-foreground);
   background: #0e1114;
@@ -1385,13 +1392,13 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   align-items: center;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--muted-foreground);
   flex-wrap: wrap;
 }
 
 .cron-insp-heading {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 650;
   letter-spacing: -0.02em;
   margin: 0;
@@ -1426,14 +1433,14 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-tel-label {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--faint);
 }
 
 .cron-tel-val {
-  font-size: 12px;
+  font-size: 13px;
   font-family: var(--mono);
   color: var(--foreground);
   font-variant-numeric: tabular-nums;
@@ -1457,7 +1464,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   border-radius: 8px;
   background: var(--card);
   padding: 10px 14px;
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .cron-prompt-disclosure summary {
@@ -1472,7 +1479,8 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   border-radius: 6px;
   background: var(--background);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13.5px;
+  font-weight: 450;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1487,7 +1495,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-markdown-surface h3 {
-  font-size: 14px;
+  font-size: 15.5px;
   margin: 0 0 10px;
   color: var(--primary);
 }
@@ -1499,7 +1507,8 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   background: var(--background);
   border: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13.5px;
+  font-weight: 450;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1522,12 +1531,12 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-empty-box h3 {
-  font-size: 15px;
+  font-size: 16px;
   margin: 0 0 6px;
 }
 
 .cron-empty-box p {
-  font-size: 12.5px;
+  font-size: 13.5px;
   margin: 0;
   line-height: 1.5;
 }
@@ -1572,11 +1581,11 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   }
   .cron-seg-tab {
     padding: 4px 9px;
-    font-size: 12px;
+    font-size: 13px;
   }
   .cron-btn {
     padding: 0 9px;
-    font-size: 12px;
+    font-size: 13px;
   }
 }
 </style>

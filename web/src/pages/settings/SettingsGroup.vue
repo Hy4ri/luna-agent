@@ -16,10 +16,10 @@ summary:hover { background: var(--accent); }
 .group-chevron { flex-shrink: 0; color: var(--muted-foreground); }
 details[open] > summary .group-chevron { transform: rotate(90deg); }
 .group-heading { display: grid; gap: 4px; flex: 1; min-width: 0; }
-.group-title { font-size: 14px; font-weight: 600; }
-.group-status { font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; }
-.group-timing { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }
+.group-title { font-size: 15px; font-weight: 600; }
+.group-status { font-size: 13px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.group-timing { font-size: 12px; color: var(--muted-foreground); white-space: nowrap; }
 .group-content { display: grid; gap: 20px; padding: 20px; border-top: 1px solid var(--border); min-width: 0; }
-.group-description { font-size: 13px; line-height: 1.6; color: var(--muted-foreground); }
+.group-description { font-size: 14px; line-height: 1.6; color: var(--muted-foreground); }
 @media (max-width: 760px) { summary { padding: 14px; gap: 8px; flex-wrap: wrap; } .group-timing { margin-left: 24px; } .group-content { padding: 16px; } }
 </style>
