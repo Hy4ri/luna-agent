@@ -98,11 +98,15 @@ button, input, select, textarea {
   font: inherit;
 }
 
+button, summary, [role="tab"], [role="tabpanel"], [role="dialog"], [role="separator"], [tabindex]:not(input):not(textarea):not(select) {
+  outline: none;
+}
+
 [hidden] {
   display: none !important;
 }
 
-:focus-visible {
+:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
@@ -449,7 +453,7 @@ aside#side.collapsed #history-rail {
   cursor: col-resize;
   z-index: 50;
 }
-#side-resize:hover, #side-resize:focus {
+#side-resize:hover {
   background: var(--primary);
   opacity: 0.4;
 }
@@ -949,4 +953,3 @@ aside#side.collapsed .pill { display:none; }
 :is(#pbody, .settings-manager) details.card[open] > summary > svg { transform: rotate(90deg); }
 :is(#pbody, .settings-manager) details.card > summary:hover { background: var(--accent); }
 :is(#pbody, .settings-manager) details.card > .manager-body { padding: 16px; border-top: 1px solid var(--border); }
-:is(#pbody, .settings-manager) details.card > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }

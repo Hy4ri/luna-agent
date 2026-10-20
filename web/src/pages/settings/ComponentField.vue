@@ -141,7 +141,7 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
 .field-label { display: grid; gap: 6px; min-width: 0; font-size: 13px; font-weight: 500; }
 .field-label small, .boolean-field small, .field-help { display: block; font-size: 12px; color: var(--muted-foreground); line-height: 1.6; font-weight: 400; }
 .input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 13px; }
-.input:focus-visible, summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.input:not(button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .readonly-value { color: var(--muted-foreground); background: var(--muted); cursor: text; }
 .field-group { min-width: 0; border: 1px solid var(--border); border-radius: 6px; }
 .field-group > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 12px; cursor: pointer; font-size: 13px; list-style: none; }

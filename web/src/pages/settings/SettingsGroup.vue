@@ -21,6 +21,5 @@ details[open] > summary .group-chevron { transform: rotate(90deg); }
 .group-timing { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }
 .group-content { display: grid; gap: 20px; padding: 20px; border-top: 1px solid var(--border); min-width: 0; }
 .group-description { font-size: 13px; line-height: 1.6; color: var(--muted-foreground); }
-summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }
 @media (max-width: 760px) { summary { padding: 14px; gap: 8px; flex-wrap: wrap; } .group-timing { margin-left: 24px; } .group-content { padding: 16px; } }
 </style>
