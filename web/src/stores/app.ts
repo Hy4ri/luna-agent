@@ -2,9 +2,10 @@
 import { nextTick, reactive, ref } from "vue";
 import { onUnauthorized, setToken, token } from "@/lib/api";
 import { isMobile } from "@/lib/dom";
+import { sections } from "@/pages/settings/catalog";
 
 export type View = "chat" | "cron" | "analytics" | "settings";
-export const SETTINGS_TABS = ["general", "models", "context", "tools", "automation", "workspace"] as const;
+export const SETTINGS_TABS: readonly string[] = sections.map(section => section.id);
 export const SIDE_MIN = 200, SIDE_MAX = 480, SIDE_DEFAULT = 264;
 
 function savedWidth(): number | null {
@@ -32,7 +33,7 @@ export const boardChanged = ref(0);
 export const focusInput = ref(0);
 
 // ---- settings guard ----
-export interface SettingsGuard { canLeave(): boolean; isDirty(): boolean }
+export interface SettingsGuard { canLeave(): boolean; isDirty(): boolean; canChangeTab?(): boolean }
 let guard: SettingsGuard | null = null;
 export function setSettingsGuard(g: SettingsGuard | null) { guard = g; }
 const settingsHash = (tab = ui.settingsTab) => (tab === "general" ? "#settings" : "#settings/" + tab);
@@ -56,13 +57,19 @@ function closePage(view: "cron" | "analytics") {
 export function openSettings(tab?: string) {
   if (ui.login) return;
   const selected = tab || (location.hash.startsWith("#settings/") ? location.hash.slice(10) : ui.view === "settings" ? ui.settingsTab : "general");
-  ui.settingsTab = (SETTINGS_TABS as readonly string[]).includes(selected) ? selected : "general";
+  const next = selected === "workspace" ? "context" : SETTINGS_TABS.includes(selected) ? selected : "general";
+  if (ui.view === "settings" && next !== ui.settingsTab && guard?.canChangeTab?.() === false) {
+    history.replaceState(null, "", settingsHash());
+    return;
+  }
+  ui.settingsTab = next;
   if (ui.view !== "settings") { closePanel(); closePage("cron"); closePage("analytics"); ui.view = "settings"; setDrawer(false); }
   setDrawer(false);
   if (location.hash !== settingsHash()) location.hash = settingsHash().slice(1);
 }
 /** Called by the Settings page when the user switches tabs. */
 export function setSettingsTab(id: string) {
+  if (guard?.canChangeTab?.() === false) return;
   ui.settingsTab = id;
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }

@@ -34,12 +34,13 @@ try {
   await page.locator('[data-panel="settings"]').click();
   const screen = page.locator("#settings-screen"); const field = (id: string) => screen.locator(`[data-setting="${id}"]`);
   const tab = (id: string) => screen.locator(`[data-settings-tab="${id}"]`);
-  await screen.getByRole("heading", { name: "Settings", exact: true }).waitFor(); await field("dataDir").waitFor();
+  const expand = async () => { await screen.locator(".settings-body").waitFor({ state: "attached" }); await screen.locator(".settings-body details").evaluateAll((items: any[]) => items.forEach(item => item.open = true)); };
+  await screen.getByRole("heading", { name: "Settings", exact: true }).waitFor(); await field("busyInput.mode").waitFor({ state: "attached" }); await expand();
   assert.equal(await page.locator("#main").isVisible(), false); assert.equal(await page.locator("#panel").isVisible(), false);
   assert.equal(await page.locator('[data-panel="settings"]').getAttribute("aria-current"), "page");
-  assert.equal(await screen.getByRole("tab").count(), 6); assert.equal(new URL(page.url()).hash, "#settings");
+  assert.equal(await screen.locator(".settings-tabs").getByRole("tab").count(), 7); assert.equal(new URL(page.url()).hash, "#settings");
   await tab("general").focus(); await page.keyboard.press("ArrowRight");
-  await field("thinkingLevel").waitFor(); assert.equal(await tab("models").getAttribute("aria-selected"), "true");
+  await expand(); await field("thinkingLevel").waitFor(); assert.equal(await tab("models").getAttribute("aria-selected"), "true");
   const refreshButton = screen.locator('[data-section="models-refresh"] button');
   await refreshButton.waitFor();
   let finishRefresh: (() => void) | undefined;
@@ -63,18 +64,18 @@ try {
   assert.equal(await refreshButton.isEnabled(), true);
   await page.unroute("**/v1/models/refresh");
   await page.screenshot({ path: "/tmp/luna-model-refresh-desktop.png" });
-  await field("thinkingLevel").selectOption("high"); await tab("context").click(); await field("instructions").fill("Settings draft instruction");
-  await tab("models").click(); assert.equal(await field("thinkingLevel").inputValue(), "high");
-  await tab("tools").click(); await field("web.searchProvider").selectOption("ddgs"); await field("web.extractProvider").selectOption("disabled");
-  await field("web.providers.ddgs.region").fill("fr-fr");
+  await field("thinkingLevel").selectOption("high"); await tab("context").click(); await expand(); await field("instructions").fill("Settings draft instruction");
+  await tab("models").click(); await expand(); assert.equal(await field("thinkingLevel").inputValue(), "high");
+  await tab("tools").click(); await expand(); await field("web.searchProvider").selectOption("ddgs"); await field("web.extractProvider").selectOption("disabled");
+  await field("web.providers.ddgs.region").selectOption("fr-fr");
   assert.equal(await field("browser.provider").inputValue(), "disabled");
   await field("browser.provider").selectOption("camofox");
-  await field("browser.providers.camofox.mcpServer").fill("secure");
+  await field("browser.providers.camofox.mcpServer").selectOption("secure");
   assert.equal(await field("processes.enabled").isChecked(), false);
   await field("processes.enabled").check();
   await field("processes.retentionHours").fill("48");
   await field("processes.maxOutputBytes").fill("8192");
-  await tab("general").click(); await tab("tools").click();
+  await tab("general").click(); await expand(); await tab("tools").click(); await expand();
   assert.equal(await field("browser.provider").inputValue(), "camofox");
   assert.equal(await field("browser.providers.camofox.mcpServer").inputValue(), "secure");
   assert.equal(await field("processes.enabled").isChecked(), true);
@@ -114,9 +115,9 @@ try {
   // Initial load failure and retry are visible and recoverable.
   await page.route("**/v1/settings", (route: any) => route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"Load fixture failure"}' }));
   await page.locator('[data-panel="settings"]').click(); await screen.getByRole("alert").filter({ hasText: "Load fixture failure" }).waitFor();
-  await page.unroute("**/v1/settings"); await screen.getByRole("button", { name: "Retry", exact: true }).click(); await field("dataDir").waitFor();
-  await tab("tools").click(); await field("web.searchProvider").waitFor();
-  await page.reload(); await screen.waitFor({ state: "visible" }); await field("web.searchProvider").waitFor(); assert.equal(new URL(page.url()).hash, "#settings/tools");
+  await page.unroute("**/v1/settings"); await screen.getByRole("button", { name: "Retry", exact: true }).click(); await field("busyInput.mode").waitFor({ state: "attached" }); await expand();
+  await tab("tools").click(); await expand(); await field("web.searchProvider").waitFor();
+  await page.reload(); await screen.waitFor({ state: "visible" }); await expand(); await field("web.searchProvider").waitFor(); assert.equal(new URL(page.url()).hash, "#settings/tools");
   assert.equal(await field("browser.provider").inputValue(), "camofox");
   assert.equal(await field("browser.providers.camofox.mcpServer").inputValue(), "secure");
   assert.equal(await field("processes.enabled").isChecked(), true);
@@ -125,23 +126,23 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await screen.locator("#settings-menu").click();
   await page.locator('[data-panel="settings"]').click();
-  await page.locator('[data-settings-tab="workspace"]').click();
+  await page.locator('[data-settings-tab="system"]').click();
   await page.locator('#settings-screen [data-panel="analytics"]').click(); await page.locator("#analytics-screen").waitFor({ state: "visible" }); assert.equal(await screen.isVisible(), false);
-  await page.locator("#analytics-menu").click(); await page.locator('[data-panel="settings"]').click(); await field("dataDir").waitFor();
-  await tab("tools").click(); await field("web.providers.ddgs.region").waitFor();
+  await page.locator("#analytics-menu").click(); await page.locator('[data-panel="settings"]').click(); await field("busyInput.mode").waitFor({ state: "attached" }); await expand();
+  await tab("tools").click(); await expand(); await field("web.providers.ddgs.region").waitFor();
   assert.equal(await page.evaluate(() => { const d = (globalThis as any).document; return d.documentElement.scrollWidth <= d.documentElement.clientWidth; }), true);
   await screen.locator('[data-section="processes"]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: "/tmp/luna18-settings-mobile.png" });
   // Reload discards edits only after confirmation; close confirmation can also be accepted.
-  await field("web.providers.ddgs.region").fill("uk-en"); acceptDiscard = true;
-  await screen.getByRole("button", { name: "Reload", exact: true }).click(); await page.waitForFunction(() => (globalThis as any).document.querySelector('[data-setting="web.providers.ddgs.region"]')?.value === "fr-fr");
-  await field("web.providers.ddgs.region").fill("uk-en"); await screen.locator("[data-settings-close]").click(); await screen.waitFor({ state: "hidden" });
-  await page.goto(base + "/#settings/context"); await field("instructions").waitFor(); assert.equal(await field("instructions").inputValue(), "Settings draft instruction");
+  await field("web.providers.ddgs.region").selectOption("uk-en"); acceptDiscard = true;
+  await screen.getByRole("button", { name: "Reload", exact: true }).click(); await expand(); await page.waitForFunction(() => (globalThis as any).document.querySelector('[data-setting="web.providers.ddgs.region"]')?.value === "fr-fr");
+  await field("web.providers.ddgs.region").selectOption("uk-en"); await screen.locator("[data-settings-close]").click(); await screen.waitFor({ state: "hidden" });
+  await page.goto(base + "/#settings/context"); await expand(); await field("instructions").waitFor(); assert.equal(await field("instructions").inputValue(), "Settings draft instruction");
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await tab("tools").click(); await screen.locator('[data-section="processes"]').scrollIntoViewIfNeeded();
+  await tab("tools").click(); await expand(); await screen.locator('[data-section="processes"]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: "/tmp/luna18-settings-desktop.png" });
   assert.deepEqual(errors, []);
-  console.log("SETTINGS_PAGE_UI_OK: full page, six tabs, keyboard, web/browser/process drafts and persistence, secrets, failure/retry, deep links, mobile navigation");
+  console.log("SETTINGS_PAGE_UI_OK: full page, seven sections, keyboard, web/browser/process drafts and persistence, secrets, failure/retry, deep links, mobile navigation");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }

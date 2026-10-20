@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { ChevronRight } from "@lucide/vue";
 import { json, api, post } from "@/lib/api";
 
 const loading = ref(true);
@@ -91,8 +92,7 @@ onMounted(() => {
     <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
 
     <!-- Remember Form Card -->
-    <div class="card grid">
-      <b>Remember</b>
+    <details class="card" data-manager-form="memory-add"><summary class="row"><ChevronRight :size="16" /><b>Save a memory</b></summary><div class="grid manager-body">
       <label class="field-label">
         <span>key (optional, e.g. user.timezone)</span>
         <input placeholder="key (optional, e.g. user.timezone)" v-model="keyInput" />
@@ -104,7 +104,7 @@ onMounted(() => {
       <div class="row">
         <button @click="saveMemory">Save</button>
       </div>
-    </div>
+    </div></details>
 
     <!-- Search Input -->
     <label class="field-label">
@@ -118,15 +118,13 @@ onMounted(() => {
     <!-- Items List -->
     <div class="grid">
       <p v-if="!loading && !items.length" class="muted">Nothing stored.</p>
-      <div v-for="m in items" :key="m.id" class="card">
-        <div class="row">
+      <details v-for="m in items" :key="m.id" class="card" :data-memory="m.id"><summary class="row"><ChevronRight :size="16" />
           <span class="pill">{{ m.kind }}</span>
           <b class="grow">{{ m.key || "#" + m.id }}</b>
           <span class="muted">{{ new Date(m.updated).toLocaleDateString() }}</span>
-          <button @click="forgetMemory(m.id)">Forget</button>
-        </div>
-        <pre>{{ m.content }}</pre>
-      </div>
+        </summary><div class="grid manager-body">
+        <pre>{{ m.content }}</pre><div><button @click="forgetMemory(m.id)">Forget</button></div>
+      </div></details>
     </div>
   </div>
 </template>

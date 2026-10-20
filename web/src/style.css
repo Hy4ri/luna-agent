@@ -790,12 +790,12 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
 }
 
 :root { --bg:var(--background); --side:var(--sidebar); --surface:var(--card); --raised:var(--secondary); --hover:var(--accent); --line:var(--border); --line-strong:var(--input); --fg:var(--foreground); --dim:var(--muted-foreground); --faint:#737c86; --acc:var(--primary); --acc-strong:#c3ceff; --acc-ink:var(--primary-foreground); --ok:#8fd3a5; --warn:#e6c27a; --err:var(--destructive); --err-soft:rgb(255 155 149 / .1); --r-sm:6px; --r:10px; --r-lg:14px; --control:36px; --mono:ui-monospace,monospace; --shadow:0 12px 40px rgb(0 0 0 / .45); color-scheme:dark; }
-#pbody .card { border:1px solid var(--border); border-radius:var(--radius); padding:16px; background:var(--card); min-width:0; }
-#pbody .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-#pbody .grid { gap:12px; min-width:0; }
-#pbody input:not([type=checkbox]), #pbody textarea, #pbody select { max-width:100%; border:1px solid var(--input); background:var(--background); border-radius:6px; padding:8px 10px; }
-#pbody button:not(.icon-button) { padding:7px 12px; border:1px solid var(--border); border-radius:6px; }
-#pbody pre { overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 var(--mono); }
+:is(#pbody, .settings-manager) .card { border:1px solid var(--border); border-radius:var(--radius); padding:16px; background:var(--card); min-width:0; }
+:is(#pbody, .settings-manager) .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+:is(#pbody, .settings-manager) .grid { gap:12px; min-width:0; }
+:is(#pbody, .settings-manager) input:not([type=checkbox]), :is(#pbody, .settings-manager) textarea, :is(#pbody, .settings-manager) select { max-width:100%; border:1px solid var(--input); background:var(--background); border-radius:6px; padding:8px 10px; }
+:is(#pbody, .settings-manager) button:not(.icon-button) { padding:7px 12px; border:1px solid var(--border); border-radius:6px; }
+:is(#pbody, .settings-manager) pre { overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 var(--mono); }
 .muted { color:var(--muted-foreground); }
 .err { color:var(--destructive); }
 
@@ -810,8 +810,18 @@ aside#side.collapsed .pill { display:none; }
 .md ol { list-style:decimal; }
 
 
-#pbody { overflow-wrap:anywhere; }
-#pbody .row > * { min-width:0; max-width:100%; }
-#pbody .field-label { display:grid; gap:6px; min-width:0; max-width:100%; flex:1; }
-#pbody .field-label input, #pbody .field-label select, #pbody .field-label textarea { width:100%; min-width:0; }
-#pbody .pill { white-space:normal; }
+:is(#pbody, .settings-manager) { overflow-wrap:anywhere; }
+:is(#pbody, .settings-manager) .row > * { min-width:0; max-width:100%; }
+:is(#pbody, .settings-manager) .field-label { display:grid; gap:6px; min-width:0; max-width:100%; flex:1; }
+:is(#pbody, .settings-manager) .field-label input, :is(#pbody, .settings-manager) .field-label select, :is(#pbody, .settings-manager) .field-label textarea { width:100%; min-width:0; }
+:is(#pbody, .settings-manager) .pill { white-space:normal; }
+
+/* Compact manager disclosures, shared by Settings and existing panel callers. */
+:is(#pbody, .settings-manager) details.card { padding: 0; overflow: clip; }
+:is(#pbody, .settings-manager) details.card > summary { min-height: 56px; padding: 14px 16px; cursor: pointer; list-style: none; }
+:is(#pbody, .settings-manager) details.card > summary::-webkit-details-marker { display: none; }
+:is(#pbody, .settings-manager) details.card > summary > svg { flex-shrink: 0; color: var(--muted-foreground); }
+:is(#pbody, .settings-manager) details.card[open] > summary > svg { transform: rotate(90deg); }
+:is(#pbody, .settings-manager) details.card > summary:hover { background: var(--accent); }
+:is(#pbody, .settings-manager) details.card > .manager-body { padding: 16px; border-top: 1px solid var(--border); }
+:is(#pbody, .settings-manager) details.card > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }

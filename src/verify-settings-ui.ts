@@ -40,6 +40,7 @@ try {
     await page.locator('[data-panel="settings"]').click();
     await page.locator(`[data-settings-tab="${tab}"]`).waitFor();
     await page.locator(`[data-settings-tab="${tab}"]`).click();
+    await page.locator(".settings-body").waitFor({ state: "attached" }); await expand();
   };
   const field = (path: string) => page.locator(`[data-setting="${path}"]`);
   const expand = async () => { await page.locator(".settings-body details").evaluateAll((items: any[]) => items.forEach(d => d.open = true)); };
@@ -60,12 +61,12 @@ try {
   assert.equal(await page.getByLabel("Main thinking level", { exact: true }).inputValue(), "high");
   assert.equal(await page.getByLabel("Subagent thinking level", { exact: true }).inputValue(), "low");
 
-  // Test General tab
-  await openSettings("general");
+  // Test System tab
+  await openSettings("system");
   await expand();
   await field("dataDir").fill("./data-next");
   await field("cwd").fill("./work");
-  await field("server.host").fill("127.0.0.1");
+  await field("server.host").selectOption("127.0.0.1");
   await field("server.port").fill("9234");
 
   // Test Context tab
@@ -78,20 +79,22 @@ try {
   // Test Tools tab & Web provider controls
   await openSettings("tools");
   await expand();
-  await page.getByLabel("coding", { exact: true }).check();
+  await page.getByRole("button", { name: "Choose built-in tools", exact: true }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Coding", exact: true }).click(); await page.keyboard.press("Escape");
   await openSettings("automation");
   await field("cron.notifyUrl").fill("https://ntfy.sh/test-topic");
   await field("cron.runTimeoutMinutes").fill("9.5");
   await field("improve.schedule").fill("0 2 * * *");
   await field("improve.allowCommandBenchmarks").check();
-  await openSettings("tools");
+  await openSettings("context");
   await page.getByRole("button", { name: "Add skill directory", exact: true }).click(); await expand();
   await field("skillDirs.0").fill("./skills");
+  await openSettings("tools");
 
   // Web Provider controls
   await field("web.searchProvider").selectOption("ddgs");
-  await field("web.providers.ddgs.mcpServer").fill("ddgs-server");
-  await field("web.providers.ddgs.region").fill("uk-en");
+  await field("web.providers.ddgs.mcpServer").selectOption("__custom__"); await page.locator('[data-custom-setting="web.providers.ddgs.mcpServer"]').fill("ddgs-server");
+  await field("web.providers.ddgs.region").selectOption("uk-en");
   await field("web.providers.ddgs.safesearch").selectOption("on");
 
   // Providers & MCP

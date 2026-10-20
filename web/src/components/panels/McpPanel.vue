@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, watch, onMounted } from "vue";
+import { ChevronRight } from "@lucide/vue";
 import { json, api, post } from "@/lib/api";
 
+import { useSettingsMutation } from "./useSettingsMutation";
+const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();
+const { pending, run } = useSettingsMutation(() => emit("changed"));
+watch(pending, busy => emit("busy", busy), { flush: "sync" });
 const loading = ref(true);
 const errorMsg = ref("");
 const mcpData = ref<any>(null);
@@ -115,7 +120,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="grid">
+  <fieldset class="grid manager-form" :disabled="pending">
     <!-- Toasts -->
     <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
       <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
@@ -126,8 +131,7 @@ onMounted(() => {
     <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
 
     <!-- Add MCP server form -->
-    <div class="card grid">
-      <b>Add MCP server</b>
+    <details class="card" data-manager-form="mcp-add"><summary class="row"><ChevronRight :size="16" /><b>Add MCP server</b></summary><div class="grid manager-body">
       <label class="field-label">
         <span>name (letters, digits, _ -)</span>
         <input placeholder="name (letters, digits, _ -)" v-model="nameInput" />
@@ -161,20 +165,19 @@ onMounted(() => {
         Defer tools (load on demand with tool_search; keeps the prompt small)
       </label>
       <div class="row">
-        <button :disabled="connecting" @click="addServer">Connect and save</button>
+        <button :disabled="connecting" @click="run(addServer)">Connect and save</button>
       </div>
-    </div>
+    </div></details>
 
     <template v-if="mcpData">
       <p v-if="!mcpData.servers.length" class="muted">No MCP servers yet.</p>
-      <div v-for="s in mcpData.servers" :key="s.name" class="card grid">
-        <div class="row">
+      <details v-for="s in mcpData.servers" :key="s.name" class="card"><summary class="row"><ChevronRight :size="16" />
           <b class="grow">{{ s.name }}</b>
           <span :style="{ color: s.status === 'connected' ? 'var(--ok)' : s.status === 'failed' ? 'var(--err)' : 'var(--dim)' }">
             {{ s.status }}
           </span>
           <span class="muted">{{ s.transport }} · {{ s.source }}</span>
-        </div>
+        </summary><div class="grid manager-body">
         <span class="muted">{{ s.target }}</span>
         <span v-if="s.secretKeys.length" class="muted">secrets: {{ s.secretKeys.join(', ') }} (hidden)</span>
         <span v-if="s.error" :style="{ color: 'var(--err)' }">{{ s.error }}</span>
@@ -183,13 +186,17 @@ onMounted(() => {
           <pre class="code">{{ s.tools.join('\n') }}</pre>
         </details>
         <div v-if="s.source === 'web'" class="row">
-          <button @click="toggleServerEnabled(s.name, s.enabled)">{{ s.enabled ? 'Disable' : 'Enable' }}</button>
-          <button @click="removeServer(s.name)">Remove</button>
+          <button @click="run(() => toggleServerEnabled(s.name, s.enabled))">{{ s.enabled ? 'Disable' : 'Enable' }}</button>
+          <button @click="run(() => removeServer(s.name))">Remove</button>
         </div>
         <span v-else class="muted">From the config file; edit it there.</span>
-      </div>
+      </div></details>
     </template>
 
     <p class="muted">New sessions see changes at once; running sessions pick them up on their next turn.</p>
-  </div>
+  </fieldset>
 </template>
+
+<style scoped>
+.manager-form { border: 0; padding: 0; margin: 0; min-width: 0; }
+</style>

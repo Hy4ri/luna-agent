@@ -41,8 +41,8 @@ try {
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   await page.goto(base); await page.locator("#token").fill("test"); await page.locator("#loginForm button").click(); await page.locator("#login").waitFor({ state: "hidden" });
   await page.locator('[data-panel="settings"]').click();
-  await page.locator('[data-settings-tab="workspace"]').click();
-  await page.locator('#settings-screen [data-panel="lessons"]').click();
+  await page.locator('[data-settings-tab="automation"]').click();
+  await page.locator('#settings-screen [data-settings-view="lessons"]').click();
   const card = (id: number) => page.locator(`[data-lesson="${id}"]`);
   await card(proposed.id).waitFor();
   assert.equal(await page.locator('[data-group="review"] [data-lesson]').count(), 1);
