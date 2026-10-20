@@ -685,7 +685,11 @@ export function createApp(opts: ServerOptions) {
       const m = opts.models.getModel(cur.provider, cur.modelId); if (m) avail.unshift(m);
     }
     const list = avail.map((m) => ({ provider: m.provider, id: m.id, name: m.name, reasoning: m.reasoning, input: m.input, contextWindow: m.contextWindow }));
-    return c.json({ default: cur, models: list });
+    return c.json({ default: cur, models: list, refresh: opts.providers?.catalogStatus() ?? null });
+  });
+  app.post("/v1/models/refresh", async (c) => {
+    if (!opts.providers) return err(c, 404, "providers disabled");
+    return c.json({ refresh: await opts.providers.refreshCatalog() });
   });
   app.put("/v1/models/default", async (c) => {
     if (!opts.providers) return err(c, 404, "disabled");

@@ -90,13 +90,10 @@ function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch = fetch)
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   });
   const models = def.models.map(toModel);
-  // Re-read limits the endpoint reports. Only the saved model list is kept; a saved value wins.
-  const fetchModels = def.api === "anthropic-messages" ? undefined : async ({ credential }: { credential?: { type: string; key?: string } }) => {
-    const live = new Map((await detectModels(baseUrl, credential?.type === "api_key" ? credential.key : undefined, fetchImpl)).map((m) => [m.id, m]));
-    return def.models.filter((m) => live.get(m.id)?.contextWindow !== undefined && m.contextWindow === undefined).map((m) => {
-      const l = live.get(m.id)!;
-      return toModel({ ...m, contextWindow: l.contextWindow, maxTokens: m.maxTokens ?? l.maxTokens });
-    });
+  // Discover new models and reported limits. Explicit saved definitions still win.
+  const fetchModels = def.api === "anthropic-messages" ? undefined : async ({ credential, signal }: { credential?: { type: string; key?: string }; signal: AbortSignal }) => {
+    const live = await detectModels(baseUrl, credential?.type === "api_key" ? credential.key : undefined, fetchImpl, signal);
+    return live.map((m) => toModel({ ...m, ...def.models.find((saved) => saved.id === m.id) }));
   };
   return createProvider({
     id: def.id, name: def.name, baseUrl,
@@ -128,10 +125,10 @@ const CONTEXT_KEYS = ["context_length", "context_window", "max_context_length", 
 const OUTPUT_KEYS = ["max_completion_tokens", "max_output_tokens", "top_provider.max_completion_tokens", "max_tokens", "maxTokens"];
 
 /** Ask an OpenAI-compatible endpoint for its models (GET <baseUrl>/models), with any context/output limits it reports. */
-export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch): Promise<CustomModelDef[]> {
+export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch, signal?: AbortSignal): Promise<CustomModelDef[]> {
   const r = await fetchImpl(baseUrl.replace(/\/+$/, "") + "/models", {
     headers: key && key !== "none" ? { authorization: `Bearer ${key}` } : {},
-    signal: AbortSignal.timeout(15_000),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
   });
   if (!r.ok) throw new Error(`GET /models: HTTP ${r.status}`);
   const body = await r.json() as { data?: Record<string, unknown>[]; models?: Record<string, unknown>[] };
@@ -176,8 +173,20 @@ export interface ProviderManagerOptions {
   fetch?: typeof fetch;
 }
 
+export const MODEL_REFRESH_INTERVAL_MS = 60 * 60_000;
+export interface CatalogRefreshStatus {
+  checkedAt: number | null;
+  refreshing: boolean;
+  intervalMs: number;
+  errors: Record<string, string>;
+}
+
 export class ProviderManager {
   readonly models: MutableModels;
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private refreshRunning?: Promise<CatalogRefreshStatus>;
+  private refreshAbort?: AbortController;
+  private refreshStatus: CatalogRefreshStatus = { checkedAt: null, refreshing: false, intervalMs: MODEL_REFRESH_INTERVAL_MS, errors: {} };
   private settings?: SettingsStore;
   private file: string;
   private state: ProvidersFile;
@@ -197,6 +206,38 @@ export class ProviderManager {
       if (this.models.getProvider(def.id)) throw new Error(`provider ${def.id} conflicts with a built-in provider`);
       this.models.setProvider(customProvider(def, this.fetchImpl));
     }
+  }
+
+  catalogStatus(): CatalogRefreshStatus { return { ...this.refreshStatus, errors: { ...this.refreshStatus.errors } }; }
+
+  /** Coalesce automatic and manual requests; failed providers retain their catalog. */
+  refreshCatalog(force = true): Promise<CatalogRefreshStatus> {
+    if (this.refreshRunning) return this.refreshRunning;
+    this.refreshStatus.refreshing = true;
+    const abort = this.refreshAbort = new AbortController();
+    this.refreshRunning = (async () => {
+      try {
+        const result = await this.models.refresh({ allowNetwork: true, force, signal: AbortSignal.any([abort.signal, AbortSignal.timeout(30_000)]) });
+        this.refreshStatus.errors = Object.fromEntries([...result.errors].map(([id, error]) => [id, error.message]));
+        if (result.aborted) this.refreshStatus.errors.catalog = "Model refresh stopped or timed out. Existing models are kept.";
+        this.refreshStatus.checkedAt = Date.now();
+      } catch (error) {
+        this.refreshStatus.errors = { catalog: (error as Error).message };
+      } finally {
+        this.refreshStatus.refreshing = false;
+        this.refreshRunning = undefined;
+        this.refreshAbort = undefined;
+      }
+      return this.catalogStatus();
+    })();
+    return this.refreshRunning;
+  }
+
+  startAutoRefresh(intervalMs = MODEL_REFRESH_INTERVAL_MS) {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.refreshStatus.intervalMs = intervalMs;
+    this.refreshTimer = setInterval(() => { void this.refreshCatalog(false); }, intervalMs);
+    this.refreshTimer.unref();
   }
 
   /** Ids of user-defined providers, for refreshing the limits their endpoints report. */
@@ -398,5 +439,9 @@ export class ProviderManager {
     return this.state.deviceId;
   }
 
-  close() { for (const id of this.logins.keys()) this.cancelLogin(id); }
+  close() {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.refreshAbort?.abort();
+    for (const id of this.logins.keys()) this.cancelLogin(id);
+  }
 }

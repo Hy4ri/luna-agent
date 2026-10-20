@@ -22,6 +22,7 @@ export const models = reactive({
   thinking: "off",
   pins: readPins(),
   loaded: false,
+  refresh: null as { checkedAt: number | null; refreshing: boolean; intervalMs: number; errors: Record<string, string> } | null,
 });
 
 export const modelKey = (m: Pick<ModelInfo, "provider" | "id">) => m.provider + "/" + m.id;
@@ -45,12 +46,17 @@ export function togglePin(key: string): boolean {
 
 export async function loadModels() {
   try {
-    const r = await json<{ models: ModelInfo[]; default: ModelRef | null }>("/v1/models");
-    models.list = r.models; models.defaultModel = r.default;
-  } catch { models.list = []; }
+    const r = await json<{ models: ModelInfo[]; default: ModelRef | null; refresh: typeof models.refresh }>("/v1/models");
+    models.list = r.models; models.defaultModel = r.default; models.refresh = r.refresh;
+  } catch {
+    // Keep the last usable catalog when the server is unavailable.
+    models.loaded = true;
+    return false;
+  }
   models.loaded = true;
   const { chat } = await import("./chat");
   if (!chat.session) setSelectedModel(models.defaultModel);
+  return true;
 }
 
 /** Switches the model of the open conversation (creating one first when needed). */

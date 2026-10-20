@@ -79,9 +79,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // Register built-in and configured providers. File-backed runtimes share one settings store.
   const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch, settings });
   if (!o.models) {
-    const refreshed = await built.models.refresh({ providers: ["claude-cli", ...providers.customIds()], allowNetwork: true });
-    for (const [id, error] of refreshed.errors) log(`models ${id}: ${error.message}`);
+    const refreshed = await providers.refreshCatalog(false);
+    for (const [id, error] of Object.entries(refreshed.errors)) log(`models ${id}: ${error}`);
   }
+  providers.startAutoRefresh();
   const registry = createRegistry();
 
   // MCP first, so their (deferred) tools are in the registry before the harness resumes old runs.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from "vue";
-import { models, modelKey, togglePin, chooseModel, selectedKey } from "@/stores/models";
+import { loadModels, models, modelKey, togglePin, chooseModel, selectedKey } from "@/stores/models";
 
 const emit = defineEmits(["close"]);
 const pickerRef = ref<HTMLElement | null>(null);
@@ -44,6 +44,7 @@ function handleBeforeToggle(e: any) {
   const open = e.newState === "open";
   document.getElementById("model")?.setAttribute("aria-expanded", String(open));
   if (open) {
+    void loadModels();
     try { const pins = JSON.parse(localStorage.getItem('luna.pinnedModels') || '[]'); models.pins = Array.isArray(pins) ? pins.filter((p: unknown) => typeof p === 'string') : []; } catch { models.pins = []; }
     const modelBtn = document.getElementById("model");
     if (modelBtn && pickerRef.value) {

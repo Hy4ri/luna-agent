@@ -18,8 +18,11 @@ const d = mkdtempSync(join(process.cwd(), ".vprov-"));
 
 // Fake OpenAI-compatible server: GET /v1/models, POST /v1/chat/completions (streamed). Records the auth header.
 let seenAuth = "";
+let extraModel = false;
+let modelFailure = false;
 const fake = createServer((req, res) => {
-  if (req.url === "/v1/models") { res.writeHead(200, { "content-type": "application/json" }); return void res.end(JSON.stringify({ data: [{ id: "tiny-1", context_length: 1000000, top_provider: { max_completion_tokens: 64000 } }, { id: "tiny-2" }] })); }
+  if (req.url === "/v1/models" && modelFailure) { res.writeHead(503).end(); return; }
+  if (req.url === "/v1/models") { res.writeHead(200, { "content-type": "application/json" }); return void res.end(JSON.stringify({ data: [{ id: "tiny-1", context_length: 1000000, top_provider: { max_completion_tokens: 64000 } }, { id: "tiny-2" }, ...(extraModel ? [{ id: "tiny-new" }] : [])] })); }
   if (req.url === "/v1/chat/completions" && req.method === "POST") {
     seenAuth = String(req.headers.authorization ?? "");
     req.resume();
@@ -165,12 +168,28 @@ try {
   const add = await J("/v1/providers/custom", send("POST", { id: "local", name: "Local LLM", baseUrl: base + "/", key: "sk-local" }));
   assert.equal(add.status, 201, JSON.stringify(add.body));
   assert.deepEqual(add.body.models.map((m: any) => m.id), ["tiny-1", "tiny-2"]);
-  assert.deepEqual(add.body.models, [{ id: "tiny-1", contextWindow: 1000000, maxTokens: 64000 }, { id: "tiny-2" }], "reported limits are saved");
+  assert.deepEqual(add.body.models, [{ id: "tiny-1", contextWindow: 1000000, maxTokens: 64000 }, { id: "tiny-2" }, ...(extraModel ? [{ id: "tiny-new" }] : [])], "reported limits are saved");
   pv = (await J("/v1/providers")).body;
   assert.equal(by("local").custom, true); assert.equal(by("local").connected, true); assert.equal(by("local").models, 2);
   ms = (await J("/v1/models")).body;
   assert.ok(ms.models.some((m: any) => m.provider === "local" && m.id === "tiny-2"));
   ok("custom provider: validation, auto-detected models from /models, connected, listed");
+
+  assert.equal((await app.request("/v1/models/refresh", { method: "POST" })).status, 401);
+  extraModel = true;
+  const catalogRefresh = await J("/v1/models/refresh", send("POST"));
+  assert.equal(catalogRefresh.status, 200);
+  assert.ok(catalogRefresh.body.refresh.checkedAt);
+  assert.equal(catalogRefresh.body.refresh.intervalMs, 3_600_000);
+  assert.equal(catalogRefresh.body.refresh.errors.local, undefined);
+  ms = (await J("/v1/models")).body;
+  assert.ok(ms.models.some((m: any) => m.provider === "local" && m.id === "tiny-new"));
+  modelFailure = true;
+  const failedRefresh = await J("/v1/models/refresh", send("POST"));
+  assert.match(failedRefresh.body.refresh.errors.local, /503/);
+  assert.ok((await J("/v1/models")).body.models.some((m: any) => m.provider === "local" && m.id === "tiny-new"));
+  modelFailure = false;
+  ok("manual refresh discovers models; provider failure preserves the previous catalog; endpoint requires auth");
 
   assert.equal((await J("/v1/models/default", send("PUT", { provider: "local", modelId: "nope" }))).status, 400);
   assert.equal((await J("/v1/models/default", send("PUT", { provider: "local", modelId: "tiny-1" }))).status, 200);

@@ -16,6 +16,23 @@ const loadError = ref<string | null>(null)
 const statusText = ref('')
 const isSaving = ref(false)
 const isReloading = ref(false)
+const isRefreshingModels = ref(false)
+const modelRefreshMessage = ref('')
+async function refreshModels() {
+  if (isRefreshingModels.value) return
+  isRefreshingModels.value = true
+  modelRefreshMessage.value = ''
+  try {
+    const result = await post('/v1/models/refresh')
+    if (!await loadModels()) throw new Error('Refresh finished, but the updated catalog could not be loaded. Try again.')
+    const errors = Object.entries(result.refresh.errors).map(([id, message]) => `${id}: ${message}`)
+    modelRefreshMessage.value = errors.length ? `Refresh incomplete. ${errors.join('; ')}` : 'Model catalog refreshed.'
+  } catch (error: any) {
+    modelRefreshMessage.value = error.message || 'Model refresh failed. Existing models are kept.'
+  } finally {
+    isRefreshingModels.value = false
+  }
+}
 
 const groups: Record<string, string[]> = {
   general: ["dataDir", "cwd", "server", "busyInput"],
@@ -329,6 +346,18 @@ function openWorkspacePanel(panelId: string) {
 
         <!-- Models Tab -->
         <template v-else-if="activeTab === 'models' && saved && draft">
+          <section class="card p-4 grid gap-2" data-section="models-refresh">
+            <div class="flex items-center justify-between gap-4">
+              <h2 class="text-lg font-semibold">Model catalog</h2>
+              <button type="button" class="button border px-4 py-2 rounded font-medium" :disabled="isRefreshingModels" @click="refreshModels">
+                {{ isRefreshingModels ? 'Refreshing…' : 'Refresh models' }}
+              </button>
+            </div>
+            <p class="text-sm text-muted-foreground">Refreshes automatically at startup and every hour while Luna is running. Saved model definitions are kept.</p>
+            <p v-if="models.refresh?.checkedAt" class="text-sm text-muted-foreground">Last checked: {{ new Date(models.refresh.checkedAt).toLocaleString() }}</p>
+            <p v-if="modelRefreshMessage" role="status" class="text-sm">{{ modelRefreshMessage }}</p>
+            <p v-else-if="models.refresh && Object.keys(models.refresh.errors).length" role="status" class="text-sm">Some providers could not refresh. Existing models are kept. {{ Object.entries(models.refresh.errors).map(([id, error]) => `${id}: ${error}`).join('; ') }}</p>
+          </section>
           <section class="card p-4 grid gap-4" data-section="models-main">
             <h2 class="text-lg font-semibold">Main agent</h2>
             <div class="grid gap-2">
