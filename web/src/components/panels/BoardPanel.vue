@@ -203,10 +203,10 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
             <div class="kb-cards">
               <article v-for="c in cardLists[status]" :key="c.id" class="kb-card" :class="{ 'kb-drag-source': drag?.moved && drag.card.id === c.id }" :data-card="c.id" :data-priority="c.priority" :data-status="c.status">
                 <div class="kb-card-body">
-                  <div class="kb-card-top">
+                  <div class="kb-card-top" @pointerdown="startDrag($event, c)">
                     <span class="kb-card-id">#{{ c.id }}</span>
                     <span class="kb-priority" :class="c.priority"><ChevronsUp v-if="c.priority === 'urgent'" :size="12" /><ArrowUp v-else-if="c.priority === 'high'" :size="12" /><ArrowDown v-else-if="c.priority === 'low'" :size="12" /><Minus v-else :size="12" />{{ c.priority }}</span>
-                    <button class="kb-grip" :aria-label="`Drag card #${c.id}`" :disabled="busy || loading" title="Drag between columns" @pointerdown="startDrag($event, c)"><GripVertical :size="16" /></button>
+                    <button class="kb-grip" :aria-label="`Drag card #${c.id}`" :disabled="busy || loading" title="Drag between columns"><GripVertical :size="16" /></button>
                   </div>
                   <button class="kb-card-title" :disabled="busy || loading" @click="openEditor(c)">{{ c.subject }}</button>
                   <p v-if="c.description" class="kb-description">{{ c.description }}</p>
@@ -306,10 +306,10 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-card[data-status="done"] { --status-color:#8ad1ac; background:color-mix(in srgb,#8ad1ac 3%,var(--card)); }
 .kb-card:hover { border-top-color:#566173; border-right-color:#566173; border-bottom-color:#566173; }
 .kb-card-body { padding:10px 12px 12px; flex:1; min-width:0; }
-.kb-card-top { display:flex; align-items:center; gap:7px; min-height:28px; }
+.kb-card-top { touch-action:none; user-select:none; cursor:grab; display:flex; align-items:center; gap:7px; min-height:28px; }
 .kb-card-id { margin-right:auto; color:#9da9b8; font:11px var(--mono); }
 .kb-grip { touch-action:none; user-select:none; cursor:grab!important; display:grid; place-items:center; width:26px; height:28px; flex:none; background:transparent; border:0; border-radius:4px; color:var(--muted-foreground); }
-.kb-grip:hover { color:var(--primary); background:var(--secondary); }
+.kb-card-top:hover .kb-grip { color:var(--primary); background:var(--secondary); }
 .kb-card-title { display:block; width:100%; text-align:left; font-weight:600!important; font-size:13px!important; line-height:1.55; letter-spacing:.005em; padding:7px 0 10px; background:transparent; border:0; overflow-wrap:anywhere; }
 .kb-card-title:hover { color:var(--primary); }
 .kb-description { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; color:var(--muted-foreground); font-size:11px; line-height:1.6; margin:0 0 10px; white-space:pre-wrap; }
