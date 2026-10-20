@@ -4,6 +4,8 @@ import { ArrowUp, ArrowDown } from "@lucide/vue";
 import { chat, entryList, activityLabel } from "@/stores/chat";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
+import AssistantText from "./AssistantText.vue";
+import { assistantTextBlocks, mediaDirectives } from "@/lib/media";
 import MessageFooter from "./MessageFooter.vue";
 import ToolCall from "./ToolCall.vue";
 import SideContent from "./SideContent.vue";
@@ -37,6 +39,16 @@ const results = computed(() => {
 });
 const calls = computed(() => new Set<string>(entryList.value.flatMap(e => (e.model || []).flatMap((m: any) => blocks(m.content).filter(c => c.type === 'toolCall').map(c => c.id)))));
 const durableResults = computed(() => new Set<string>(entryList.value.flatMap(e => (e.model || []).filter((m: any) => m.role === 'toolResult').map((m: any) => m.toolCallId))));
+/** First media index of each assistant text block, numbered like the server's entry media route. */
+const mediaOffsets = computed(() => {
+  const map = new Map<string, number>();
+  for (const entry of entryList.value) {
+    let n = 0;
+    for (const b of assistantTextBlocks(entry.model)) { map.set(`${entry.id}:${b.message}:${b.block}`, n); n += mediaDirectives(b.text).length; }
+  }
+  return map;
+});
+const mediaBase = (entry: any) => `/v1/sessions/${encodeURIComponent(chat.session || '')}/entries/${entry.id}/media`;
 function blocks(content: unknown): any[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
 }
@@ -64,7 +76,7 @@ function backgroundReport(entry: any, message: any): boolean {
         </div>
         <div v-else-if="message.role === 'assistant'" class="msg assistant" :data-entry="entry.id">
           <template v-for="(block, bi) in blocks(message.content)" :key="bi">
-            <Markdown v-if="block.type === 'text' && block.text" :content="block.text" />
+            <AssistantText v-if="block.type === 'text' && block.text" :text="block.text" :base="mediaBase(entry)" :offset="mediaOffsets.get(`${entry.id}:${mi}:${bi}`) ?? 0" />
             <details v-else-if="block.type === 'thinking' && block.thinking" class="thinking">
               <summary>Thinking</summary>
               <pre>{{ block.thinking }}</pre>

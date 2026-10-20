@@ -54,7 +54,7 @@ export const chat = reactive({
   notices: [] as Notice[],
   sideJobs: new Map<string, SideJob>(),
   /** Resolved authenticated media: blob URL or error text. */
-  media: {} as Record<string, { url?: string; error?: string }>,
+  media: {} as Record<string, { url?: string; size?: number; error?: string }>,
   extras: null as Extras | null,
   busyFeedback: "",
   /** Bumps when the transcript must scroll to the bottom regardless of position. */
@@ -180,25 +180,26 @@ export async function answerQuestion(callId: string, body: unknown): Promise<boo
 }
 
 // ---- side jobs (transport state, never model-visible) ----
-const mediaRequests = new Map<string, Promise<string>>();
-function trackMedia(job: SideJob) {
-  for (const m of job.media || []) {
-    if (mediaRequests.has(m.url)) continue;
-    const epoch = chat.epoch;
-    const p = api(m.url).then(async r => {
-      if (!r.ok) throw new Error("Media file unavailable: " + m.name);
-      return URL.createObjectURL(await r.blob());
-    });
-    mediaRequests.set(m.url, p);
-    p.then(url => { if (epoch === chat.epoch) chat.media[m.url] = { url }; else URL.revokeObjectURL(url); })
-      .catch(e => { if (epoch === chat.epoch) chat.media[m.url] = { error: (e as Error).message }; });
-  }
+const mediaRequests = new Map<string, Promise<{ url: string; size: number }>>();
+/** Fetch authenticated media once per URL into a blob URL (chat.media), or record why it failed. */
+export function loadMedia(url: string) {
+  if (mediaRequests.has(url)) return;
+  const epoch = chat.epoch;
+  const p = api(url).then(async r => {
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    const blob = await r.blob();
+    return { url: URL.createObjectURL(blob), size: blob.size };
+  });
+  mediaRequests.set(url, p);
+  p.then(m => { if (epoch === chat.epoch) chat.media[url] = m; else URL.revokeObjectURL(m.url); })
+    .catch(e => { if (epoch === chat.epoch) chat.media[url] = { error: (e as Error).message }; });
 }
+function trackMedia(job: SideJob) { for (const m of job.media || []) loadMedia(m.url); }
 export function putSideJob(job: SideJob) { chat.sideJobs.set(job.id, markRaw(job)); trackMedia(job); }
 function setSideJobs(jobs: SideJob[] | undefined) { chat.sideJobs.clear(); for (const j of jobs || []) putSideJob(j); }
 function clearSideJobs() {
   chat.sideJobs.clear();
-  for (const p of mediaRequests.values()) p.then(url => URL.revokeObjectURL(url)).catch(() => {});
+  for (const p of mediaRequests.values()) p.then(m => URL.revokeObjectURL(m.url)).catch(() => {});
   mediaRequests.clear(); chat.media = {};
 }
 
