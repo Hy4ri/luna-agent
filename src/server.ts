@@ -21,7 +21,7 @@ import type { SkillImprover } from "./improve.js";
 import type { LearnStore } from "./learn.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderManager } from "./providers.js";
-import { context, type MemoryStore } from "./luna.js";
+import { context, ProcessOwner, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
@@ -322,6 +322,31 @@ export function createApp(opts: ServerOptions) {
     return c.json(await contextUsage(conv));
   });
 
+  // ---- session activity: background processes and subagents owned by one conversation ----
+  const processOwner = async (id: ConversationId) => (await harness.snapshot(ProcessOwner, id, context).catch(() => undefined))?.token ?? "legacy";
+  const processesOf = async (id: ConversationId) => harness.busyTools ? harness.busyTools.sessionProcesses(id, await processOwner(id)) : [];
+  const childViews = (rows: { id: number; task: string }[]) => Promise.all(rows.map(async row => {
+    const child = await harness.conversation(row.id as never, context).catch(() => undefined);
+    if (!child) return { id: row.id, task: row.task, status: "deleted" as const, statusReason: null };
+    const { status, statusReason } = await harness.commit(async tx => {
+      const running = await isRunning(tx, child.id);
+      return readSessionStatus(tx, child.id, running);
+    }, context);
+    return { id: row.id, task: row.task, status, statusReason };
+  }));
+  app.get("/v1/sessions/:id/processes/:pid", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const view = harness.busyTools?.sessionProcess(conv.id, await processOwner(conv.id), c.req.param("pid"));
+    return view ? c.json(view) : err(c, 404, "no such background process in this session");
+  });
+  app.post("/v1/sessions/:id/processes/:pid/stop", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const view = harness.busyTools?.stopSessionProcess(conv.id, await processOwner(conv.id), c.req.param("pid"));
+    return view ? c.json(view) : err(c, 404, "no such background process in this session");
+  });
+
   app.get("/v1/sessions/:id", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
@@ -350,7 +375,8 @@ export function createApp(opts: ServerOptions) {
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       usage: usage ?? null,
       contextUsage: await contextUsage(conv),
-      children: kids?.children ?? [],
+      children: await childViews(kids?.children ?? []),
+      processes: await processesOf(conv.id),
       todos: (todo?.tasks ?? []).filter((t) => t.status !== "deleted"),
       questions: ask?.pending ?? [],
       goal: goal?.goal ?? null,

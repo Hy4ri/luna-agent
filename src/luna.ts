@@ -13,7 +13,7 @@ import { SessionStatusExtension } from "./session-status.js";
 
 export const context = BACKGROUND_CONTEXT;
 // New incarnations of a deleted root must not inherit old process handles or deliveries.
-const ProcessOwner = defineDoc({ kind: "luna.process-owner", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ token: "legacy" }) });
+export const ProcessOwner = defineDoc({ kind: "luna.process-owner", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ token: "legacy" }) });
 
 export interface LunaOptions {
   /** Live harness compaction policy; read again at each execution boundary. */

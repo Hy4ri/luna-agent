@@ -9,6 +9,8 @@ import { LiveDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { parseConfig } from "./config.js";
 import { startRuntime, type Runtime } from "./runtime.js";
+import { createApp } from "./server.js";
+import { Children } from "./delegate.js";
 
 const dir = mkdtempSync(join(tmpdir(), "luna-process-tools-"));
 const work = join(dir, "work"); mkdirSync(work);
@@ -77,6 +79,23 @@ try {
   let live: any;
   await until(async () => { live = await call(owner, "process_manage", { action: "read", id: job.id }); return live.output.includes("stderr-start"); });
   assert.equal(live.running, true); assert.ok(live.output.includes("stdout-start")); assert.ok(live.output.includes(work));
+  // Web UI view: the session payload and process endpoints honor the same ownership as the tools.
+  const app = createApp({ harness: rt.harness, models });
+  const http = async (path: string, method = "GET") => { const r = await app.request(path, { method }); return { status: r.status, body: await r.json() as any }; };
+  const session = (await http(`/v1/sessions/${owner.id}`)).body;
+  assert.ok(session.processes.some((p: any) => p.id === job.id && p.running && p.command.includes("stdout-start")));
+  assert.deepEqual((await http(`/v1/sessions/${foreign.id}`)).body.processes, []);
+  const view = await http(`/v1/sessions/${owner.id}/processes/${job.id}`); assert.equal(view.status, 200); assert.ok(view.body.output.includes("stderr-start")); assert.equal(view.body.running, true);
+  assert.equal((await http(`/v1/sessions/${foreign.id}/processes/${job.id}`)).status, 404);
+  assert.equal((await http(`/v1/sessions/${foreign.id}/processes/${job.id}/stop`, "POST")).status, 404);
+  assert.equal((await call(owner, "process_manage", { action: "read", id: job.id })).running, true, "Foreign HTTP stop must not stop the process");
+  await rt.harness.commit(async tx => { (await tx.doc(Children, owner.id)).children.push({ id: foreign.id as number, spawnKey: "fixture", task: "Fixture subagent" }); }, context);
+  assert.deepEqual((await http(`/v1/sessions/${owner.id}`)).body.children.map((c: any) => [c.id, c.task, c.status]), [[foreign.id, "Fixture subagent", "ready"]]);
+  const httpStop = await call(owner, "process_start", { command: "sleep 30" });
+  assert.equal((await http(`/v1/sessions/${owner.id}/processes/${httpStop.id}/stop`, "POST")).status, 200);
+  await finished(owner, httpStop.id);
+  assert.equal((await http(`/v1/sessions/${owner.id}/processes/${httpStop.id}`)).body.status, "stopped");
+  console.log("OK web session activity: owned process list/output/stop, foreign 404, subagent status");
   const rows = await call(owner, "process_manage", { action: "list" }); assert.ok(rows.some((p: any) => p.id === job.id && p.running));
   assert.equal((await call(owner, "process_manage", { action: "wait", id: job.id, timeoutSec: 0.02 })).running, true);
   const unknown = await invoke(foreign, "process_manage", { action: "read", id: "unknown" });

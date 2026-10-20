@@ -177,6 +177,27 @@ export class BusyExecutions {
     return { ...this.summary(p), result, output: p.output.slice(start, end), offset: start,
       nextOffset: end < totalChars ? end : undefined, totalChars, truncated: p.truncated };
   }
+  /** Background processes owned by this session incarnation, newest first. For the web UI. */
+  sessionProcesses(session: ConversationId, owner: string) {
+    return [...this.processes.values()].filter(p => p.session === session && p.owner === owner && p.background)
+      .sort((a, b) => b.createdAt - a.createdAt).map(p => this.summary(p));
+  }
+  private owned(session: ConversationId, owner: string, id: string) {
+    const p = this.processes.get(id);
+    return p && p.session === session && p.owner === owner && p.background ? p : undefined;
+  }
+  /** Retained output tail of one owned process; undefined when it is not this session's. */
+  sessionProcess(session: ConversationId, owner: string, id: string, limit = 20000) {
+    const p = this.owned(session, owner, id);
+    return p && this.read(p, undefined, limit);
+  }
+  /** Stop one owned process. Completion still resumes the chat with the result. */
+  stopSessionProcess(session: ConversationId, owner: string, id: string) {
+    const p = this.owned(session, owner, id);
+    if (!p) return undefined;
+    if (p.status === "running") p.controller.abort();
+    return this.summary(p);
+  }
   extension() {
     const schema = { additionalProperties: false };
     return defineExtension({ name: "busy-processes", tools: [

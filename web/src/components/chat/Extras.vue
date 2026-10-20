@@ -1,13 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
-import { Check, Circle, LoaderCircle, ChevronRight, ListTodo } from "@lucide/vue";
+import { ref, computed } from "vue";
+import ActivityPanel from "./ActivityPanel.vue";
 import { chat, goalAction, answerQuestion } from "@/stores/chat";
 
-const todos = computed(() => (chat.extras?.todos || []).filter((t: any) => t.status !== 'deleted'));
-const completed = computed(() => todos.value.filter((t: any) => t.status === 'completed').length);
-const activeTask = computed(() => todos.value.find((t: any) => t.status === 'in_progress'));
-const todosOpen = ref(false);
-watch(() => chat.session, () => { todosOpen.value = false; });
 const questions = computed(() => chat.extras?.questions || []);
 const goal = computed(() => chat.extras?.goal || null);
 
@@ -62,23 +57,8 @@ async function handleAnswer(q: any, cancelled = false) {
       <span v-if="goal.statusReason" class="muted">{{ goal.statusReason }}</span>
     </div>
 
-    <!-- Todos -->
-    <details v-if="todos.length" class="card todo" :open="todosOpen" @toggle="todosOpen = ($event.target as HTMLDetailsElement).open">
-      <summary>
-        <ListTodo :size="15" aria-hidden="true" />
-        <span class="todo-count">Tasks {{ completed }}/{{ todos.length }}</span>
-        <span class="todo-active">{{ activeTask?.activeForm || activeTask?.subject || (completed === todos.length ? 'All tasks complete' : 'View tasks') }}</span>
-        <ChevronRight :size="14" class="disclosure-chevron" aria-hidden="true" />
-      </summary>
-      <div class="todo-list">
-        <div v-for="t in todos" :key="t.id" class="todo-item" :class="{ done: t.status === 'completed' }">
-          <Check v-if="t.status === 'completed'" :size="14" aria-label="Complete" />
-          <LoaderCircle v-else-if="t.status === 'in_progress'" :size="14" aria-label="In progress" />
-          <Circle v-else :size="14" aria-label="Pending" />
-          <div><span>{{ t.subject }}</span><small v-if="t.blockedBy?.length">Blocked by {{ t.blockedBy.map((i: number) => '#' + i).join(', ') }}</small></div>
-        </div>
-      </div>
-    </details>
+    <!-- Tasks, background processes, subagents -->
+    <ActivityPanel />
 
     <!-- Questions -->
     <form v-for="q in questions" :key="q.callId" class="card grid" :data-ask="q.callId" @submit.prevent="handleAnswer(q)">

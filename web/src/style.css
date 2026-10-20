@@ -634,15 +634,38 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
 #extras .opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; background: var(--card); }
 #extras .opt:has(input:checked) { border-color: var(--primary); background: var(--acc-soft); }
 #extras .opt input { margin-top: 3px; }
-#extras .todo { font-size: 12px; padding: 0; }
-.todo summary { cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 10px; list-style: none; }
-.todo summary::-webkit-details-marker { display: none; }
-.todo summary > svg { flex: none; color: var(--muted-foreground); }
-.todo-count { flex: none; color: var(--muted-foreground); font-size: 11px; }
-.todo-active { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#extras .activity { font-size: 12px; padding: 0; }
+.activity summary { cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 10px; list-style: none; }
+.activity summary::-webkit-details-marker { display: none; }
+.activity summary > svg { flex: none; color: var(--muted-foreground); }
+.activity.live summary > svg:first-child { color: var(--primary); }
+.activity-counts { display: flex; gap: 6px; flex: none; color: var(--muted-foreground); font-size: 11px; }
+.activity-counts > span + span::before { content: '·'; margin-right: 6px; color: var(--faint); }
+.activity-counts .on { color: var(--primary); }
+.activity-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .disclosure-chevron { transition: transform 120ms; }
-.todo[open] .disclosure-chevron { transform: rotate(90deg); }
-.todo-list { max-height: 160px; overflow: auto; border-top: 1px solid var(--border); padding: 6px 10px; }
+.activity[open] .disclosure-chevron { transform: rotate(90deg); }
+.activity-body { max-height: min(320px, 22dvh); overflow: auto; border-top: 1px solid var(--border); padding: 4px 10px 8px; }
+.activity-section + .activity-section { border-top: 1px solid var(--border); margin-top: 4px; }
+.activity-section h4 { display: flex; justify-content: space-between; margin: 8px 0 2px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.activity-section h4 span { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.activity-row { padding: 2px 0; }
+.activity-line { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.activity-line > svg { flex: none; color: var(--muted-foreground); }
+.activity-line .icon-button { width: 28px; height: 28px; flex: none; color: var(--muted-foreground); }
+#extras .activity .activity-main { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; flex: 1; padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+#extras .activity .activity-main:hover { background: var(--secondary); }
+#extras .activity .activity-main.static { cursor: default; }
+#extras .activity .activity-main.static:hover { background: transparent; }
+.activity-main code, .activity-main > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-main code { font-family: var(--mono); font-size: 11.5px; }
+.activity-main small { color: var(--muted-foreground); font-size: 10px; }
+.activity-output { margin: 2px 0 6px 22px; }
+.activity-output pre { margin: 0; max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); font-family: var(--mono); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity .bad { color: #f87171; }
+.activity .spin { animation: activity-spin 1s linear infinite; color: var(--primary); }
+@keyframes activity-spin { to { transform: rotate(360deg); } }
+@media (max-width: 420px) { .activity-label { visibility: hidden; } }
 .todo-item { display: flex; gap: 8px; padding: 6px 0; align-items: flex-start; }
 .todo-item > svg { margin-top: 3px; flex: none; color: var(--muted-foreground); }
 .todo-item small { display: block; color: var(--muted-foreground); font-size: 10px; }

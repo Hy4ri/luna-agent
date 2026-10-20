@@ -61,7 +61,13 @@ const initialEntries = [
 ];
 const tasks = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, subject: `Task ${i + 1}`, activeForm: i === 1 ? 'Reading files' : undefined, status: i === 0 ? 'completed' : i === 1 ? 'in_progress' : 'pending', blockedBy: [] }));
 const sessions = new Map<string, any>([
-  ['42', { project: 7, entries: initialEntries, todos: tasks }],
+  ['42', { project: 7, entries: initialEntries, todos: tasks, processes: [
+    { id: 'p-live', running: true, status: 'running', command: 'pnpm run build --watch\nsecond line', createdAt: Date.now() - 65000, exitCode: null },
+    { id: 'p-fail', running: false, status: 'failed', command: 'pnpm test', createdAt: stamp, finishedAt: stamp + 4000, exitCode: 2 },
+  ], children: [
+    { id: 90, task: 'Write blind tests for the parser', status: 'running', statusReason: null },
+    { id: 91, task: 'Review the diff', status: 'finished', statusReason: null },
+  ] }],
   ['43', { project: null, entries: [], todos: tasks.slice(0, 2) }],
 ]);
 const clients = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>();
@@ -83,7 +89,7 @@ function stream(id: string, snapshot?: unknown) {
   });
   return new Response(body, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } });
 }
-const snapshot = (id: string) => ({ entries: sessions.get(id)?.entries || [], run: null, generation: null, inbox: [], tools: [], nestedTools: [], compactions: [], agent: { model }, usage });
+const snapshot = (id: string) => ({ entries: (sessions.get(id) ?? childSessions.get(id))?.entries || [], run: null, generation: null, inbox: [], tools: [], nestedTools: [], compactions: [], agent: { model }, usage });
 const app = new Hono();
 app.get('/health', c => c.json({ ok: true, auth: false }));
 app.get('/v1/models', c => c.json({ default: model, models: [{ provider: 'fixture', id: 'chat', name: 'Chat model', reasoning: true }] }));
@@ -100,12 +106,16 @@ app.post('/v1/sessions', async c => {
 app.get('/v1/events', () => stream('list'));
 app.get('/v1/sessions/:id/events', c => stream(c.req.param('id'), snapshot(c.req.param('id'))));
 app.get('/v1/sessions/:id/context', c => c.json(context));
-app.get('/v1/sessions/:id', c => c.json({ ...sessions.get(c.req.param('id')), id: Number(c.req.param('id')), agent: { model }, usage, contextUsage: context, questions: [], goal: null }));
+const childSessions = new Map<string, any>([['90', { project: null, entries: [], todos: [] }]]);
+app.get('/v1/sessions/:id', c => c.json({ ...(sessions.get(c.req.param('id')) ?? childSessions.get(c.req.param('id'))), id: Number(c.req.param('id')), agent: { model }, usage, contextUsage: context, questions: [], goal: null }));
 app.post('/v1/sessions/:id/messages', async c => {
   messages.push(await c.req.json());
   return c.json({ tip: 'Busy input: redirect the current model request; during tools, add the message after the tool batch. Use /queue, /steer, or /redirect to override.', notice: 'Queued.' });
 });
-app.post('/v1/sessions/:id/abort', c => { emit(c.req.param('id'), 'run_end', {}); return c.json({ ok: true }); });
+const aborts: string[] = [], processStops: string[] = [], processReads: string[] = [];
+app.post('/v1/sessions/:id/abort', c => { aborts.push(c.req.param('id')); emit(c.req.param('id'), 'run_end', {}); return c.json({ ok: true }); });
+app.get('/v1/sessions/:id/processes/:pid', c => { processReads.push(c.req.param('pid')); return c.json({ id: c.req.param('pid'), running: true, output: 'compiled 12 modules\n<b>not html</b>', offset: 0, truncated: false }); });
+app.post('/v1/sessions/:id/processes/:pid/stop', c => { processStops.push(c.req.param('id') + ':' + c.req.param('pid')); return c.json({ id: c.req.param('pid'), status: 'stopped' }); });
 app.get('/v1/cron/*', c => c.json({ reports: [], jobs: [], runs: [], count: 0 }));
 app.route('/', createWebApp(new URL('../dist/web/', import.meta.url)));
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 });
@@ -218,19 +228,38 @@ try {
   await page.locator('.user').first().getByRole('button', { name: 'Copy message', exact: true }).click();
   await page.locator('.user').first().getByText('Failed to copy', { exact: true }).waitFor({ state: 'attached' });
   assert.equal(await page.locator('textarea[aria-hidden="true"]').count(), 0, 'Clipboard fallback always removes its temporary node');
-  const todo = page.locator('.todo');
-  assert.equal(await todo.getAttribute('open'), null);
-  assert.ok((await todo.boundingBox()).height < 60, 'Collapsed tasks use one row');
+  const activity = page.locator('#extras .activity');
+  assert.equal(await page.locator('#extras .activity').count(), 1, 'Tasks, processes and subagents share one disclosure');
+  assert.equal(await activity.getAttribute('open'), null);
+  assert.ok((await activity.boundingBox()).height < 60, 'Collapsed activity uses one row');
+  assert.match(await activity.locator('.activity-counts').textContent(), /Tasks 1\/30.*1 process.*1 agent/);
   tasks[1]!.activeForm = 'Checking files';
   emit('42', 'submission', { record: { status: 'done' } });
-  await todo.locator('summary').filter({ hasText: 'Checking files' }).waitFor();
-  assert.equal(await todo.getAttribute('open'), null, 'Polling cannot open tasks');
-  await todo.locator('summary').click();
+  await activity.locator('summary').filter({ hasText: 'Checking files' }).waitFor();
+  assert.equal(await activity.getAttribute('open'), null, 'Polling cannot open activity');
+  await activity.locator('summary').click();
   tasks[1]!.activeForm = 'Checking more files'; emit('42', 'submission', { record: { status: 'done' } });
-  await todo.locator('summary').filter({ hasText: 'Checking more files' }).waitFor();
-  assert.notEqual(await todo.getAttribute('open'), null, 'Polling preserves user expansion');
-  assert.ok((await todo.locator('.todo-list').boundingBox()).height <= 170);
-  await todo.locator('summary').click();
+  await activity.locator('summary').filter({ hasText: 'Checking more files' }).waitFor();
+  assert.notEqual(await activity.getAttribute('open'), null, 'Polling preserves user expansion');
+  assert.ok((await activity.locator('.activity-body').boundingBox()).height <= 330);
+  assert.deepEqual(await activity.locator('[data-process]').evaluateAll((r: any[]) => r.map(x => [x.dataset.status, x.querySelector('code').textContent])),
+    [['running', 'pnpm run build --watch'], ['failed', 'pnpm test']]);
+  assert.match(await activity.locator('[data-process="p-live"] small').textContent(), /^running · 1m \d+s$/);
+  assert.equal(await activity.locator('[data-process="p-fail"] small').textContent(), 'failed · exit 2 · 4s');
+  assert.equal(await activity.locator('[data-process="p-fail"]').getByRole('button', { name: 'Stop process' }).count(), 0, 'Finished processes have no stop control');
+  await activity.locator('[data-process="p-live"] .activity-main').click();
+  await activity.locator('[data-process="p-live"] .activity-output pre').filter({ hasText: 'compiled 12 modules' }).waitFor();
+  assert.equal(await activity.locator('.activity-output b').count(), 0, 'Process output renders as text');
+  await activity.locator('[data-process="p-live"]').getByRole('button', { name: 'Stop process' }).click();
+  await new Promise(r => setTimeout(r, 100));
+  assert.deepEqual(processStops, ['42:p-live']);
+  assert.deepEqual(await activity.locator('[data-child]').evaluateAll((r: any[]) => r.map(x => [x.dataset.child, x.querySelector('small').textContent])),
+    [['90', '#90 · running'], ['91', '#91 · done']]);
+  assert.equal(await activity.locator('[data-child="91"]').getByRole('button', { name: 'Stop subagent' }).count(), 0);
+  await activity.locator('[data-child="90"]').getByRole('button', { name: 'Stop subagent' }).click();
+  await new Promise(r => setTimeout(r, 100)); assert.ok(aborts.includes('90'), 'Stop subagent aborts the child conversation');
+  await page.screenshot({ path: '/tmp/luna-activity-desktop.png' });
+  await activity.locator('summary').click();
   assert.equal(await page.locator('#top #statusbar').count(), 1);
   assert.equal(await page.locator('#statusbar').getAttribute('open'), null);
   await page.locator('#statusbar > summary').click();
@@ -310,12 +339,18 @@ try {
     await verifyJumpButtons();
   }
   await page.screenshot({ path: '/tmp/luna-chat-mobile.png' });
+  await page.locator('#extras .activity summary').click();
+  await page.locator('#extras .activity [data-child="90"]').scrollIntoViewIfNeeded();
+  assert.equal(await page.locator('#extras .activity').evaluate((el: any) => el.scrollWidth <= el.clientWidth + 1), true, 'Open activity fits 320px');
+  await page.screenshot({ path: '/tmp/luna-activity-mobile.png' });
+  await page.locator('#extras .activity summary').click();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('#new-session').click();
   await page.waitForFunction(() => localStorage.getItem('luna.session') === '44');
   assert.deepEqual(creations[0], { project: 7 }, 'Header + uses active project, not saved project');
   await page.evaluate(() => (globalThis as any).openSession('43'));
-  await page.locator('.todo').waitFor(); assert.equal(await page.locator('.todo').getAttribute('open'), null, 'Session switch resets tasks');
+  await page.locator('#extras .activity').waitFor(); assert.equal(await page.locator('#extras .activity').getAttribute('open'), null, 'Session switch resets activity');
+  assert.equal(await page.locator('#extras [data-process], #extras [data-child]').count(), 0, 'Activity rows belong to their own session');
   await page.locator('#new-session').click(); await page.waitForFunction(() => localStorage.getItem('luna.session') === '45');
   assert.deepEqual(creations[1], {}, 'Projectless conversation stays projectless');
   failCreate = true; await page.locator('#new-session').click();
@@ -329,8 +364,12 @@ try {
   await page.locator('.session-group[data-project="none"] [data-session="44"]').waitFor();
   await page.locator('#new-session').click(); await page.waitForFunction(() => localStorage.getItem('luna.session') === '46');
   assert.deepEqual(creations[3], {}, 'Deleted project links cannot leak into new sessions');
+  await page.evaluate(() => (globalThis as any).openSession('42'));
+  await page.locator('#extras .activity summary').click();
+  await page.locator('[data-child="90"]').getByRole('button', { name: 'Open subagent conversation' }).click();
+  await page.waitForFunction(() => localStorage.getItem('luna.session') === '90');
   assert.deepEqual(errors, []);
-  console.log('CHAT_VIEW_UI_OK: controls, project scope, reasoning, tools/errors, reports, copy/time, tasks, activity, usage, mobile');
+  console.log('CHAT_VIEW_UI_OK: controls, project scope, reasoning, tools/errors, reports, copy/time, tasks/processes/subagents, activity, usage, mobile');
 } finally {
   await browser?.close();
   for (const set of clients.values()) for (const client of set) { try { client.close(); } catch {} }
