@@ -1,7 +1,7 @@
 // Scripted model, real native runtime tools and OS processes. No external services.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
@@ -78,7 +78,7 @@ try {
   await until(() => existsSync(ready));
   let live: any;
   await until(async () => { live = await call(owner, "process_manage", { action: "read", id: job.id }); return live.output.includes("stderr-start"); });
-  assert.equal(live.running, true); assert.ok(live.output.includes("stdout-start")); assert.ok(live.output.includes(work));
+  assert.equal(live.running, true); assert.ok(live.output.includes("stdout-start")); assert.ok(live.output.includes(realpathSync(work)));
   // Web UI view: the session payload and process endpoints honor the same ownership as the tools.
   const app = createApp({ harness: rt.harness, models });
   const http = async (path: string, method = "GET") => { const r = await app.request(path, { method }); return { status: r.status, body: await r.json() as any }; };
