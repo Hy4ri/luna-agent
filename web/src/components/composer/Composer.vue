@@ -3,15 +3,14 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { ArrowUp, Square } from "@lucide/vue";
 import { composer, addAttachment, removeAttachment, saveDraft, restoreDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun } from "@/stores/chat";
-import { models, modelLabel, setThinking } from "@/stores/models";
+import { modelLabel } from "@/stores/models";
 import { focusInput } from "@/stores/app";
 import ModelPicker from "./ModelPicker.vue";
+import ReasoningControl from "./ReasoningControl.vue";
 
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
 const pickerOpen = ref(false);
-
-const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 const hasDraft = computed(() => composer.text.trim().length > 0 || composer.attachments.length > 0);
 const showStop = busy;
@@ -69,11 +68,6 @@ function handleDrop(e: DragEvent) {
       addAttachment(f);
     }
   }
-}
-
-async function handleThinkChange(e: Event) {
-  const val = (e.target as HTMLSelectElement).value;
-  await setThinking(val);
 }
 
 watch(() => chat.session, () => {
@@ -186,17 +180,7 @@ onUnmounted(() => {
           >
             {{ modelLabel }}
           </button>
-          <select
-            id="think"
-            aria-label="Thinking level"
-            title="Thinking level"
-            :value="models.thinking"
-            @change="handleThinkChange"
-          >
-            <option v-for="l in LEVELS" :key="l" :value="l">
-              {{ l === "off" ? "Off" : l.charAt(0).toUpperCase() + l.slice(1) }}
-            </option>
-          </select>
+          <ReasoningControl />
         </div>
 
         <div class="compose-actions">

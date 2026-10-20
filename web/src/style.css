@@ -690,7 +690,6 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
 #controls { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 #model { flex: 0 1 auto; min-width: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 11px; color: var(--muted-foreground); background: transparent; border: 1px solid transparent; border-radius: 6px; min-height: 32px; padding: 0 8px; }
 #model:hover { background: var(--secondary); color: var(--foreground); }
-#think { flex: 0 1 auto; min-width: 0; max-width: 7em; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--muted-foreground); font-size: 11px; padding: 0 4px; min-height: 30px; }
 .compose-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: none; }
 #send, #stop { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 9px; padding: 0; cursor: pointer; }
 #send { background: var(--primary); color: var(--primary-foreground); }
