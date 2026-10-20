@@ -16,6 +16,7 @@ import { chat, newSession, addErr } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel } from '@/stores/sessions';
 import { sessionState, sessionStatusLabel } from '@/lib/session-status';
 import { useMobile } from '@/lib/dom';
+import { trackViewport } from '@/lib/viewport';
 
 const mobile = useMobile();
 const activeSession = computed(() => history.list.find(row => String(row.id) === chat.session));
@@ -68,13 +69,18 @@ function keyboard(e: KeyboardEvent) {
 }
 watch(mobile, value => { if (!value && ui.drawer) setDrawer(false); });
 watch(() => ui.login, value => { if (value) void nextTick(() => document.getElementById('token')?.focus()); });
-onMounted(() => { document.addEventListener('keydown', keyboard); void boot(); });
-onUnmounted(() => document.removeEventListener('keydown', keyboard));
+let stopViewport: (() => void) | undefined;
+onMounted(() => {
+  stopViewport = trackViewport(document.getElementById('app')!);
+  document.addEventListener('keydown', keyboard);
+  void boot();
+});
+onUnmounted(() => { stopViewport?.(); document.removeEventListener('keydown', keyboard); });
 </script>
 
 <template>
   <TooltipProvider>
-    <div class="flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground">
+    <div class="flex h-full min-h-0 w-full overflow-hidden bg-background text-foreground">
       <Sidebar :inert="ui.login || !!ui.panel" />
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <main id="main" v-show="ui.view === 'chat'" :inert="blocked" class="relative flex min-w-0 flex-1 flex-col">
