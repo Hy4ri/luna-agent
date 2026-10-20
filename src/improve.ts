@@ -3,7 +3,7 @@
 // backup so it can be rolled back. Skills are plain SKILL.md files, so the skills extension picks edits up live.
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
@@ -129,8 +129,19 @@ export class SkillImprover {
     return extractLessons(this.inspectRuns({ limit: opts.limit ?? 200 }), opts.minCount ?? 2);
   }
 
-  private skillPath(name: string) {
+  /** True when `dir` is a skill directory inside the managed skills dir (never the managed root itself). */
+  isManaged(dir: string) {
+    return resolve(dir).startsWith(this.skillsDir + sep);
+  }
+
+  /**
+   * SKILL.md path written for `name`: the active managed skill's own file (it may be nested, e.g. design/slides),
+   * otherwise <skillsDir>/<name>/SKILL.md (a new skill, or a managed override of an external one).
+   */
+  skillPath(name: string) {
     if (!NAME.test(name)) throw new Error(`invalid skill name "${name}" (lowercase letters, digits, - _)`);
+    const active = scanSkills(this.o.readDirs ?? [this.skillsDir]).find((x) => x.name === name);
+    if (active && this.isManaged(active.dir)) return active.path;
     return join(this.skillsDir, name, "SKILL.md");
   }
 
@@ -187,7 +198,7 @@ export class SkillImprover {
         cpSync(target, join(this.historyDir, name, `v${v}.md`));
         res.version = v;
       }
-      mkdirSync(join(this.skillsDir, name), { recursive: true });
+      mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, content);
       res.applied = true;
       res.reason = bench ? "verified and applied" : "applied (lint only, no benchmark supplied)";
@@ -240,7 +251,7 @@ export function createImproveExtension(imp: SkillImprover, o: Pick<ImproverOptio
   const propose = defineTool({
     name: "skill_propose",
     description:
-      "Create or update a skill (full SKILL.md text with name/description frontmatter). It is linted and verified against a benchmark and only installed if it does not regress; " +
+      "Create or update a skill (full SKILL.md text with name/description frontmatter). It is always linted; when a benchmark is given it is also scored and only installed if it does not regress; " +
       "the previous version is backed up. Benchmark: `benchmark` (named: " + (Object.keys(named).join(", ") || "none registered") + "), `benchmark_command` (shell, exit 0 = pass, $SKILL_PATH = candidate), or `must_contain` phrases.",
     parameters: Type.Object({
       name: Type.String(),

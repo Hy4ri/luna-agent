@@ -22,6 +22,7 @@ import { createGoalExtension } from "./goal.js";
 import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
 import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
+import { createSkillManageExtension, SkillManager } from "./skill-manage.js";
 import { createLearnExtension, LEARN_JOB, LEARN_PROMPT, LearnStore, scanIdle } from "./learn.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
@@ -125,10 +126,11 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   })] }));
   if (on("delegate")) extensions.push(createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm()));
-  const improver = on("improve") || on("learn")
+  const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
     : undefined;
   if (on("improve")) extensions.push(createImproveExtension(improver!, { allowCommandBenchmarks: cfg.improve.allowCommandBenchmarks }));
+  if (on("skills")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs)));
   const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db")) : undefined;
   if (learn) extensions.push(createLearnExtension(learn, improver!));
   if (on("tool-search")) extensions.push(createToolSearchExtension());

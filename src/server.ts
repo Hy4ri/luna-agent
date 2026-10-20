@@ -897,7 +897,7 @@ export function createApp(opts: ServerOptions) {
   app.post("/v1/lessons/:id/reject", lessonAction((id, b) => opts.learn!.store.reject(id, typeof b.note === "string" ? b.note : "")));
   app.post("/v1/lessons/:id/rollback", lessonAction((id) => opts.learn!.store.rollback(id, opts.learn!.improver)));
 
-  // ---- skills (read-only; the model edits them through skill_propose) ----
+  // ---- skills (read-only; the model edits them through skill_manage / skill_propose) ----
   app.get("/v1/skills", (c) => {
     if (!opts.skillDirs) return err(c, 404, "skills disabled");
     return c.json({ skills: scanSkills(opts.skillDirs).map((s) => ({ name: s.name, description: s.description, tools: s.tools, path: s.path })) });

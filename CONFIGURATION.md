@@ -107,6 +107,21 @@ Run `verify:web-tools` for deterministic runtime checks.
 Run `verify:web-tools:live` to use the installed `/.local/bin/ddgs` against real web pages.
 The live gate uses a scripted model; it verifies tool execution, not real-model tool choice.
 
+## Skill management
+
+The `skills` extension gives the agent `skill_view`, `skill_list`, and `skill_manage`.
+
+- Only skills under `<dataDir>/skills` can change. Skills from `skillDirs` are read-only.
+- `skill_manage` actions: `create`, `edit` (full content, or one exact `old_text` → `new_text`), `delete`,
+  `write_file`, `delete_file` (linked files, relative to the skill directory), and `restore`.
+- `create` and `edit` are linted only. Use `skill_propose` for a benchmark-gated change.
+  Each edit backs up the previous `SKILL.md` for `skill_rollback`.
+- `delete`, `delete_file`, and a replaced linked file move to `<dataDir>/skills/.history/.trash`.
+  `skill_list include_deleted` shows the ids; `restore` never overwrites an existing path.
+- Linked-file paths stay in the skill's own directory: no `..`, no hidden parts, no symlinks,
+  no `SKILL.md`, and no path inside a nested skill. A skill that contains nested skills cannot be deleted.
+- Changes reach the prompt catalog on the next model call.
+
 ## Session learning
 
 The `learn` extension finds lessons in past sessions. It does nothing during a live turn.

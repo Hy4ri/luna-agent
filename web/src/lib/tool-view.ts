@@ -7,7 +7,7 @@ export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" |
 const TEXT_TOOLS = new Set([
   "board", "remember", "recall", "forget", "cron_create", "cron_list", "cron_runs", "cron_toggle", "cron_remove",
   "create_goal", "get_goal", "update_goal", "set_goal_tasks", "update_goal_task", "delegate_task", "session_search",
-  "tool_search", "inspect_runs", "extract_lessons", "skill_rollback", "session_handoff",
+  "tool_search", "inspect_runs", "extract_lessons", "skill_rollback", "skill_list", "skill_manage", "session_handoff",
   "browser_open", "browser_navigate", "browser_close", "browser_snapshot", "browser_click", "browser_type", "browser_scroll", "browser_screenshot",
 ]);
 
