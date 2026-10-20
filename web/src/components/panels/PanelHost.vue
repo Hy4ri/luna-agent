@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { X } from '@lucide/vue';
 import { ui, closePanel } from '@/stores/app';
+import { computed } from 'vue';
 import { PANELS } from './index';
+
+/** Panels that open as a centered floating window instead of a side drawer. */
+const WINDOWS: Record<string, string> = { board: 'board-window', projects: 'projects-window' };
+const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
 </script>
 <template>
-  <div id="panel" v-show="ui.panel" :class="{ open: !!ui.panel, wide: ui.panel === 'board' }" class="panel-backdrop fixed inset-0 z-50 flex justify-end bg-black/60" @click.self="closePanel">
-    <div role="dialog" aria-modal="true" aria-labelledby="ptitle" aria-describedby="pdesc" tabindex="-1" class="flex h-full w-full flex-col border-l border-border bg-background shadow-xl" :class="ui.panel === 'board' ? 'board-window' : 'max-w-xl'">
+  <div id="panel" v-show="ui.panel" :class="{ open: !!ui.panel, wide: !!windowClass }" class="panel-backdrop fixed inset-0 z-50 flex justify-end bg-black/60" @click.self="closePanel">
+    <div role="dialog" aria-modal="true" aria-labelledby="ptitle" aria-describedby="pdesc" tabindex="-1" class="flex h-full w-full flex-col border-l border-border bg-background shadow-xl" :class="windowClass ? ['float-window', windowClass] : 'max-w-xl'">
       <header class="flex shrink-0 items-start gap-4 border-b border-border p-5">
         <div class="heading flex-1"><h2 id="ptitle" class="text-base font-semibold">{{ ui.panel ? PANELS[ui.panel]?.title : '' }}</h2><p id="pdesc" class="mt-1 text-xs text-muted-foreground">{{ ui.panel ? PANELS[ui.panel]?.desc : '' }}</p></div>
         <button id="pclose" class="icon-button" aria-label="Close panel" @click="closePanel"><X :size="18" /></button>
       </header>
-      <div v-if="ui.panel === 'board'" id="board-body"><component :is="PANELS.board!.component" /></div>
+      <div v-if="windowClass" :id="ui.panel === 'board' ? 'board-body' : 'window-body'" class="window-body"><component :is="PANELS[ui.panel!]!.component" /></div>
       <div v-else id="pbody" class="min-h-0 flex-1 overflow-auto p-5"><component :is="PANELS[ui.panel]?.component" v-if="ui.panel && PANELS[ui.panel]" /></div>
     </div>
   </div>
@@ -18,13 +23,15 @@ import { PANELS } from './index';
 
 <style scoped>
 .panel-backdrop.wide { align-items: center; justify-content: center; padding: 24px; }
-.board-window { width: 100%; max-width: none; height: 94dvh; max-height: calc(100dvh - 48px); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 90px #0009; }
-.board-window > header { padding: 16px 20px; }
-#board-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.float-window { width: 100%; max-width: none; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 90px #0009; }
+.float-window > header { padding: 16px 20px; }
+.board-window { height: 94dvh; max-height: calc(100dvh - 48px); }
+.projects-window { max-width: 900px; height: min(600px, calc(100dvh - 48px)); }
+.window-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 @media (max-width: 760px) {
   .panel-backdrop.wide { padding: 8px; }
-  .board-window { height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); border-radius: 9px; }
-  .board-window > header { padding: 12px; }
+  .float-window { height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); border-radius: 9px; }
+  .float-window > header { padding: 12px; }
   .board-window:has(.kb-editing) #pdesc { display: none; }
 }
 </style>
