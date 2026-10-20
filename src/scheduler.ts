@@ -476,10 +476,23 @@ export interface SchedulerOptions {
 }
 
 const MAX_TIMER = 2 ** 31 - 1;
+/** How long stopRun waits for a cancelled run to settle before it reports the run as still active. */
+const STOP_WAIT_MS = 15_000;
+
+/** Live executor of one running run in this process. `abort` is set once there is something to cancel. */
+interface ActiveRun { reason?: string; abort?: () => Promise<void> | void; done?: Promise<void> }
+
+export type StopOutcome =
+  | "stopped"            // the run was cancelled and is now logged as error with the stop reason
+  | "finished"           // the run settled on its own (ok or error) before the cancellation took effect
+  | "already_finished"   // the run was not running when the stop was requested
+  | "not_tracked"        // the run row says running, but no executor in this process owns it
+  | "still_running";     // cancellation was requested, but the run did not settle within the wait
 
 export class Scheduler {
   private timer: NodeJS.Timeout | undefined;
   private inflight = new Set<Promise<void>>();
+  private active = new Map<number, ActiveRun>();
   private stopped = true;
   private o: Required<SchedulerOptions>;
   constructor(o: SchedulerOptions) { this.o = { ...o, runTimeoutMs: o.runTimeoutMs ?? 30 * 60_000, log: o.log ?? (() => {}), onFinish: o.onFinish ?? (() => {}), exclude: o.exclude ?? [] }; }
@@ -498,7 +511,7 @@ export class Scheduler {
   async start() {
     this.stopped = false;
     this.o.harness.resume();
-    for (const r of this.o.store.unfinished()) this.track(this.recover(r).then(() => this.notify(r.id)));
+    for (const r of this.o.store.unfinished()) this.launch(r, (a) => this.recover(r, a));
     this.arm();
   }
 
@@ -524,7 +537,7 @@ export class Scheduler {
     if (this.stopped) return;
     for (const job of this.o.store.dueJobs(now)) {
       const run = this.o.store.claim(job, now);
-      if (run) this.track(this.execute(job, run).then(() => this.notify(run.id)));
+      if (run) this.launch(run, (a) => this.execute(job, run, a));
     }
     this.arm();
   }
@@ -534,40 +547,79 @@ export class Scheduler {
     const job = this.o.store.getJob(id);
     if (!job) throw new Error("no such job " + id);
     const run = this.o.store.claimManual(job, Date.now());
-    this.track(this.execute(job, run).then(() => this.notify(run.id)));
+    this.launch(run, (a) => this.execute(job, run, a));
     return run;
+  }
+
+  /**
+   * Cancel an active run and report what really happened. Agent runs abort their conversation; script runs kill
+   * the process (SIGTERM). The job's schedule is unchanged: disable the job to stop future runs.
+   */
+  async stopRun(runId: number, reason = "stopped by request"): Promise<{ outcome: StopOutcome; run: Run }> {
+    const run = this.o.store.getRun(runId);
+    if (!run) throw new Error("no such run " + runId);
+    if (run.status !== "running") return { outcome: "already_finished", run };
+    const a = this.active.get(runId);
+    if (!a) return { outcome: "not_tracked", run };
+    a.reason ??= reason;
+    try { await a.abort?.(); } catch (e) { this.o.log(`stop run ${runId}: abort failed: ${errText(e)}`); }
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([a.done, new Promise<void>((r) => { timer = setTimeout(r, STOP_WAIT_MS); timer.unref?.(); })]);
+    clearTimeout(timer);
+    const after = this.o.store.getRun(runId)!;
+    if (after.status === "running") return { outcome: "still_running", run: after };
+    return { outcome: after.status === "error" && after.error?.startsWith(`stopped: ${a.reason}`) ? "stopped" : "finished", run: after };
+  }
+
+  /** Ids of runs that have a live executor in this process. */
+  activeRuns(): number[] { return [...this.active.keys()]; }
+
+  private launch(run: Run, body: (a: ActiveRun) => Promise<void>) {
+    const a: ActiveRun = {};
+    this.active.set(run.id, a);
+    a.done = body(a).finally(() => this.active.delete(run.id));
+    this.track(a.done.then(() => this.notify(run.id)));
   }
 
   private track(p: Promise<void>) { this.inflight.add(p); void p.finally(() => this.inflight.delete(p)); }
 
-  private async execute(job: Job, run: Run) {
+  /** Error text for a run that ended while a stop or timeout was requested. */
+  private failText(a: ActiveRun, detail: string) { return a.reason ? `stopped: ${a.reason}` : detail; }
+
+  private async execute(job: Job, run: Run, a: ActiveRun = {}) {
     const { store, harness } = this.o;
     try {
       if (job.execution) {
         const { command, cwd } = job.execution;
         if (!command.length) throw new Error("empty script command");
-        const output = await new Promise<string>((resolve, reject) => {
-          execFile(command[0]!, command.slice(1), { cwd, timeout: this.o.runTimeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error) reject(new Error(`${error.message}\n${stderr}`));
-            else resolve(stdout);
+        const ac = new AbortController();
+        a.abort = () => ac.abort();
+        const timeout = setTimeout(() => { a.reason ??= this.timeoutReason(); ac.abort(); }, this.o.runTimeoutMs);
+        try {
+          const output = await new Promise<string>((resolve, reject) => {
+            execFile(command[0]!, command.slice(1), { cwd, signal: ac.signal, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+              if (error) reject(new Error(`${error.message}\n${stderr}`));
+              else resolve(stdout);
+            });
           });
-        });
-        store.finish(run.id, "ok", output, null);
+          store.finish(run.id, "ok", output, null);
+        } finally { clearTimeout(timeout); }
         return;
       }
       const d = this.o.defaultModel;
       const model = job.model ?? (typeof d === "function" ? d() : d);
       const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) } }, context);
+      if (a.reason) throw new Error("stop requested before the prompt was submitted");
       const sub = await conv.submit({ type: "input", content: job.prompt, requestId: `cron-${job.id}-${run.slot}` }, context);
       store.attach(run.id, String(conv.id), String(sub.id));
-      await this.settle(run, sub, conv);
+      await this.settle(run, sub, conv, a);
     } catch (e) {
-      store.finish(run.id, "error", null, errText(e));
-      this.o.log(`job ${job.name} run ${run.id} failed: ${errText(e)}`);
+      store.finish(run.id, "error", null, this.failText(a, errText(e)));
+      this.o.log(`job ${job.name} run ${run.id} failed: ${this.failText(a, errText(e))}`);
     }
   }
 
-  private async recover(run: Run) {
+  private async recover(run: Run, a: ActiveRun) {
     const { store, harness } = this.o;
     try {
       if (!run.submissionId) { store.finish(run.id, "error", null, "interrupted before submission was admitted"); return; }
@@ -575,9 +627,11 @@ export class Scheduler {
       if (!sub) { store.finish(run.id, "error", null, "submission not found on recovery"); return; }
       this.o.log(`recovering run ${run.id}`);
       const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
-      await this.settle(run, sub, conv);
-    } catch (e) { store.finish(run.id, "error", null, errText(e)); }
+      await this.settle(run, sub, conv, a);
+    } catch (e) { store.finish(run.id, "error", null, this.failText(a, errText(e))); }
   }
+
+  private timeoutReason() { return `timed out after ${this.o.runTimeoutMs / 1000}s`; }
 
   private async answerText(conv: { context(c: any): Promise<any> } | undefined, id: unknown): Promise<string | null> {
     if (!conv) return null;
@@ -589,14 +643,16 @@ export class Scheduler {
       : (msg.content as any[]).filter((c) => c.type === "text").map((c) => c.text).join("");
   }
 
-  private async settle(run: Run, sub: { wait(c: any): Promise<any>; abort(c: any): Promise<any> }, conv?: { context(c: any): Promise<any> }) {
-    const ac = new AbortController();
-    const timeout = setTimeout(() => { void sub.abort(context); }, this.o.runTimeoutMs);
+  private async settle(run: Run, sub: { wait(c: any): Promise<any>; abort(c: any): Promise<any> }, conv: { context(c: any): Promise<any>; abort(c: any): Promise<void> } | undefined, a: ActiveRun) {
+    // Submission.abort() only withdraws a queued input; once the turn has started it returns "already_placed"
+    // and cancels nothing. Aborting the run's own (ownerless) conversation cancels the live turn.
+    a.abort = async () => { if ((await sub.abort(context)) === "already_placed") await conv?.abort(context); };
+    const timeout = setTimeout(() => { a.reason ??= this.timeoutReason(); void Promise.resolve(a.abort?.()).catch((e) => this.o.log(`run ${run.id} timeout abort failed: ${errText(e)}`)); }, this.o.runTimeoutMs);
     try {
       const s = await sub.wait(context);
       if (s.status === "done") this.o.store.finish(run.id, "ok", await this.answerText(conv, s.answer), null);
-      else this.o.store.finish(run.id, "error", null, `submission ${s.status}: ${JSON.stringify(s).slice(0, 500)}`);
-    } finally { clearTimeout(timeout); ac.abort(); }
+      else this.o.store.finish(run.id, "error", null, this.failText(a, `submission ${s.status}: ${JSON.stringify(s).slice(0, 500)}`));
+    } finally { clearTimeout(timeout); }
   }
 }
 

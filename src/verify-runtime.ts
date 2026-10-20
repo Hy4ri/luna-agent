@@ -92,7 +92,7 @@ if (process.argv[2] === "stdio-server") {
     const agent = await root.agent(context);
     const offered = agent.tools.map((t) => t.name);
     const deferred = agent.deferred.map((t) => t.name);
-    for (const t of ["bash", "read", "write", "edit", "remember", "recall", "forget", "skill_view", "delegate_task", "cron_create", "cron_list", "cron_runs", "inspect_runs", "extract_lessons", "skill_propose", "skill_rollback", "tool_search", "local__add"])
+    for (const t of ["bash", "read", "write", "edit", "remember", "recall", "forget", "skill_view", "delegate_task", "cron_create", "cron_list", "cron_get", "cron_update", "cron_toggle", "cron_remove", "cron_run", "cron_stop", "cron_runs", "cron_run_get", "inspect_runs", "extract_lessons", "skill_propose", "skill_rollback", "tool_search", "local__add"])
       assert.ok(offered.includes(t), `missing tool ${t}; offered: ${offered.join(",")}`);
     assert.ok(deferred.includes("web__add") && !offered.includes("web__add"), "http MCP tools should be deferred");
     ok(`all subsystems wired (${offered.length} offered, ${deferred.length} deferred)`);
@@ -136,6 +136,35 @@ if (process.argv[2] === "stdio-server") {
     const got = delivered.find((x) => x.title.includes("hourly-ping"));
     assert.ok(got && got.body === "pong" && /ok$/.test(got.title), "delivery: " + JSON.stringify(delivered));
     ok("cron run delivered to notifyUrl (title + output)");
+
+    // ---- model drives the edit / run-now / inspect tools through the live runtime scheduler ----
+    const cr: string[] = [];
+    let cstep = 0;
+    const longPrompt = "say pong now " + "please ".repeat(200);
+    const crespond = (c: any) => {
+      const first = c.messages.find((x: any) => x.role === "user");
+      if (first && textOf(first).startsWith("say pong now")) return fauxAssistantMessage([fauxText("pong-now")]);
+      const tr = c.messages.filter((x: any) => x.role === "toolResult");
+      if (cstep > 0) cr[cstep - 1] = textOf(tr[tr.length - 1]);
+      switch (cstep++) {
+        case 0: return fauxAssistantMessage([fauxToolCall("cron_update", { id: job.id, prompt: longPrompt, expr: "15 * * * *" })], { stopReason: "toolUse" });
+        case 1: return fauxAssistantMessage([fauxToolCall("cron_get", { id: job.id })], { stopReason: "toolUse" });
+        case 2: return fauxAssistantMessage([fauxToolCall("cron_run", { id: job.id })], { stopReason: "toolUse" });
+        default: return fauxAssistantMessage([fauxText("done")]);
+      }
+    };
+    faux.setResponses(Array(10).fill(crespond));
+    const cs = await (await root.submit({ type: "input", content: "edit and run" }, context)).wait(context);
+    assert.equal(cs.status, "done", JSON.stringify(cs).slice(0, 300));
+    assert.match(cr[0]!, /updated job \d+ \(expr, prompt\)/, "cron_update: " + cr[0]);
+    const edited = rt.store!.getJob(job.id)!;
+    assert.equal(edited.prompt, longPrompt); assert.equal(new Date(edited.nextRun!).getMinutes(), 15);
+    assert.ok(cr[1]!.includes(longPrompt), "cron_get shows the full prompt");
+    const startedId = Number(/started run #(\d+)/.exec(cr[2]!)?.[1]);
+    assert.ok(startedId, "cron_run: " + cr[2]);
+    await rt.scheduler!.idle();
+    assert.equal(rt.store!.getRun(startedId)!.output, "pong-now", "run-now executed the edited prompt");
+    ok("model edited, inspected and ran a job through the runtime scheduler");
 
     // ---- delegate: children scoped per parent; replayed spawn reuses child ----
     const other = await rt.harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model } }, context);
