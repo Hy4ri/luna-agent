@@ -61,16 +61,25 @@ export class ConversationStore {
     this.notify();
     return res;
   }
+  /** Where the stored title came from: "derived" (instant), "auto" (model), "user", or null when untitled. */
+  titleSource(id: number): "derived" | "auto" | "user" | null {
+    const row = this.db.prepare("SELECT title, title_source FROM luna_conversations WHERE id=?").get(id) as { title: string | null; title_source: string | null } | undefined;
+    if (!row?.title) return null;
+    return row.title_source === "derived" || row.title_source === "auto" ? row.title_source : "user";
+  }
   /**
-   * Store a generated title. Without `force` it never replaces a user title: the condition is checked in the same
-   * statement as the write, so a rename that lands first always wins. Returns whether the title was written.
+   * Store a generated title at `source` authority (derived < auto < user). Without `force` a title never replaces a
+   * higher one: the check is in the same statement as the write, so a rename that lands first always wins.
+   * Returns whether the title was written.
    */
-  async autoTitle(id: number, title: string, force = false): Promise<boolean> {
+  async autoTitle(id: number, title: string, o: { source?: "derived" | "auto"; force?: boolean } = {}): Promise<boolean> {
+    const source = o.source ?? "auto";
     const written = await this.harness.commit(async tx => {
       if (!await tx.conversation(id as never)) return false;
-      const r = this.db.prepare(`INSERT INTO luna_conversations(id,title,title_source) VALUES (?,?,'auto')
-        ON CONFLICT(id) DO UPDATE SET title=excluded.title,title_source='auto'
-        WHERE ? OR luna_conversations.title IS NULL OR luna_conversations.title_source='auto'`).run(id, title, Number(force));
+      const r = this.db.prepare(`INSERT INTO luna_conversations(id,title,title_source) VALUES (?,?,?)
+        ON CONFLICT(id) DO UPDATE SET title=excluded.title,title_source=excluded.title_source
+        WHERE ? OR luna_conversations.title IS NULL OR luna_conversations.title_source='derived'
+          OR (excluded.title_source='auto' AND luna_conversations.title_source='auto')`).run(id, title, source, Number(!!o.force));
       return Number(r.changes) > 0;
     }, context);
     if (written) this.notify();
