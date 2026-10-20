@@ -62,6 +62,23 @@ try {
   const boardAfterMove = await page.locator('.kb-board').boundingBox();
   assert.deepEqual(boardAfterMove, boardBeforeMove, 'Move feedback cannot shift or resize the board');
   assert.deepEqual(await page.locator('.kb-statusbar').boundingBox(), statusBeforeMove, 'Bottom feedback keeps the same dimensions');
+  // Dragging from the top bar area outside the grip button (e.g. card ID) also moves the card.
+  const topIdBox = await page.locator(`[data-card="${card.id}"] .kb-card-id`).boundingBox();
+  const inProgBox = await page.locator('[data-column="in_progress"]').boundingBox();
+  await page.mouse.move(topIdBox!.x + topIdBox!.width / 2, topIdBox!.y + topIdBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(inProgBox!.x + 60, inProgBox!.y + 80, { steps: 20 });
+  await page.mouse.up();
+  await page.locator(`[data-column="in_progress"] [data-card="${card.id}"]`).waitFor();
+  assert.equal(rt.conversations.board.get(a.id, card.id)?.status, 'in_progress');
+  // Dragging from the priority pill in the top bar back to review.
+  const topPrioBox = await page.locator(`[data-card="${card.id}"] .kb-priority`).boundingBox();
+  await page.mouse.move(topPrioBox!.x + topPrioBox!.width / 2, topPrioBox!.y + topPrioBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target!.x + 60, target!.y + 80, { steps: 20 });
+  await page.mouse.up();
+  await page.locator(`[data-column="review"] [data-card="${card.id}"]`).waitFor();
+  assert.equal(rt.conversations.board.get(a.id, card.id)?.status, 'review');
   const styledCard = page.locator(`[data-card="${card.id}"]`);
   assert.equal(await styledCard.getAttribute('data-priority'), 'high');
   assert.equal(await styledCard.getAttribute('data-status'), 'review');
