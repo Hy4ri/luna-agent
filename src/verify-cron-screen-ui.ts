@@ -53,13 +53,13 @@ try {
   assert.equal(historyRequests.length, 0, "Old reports must not load before history opens");
   assert.equal(await latest.locator("[data-run]").count(), 2);
   assert.equal(Number(await page.locator("#cron-unread").textContent()), store.unreadCount());
-  const report = latest.locator(`[data-run="${latestId}"]`);
-  await report.locator("summary").click(); await report.getByRole("heading", { name: "Full report" }).waitFor();
-  await report.getByRole("button", { name: "Mark unread", exact: true }).waitFor();
+  const report = latest.locator(`[data-run="${latestId}"]`), inspector = screen.locator("[data-cron-inspector]");
+  await report.click(); await inspector.getByRole("heading", { name: "Full report" }).waitFor();
+  await inspector.getByRole("button", { name: "Mark unread", exact: true }).waitFor();
   assert.ok(store.getRun(latestId)!.readAt);
-  assert.ok((await report.locator(".md").textContent()).length > 3000, "Full report must not truncate");
-  await report.getByRole("button", { name: "Mark unread", exact: true }).click();
-  await report.locator("summary").filter({ hasText: "Unread" }).waitFor();
+  assert.ok((await inspector.locator(".md").textContent()).length > 3000, "Full report must not truncate");
+  await inspector.getByRole("button", { name: "Mark unread", exact: true }).click();
+  await report.filter({ hasText: "Unread" }).waitFor();
   assert.equal(store.getRun(latestId)!.readAt, null);
   await history.locator(":scope > summary").click();
   await history.locator("[data-run]").first().waitFor();
@@ -131,11 +131,11 @@ try {
   await latest.locator(`[data-run="${failedRun.id}"]`).waitFor();
   assert.equal(await latest.locator(`[data-run="${activeRun.id}"]`).count(), 0);
   await screen.getByLabel("Job", { exact: true }).selectOption(String(failing.id));
-  await latest.locator(`[data-run="${failedRun.id}"] summary`).click();
-  await latest.getByText("Error: A visible failure", { exact: true }).waitFor();
-  await latest.getByText(/Conversation:/).waitFor();
+  await latest.locator(`[data-run="${failedRun.id}"]`).click();
+  await inspector.getByText("Error: A visible failure", { exact: true }).waitFor();
+  await inspector.getByText(/Conversation:/).waitFor();
   // Continue creates an empty conversation and a visible draft, never sends a model request.
-  await latest.getByRole("button", { name: "Continue in chat", exact: true }).click();
+  await inspector.getByRole("button", { name: "Continue in chat", exact: true }).click();
   await screen.waitFor({ state: "hidden" });
   assert.ok((await page.locator("#input").inputValue()).includes("A visible failure"));
   assert.ok((await page.locator("#input").inputValue()).includes(`#${failedRun.id}`));

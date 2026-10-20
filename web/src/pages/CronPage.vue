@@ -582,10 +582,6 @@ onUnmounted(() => {
                 <span class="muted cron-meta-line">Reporting: {{ policies[job.reportPolicy] }}</span>
                 <pre v-if="job.execution" class="cron-script-box">Script: {{ job.execution.command.join(" ") }}
 Directory: {{ job.execution.cwd || "Server default" }}</pre>
-                <details v-else class="cron-prompt-details" @click.stop>
-                  <summary>Prompt</summary>
-                  <pre>{{ job.prompt }}</pre>
-                </details>
                 <div class="row cron-job-actions" @click.stop>
                   <button type="button" class="cron-btn sm" @click="showEditor(job)">Edit</button>
                   <button type="button" class="cron-btn sm" :disabled="job.lastRun?.status === 'running'" @click="runJob(job)">Run now</button>
@@ -599,7 +595,7 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
             </template>
 
             <template v-else>
-              <details
+              <article
                 v-for="run in latest"
                 :key="run.id"
                 class="card cron-run"
@@ -608,48 +604,26 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
                   'is-selected': activeRun?.id === run.id
                 }"
                 :data-run="run.id"
-                @toggle="async (e: Event) => {
-                  const el = e.target as HTMLDetailsElement;
-                  activeRunId = run.id;
-                  if (el.open && view === 'reports' && run.readAt === null) {
-                    await toggleRead(run);
-                  }
-                }"
+                @click="selectRun(run, true)"
               >
-                <summary @click="activeRunId = run.id">
-                  <div class="cron-feed-summary">
-                    <div class="cron-row-top">
-                      <span class="cron-job-title">
-                        <span v-if="view === 'reports' && run.readAt === null" class="cron-unread-pip" aria-hidden="true"></span>
-                        <b>{{ run.jobName }}</b>
-                      </span>
-                      <span class="muted cron-time-stamp">{{ date(run.endedAt || run.startedAt) }}</span>
-                    </div>
-                    <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
-                    <div class="cron-feed-tags">
-                      <span class="pill" :class="run.status">
-                        {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : 'Running' }}
-                      </span>
-                      <span class="pill unread" v-if="view === 'reports' && run.readAt === null">Unread</span>
-                      <span class="cron-tag-mono">#{{ run.id }} · {{ durationText(run) }}</span>
-                    </div>
+                <div class="cron-feed-summary">
+                  <div class="cron-row-top">
+                    <span class="cron-job-title">
+                      <span v-if="view === 'reports' && run.readAt === null" class="cron-unread-pip" aria-hidden="true"></span>
+                      <b>{{ run.jobName }}</b>
+                    </span>
+                    <span class="muted cron-time-stamp">{{ date(run.endedAt || run.startedAt) }}</span>
                   </div>
-                </summary>
-                <div class="cron-inline-body">
-                  <Markdown :content="runMarkdown(run)" />
-                  <div class="grid muted cron-inline-meta">
-                    <span>Run #{{ run.id }} · Started: {{ date(run.startedAt) }} · Finished: {{ date(run.endedAt) }}</span>
-                    <span>Duration: {{ durationText(run) }} · Slot: {{ date(run.slot) }}</span>
-                    <span>Conversation: {{ run.conversationId || 'None (script or interrupted run)' }} · Submission: {{ run.submissionId || 'None' }}</span>
-                  </div>
-                  <div class="row">
-                    <button type="button" class="cron-btn sm" v-if="view === 'reports'" @click="toggleRead(run)">
-                      {{ run.readAt === null ? 'Mark read' : 'Mark unread' }}
-                    </button>
-                    <button type="button" class="cron-btn sm primary" v-if="run.status !== 'running'" @click="handleContinueCronRun(run)">Continue in chat</button>
+                  <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
+                  <div class="cron-feed-tags">
+                    <span class="pill" :class="run.status">
+                      {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : 'Running' }}
+                    </span>
+                    <span class="pill unread" v-if="view === 'reports' && run.readAt === null">Unread</span>
+                    <span class="cron-tag-mono">#{{ run.id }} · {{ durationText(run) }}</span>
                   </div>
                 </div>
-              </details>
+              </article>
               <p class="muted cron-empty-msg" v-if="!latest.length">No matching records.</p>
             </template>
           </div>
@@ -662,7 +636,7 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
           <details class="cron-history" v-show="view !== 'jobs'" ref="historyDetailsEl" @toggle="onHistoryToggle">
             <summary>Show history</summary>
             <div class="cron-feed-list" data-cron-list="history">
-              <details
+              <article
                 v-for="run in historical"
                 :key="run.id"
                 class="card cron-run"
@@ -671,42 +645,26 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
                   'is-selected': activeRun?.id === run.id
                 }"
                 :data-run="run.id"
-                @toggle="() => { activeRunId = run.id; }"
+                @click="selectRun(run, false)"
               >
-                <summary @click="activeRunId = run.id">
-                  <div class="cron-feed-summary">
-                    <div class="cron-row-top">
-                      <span class="cron-job-title">
-                        <span v-if="view === 'reports' && run.readAt === null" class="cron-unread-pip" aria-hidden="true"></span>
-                        <b>{{ run.jobName }}</b>
-                      </span>
-                      <span class="muted cron-time-stamp">{{ date(run.endedAt || run.startedAt) }}</span>
-                    </div>
-                    <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
-                    <div class="cron-feed-tags">
-                      <span class="pill" :class="run.status">
-                        {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : 'Running' }}
-                      </span>
-                      <span class="pill unread" v-if="view === 'reports' && run.readAt === null">Unread</span>
-                      <span class="cron-tag-mono">#{{ run.id }} · {{ durationText(run) }}</span>
-                    </div>
+                <div class="cron-feed-summary">
+                  <div class="cron-row-top">
+                    <span class="cron-job-title">
+                      <span v-if="view === 'reports' && run.readAt === null" class="cron-unread-pip" aria-hidden="true"></span>
+                      <b>{{ run.jobName }}</b>
+                    </span>
+                    <span class="muted cron-time-stamp">{{ date(run.endedAt || run.startedAt) }}</span>
                   </div>
-                </summary>
-                <div class="cron-inline-body">
-                  <Markdown :content="runMarkdown(run)" />
-                  <div class="grid muted cron-inline-meta">
-                    <span>Run #{{ run.id }} · Started: {{ date(run.startedAt) }} · Finished: {{ date(run.endedAt) }}</span>
-                    <span>Duration: {{ durationText(run) }} · Slot: {{ date(run.slot) }}</span>
-                    <span>Conversation: {{ run.conversationId || 'None (script or interrupted run)' }} · Submission: {{ run.submissionId || 'None' }}</span>
-                  </div>
-                  <div class="row">
-                    <button type="button" class="cron-btn sm" v-if="view === 'reports'" @click="toggleRead(run)">
-                      {{ run.readAt === null ? 'Mark read' : 'Mark unread' }}
-                    </button>
-                    <button type="button" class="cron-btn sm primary" v-if="run.status !== 'running'" @click="handleContinueCronRun(run)">Continue in chat</button>
+                  <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
+                  <div class="cron-feed-tags">
+                    <span class="pill" :class="run.status">
+                      {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : 'Running' }}
+                    </span>
+                    <span class="pill unread" v-if="view === 'reports' && run.readAt === null">Unread</span>
+                    <span class="cron-tag-mono">#{{ run.id }} · {{ durationText(run) }}</span>
                   </div>
                 </div>
-              </details>
+              </article>
               <p class="muted cron-empty-msg" v-if="!historical.length && !historyFetching">No history records.</p>
               <p class="muted cron-empty-msg" v-if="historyFetching">Loading history…</p>
             </div>
@@ -718,7 +676,7 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
       </aside>
 
       <!-- RIGHT: Persistent Detail Inspector (Desktop Master-Detail Workbench) -->
-      <section class="cron-inspector-pane" aria-label="Selected item inspector">
+      <section class="cron-inspector-pane" data-cron-inspector aria-label="Selected item inspector">
         <template v-if="view === 'jobs' && activeJob">
           <div class="cron-inspector-header">
             <div class="cron-insp-titles">
@@ -794,7 +752,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
                 Run job now
               </button>
               <button v-if="activeRun.status !== 'running'" type="button" class="cron-btn primary" @click="handleContinueCronRun(activeRun)">
-                Continue in chat ↗
+                Continue in chat
               </button>
             </div>
           </div>
@@ -818,7 +776,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
             </div>
             <div class="cron-tel-cell">
               <span class="cron-tel-label">Conversation ID</span>
-              <span class="cron-tel-val">{{ activeRun.conversationId || 'None' }}</span>
+              <span class="cron-tel-val">Conversation: {{ activeRun.conversationId || 'None' }}</span>
             </div>
           </div>
 
@@ -1180,7 +1138,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 }
 
 .cron-job:hover,
-.cron-run > summary:hover {
+.cron-run:hover {
   background: #161b21;
 }
 
@@ -1283,19 +1241,10 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   margin-top: 4px;
 }
 
-/* Details Run rows */
+/* Run rows */
 .cron-run {
-  padding: 0;
-}
-
-.cron-run > summary {
-  list-style: none;
   cursor: pointer;
   padding: 14px 16px;
-}
-
-.cron-run > summary::-webkit-details-marker {
-  display: none;
 }
 
 .cron-feed-summary {
@@ -1585,13 +1534,34 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 @media (max-width: 900px) {
   .cron-split-workbench {
-    grid-template-columns: 1fr;
-  }
-  .cron-inspector-pane {
-    display: none;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
   }
   .cron-master-pane {
+    flex: none;
     border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow: visible;
+  }
+  .cron-master-scroll {
+    flex: none;
+    overflow-y: visible;
+  }
+  .cron-inspector-pane {
+    flex: none;
+    overflow: visible;
+  }
+  .cron-inspector-body {
+    flex: none;
+    overflow-y: visible;
+    padding: 16px;
+  }
+  .cron-inspector-header {
+    padding: 14px 16px;
+  }
+  .cron-telemetry-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .cron-top-bar {
     padding: 8px 12px;
