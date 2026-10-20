@@ -2,6 +2,7 @@ import { defineDoc, defineExtension, defineTool, section, type ConversationId, t
 import { Type } from "typebox";
 import { AskDoc } from "./ask.js";
 import { GoalDoc } from "./goal.js";
+import { classifyLimit } from "./limit-reset.js";
 
 export type SessionStatus = "ready" | "running" | "finished" | "needs_approval" | "needs_input" | "limit_reached" | "failed" | "stopped";
 export interface SessionState { status: SessionStatus; statusReason: string | null }
@@ -70,9 +71,22 @@ export const SessionStatusExtension = defineExtension({
 
 // Only failure metadata is inspected. Ordinary response text must never change session state.
 function isLimitError(message: string) {
-  return /\b(?:rate[_ -]?limit(?:ed)?|quota(?:[_ -]exceeded)?|insufficient_quota|usage[_ -]limit|token[_ -](?:budget|limit)|context[_ -](?:window|length|limit)|max(?:imum)?[_ -](?:tokens|context)|too many requests)\b|\b429\b|\b(?:budget|capacity) (?:exceeded|exhausted)|\bcontext.{0,30}(?:exceeded|too (?:large|long))|\bhit your (?:usage )?limit/i.test(message);
+  return classifyLimit(message).kind === "wait" || /\b(?:rate[_ -]?limit(?:ed)?|quota(?:[_ -]exceeded)?|insufficient_quota|usage[_ -]limit|token[_ -](?:budget|limit)|context[_ -](?:window|length|limit)|max(?:imum)?[_ -](?:tokens|context)|too many requests)\b|\b429\b|\b(?:budget|capacity) (?:exceeded|exhausted)|\bcontext.{0,30}(?:exceeded|too (?:large|long))|\bhit your (?:usage )?limit/i.test(message);
 }
 const state = (status: SessionStatus, statusReason: string | null = null): SessionState => ({ status, statusReason });
+
+/** Model failure text of the newest foreground turn, with its input boundary. Undefined when the turn did not fail. */
+export async function readTurnFailure(tx: Tx, id: ConversationId): Promise<{ boundary: number; message: string } | undefined> {
+  const tail = await sessionTail(tx, id);
+  if (tail.reset && !tail.assistant) return undefined;
+  const generation = (await tx.scanTasks({ conversationId: id, kind: "pi.generation", background: false, order: "descending" }, 1)).items[0];
+  const outcome = generation?.state.outcome;
+  if (outcome?.status === "failed" || outcome?.status === "faulted") return { boundary: tail.boundary, message: outcome.error.message };
+  if (outcome?.status === "aborted" || outcome?.status === "orphaned") return undefined;
+  const message = tail.assistant?.model?.find(message => message.role === "assistant");
+  if (message?.role === "assistant" && message.stopReason === "error") return { boundary: tail.boundary, message: message.errorMessage ?? "" };
+  return undefined;
+}
 
 export async function readSessionStatus(tx: Tx, id: ConversationId, running: boolean): Promise<SessionState> {
   const ask = await tx.doc(AskDoc, id);

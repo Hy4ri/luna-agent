@@ -33,6 +33,16 @@ The Providers and MCP panels also write this file, not separate settings files.
   Running tool calls finish first. The next model request waits for compaction, then resumes.
   A final answer can compact before the run settles, without starting another turn.
   Disabling automatic compaction leaves emergency context-overflow recovery enabled.
+- `autoContinue`: continue a turn automatically after a rate or usage limit resets. `enabled` defaults to `false`.
+  Edit it under **Settings → Automation**. Changes apply live.
+  When a top-level turn stops on a limit error, Luna reads the reset time from the error and waits until one minute after it.
+  It understands epoch fields (`resets_at`), clock times with a zone ("resets 12:30am (Asia/Amman)"), durations
+  ("try again in 6m0s", Google `retryDelay`), and ISO times. Without a time, it retries after 2, 10, 30, then 60 minutes.
+  Short transient errors are first retried inside the turn by the runtime, as before.
+  Context overflow, authentication, billing, and `insufficient_quota` errors never wait.
+  `maxWaitHours` (default `168`) skips longer waits. `maxAttempts` (default `5`) stops continuations that hit a limit again.
+  A new message or **Cancel** next to the resume time removes the wait. Waits survive a restart.
+  Cron runs and subagents never continue automatically.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.
 - `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` overrides.
   Set both provider and model, or omit both to inherit the parent model.

@@ -22,7 +22,7 @@ const groups: Record<string, string[]> = {
   models: ["provider", "model", "thinkingLevel", "subagents", "providers", "auxiliary"],
   context: ["instructions", "compaction"],
   tools: ["web", "browser", "processes", "mcpServers", "extensions", "skillDirs"],
-  automation: ["cron", "improve", "learn"],
+  automation: ["autoContinue", "cron", "improve", "learn"],
   workspace: [],
 }
 
@@ -143,6 +143,7 @@ const titles: Record<string, string> = {
   transport: "Transport", command: "Command", args: "Arguments", env: "Environment variables", url: "URL", headers: "Headers",
   busyInput: "Busy chat input", mode: "Mode", acknowledgements: "Show acknowledgements",
   compaction: "Automatic compaction", triggerPercent: "Context trigger (%)",
+  autoContinue: "Continue after usage limits", maxWaitHours: "Longest wait for a reset (hours)", maxAttempts: "Attempts in a row",
   enabled: "Enabled", defer: "Defer tools until search", timeoutMs: "Tool-call timeout (milliseconds)",
 }
 
@@ -159,6 +160,7 @@ function labelFor(path: (string | number)[]): string {
   if (joined === "processes.enabled") return "Enable background command starts"
   if (joined === "browser.provider") return "Browser provider"
   if (joined === "compaction.enabled") return "Enable automatic compaction"
+  if (joined === "autoContinue.enabled") return "Continue automatically when a usage limit resets"
   if (typeof last === "number") {
     return (additions[String(secondLast)] || "Item") + " " + (Number(last) + 1)
   }
@@ -469,6 +471,7 @@ function openWorkspacePanel(panelId: string) {
 
               <p v-if="key === 'busyInput'" class="text-muted-foreground text-sm">Applies now to all chats. Interrupt redirects the model; tools finish safely. Queue runs separate turns. Steer adds information at the next boundary. Use /queue, /steer, or /redirect for one message.</p>
               <p v-if="key === 'compaction'" class="text-muted-foreground text-sm">Applies live to existing sessions. Running tool calls finish first. Emergency overflow recovery stays enabled.</p>
+              <p v-if="key === 'autoContinue'" class="text-muted-foreground text-sm">Applies live. When a turn stops on a rate or usage limit, Luna waits for the reset time and sends a continuation. Errors without a time retry after 2, 10, 30, then 60 minutes. Context, auth, and billing errors never wait. A new message cancels the wait.</p>
               <p v-if="key === 'processes'" class="text-muted-foreground text-sm">Allows native background shell commands with the same host access as bash. Completion resumes the owning chat. Normal shutdown stops commands. Save, then restart Luna to apply changes.</p>
               <p v-if="key === 'browser'" class="text-muted-foreground text-sm">Browser tools use the selected provider and its named MCP connection. Save, then restart Luna to apply routing changes.</p>
               <p v-if="key === 'web'" class="text-muted-foreground text-sm">Search and extraction use separate provider selections. DDGS uses the named MCP connection and its protected credentials. Save, then restart Luna to apply routing changes.</p>

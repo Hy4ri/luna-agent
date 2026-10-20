@@ -27,6 +27,7 @@ import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
 import { readAnalytics } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
+import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, readSideMedia } from "./side-media.js";
 import { activeContextTokens } from "./context-usage.js";
@@ -38,6 +39,8 @@ export interface ServerOptions {
   sideCommands?: SideCommands;
   /** Automatic and on-demand session titles. Absent: no title generation. */
   titler?: SessionTitler;
+  /** Automatic continuation after usage limits. Absent: no waits are reported or cancelled. */
+  limitContinuer?: LimitContinuer;
   settings?: SettingsStore;
   /** Policy for a runtime without a file-backed settings store. */
   compaction?: () => { enabled: boolean; triggerPercent: number };
@@ -97,6 +100,9 @@ async function isRunning(tx: Tx, id: ConversationId) {
 export function createApp(opts: ServerOptions) {
   const { harness } = opts;
   const sideCommands = opts.sideCommands ?? new SideCommands({ harness, models: opts.models });
+  /** Epoch ms of the scheduled continuation, only while the setting is on and nothing runs. */
+  const resumeAt = async (tx: Tx, id: ConversationId, running: boolean) =>
+    !running && opts.limitContinuer?.enabled() ? (await readLimitWait(tx, id))?.resumeAt ?? null : null;
   const app = new Hono();
   const started = Date.now();
   const jobView = (job: SideJob) => ({ ...job, media: (job.kind === "bg" && job.status === "complete" ? sideMedia(job.text) : []).map(({ name, mimeType, type, directive }, index) => ({
@@ -184,7 +190,7 @@ export function createApp(opts: ServerOptions) {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const sessions = await harness.commit(async (tx) => {
       const links = opts.conversations?.projects.links();
-      const out: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; lastActivity: number | null; createdAt: number | null })[] = [];
+      const out: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; resumeAt: number | null; lastActivity: number | null; createdAt: number | null })[] = [];
       let cursor;
       do {
         const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
@@ -197,7 +203,7 @@ export function createApp(opts: ServerOptions) {
           const sessionStatus = await readSessionStatus(tx, r.id, running);
           const createdAt = (await tx.doc(SessionCreated, r.id)).at ?? null;
           const lastActivity = await newestMessageTime(tx, r.id);
-          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, ...sessionStatus, lastActivity, createdAt });
+          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, ...sessionStatus, resumeAt: await resumeAt(tx, r.id, running), lastActivity, createdAt });
         }
         cursor = page.next;
       } while (cursor);
@@ -332,13 +338,14 @@ export function createApp(opts: ServerOptions) {
       // Mark read in the same commit. readSessionStatus reads the doc before the mark,
       // so this GET returns "finished"; subsequent reads see "ready".
       if (!running && status.status === "finished") await markSessionRead(tx, conv.id);
-      return { running, ...status };
+      return { running, ...status, resumeAt: await resumeAt(tx, conv.id, running) };
     }, context);
     return c.json({
       id: conv.id,
       running,
       status: sessionStatus.status,
       statusReason: sessionStatus.statusReason,
+      resumeAt: sessionStatus.resumeAt,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       usage: usage ?? null,
       contextUsage: await contextUsage(conv),
@@ -364,6 +371,13 @@ export function createApp(opts: ServerOptions) {
       ...(b.instructions !== undefined && { instructions: b.instructions || null }),
     }, context);
     return c.json({ ok: true });
+  });
+
+  app.delete("/v1/sessions/:id/limit-wait", async (c) => {
+    if (!opts.limitContinuer) return err(c, 404, "auto-continue disabled");
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    return c.json({ cancelled: await opts.limitContinuer.cancel(Number(conv.id)) });
   });
 
   app.post("/v1/sessions/:id/reset", async (c) => {
@@ -611,7 +625,7 @@ export function createApp(opts: ServerOptions) {
     const boardChanged = () => { boardDirty = true; arm(); };
     // Register BEFORE the initial event, so creation during attachment cannot be missed.
     const unsubscribe = harness.subscribeCommits(publication => {
-      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission" || change.type === "document" && ["luna.ask", "luna.goal", "luna.session-handoff", "luna.session-read"].includes(change.record.kind))) changed();
+      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission" || change.type === "document" && ["luna.ask", "luna.goal", "luna.session-handoff", "luna.session-read", "luna.limit-waits"].includes(change.record.kind))) changed();
     });
     const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
     const unsubscribeBoard = opts.conversations?.subscribeBoard(boardChanged);

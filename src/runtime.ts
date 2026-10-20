@@ -32,6 +32,7 @@ import { createDdgsWebProvider } from "./ddgs-web-provider.js";
 import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
+import { LimitContinuer } from "./limit-continue.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
@@ -227,9 +228,16 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   titler.start();
   recall?.titles((id) => conversations.get(id).title);
 
+  // Continue after a usage limit resets. Cron runs have their own timeout and run log, so they never wait.
+  const isCronConversation = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
+  const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
+    skip: (id) => !!isCronConversation?.get(String(id)) });
+  await limitContinuer.start();
+
   return {
     sideCommands,
     titler,
+    limitContinuer,
     config: cfg,
     settings,
     compaction,
@@ -253,6 +261,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     async close() {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
+      await limitContinuer.close();
       await titler.close();
       await sideCommands.close();
       providers.close();
