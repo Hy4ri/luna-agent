@@ -143,6 +143,23 @@ The `learn` extension finds lessons in past sessions. It does nothing during a l
 Data lives in `<dataDir>/learn.db`. HTTP: `GET /v1/lessons`, `POST /v1/lessons/scan`, and
 `POST /v1/lessons/:id/approve|reject|rollback` (`reject` takes an optional `note`).
 
+## Learning from a source
+
+`/learn <source> [objective]` studies a web page, repository, or local file and saves what it learns as a skill.
+Quote a source that contains spaces: `/learn "/docs/My Guide.pdf" the release steps`.
+An empty argument returns usage.
+
+The command becomes a normal turn in the current chat. It queues, steers, and stops like any other message.
+The agent reads the source with its enabled tools (`web_extract`, browser, `read`, shell).
+It then creates or updates one managed skill with `skill_manage`, which lints and backs up the previous version.
+Use `skill_rollback` to undo an update. External skills stay read-only; the agent creates a managed skill instead.
+The skill lists its sources and marks each point as verified or assumed.
+Sending `/learn` authorizes this one skill write; there is no separate approval step.
+
+Source content is untrusted data. The instruction tells the agent to ignore any instructions in it.
+This is a prompt rule, not a sandbox: the agent keeps its normal tool permissions during the turn.
+Requires the `skills` extension. `pnpm run verify:learn-command` checks it with a scripted model only.
+
 ## Native browser tools
 
 The agent uses these provider-neutral tools without `tool_search` discovery:
