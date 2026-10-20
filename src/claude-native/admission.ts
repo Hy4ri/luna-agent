@@ -700,7 +700,7 @@ export class Admission {
       this.denied++;
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
-      const body = Buffer.from('{"type":"error","error":{"type":"invalid_request_error","message":"HERMES_MODEL_ADMISSION_CONSUMED"}}', 'utf8');
+      const body = Buffer.from('{"type":"error","error":{"type":"invalid_request_error","message":"LUNA_MODEL_ADMISSION_CONSUMED"}}', 'utf8');
       res.setHeader('Content-Length', body.length);
       res.end(body);
       return;

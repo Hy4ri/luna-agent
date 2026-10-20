@@ -106,7 +106,7 @@ test("admission forwards exactly one request and captures real usage", async () 
     assert.equal(gate.requestId, "req-fixture");
     const second = await post(gate.url, { messages: [] });
     assert.equal(second.status, 400);
-    assert.match(await second.text(), /HERMES_MODEL_ADMISSION_CONSUMED/);
+    assert.match(await second.text(), /LUNA_MODEL_ADMISSION_CONSUMED/);
     assert.equal(gate.denied, 1);
     assert.equal(upstream.requests.length, 1);
     const probe = await fetch(gate.url.replace(/\/admit\/.*/, "/api/hello"));
