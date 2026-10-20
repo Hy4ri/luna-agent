@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { createModels, createProvider, fauxProvider, type MutableModels } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { parseConfig } from "./config.js";
-import { FileCredentialStore, ProviderManager } from "./providers.js";
+import { detectModels, FileCredentialStore, ProviderManager } from "./providers.js";
 import { startRuntime } from "./runtime.js";
 import { createApp } from "./server.js";
 
@@ -22,6 +22,13 @@ let extraModel = false;
 let modelFailure = false;
 const fake = createServer((req, res) => {
   if (req.url === "/v1/models" && modelFailure) { res.writeHead(503).end(); return; }
+  // CLIProxyAPI-style: ids only, limits only in Anthropic format (non-Claude ids cloaked as prefix + reversed id).
+  if (req.url === "/proxy/v1/models") {
+    res.writeHead(200, { "content-type": "application/json" });
+    return void res.end(JSON.stringify({ data: req.headers["anthropic-version"]
+      ? [{ id: "claude-x-thinking", max_input_tokens: 200000, max_tokens: 64000 }, { id: "claude-fable-5-dd-" + [..."gemini-y"].reverse().join(""), max_input_tokens: 1048576, max_tokens: 65536 }]
+      : [{ id: "claude-x-thinking" }, { id: "gemini-y" }, { id: "plain-z" }] }));
+  }
   if (req.url === "/v1/models") { res.writeHead(200, { "content-type": "application/json" }); return void res.end(JSON.stringify({ data: [{ id: "tiny-1", context_length: 1000000, top_provider: { max_completion_tokens: 64000 } }, { id: "tiny-2" }, ...(extraModel ? [{ id: "tiny-new" }] : [])] })); }
   if (req.url === "/v1/chat/completions" && req.method === "POST") {
     seenAuth = String(req.headers.authorization ?? "");
@@ -224,6 +231,10 @@ try {
   assert.equal(legacy.models.getModel("old", "tiny-2")!.contextWindow, 128000, "no reported window keeps the fallback");
   assert.equal(legacy.models.getModel("old", "pinned")!.contextWindow, 32000, "saved window wins");
   ok("refresh applies endpoint-reported context windows to saved custom models");
+
+  const proxied = await detectModels(base.replace(/\/v1$/, "/proxy/v1"), "sk-proxy");
+  assert.deepEqual(proxied, [{ id: "claude-x-thinking", contextWindow: 200000, maxTokens: 64000 }, { id: "gemini-y", contextWindow: 1048576, maxTokens: 65536 }, { id: "plain-z" }]);
+  ok("limits missing from the OpenAI list are read from the Anthropic-format list, including cloaked ids");
 
   assert.equal((await J("/v1/providers/custom/anthropic", send("DELETE"))).status, 400);
   assert.equal((await J("/v1/providers/custom/local", send("DELETE"))).status, 200);

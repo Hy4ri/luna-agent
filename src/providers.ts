@@ -120,29 +120,53 @@ function limit(m: Record<string, unknown>, keys: string[]): number | undefined {
   }
   return undefined;
 }
-// OpenRouter/ZenMux: context_length; vLLM: max_model_len; others: context_window / max_context_length.
-const CONTEXT_KEYS = ["context_length", "context_window", "max_context_length", "max_model_len", "top_provider.context_length", "contextWindow"];
+// OpenRouter/ZenMux: context_length; vLLM: max_model_len; Anthropic format: max_input_tokens; others: context_window / max_context_length.
+const CONTEXT_KEYS = ["context_length", "context_window", "max_input_tokens", "max_context_length", "max_model_len", "top_provider.context_length", "contextWindow"];
 const OUTPUT_KEYS = ["max_completion_tokens", "max_output_tokens", "top_provider.max_completion_tokens", "max_tokens", "maxTokens"];
 
-/** Ask an OpenAI-compatible endpoint for its models (GET <baseUrl>/models), with any context/output limits it reports. */
-export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch, signal?: AbortSignal): Promise<CustomModelDef[]> {
+type ModelEntry = Record<string, unknown>;
+async function listModels(baseUrl: string, headers: Record<string, string>, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<ModelEntry[]> {
   const r = await fetchImpl(baseUrl.replace(/\/+$/, "") + "/models", {
-    headers: key && key !== "none" ? { authorization: `Bearer ${key}` } : {},
+    headers,
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
   });
   if (!r.ok) throw new Error(`GET /models: HTTP ${r.status}`);
-  const body = await r.json() as { data?: Record<string, unknown>[]; models?: Record<string, unknown>[] };
+  const body = await r.json() as { data?: ModelEntry[]; models?: ModelEntry[] };
+  return body.data ?? body.models ?? [];
+}
+const entryId = (m: ModelEntry) => String(m.id ?? m.name ?? "");
+// CLIProxyAPI's Anthropic-format list cloaks non-Claude ids as this prefix + the id reversed.
+const CLOAK_PREFIX = "claude-fable-5-dd-";
+
+/** Ask an OpenAI-compatible endpoint for its models (GET <baseUrl>/models), with any context/output limits it reports. */
+export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch, signal?: AbortSignal): Promise<CustomModelDef[]> {
+  const auth: Record<string, string> = key && key !== "none" ? { authorization: `Bearer ${key}` } : {};
+  const entries = await listModels(baseUrl, auth, fetchImpl, signal);
   const models: CustomModelDef[] = [];
-  for (const m of body.data ?? body.models ?? []) {
-    const id = String(m.id ?? m.name ?? "");
-    if (!id) continue;
-    const def: CustomModelDef = { id };
+  const apply = (def: CustomModelDef, m: ModelEntry) => {
     const cw = limit(m, CONTEXT_KEYS), mt = limit(m, OUTPUT_KEYS);
     if (cw !== undefined) def.contextWindow = cw;
     if (mt !== undefined && (cw === undefined || mt <= cw)) def.maxTokens = mt;
+  };
+  for (const m of entries) {
+    const id = entryId(m);
+    if (!id) continue;
+    const def: CustomModelDef = { id };
+    apply(def, m);
     models.push(def);
   }
   if (!models.length) throw new Error("the endpoint listed no models; enter model ids by hand");
+  // Proxies such as CLIProxyAPI list limits only in Anthropic format. Ask once more; best effort.
+  if (models.some((d) => d.contextWindow === undefined)) {
+    const anthropic = await listModels(baseUrl, { ...auth, "anthropic-version": "2023-06-01" }, fetchImpl, signal).catch(() => []);
+    const byId = new Map(models.map((d) => [d.id, d]));
+    for (const m of anthropic) {
+      let id = entryId(m);
+      if (!byId.has(id) && id.startsWith(CLOAK_PREFIX)) id = [...id.slice(CLOAK_PREFIX.length)].reverse().join("");
+      const def = byId.get(id);
+      if (def && def.contextWindow === undefined) apply(def, m);
+    }
+  }
   return models;
 }
 
