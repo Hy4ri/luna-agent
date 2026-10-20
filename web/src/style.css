@@ -640,15 +640,18 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
 .transcript-jumps button[hidden] { display: none; }
 #extras { padding: 0 max(24px, calc((100% - 760px) / 2)); display: flex; flex-direction: column; gap: 8px; max-height: 28dvh; overflow: auto; flex-shrink: 0; font-size: 14.5px; font-weight: 440; }
 #extras:empty { display: none; }
-#extras .card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card); min-width: 0; }
-#extras .grid { gap: 10px; }
-#extras .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-#extras .grow { flex: 1; }
-#extras .pill { font-size: 12px; color: var(--primary); }
-#extras button:not(.icon-button), #extras input:not([type='radio']):not([type='checkbox']) { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--secondary); font-size: 14px; }
-#extras .opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; background: var(--card); font-size: 14.5px; }
-#extras .opt:has(input:checked) { border-color: var(--primary); background: var(--acc-soft); }
-#extras .opt input { margin-top: 3px; }
+.chat-extras .card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card); min-width: 0; }
+.chat-extras .grid { gap: 10px; }
+.chat-extras .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chat-extras .grow { flex: 1; }
+.chat-extras .pill { font-size: 12px; color: var(--primary); }
+.chat-extras button:not(.icon-button), .chat-extras input:not([type='radio']):not([type='checkbox']) { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--secondary); font-size: 14px; }
+.chat-extras .opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; background: var(--card); font-size: 14.5px; }
+.chat-extras .opt:has(input:checked) { border-color: var(--primary); background: var(--acc-soft); }
+.chat-extras .opt input { margin-top: 3px; flex-shrink: 0; }
+#questions { min-width: 0; gap: 8px; font-size: 14.5px; font-weight: 440; }
+#questions .opt > span { min-width: 0; overflow-wrap: anywhere; }
+#questions pre.code { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; }
 #extras .activity { font-size: 13.5px; font-weight: 420; padding: 0; }
 .activity summary { cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 10px; list-style: none; }
 .activity summary::-webkit-details-marker { display: none; }

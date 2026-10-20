@@ -10,6 +10,7 @@ import MessageFooter from "./MessageFooter.vue";
 import ToolCall from "./ToolCall.vue";
 import SideContent from "./SideContent.vue";
 import Welcome from "./Welcome.vue";
+import Questions from "./Questions.vue";
 
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
@@ -28,6 +29,14 @@ function handleScroll() {
   if (log && jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
   if (log && jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
 }
+// Show newly arrived clarifications at their start, without creating a second scroll area.
+watch(() => chat.extras?.questions, (questions, previous) => {
+  const added = questions?.find(q => !previous?.some(old => old.callId === q.callId));
+  void nextTick(() => {
+    if (added) document.querySelector<HTMLElement>(`[data-ask="${CSS.escape(added.callId)}"]`)?.scrollIntoView({ block: "start" });
+    handleScroll();
+  });
+});
 watch(() => chat.followTick, () => nextTick(() => scroll(true)));
 watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, chat.notices.length, activityLabel.value], () => nextTick(() => scroll()));
 const results = computed(() => {
@@ -105,6 +114,7 @@ function backgroundReport(entry: any, message: any): boolean {
       </div>
     </section>
     <div v-if="activityLabel" id="activity" role="status" aria-live="polite">{{ activityLabel }}</div>
+    <Questions />
   </div>
   <div class="transcript-jumps">
     <button id="jump-top" ref="jumpTopRef" type="button" hidden aria-label="Jump to top" title="Jump to top" @click="jumpToTop"><ArrowUp :size="18" aria-hidden="true" /></button>
