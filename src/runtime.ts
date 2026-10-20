@@ -126,7 +126,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     return text || undefined;
   })] }));
   if (on("delegate")) extensions.push(createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
-  if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm()));
+  if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler));
   const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
     : undefined;
