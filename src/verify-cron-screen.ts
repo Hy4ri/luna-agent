@@ -54,12 +54,13 @@ try {
   assert.deepEqual(store.reports({ history: true, jobId: changes.id }).map(r => r.id), [c1.id]);
   assert.deepEqual(store.reports({ before: c3.id }).map(r => r.id), [a2.id, 1]);
   assert.equal(store.reports({ limit: 1 }).length, 1);
-  assert.equal(store.unreadCount(), 5);
-  store.markRead(a1.id); assert.equal(store.unreadCount(), 4);
+  assert.equal(store.unreadCount(), 3);
+  store.markRead(a2.id); assert.equal(store.unreadCount(), 2);
   store.finish(a1.id, "ok", "changed duplicate finish", null, ++clock);
   assert.equal(store.getRun(a1.id)!.output, "first");
-  assert.ok(store.getRun(a1.id)!.readAt);
-  store.markRead(a1.id, false); assert.equal(store.unreadCount(), 5);
+  assert.ok(store.getRun(a2.id)!.readAt);
+  store.markRead(a2.id, false); assert.equal(store.unreadCount(), 3);
+  store.markRead(a1.id); assert.equal(store.unreadCount(), 3, "Reading historical report does not change latest unread count");
   assert.throws(() => store.markRead(c2.id));
   assert.throws(() => store.markRead(99999));
   console.log("OK report policies, trim comparison, latest/history, cursor, unread and idempotent completion");
