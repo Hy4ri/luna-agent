@@ -171,9 +171,8 @@ export async function boot() {
   try {
     const hl = await (await fetch("/health")).json();
     if (hl.auth && !token.value) return showLogin();
-    await models.loadModels();
-    await sessions.loadProjects();
-    await sessions.loadSessions();
+    // Independent reads: fetch in parallel so boot costs one round trip, not three.
+    await Promise.all([models.loadModels(), sessions.loadProjects(), sessions.loadSessions()]);
     if (chat.chat.session) await chat.openSession(chat.chat.session); else composer.restoreDraft();
     chat.startListFeed();
     void badge.refreshCronBadge();

@@ -12,6 +12,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
 import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
+import { compress } from "hono/compress";
 import { AskDoc, checkAnswer } from "./ask.js";
 import { readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
 import { Children } from "./delegate.js";
@@ -25,7 +26,7 @@ import { context, ProcessOwner, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
-import { readAnalytics } from "./analytics.js";
+import { createAnalyticsCache, readAnalytics } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
 import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
@@ -138,6 +139,9 @@ export function createApp(opts: ServerOptions) {
     return err(c, 500, (e as Error).message ?? String(e));
   });
 
+  // Session pages and catalogs are 100-400 KB of JSON; gzip cuts them ~5x on Wi-Fi and phones. SSE is never compressed.
+  app.use("*", compress({ contentTypeFilter: /^(?:application\/json|text\/javascript|text\/css)/ }));
+
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
   const webApp = createWebApp(new URL("../dist/web/", import.meta.url));
   app.route("/", webApp);
@@ -166,7 +170,8 @@ export function createApp(opts: ServerOptions) {
   };
 
   app.get("/v1/settings", c => opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"));
-  app.get("/v1/analytics", async c => c.json(await readAnalytics(harness, opts.models)));
+  const analyticsCache = createAnalyticsCache(harness);
+  app.get("/v1/analytics", async c => c.json(await readAnalytics(harness, opts.models, analyticsCache)));
   app.put("/v1/settings", async c => {
     if (!opts.settings) return err(c, 404, "settings disabled");
     try {
@@ -187,29 +192,71 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- sessions ----
+  // The list is refetched on every sessions_changed event, which fires on each committed entry while any session
+  // runs. Rebuilding every row costs ~10 synchronous SQLite reads per conversation and blocked the event loop for
+  // seconds. Cache the storage-derived part of each row and rebuild only conversations that a commit touched.
+  // Metadata, project links and the limit-continue setting stay live: they are cheap and change outside commits.
+  type SessionRow = SessionState & { hidden: boolean; parent: unknown; firstUser: string; running: boolean; wait: number | null; lastActivity: number | null; createdAt: number | null };
+  const rows = new Map<string, SessionRow>();
+  const generations = new Map<string, number>();
+  let epoch = 0, caching = true;
+  try { harness.subscribeCommits(publication => {
+    for (const change of publication.changes) {
+      const id = change.type === "conversation" ? change.value.id
+        : change.type === "entry" || change.type === "task" || change.type === "submission" ? change.value.conversationId
+        : change.conversationId;
+      if (id === undefined) { rows.clear(); epoch++; continue; }
+      const k = String(id); rows.delete(k); generations.set(k, (generations.get(k) ?? 0) + 1);
+    }
+  }); } catch { caching = false; } // No commit feed means no invalidation: rebuild every row instead.
+  const buildRow = async (tx: Tx, r: { id: ConversationId; parent?: unknown }): Promise<SessionRow> => {
+    const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
+    const firstUser = textOf(head.find((e) => e.kind === "pi.user")).replace(/\s+/g, " ").slice(0, 60);
+    if (head.some((e) => e.kind === "delegate.child")) return { hidden: true, parent: null, firstUser, running: false, status: "ready", statusReason: null, wait: null, lastActivity: null, createdAt: null };
+    const running = await isRunning(tx, r.id);
+    return {
+      hidden: false, parent: r.parent ?? null, firstUser, running, ...await readSessionStatus(tx, r.id, running),
+      wait: running ? null : (await readLimitWait(tx, r.id))?.resumeAt ?? null,
+      lastActivity: await newestMessageTime(tx, r.id),
+      createdAt: (await tx.doc(SessionCreated, r.id)).at ?? null,
+    };
+  };
+  // Concurrent requests (several tabs reacting to one event) share one storage pass.
+  let listing: Promise<[ConversationId, SessionRow][]> | undefined;
+  const listRows = () => listing ??= harness.commit(async (tx) => {
+    const seen = new Set<string>(), out: [ConversationId, SessionRow][] = [];
+    let cursor;
+    do {
+      const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
+      for (const r of page.items) {
+        const k = String(r.id); seen.add(k);
+        let row = rows.get(k);
+        if (!row) {
+          const gen = generations.get(k) ?? 0, at = epoch;
+          row = await buildRow(tx, r);
+          // A commit for this conversation during the read leaves the row uncached; the next request rereads it.
+          if (caching && (generations.get(k) ?? 0) === gen && epoch === at) rows.set(k, row);
+        }
+        out.push([r.id, row]);
+      }
+      cursor = page.next;
+    } while (cursor);
+    for (const k of rows.keys()) if (!seen.has(k)) rows.delete(k);
+    return out;
+  }, context).finally(() => { listing = undefined; });
   app.get("/v1/sessions", async (c) => {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
-    const sessions = await harness.commit(async (tx) => {
-      const links = opts.conversations?.projects.links();
-      const out: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; resumeAt: number | null; lastActivity: number | null; createdAt: number | null })[] = [];
-      let cursor;
-      do {
-        const page = await tx.scanConversations({ order: "descending" }, 100, cursor);
-        for (const r of page.items) {
-          const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
-          if (head.some((e) => e.kind === "delegate.child")) continue;
-          const user = head.find((e) => e.kind === "pi.user");
-          const meta = opts.conversations?.get(r.id) ?? { title: null, archived: false, pinned: false };
-          const running = await isRunning(tx, r.id);
-          const sessionStatus = await readSessionStatus(tx, r.id, running);
-          const createdAt = (await tx.doc(SessionCreated, r.id)).at ?? null;
-          const lastActivity = await newestMessageTime(tx, r.id);
-          out.push({ id: r.id, parent: r.parent ?? null, project: links?.get(r.id) ?? null, ...meta, title: meta.title ?? textOf(user).replace(/\s+/g, " ").slice(0, 60), running, ...sessionStatus, resumeAt: await resumeAt(tx, r.id, running), lastActivity, createdAt });
-        }
-        cursor = page.next;
-      } while (cursor);
-      return out.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id));
-    }, context);
+    const built = await listRows();
+    const links = opts.conversations?.projects.links();
+    const continuing = !!opts.limitContinuer?.enabled();
+    const sessions: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; resumeAt: number | null; lastActivity: number | null; createdAt: number | null })[] = [];
+    for (const [id, row] of built) {
+      if (row.hidden) continue;
+      const { hidden: _hidden, firstUser, wait, ...rest } = row;
+      const meta = opts.conversations?.get(id) ?? { title: null, archived: false, pinned: false };
+      sessions.push({ ...rest, id, project: links?.get(id) ?? null, ...meta, title: meta.title ?? firstUser, resumeAt: continuing && !row.running ? wait : null });
+    }
+    sessions.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id));
     return c.json({ sessions });
   });
 

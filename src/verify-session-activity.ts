@@ -17,7 +17,7 @@ function recordingTx(pages: Page[]) {
     async scanEntries(query, limit, cursor) {
       const index = calls++;
       assert.deepEqual(query, { conversationId: id, order: "descending" });
-      assert.equal(limit, 200);
+      assert.equal(limit, [16, 64][index] ?? 200, "pages start small and grow to 200");
       assert.equal(cursor, index === 0 ? undefined : pages[index - 1]!.next, "cursor must continue the previous page");
       assert.ok(index < pages.length, "must not request an older page after finding a valid message");
       return pages[index]!;

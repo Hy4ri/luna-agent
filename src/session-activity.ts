@@ -5,9 +5,11 @@ export const SessionCreated = defineDoc({ kind: "luna.session-created", version:
 
 /** Find the newest message, not the largest timestamp in the conversation's entire history. */
 export async function newestMessageTime(tx: Pick<Tx, "scanEntries">, id: ConversationId): Promise<number | null> {
-  let cursor;
+  // The newest message is usually among the last few entries. Start small: tool results make entries large to parse.
+  let cursor, size = 16;
   do {
-    const page = await tx.scanEntries({ conversationId: id, order: "descending" }, 200, cursor);
+    const page = await tx.scanEntries({ conversationId: id, order: "descending" }, size, cursor);
+    size = Math.min(size * 4, 200);
     for (const entry of page.items) {
       const role = entry.kind === "pi.user" ? "user" : entry.kind === "pi.assistant" ? "assistant" : null;
       if (!role) continue;

@@ -32,11 +32,33 @@ function add(target: AnalyticsMetrics, usage: Partial<Usage>) {
   target.cacheHitRate = denominator ? target.cacheRead / denominator : null;
 }
 
+/** Storage-derived input of one conversation. Only its own entries count, so fork parents never change it. */
+interface ConversationPart {
+  ledger: { models: [string, Partial<Usage>][]; tools: [string, Partial<Usage>][] };
+  responses: { key: string; stopReason?: string; timestamp: unknown; usage?: Usage }[];
+}
+/** Per-conversation cache. Each commit drops the parts of the conversations it touched. */
+export interface AnalyticsCache { parts: Map<string, ConversationPart>; generations: Map<string, number>; epoch: number }
+/** Returns undefined when commits cannot be observed: a cache without invalidation would serve stale data. */
+export function createAnalyticsCache(harness: Harness): AnalyticsCache | undefined {
+  const cache: AnalyticsCache = { parts: new Map(), generations: new Map(), epoch: 0 };
+  try { harness.subscribeCommits(publication => {
+    for (const change of publication.changes) {
+      const id = change.type === "conversation" ? change.value.id
+        : change.type === "entry" || change.type === "task" || change.type === "submission" ? change.value.conversationId
+        : change.conversationId;
+      if (id === undefined) { cache.parts.clear(); cache.epoch++; continue; }
+      const k = String(id); cache.parts.delete(k); cache.generations.set(k, (cache.generations.get(k) ?? 0) + 1);
+    }
+  }); } catch { return undefined; }
+  return cache;
+}
+
 /** One consistent view of retained ledgers and their own dated response history.
  * Usage documents include undated compaction attempts. They must not be rebuilt from entries.
  * Fork scans include inherited entries; counting only their owning conversation prevents duplication.
  */
-export async function readAnalytics(harness: Harness, models?: Models) {
+export async function readAnalytics(harness: Harness, models?: Models, cache?: AnalyticsCache) {
   return harness.commit(async tx => {
     const modelMap = new Map<string, AnalyticsModel>();
     const daily = new Map<string, Map<string, AnalyticsModel["daily"][number]>>();
@@ -58,18 +80,14 @@ export async function readAnalytics(harness: Harness, models?: Models) {
       }
       return row;
     };
-    const readConversation = async (id: ConversationId) => {
+    const loadPart = async (id: ConversationId): Promise<ConversationPart> => {
       // tx.doc initializes an absent ledger to empty; genuine storage errors must propagate.
       const usage = await tx.doc(UsageDoc, id);
-      for (const [key, metrics] of Object.entries(usage.models)) {
-        const row = getModel(key); row.sessions++;
-        add(row.usage, metrics); add(totals, metrics);
-      }
-      for (const [name, metrics] of Object.entries(usage.tools)) {
-        let total = toolMap.get(name);
-        if (!total) { total = empty(); toolMap.set(name, total); }
-        add(total, metrics);
-      }
+      const part: ConversationPart = {
+        // The doc value is a live transaction proxy. Copy it out as plain JSON before caching.
+        ledger: JSON.parse(JSON.stringify({ models: Object.entries(usage.models), tools: Object.entries(usage.tools) })),
+        responses: [],
+      };
       let cursor;
       do {
         const page = await tx.scanEntries({ conversationId: id, order: "ascending" }, 200, cursor);
@@ -77,26 +95,49 @@ export async function readAnalytics(harness: Harness, models?: Models) {
           if (entry.conversationId !== id || entry.kind !== "pi.assistant") continue;
           for (const message of entry.model ?? []) {
             if (message.role !== "assistant") continue;
-            const row = getModel(`${message.provider}/${message.model}`);
-            row.responses++;
-            if (message.stopReason === "error") row.errors++;
-            if (message.stopReason === "aborted") row.aborted++;
-            const timestamp = message.timestamp;
-            if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) continue;
-            const date = new Date(timestamp);
-            if (!Number.isFinite(date.getTime())) continue;
-            const iso = date.toISOString();
-            if (row.firstSeen === null || iso < row.firstSeen) row.firstSeen = iso;
-            if (row.lastSeen === null || iso > row.lastSeen) row.lastSeen = iso;
-            const dateKey = iso.slice(0, 10), dates = daily.get(row.key)!;
-            let bucket = dates.get(dateKey);
-            if (!bucket) { bucket = { date: dateKey, responses: 0, usage: empty() }; dates.set(dateKey, bucket); }
-            bucket.responses++;
-            if (message.usage) add(bucket.usage, message.usage);
+            part.responses.push({ key: `${message.provider}/${message.model}`, stopReason: message.stopReason, timestamp: message.timestamp, usage: message.usage });
           }
         }
         cursor = page.next;
       } while (cursor);
+      return part;
+    };
+    const readConversation = async (id: ConversationId) => {
+      const k = String(id);
+      let part = cache?.parts.get(k);
+      if (!part) {
+        const gen = cache?.generations.get(k) ?? 0, at = cache?.epoch;
+        part = await loadPart(id);
+        // A commit for this conversation during the read leaves the part uncached; the next request rereads it.
+        if (cache && (cache.generations.get(k) ?? 0) === gen && cache.epoch === at) cache.parts.set(k, part);
+      }
+      for (const [key, metrics] of part.ledger.models) {
+        const row = getModel(key); row.sessions++;
+        add(row.usage, metrics); add(totals, metrics);
+      }
+      for (const [name, metrics] of part.ledger.tools) {
+        let total = toolMap.get(name);
+        if (!total) { total = empty(); toolMap.set(name, total); }
+        add(total, metrics);
+      }
+      for (const message of part.responses) {
+        const row = getModel(message.key);
+        row.responses++;
+        if (message.stopReason === "error") row.errors++;
+        if (message.stopReason === "aborted") row.aborted++;
+        const timestamp = message.timestamp;
+        if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) continue;
+        const date = new Date(timestamp);
+        if (!Number.isFinite(date.getTime())) continue;
+        const iso = date.toISOString();
+        if (row.firstSeen === null || iso < row.firstSeen) row.firstSeen = iso;
+        if (row.lastSeen === null || iso > row.lastSeen) row.lastSeen = iso;
+        const dateKey = iso.slice(0, 10), dates = daily.get(row.key)!;
+        let bucket = dates.get(dateKey);
+        if (!bucket) { bucket = { date: dateKey, responses: 0, usage: empty() }; dates.set(dateKey, bucket); }
+        bucket.responses++;
+        if (message.usage) add(bucket.usage, message.usage);
+      }
     };
     let cursor, sessions = 0;
     do {

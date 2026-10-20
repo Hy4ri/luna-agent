@@ -26,10 +26,12 @@ export const SessionHandoffDoc = defineDoc<{ handoff: Handoff | null }>({
 
 /** Entry IDs, not model timestamps, define the current input or reset boundary. */
 async function sessionTail(tx: Tx, id: ConversationId) {
-  let cursor;
+  // The boundary is usually a few entries back. Start small: tool results make entries large to parse.
+  let cursor, size = 16;
   let assistant: EntryRecord | undefined;
   do {
-    const page = await tx.scanEntries({ conversationId: id, order: "descending" }, 100, cursor);
+    const page = await tx.scanEntries({ conversationId: id, order: "descending" }, size, cursor);
+    size = Math.min(size * 4, 200);
     for (const entry of page.items) {
       if (entry.kind === "pi.reset" || entry.kind === "luna.context-start") return { boundary: Number(entry.id), reset: true, assistant };
       if (entry.kind === "pi.user") return { boundary: Number(entry.id), reset: false, assistant };

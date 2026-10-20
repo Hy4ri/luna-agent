@@ -408,12 +408,23 @@ export async function continueCronRun(run: any) {
 }
 
 export function stopFeeds() { activeFeed?.stop(); listFeed?.stop(); }
+// A running session emits sessions_changed for every committed entry. Keep one list request in flight and
+// fold any events that arrive meanwhile into a single trailing reload.
+let listLoading: Promise<void> | undefined, listAgain = false;
+function reloadList(): Promise<void> {
+  if (listLoading) { listAgain = true; return listLoading; }
+  listLoading = loadSessions().catch(() => {}).finally(() => {
+    listLoading = undefined;
+    if (listAgain) { listAgain = false; void reloadList(); }
+  });
+  return listLoading;
+}
 export function startListFeed() {
   listFeed?.stop();
   listFeed = watchFeed({
     path: "/v1/events", api,
     onEvent: async type => {
-      if (type === "sessions_changed") return loadSessions();
+      if (type === "sessions_changed") { void reloadList(); return; }
       if (type === "board_changed") { const { boardChanged } = await import("./app"); boardChanged.value++; }
     },
     onDisconnect: e => e.message !== "unauthorized",
