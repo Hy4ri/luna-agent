@@ -4,6 +4,7 @@
 import { computed, markRaw, reactive } from "vue";
 import { api, json, post } from "@/lib/api";
 import { watchFeed, type Feed } from "@/lib/sync";
+import { savedSession, rememberSession } from "@/lib/pane";
 import { focusInput, leavePages } from "./app";
 import { composer, restoreDraft, saveDraft } from "./composer";
 import { models, setSelectedModel } from "./models";
@@ -30,7 +31,7 @@ export function textBlocks(content: unknown): string {
 }
 
 export const chat = reactive({
-  session: (sessionStorage.getItem("luna.session") || localStorage.getItem("luna.session") || null) as string | null,
+  session: savedSession(),
   title: "New conversation",
   project: null as number | null,
   /** Bumps on every conversation switch; async work from older views is dropped. */
@@ -247,8 +248,7 @@ function detachView() {
 }
 function setSession(id: string | null) {
   chat.session = id;
-  if (id) { localStorage.setItem("luna.session", id); sessionStorage.setItem("luna.session", id); }
-  else { localStorage.removeItem("luna.session"); sessionStorage.removeItem("luna.session"); }
+  rememberSession(id);
 }
 export function clearConversation() {
   saveDraft(); detachView(); setSession(null);

@@ -38,8 +38,16 @@ try {
   assert.equal(rIndex.headers.get("cache-control"), "no-cache");
   assert.equal(rIndex.headers.get("x-content-type-options"), "nosniff");
   assert.equal(rIndex.headers.get("x-frame-options"), "DENY");
+  assert.equal(rIndex.headers.get("content-security-policy"), "frame-ancestors 'none'");
   assert.equal(rIndex.headers.get("referrer-policy"), "no-referrer");
   assert.match(await rIndex.text(), /Root/);
+
+  const pane = await app.request("/?pane=session");
+  assert.equal(pane.status, 200);
+  assert.equal(pane.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.equal(pane.headers.get("content-security-policy"), "frame-ancestors 'self'");
+  assert.match(await pane.text(), /Root/, "The pane uses the same built application");
+  assert.equal((await app.request("/?pane=other")).headers.get("x-frame-options"), "DENY");
 
   const rManifest = await app.request("/manifest.webmanifest");
   assert.equal(rManifest.status, 200);
