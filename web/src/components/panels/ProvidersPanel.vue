@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, watch, onMounted, onUnmounted } from "vue";
+import { ChevronRight } from "@lucide/vue";
 import { json, api, post } from "@/lib/api";
 import { models, loadModels, modelKey } from "@/stores/models";
 
+import { useSettingsMutation } from "./useSettingsMutation";
+const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();
+const { pending, run } = useSettingsMutation(() => emit("changed"));
 const loading = ref(true);
 const errorMsg = ref("");
 const providerData = ref<any>(null);
 const toasts = ref<string[]>([]);
 const activeLogin = ref<any>(null);
 const loginPollingTimer = ref<any>(null);
+watch(() => pending.value || activeLogin.value?.status === "running", busy => emit("busy", busy), { flush: "sync" });
 
 // Custom provider form refs
 const customId = ref("");
@@ -170,6 +175,7 @@ function pollLogin(loginId: string) {
         pollLogin(loginId);
       } else {
         await loadModels();
+        emit("changed");
         if (l.status === "done") {
           setTimeout(fetchData, 800);
         }
@@ -191,7 +197,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="grid">
+  <fieldset class="grid manager-form" :disabled="pending">
     <!-- Toasts -->
     <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
       <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
@@ -203,8 +209,7 @@ onUnmounted(() => {
 
     <template v-if="providerData">
       <!-- Default Model Card -->
-      <div class="card grid">
-        <b>Default model for new sessions and cron</b>
+      <details class="card" data-manager-form="provider-default"><summary class="row"><ChevronRight :size="16" /><b class="grow">Default model</b><span class="muted">{{ selectedDefault }}</span></summary><div class="grid manager-body">
         <div class="row">
           <label class="field-label">
             <span>Model</span>
@@ -217,9 +222,9 @@ onUnmounted(() => {
               </option>
             </select>
           </label>
-          <button @click="saveDefaultModel">Save</button>
+          <button @click="run(saveDefaultModel)">Save</button>
         </div>
-      </div>
+      </div></details>
 
       <!-- Interactive Login Box if active -->
       <div v-if="activeLogin" class="card grid">
@@ -228,7 +233,7 @@ onUnmounted(() => {
           <span class="pill" :class="{ ok: activeLogin.status === 'done', error: activeLogin.status === 'error' }">
             {{ activeLogin.status }}
           </span>
-          <button v-if="activeLogin.status === 'running'" @click="cancelLogin(activeLogin.id)">Cancel</button>
+          <button v-if="activeLogin.status === 'running'" @click="run(() => cancelLogin(activeLogin.id))">Cancel</button>
         </div>
         <div v-for="(e, idx) in activeLogin.events" :key="idx">
           <div v-if="e.type === 'auth_url'">
@@ -278,17 +283,17 @@ onUnmounted(() => {
 
       <!-- Builtin Providers -->
       <b>Providers</b>
-      <div v-for="p in providerData.providers.filter((p: any) => !p.custom && p.id !== 'faux')" :key="p.id" class="card grid">
-        <div class="row">
+      <details v-for="p in providerData.providers.filter((p: any) => !p.custom && p.id !== 'faux')" :key="p.id" class="card" :data-provider="p.id">
+        <summary class="row"><ChevronRight :size="16" />
           <b class="grow">{{ p.name }}</b>
           <span class="pill" :class="{ ok: p.connected }">
             {{ p.connected ? ((p.via === 'oauth' ? 'subscription' : 'key') + (p.source ? ' · ' + p.source : '')) : (p.error ? 'error' : 'not connected') }}
           </span>
           <span class="muted">{{ p.models }} models</span>
-        </div>
+        </summary><div class="grid manager-body">
         <pre v-if="p.error">{{ p.error }}</pre>
         <div v-if="p.oauth" class="row">
-          <button @click="startLogin(p.id)">
+          <button @click="run(() => startLogin(p.id))">
             {{ p.oauth.label || (p.oauth.subscription ? 'Sign in with subscription' : 'Sign in') }}
           </button>
           <span class="muted">{{ p.oauth.name }}</span>
@@ -303,31 +308,30 @@ onUnmounted(() => {
               v-model="apiKeys[p.id]"
             />
           </label>
-          <button @click="saveApiKey(p.id)">Save key</button>
+          <button @click="run(() => saveApiKey(p.id))">Save key</button>
         </div>
         <div v-if="p.connected && p.source && /stored|OAuth/i.test(p.source)" class="row">
-          <button @click="disconnectProvider(p.id, p.name)">Disconnect</button>
+          <button @click="run(() => disconnectProvider(p.id, p.name))">Disconnect</button>
         </div>
         <div v-if="p.id === 'anthropic' && p.oauth" class="muted">
           Note: Anthropic bills third-party apps on a Pro/Max login as extra usage, not plan limits. Check claude.ai/settings/usage.
         </div>
-      </div>
+      </div></details>
 
       <!-- Custom API / Providers -->
       <b>Custom API</b>
-      <div v-for="p in providerData.providers.filter((p: any) => p.custom)" :key="p.id" class="card grid">
-        <div class="row">
+      <details v-for="p in providerData.providers.filter((p: any) => p.custom)" :key="p.id" class="card" :data-provider="p.id">
+        <summary class="row"><ChevronRight :size="16" />
           <b class="grow">{{ p.name }}</b>
           <span class="pill" :class="{ ok: p.connected }">{{ p.def.api }}</span>
           <span class="muted">{{ p.models }} models</span>
-          <button style="color:var(--err)" @click="removeCustomProvider(p.id)">Remove</button>
-        </div>
+        </summary><div class="grid manager-body">
         <div class="muted">{{ p.def.baseUrl }} · {{ p.def.models.map((m: any) => m.id).join(', ') }}</div>
-      </div>
+        <div><button style="color:var(--err)" @click="run(() => removeCustomProvider(p.id))">Remove</button></div>
+      </div></details>
 
       <!-- Add Custom Provider Form -->
-      <div class="card grid">
-        <b>Add custom provider</b>
+      <details class="card" data-manager-form="provider-add"><summary class="row"><ChevronRight :size="16" /><b>Add custom provider</b></summary><div class="grid manager-body">
         <label class="field-label">
           <span>id, e.g. local-llama</span>
           <input placeholder="id, e.g. local-llama" v-model="customId" />
@@ -357,9 +361,13 @@ onUnmounted(() => {
           <input placeholder="model ids, comma separated (blank: auto-detect via /models)" v-model="customModels" />
         </label>
         <div class="row">
-          <button :disabled="addingCustom" @click="addCustomProvider">Add</button>
+          <button :disabled="addingCustom" @click="run(addCustomProvider)">Add</button>
         </div>
-      </div>
+      </div></details>
     </template>
-  </div>
+  </fieldset>
 </template>
+
+<style scoped>
+.manager-form { border: 0; padding: 0; margin: 0; min-width: 0; }
+</style>

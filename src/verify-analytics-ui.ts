@@ -43,7 +43,7 @@ try {
   await page.locator("#token").fill("test"); await page.locator("#loginForm button").click();
   await page.locator("#login").waitFor({ state: "hidden" });
   await page.locator('[data-panel="settings"]').click();
-  await page.locator('[data-settings-tab="workspace"]').click();
+  await page.locator('[data-settings-tab="system"]').click();
   await page.locator('#settings-screen [data-panel="analytics"]').click();
   const screen = page.locator("#analytics-screen");
   await screen.getByLabel("Model usage table", { exact: true }).waitFor();
@@ -95,7 +95,7 @@ try {
   await screen.getByRole("button", { name: "Refresh", exact: true }).click(); await waiting;
   await screen.getByRole("button", { name: "Back to chat", exact: true }).click();
   await page.locator('[data-panel="settings"]').click();
-  await page.locator('[data-settings-tab="workspace"]').click();
+  await page.locator('[data-settings-tab="system"]').click();
   await page.locator('#settings-screen [data-panel="analytics"]').click();
   await screen.locator('.a-status').filter({ hasText: 'All retained history' }).waitFor();
   release(); await page.waitForTimeout(100);
@@ -114,7 +114,7 @@ try {
   assert.equal(await page.locator("#cron-screen").isVisible(), true);
   await page.locator("#cron-menu").click();
   await page.locator('[data-panel="settings"]').click();
-  await page.locator('[data-settings-tab="workspace"]').click();
+  await page.locator('[data-settings-tab="system"]').click();
   await page.locator('#settings-screen [data-panel="analytics"]').click();
   assert.equal(await screen.isVisible(), true);
   await screen.locator(".a-status").filter({ hasText: "All retained history" }).waitFor();

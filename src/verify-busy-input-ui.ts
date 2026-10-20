@@ -33,9 +33,9 @@ try {
   await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
   await page.locator('[data-panel="settings"]').click();
   await page.locator('[data-settings-tab="general"]').click();
-  await page.locator('section[data-section="busyInput"]').waitFor();
-  await page.getByLabel("Mode", { exact: true }).selectOption("queue");
-  await page.getByLabel("Show acknowledgements", { exact: true }).uncheck();
+  await page.locator('[data-section="busyInput"] > summary').click();
+  await page.getByLabel("Message handling", { exact: true }).selectOption("queue");
+  await page.getByLabel("Show message acknowledgements", { exact: true }).uncheck();
   await page.locator("[data-settings-save]").click();
   await page.getByText("Settings saved. Compaction changes apply now. New sessions and subagents use the new defaults.", { exact: true }).waitFor();
   assert.deepEqual(rt.busyInput(), { mode: "queue", acknowledgements: false });
