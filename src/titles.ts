@@ -1,4 +1,6 @@
-// Automatic session titles: one cheap auxiliary-model call after a session's first finished answer.
+// Automatic session titles: one cheap auxiliary-model call after a session's first text answer.
+// - Checked after every top-level generation. A generation that only calls tools does not count, so the title comes
+//   when the first text answer exists. Only real model calls count as attempts; a failed call retries on a later turn.
 // - Runs only with a configured route (auxiliary.session_title, else auxiliary.side_question). Never the session model.
 // - Thinking is always off, whatever the session's thinking level. Input and output are small and bounded.
 // - A user title always wins: the write is conditional, so a rename during the call is kept.
@@ -13,7 +15,7 @@ export type TitleRoute = { provider: string; modelId: string };
 export const TITLE_INSTRUCTION = "Write a title for this conversation. Use 3 to 6 words. " +
   "Use the language of the user's message. Name the topic, not the request style. " +
   "No quotes, no emojis, no final punctuation. Reply with the title only.";
-const USER_CHARS = 1200, ANSWER_CHARS = 800, MAX_OUTPUT_TOKENS = 40, MAX_TITLE = 80;
+const USER_CHARS = 1200, ANSWER_CHARS = 800, MAX_OUTPUT_TOKENS = 40, MAX_TITLE = 80, MAX_ATTEMPTS = 2;
 
 const textOf = (msgs: readonly unknown[] | undefined) => (msgs ?? []).map(m => {
   const c = (m as { content?: unknown }).content;
@@ -48,7 +50,8 @@ export async function firstExchange(tx: Pick<Tx, "scanEntries">, id: Conversatio
 }
 
 export class SessionTitler {
-  private readonly attempted = new Set<number>();
+  /** Title model calls per session in this process. Automatic runs stop at MAX_ATTEMPTS. */
+  private readonly attempts = new Map<number, number>();
   private readonly running = new Map<number, Promise<string | null>>();
   private stopCommits?: () => void;
   private closed = false;
@@ -62,7 +65,7 @@ export class SessionTitler {
       for (const ch of p.changes) {
         if (ch.type !== "task" || ch.value.owner || ch.value.state.status !== "terminal") continue;
         const id = Number(ch.value.conversationId);
-        if (this.attempted.has(id) || this.o.conversations.get(id).title !== null) continue;
+        if ((this.attempts.get(id) ?? 0) >= MAX_ATTEMPTS || this.o.conversations.get(id).title !== null) continue;
         void this.generate(id, false).catch(() => {});
       }
     });
@@ -75,13 +78,12 @@ export class SessionTitler {
   }
 
   /**
-   * Generate and store a title. Automatic runs (force=false) happen once per session per process and only while no
-   * title exists. A forced run is an explicit user request and replaces any title. Returns the stored title or null.
+   * Generate and store a title. Automatic runs (force=false) happen only while no title exists, at most MAX_ATTEMPTS
+   * model calls per session per process. A forced run is an explicit user request and replaces any title. Returns the stored title or null.
    */
   generate(id: number, force: boolean): Promise<string | null> {
     const prior = this.running.get(id);
     if (prior) return prior;
-    if (!force) this.attempted.add(id);
     const run = this.run(id, force).finally(() => this.running.delete(id));
     this.running.set(id, run);
     return run;
@@ -98,6 +100,7 @@ export class SessionTitler {
       return firstExchange(tx, id as never);
     }, context);
     if (!exchange) { if (force) throw new Error("The session needs a finished answer before it can get a title."); return null; }
+    this.attempts.set(id, (this.attempts.get(id) ?? 0) + 1);
     const response = await this.o.models.completeSimple(model, {
       systemPrompt: TITLE_INSTRUCTION, tools: [],
       messages: [{ role: "user", timestamp: Date.now(),

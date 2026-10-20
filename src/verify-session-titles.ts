@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createModels, fauxProvider, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { UsageDoc } from "@earendil-works/pi-durable";
 import { context, openLuna } from "./luna.js";
 import { ConversationStore } from "./conversations.js";
@@ -107,13 +107,29 @@ try {
   assert.equal((await req(`/v1/sessions/${d.id}/title`, { method: "POST", body: "{}" })).status, 409);
   console.log("OK no route: off, fallback title, menu action unavailable");
 
-  // 6. A failed call leaves the fallback.
+  // 6. A failed call leaves the fallback, and the next turn retries once.
   route = small;
   const e = await newSession();
   faux.setResponses([fauxAssistantMessage("answer e"), async () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "boom" })]);
   await turn(e, "question e"); await settle();
   assert.equal(conversations.get(Number(e.id)).title, null);
-  console.log("OK failed title call keeps the fallback");
+  faux.setResponses([fauxAssistantMessage("answer e2"), titleReply("Retried title")]);
+  await turn(e, "question e2");
+  await until(() => conversations.get(Number(e.id)).title !== null, "retry title");
+  assert.equal(conversations.get(Number(e.id)).title, "Retried title");
+  console.log("OK failed title call keeps the fallback; the next turn retries");
+
+  // 6b. First generation only calls tools (the usual agent turn): the title comes after the text answer.
+  const t = await newSession();
+  const before = calls.length;
+  faux.setResponses([fauxAssistantMessage([fauxToolCall("no_such_tool", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage("Here is the cron redesign."), titleReply("Cron Tab Redesign")]);
+  await turn(t, "redesign the cron tab");
+  await until(() => conversations.get(Number(t.id)).title !== null, "title after tool turn");
+  assert.equal(conversations.get(Number(t.id)).title, "Cron Tab Redesign");
+  assert.equal(calls.length, before + 1, "one title call, made only after a text answer exists");
+  assert.ok(calls.at(-1)!.body.includes("cron redesign"));
+  console.log("OK tool-only first generation does not block the title");
 
   // 7. Explicit regenerate replaces even a user title; it needs a finished answer.
   assert.deepEqual(await (await req("/v1/session-titles")).json(), { available: true });
