@@ -212,6 +212,77 @@ try {
   await page.setViewportSize({ width: 3840, height: 1600 });
   assert.ok((await dialog.boundingBox())!.width >= 3840 * .9, 'Floating board also covers most of an ultrawide screen');
   await page.locator('#pclose').click();
+
+  // ---- Composer # mention completion popup ----
+  const mProj = rt.conversations.projects.create('Mention Project', dir);
+  const mTodoLow = rt.conversations.board.create(mProj.id, { subject: 'Todo low item', status: 'todo', priority: 'low' });
+  const mTodoUrgent = rt.conversations.board.create(mProj.id, { subject: 'Todo urgent item', status: 'todo', priority: 'urgent' });
+  const mBacklogHigh = rt.conversations.board.create(mProj.id, { subject: 'Backlog high item', status: 'backlog', priority: 'high' });
+  const mReviewMed = rt.conversations.board.create(mProj.id, { subject: 'Review medium item', status: 'review', priority: 'medium' });
+  const mInProgHigh = rt.conversations.board.create(mProj.id, { subject: 'In progress high item', status: 'in_progress', priority: 'high' });
+  const mDoneUrgent = rt.conversations.board.create(mProj.id, { subject: 'Done urgent item', status: 'done', priority: 'urgent' });
+  const mSess = await (await app.request('/v1/sessions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project: mProj.id }),
+  })).json() as { id: number };
+  await page.evaluate(async (pid: number) => {
+    localStorage.setItem('luna.project', String(pid));
+  }, mProj.id);
+  await page.reload();
+  await page.locator(`[data-session="${mSess.id}"] .session-title`).click();
+  const input = page.locator('#input');
+  await input.click();
+  await input.fill('Please check #');
+  await input.dispatchEvent('input');
+  const menu = page.locator('#mention-menu');
+  await menu.waitFor({ state: 'visible' });
+
+  // Category order must be: todo -> backlog -> review -> in_progress -> done
+  const groupStatuses = await menu.locator('.mention-group').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-status')));
+  assert.deepEqual(groupStatuses, ['todo', 'backlog', 'review', 'in_progress', 'done'], 'Categories sorted todo, backlog, review, in_progress, done');
+
+  // Within todo, urgent comes before low; across all items, exact order matches category then priority
+  const itemIds = await menu.locator('.mention-item').evaluateAll((els: any[]) => els.map(el => Number(el.getAttribute('data-card-id'))));
+  assert.deepEqual(itemIds, [mTodoUrgent.id, mTodoLow.id, mBacklogHigh.id, mReviewMed.id, mInProgHigh.id, mDoneUrgent.id], 'Items sorted by category then priority');
+
+  // Priority color dot indicator is present on each item
+  assert.equal(await menu.locator('.mention-item .mention-priority-dot[data-priority="urgent"]').count(), 2);
+
+  // Prefix filtering by number: typing #<digits> shows exact and longer prefix matches (e.g. #4 -> 4, 4x, 4xx)
+  await input.fill('Please check ');
+  await input.dispatchEvent('input');
+  assert.equal(await menu.count(), 0);
+  const prefixDigits = String(mTodoLow.id);
+  const targetPrefix = Number(prefixDigits) * 10;
+  let lastCreated = mDoneUrgent;
+  while (lastCreated.id < targetPrefix - 1) {
+    lastCreated = rt.conversations.board.create(mProj.id, { subject: 'Spacer item', status: 'backlog', priority: 'low' });
+  }
+  const mMultiA = rt.conversations.board.create(mProj.id, { subject: 'Multi digit A', status: 'todo', priority: 'high' });
+  const mMultiB = rt.conversations.board.create(mProj.id, { subject: 'Multi digit B', status: 'review', priority: 'urgent' });
+  await page.reload();
+  await page.locator(`[data-session="${mSess.id}"] .session-title`).click();
+  await input.click();
+  await input.fill(`Look at #${prefixDigits}`);
+  await input.dispatchEvent('input');
+  await menu.locator(`.mention-item[data-card-id="${mMultiA.id}"]`).waitFor({ state: 'visible' });
+  const filteredIds = await menu.locator('.mention-item').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-card-id') || ''));
+  assert.ok(filteredIds.includes(prefixDigits) && filteredIds.includes(String(mMultiA.id)) && filteredIds.includes(String(mMultiB.id)), 'Number after # shows exact and longer prefix matches');
+  assert.ok(filteredIds.every((id: string) => id.startsWith(prefixDigits)), 'Number after # filters strictly by id prefix');
+
+  // Selecting an item with Enter inserts #<id> into the chat box
+  await input.fill(`Implement #${mReviewMed.id}`);
+  await input.dispatchEvent('input');
+  await menu.locator(`.mention-item[data-card-id="${mReviewMed.id}"]`).waitFor({ state: 'visible' });
+  await input.press('Enter');
+  assert.equal(await input.inputValue(), `Implement #${mReviewMed.id} `);
+  assert.equal(await menu.count(), 0, 'Menu closes after selecting mention');
+  await page.evaluate((pid: number) => {
+    localStorage.setItem('luna.project', String(pid));
+  }, a.id);
+  console.log('BOARD_MENTION_AUTOCOMPLETE_OK');
+
   await page.route(`**/v1/projects/${a.id}/board`, (route: any) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Board read unavailable' }) }));
   await page.locator('[data-panel="board"]').click();
   await page.getByRole('alert').filter({ hasText: 'Board read unavailable' }).waitFor();

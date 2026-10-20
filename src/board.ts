@@ -140,6 +140,18 @@ export class BoardStore {
       ...(lines.length ? ["Cards in progress, in review, or high priority:", ...lines] : []),
       "Use the board tool to list, read, create, move, or archive cards. Plan the steps of a card with the todo tool and pass metadata {cardId}."].join("\n");
   }
+  /** Full details for `#<id>` mentions in user messages so referenced cards are always in context. */
+  mentioned(project: number, ids: Iterable<number>): string {
+    const out: string[] = [];
+    const seen = new Set<number>();
+    for (const id of ids) {
+      if (seen.has(id) || !Number.isSafeInteger(id) || id < 1) continue;
+      seen.add(id);
+      const c = this.get(project, id);
+      if (c) out.push(detail(c));
+    }
+    return out.length ? ["Referenced board items:", ...out].join("\n") : "";
+  }
 }
 
 const Params = Type.Object({
@@ -157,8 +169,27 @@ const Params = Type.Object({
   includeArchived: Type.Optional(Type.Boolean({ description: "list: show archived cards instead of active ones" })),
 });
 
-const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
+const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}${c.archived ? "|archived" : ""}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
 const detail = (c: Card) => [line(c), ...(c.description ? [`  description: ${c.description}`] : []), `  updated: ${new Date(c.updated).toISOString()}`].join("\n");
+
+function extractMentionedCardIds(messages: readonly { role?: string; content?: unknown }[]): number[] {
+  const ids: number[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role !== "user") continue;
+    const text = typeof m.content === "string"
+      ? m.content
+      : Array.isArray(m.content)
+        ? m.content.map((b: { type?: string; text?: string }) => (b.type === "text" && typeof b.text === "string" ? b.text : "")).join("\n")
+        : "";
+    if (!text || text.startsWith("<goal_continuation ")) continue;
+    for (const match of text.matchAll(/(?:^|[^\w/])#([1-9]\d*)\b/g)) {
+      const id = Number(match[1]);
+      if (Number.isSafeInteger(id) && id > 0 && !ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
+}
 
 const DESCRIPTION = [
   "The project board: a kanban board shared by the user and every session in this project. Actions: list, get, create, update, archive.",
@@ -210,11 +241,16 @@ export function createBoardExtension(conversations: () => Conversations | undefi
         }
       },
     })],
-    sections: [section("board", (input) => {
+    sections: [section("board", async (input, context) => {
       const conv = conversations();
       const pid = conv?.projects.projectOf(Number(input.conversationId));
       const p = pid === undefined ? undefined : conv!.projects.get(pid);
-      return p ? conv!.board.summary(p.id, p.name, p.cwd) : undefined;
+      if (!p) return undefined;
+      const base = conv!.board.summary(p.id, p.name, p.cwd);
+      const runtime = input.read as { context?: (id: typeof input.conversationId, ctx: typeof context) => Promise<{ messages: readonly { role?: string; content?: unknown }[] }> };
+      const view = typeof runtime.context === "function" ? await runtime.context(input.conversationId, context).catch(() => undefined) : undefined;
+      const mentioned = view ? conv!.board.mentioned(p.id, extractMentionedCardIds(view.messages)) : "";
+      return mentioned ? `${base}\n\n${mentioned}` : base;
     })],
   });
 }

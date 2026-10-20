@@ -117,6 +117,26 @@ try {
     assert.ok(!cards.some(c => c.id === c2.id), "archived card leaves the active board");
     const archived = (await (await call(`/v1/projects/${b1.id}/board?archived=1`)).json() as { cards: { id: number }[] }).cards;
     assert.deepEqual(archived.map(c => c.id), [c2.id]);
+
+    // Mentioning #<id> in a user message injects full details of that board item (even low-priority backlog/done items) into the board prompt section.
+    const cLowTodo = await (await mk({ subject: "Low todo item", description: "Detailed spec for low todo", status: "todo", priority: "low", labels: ["ui"] })).json() as { id: number };
+    let mentionPrompt = "";
+    let mentionStep = 0;
+    faux.setResponses([
+      (c: any) => {
+        mentionPrompt = c.messages.filter((m: any) => m.role === "system").map((m: any) => Object.values(m.sections ?? {}).join("\n")).join("\n");
+        mentionStep++;
+        return fauxAssistantMessage([fauxText("got mention")]);
+      },
+    ]);
+    const sentMention = await call(`/v1/sessions/${bs.id}/messages`, "POST", { content: `Please implement #${cLowTodo.id} right now` });
+    assert.ok(sentMention.status < 300, "mention message accepted " + sentMention.status);
+    for (let i = 0; i < 100 && !mentionStep; i++) await new Promise(r => setTimeout(r, 100));
+    assert.equal(mentionStep, 1, "model finished mention turn");
+    assert.match(mentionPrompt, /Referenced board items:/);
+    assert.match(mentionPrompt, new RegExp(`#${cLowTodo.id} \\[todo\\|low\\] Low todo item \\{ui\\}`));
+    assert.match(mentionPrompt, /description: Detailed spec for low todo/);
+
     // The user can hard-delete; the model cannot (no delete action).
     assert.equal((await call(`/v1/projects/${b1.id}/cards/${c2.id}`, "DELETE")).status, 200);
     assert.equal((await call(`/v1/projects/${b1.id}/cards/${c2.id}`, "DELETE")).status, 404);
