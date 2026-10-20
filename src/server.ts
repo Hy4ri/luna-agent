@@ -29,7 +29,8 @@ import { readAnalytics } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
 import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
-import { sideMedia, readSideMedia } from "./side-media.js";
+import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
+import { entryMedia } from "./media-directives.js";
 import { activeContextTokens } from "./context-usage.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
@@ -456,13 +457,19 @@ export function createApp(opts: ServerOptions) {
     if (!job || job.kind !== "bg" || job.status !== "complete" || !Number.isSafeInteger(index) || index < 0) return err(c, 404, "no such media");
     const child = job.conversationId && await harness.conversation(job.conversationId as never, context);
     const cwd = child ? (await child.agent(context)).cwd : undefined;
-    const media = sideMedia(job.text, cwd)[index];
-    if (!media) return err(c, 404, "no such media");
-    try {
-      const bytes = await readSideMedia(media.path);
-      return c.body(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 200, { "content-type": media.mimeType, "cache-control": "no-store",
-        "x-content-type-options": "nosniff", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(media.name)}` });
-    } catch { return err(c, 404, "media file unreadable"); }
+    return mediaResponse(c, sideMedia(job.text, cwd)[index]);
+  });
+  // Files named by MEDIA: directives in an assistant message of this conversation. The index counts
+  // directives across the entry's assistant text blocks (see entryMedia); nothing else is served.
+  app.get("/v1/sessions/:id/entries/:entryId/media/:index", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const entryId = Number(c.req.param("entryId")), index = Number(c.req.param("index"));
+    if (!Number.isSafeInteger(entryId) || !Number.isSafeInteger(index) || index < 0) return err(c, 404, "no such media");
+    const entry = await harness.commit(tx => tx.entry(entryId as never), context).catch(() => undefined);
+    if (!entry || String(entry.conversationId) !== String(conv.id)) return err(c, 404, "no such media");
+    const directive = entryMedia(entry.model)[index];
+    return mediaResponse(c, directive && resolveMedia(directive, (await conv.agent(context)).cwd));
   });
 
   // ---- messages ----
