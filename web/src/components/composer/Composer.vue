@@ -35,15 +35,50 @@ const CATEGORY_LABEL: Record<Status, string> = {
 };
 const PRIORITY_RANK: Record<Priority, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
 
+type CommandCategory = "side" | "busy" | "session";
+type SlashCommandItem = {
+  id: string;
+  insert: string;
+  label: string;
+  args?: string;
+  description: string;
+  category: CommandCategory;
+};
+
+const COMMAND_CATEGORY_ORDER: CommandCategory[] = ["side", "busy", "session"];
+const COMMAND_CATEGORY_LABEL: Record<CommandCategory, string> = {
+  side: "Side & Skills",
+  busy: "Busy & Queue",
+  session: "Turn Control",
+};
+
+const SLASH_COMMANDS: SlashCommandItem[] = [
+  { id: "btw", insert: "/btw ", label: "/btw", args: "<question>", description: "Ask a side question without tools or main history", category: "side" },
+  { id: "bg", insert: "/bg ", label: "/bg", args: "<prompt>", description: "Run a background task with tools in a side conversation", category: "side" },
+  { id: "learn", insert: "/learn ", label: "/learn", args: "<source> [objective]", description: "Study a URL, repo, or file and record a skill", category: "side" },
+  { id: "queue", insert: "/queue ", label: "/queue", args: "<message>", description: "Queue a follow-up message for the next turn", category: "busy" },
+  { id: "steer", insert: "/steer ", label: "/steer", args: "<message>", description: "Steer the active turn after the current tool batch", category: "busy" },
+  { id: "redirect", insert: "/redirect ", label: "/redirect", args: "<message>", description: "Interrupt and redirect the current model generation", category: "busy" },
+  { id: "queue list", insert: "/queue list", label: "/queue list", description: "List queued follow-up messages", category: "busy" },
+  { id: "queue edit", insert: "/queue edit ", label: "/queue edit", args: "<N> <text>", description: "Edit queued message N", category: "busy" },
+  { id: "queue remove", insert: "/queue remove ", label: "/queue remove", args: "<N>", description: "Remove queued message N", category: "busy" },
+  { id: "queue move", insert: "/queue move ", label: "/queue move", args: "<A> <B>", description: "Move queued message A to position B", category: "busy" },
+  { id: "queue clear", insert: "/queue clear", label: "/queue clear", description: "Clear all queued messages", category: "busy" },
+  { id: "stop", insert: "/stop", label: "/stop", description: "Stop the active turn immediately", category: "session" },
+];
+
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
 const mentionMenuRef = ref<HTMLElement | null>(null);
+const commandMenuRef = ref<HTMLElement | null>(null);
 const pickerOpen = ref(false);
 
 const boardCards = ref<MentionCard[]>([]);
 const loadedPid = ref<number | null>(null);
 const mentionMatch = ref<{ start: number; end: number; query: string } | null>(null);
 const activeMentionIndex = ref(0);
+const commandMatch = ref<{ start: number; end: number; query: string } | null>(null);
+const activeCommandIndex = ref(0);
 let loadTicket = 0;
 
 const activeProjectId = computed<number | null>(() => {
@@ -114,6 +149,109 @@ const mentionGroups = computed(() => {
 });
 
 const mentionOpen = computed(() => !!mentionMatch.value && !!activeProjectId.value && sortedMentionItems.value.length > 0);
+
+const sortedCommandItems = computed<SlashCommandItem[]>(() => {
+  const m = commandMatch.value;
+  if (!m) return [];
+  const q = m.query.trim().toLowerCase();
+  if (!q) return SLASH_COMMANDS;
+  return SLASH_COMMANDS.filter(cmd => {
+    if (cmd.id.startsWith(q) || cmd.label.slice(1).startsWith(q)) return true;
+    const words = cmd.id.split(" ");
+    if (!q.includes(" ") && words.some(w => w.startsWith(q))) return true;
+    return false;
+  });
+});
+
+const commandGroups = computed(() => {
+  const items = sortedCommandItems.value;
+  const groups: { category: CommandCategory; label: string; items: { cmd: SlashCommandItem; flatIndex: number }[] }[] = [];
+  let flatIndex = 0;
+  for (const category of COMMAND_CATEGORY_ORDER) {
+    const inCat = items.filter(c => c.category === category);
+    if (!inCat.length) continue;
+    groups.push({
+      category,
+      label: COMMAND_CATEGORY_LABEL[category],
+      items: inCat.map(cmd => ({ cmd, flatIndex: flatIndex++ })),
+    });
+  }
+  return groups;
+});
+
+const commandOpen = computed(() => !mentionOpen.value && !!commandMatch.value && sortedCommandItems.value.length > 0);
+
+function updateCommandState() {
+  const el = inputRef.value;
+  if (!el) {
+    commandMatch.value = null;
+    return;
+  }
+  const text = el.value;
+  const caret = el.selectionStart ?? text.length;
+  const before = text.slice(0, caret);
+  const lead = /^(\s*)\/([^\n]*)$/.exec(before);
+  if (!lead) {
+    commandMatch.value = null;
+    return;
+  }
+  const rawAfterSlash = lead[2] || "";
+  const slashStart = (lead[1] || "").length;
+  const tokens = rawAfterSlash.trimStart().split(/\s+/).filter(Boolean);
+  const firstToken = (tokens[0] || "").toLowerCase();
+  const hasTrailingSpace = /\s$/.test(rawAfterSlash);
+
+  if (firstToken === "queue") {
+    const subToken = (tokens[1] || "").toLowerCase();
+    if (tokens.length > 2 || (tokens.length === 2 && hasTrailingSpace)) {
+      commandMatch.value = null;
+      return;
+    }
+    if (tokens.length === 2 && !["list", "edit", "remove", "move", "clear"].some(s => s.startsWith(subToken))) {
+      commandMatch.value = null;
+      return;
+    }
+  } else if (tokens.length > 1 || (tokens.length === 1 && hasTrailingSpace)) {
+    commandMatch.value = null;
+    return;
+  }
+
+  const query = rawAfterSlash.replace(/\s+/g, " ");
+  const prev = commandMatch.value;
+  commandMatch.value = { start: slashStart, end: caret, query };
+  if (!prev || prev.query !== query) {
+    activeCommandIndex.value = 0;
+  } else if (activeCommandIndex.value >= sortedCommandItems.value.length) {
+    activeCommandIndex.value = Math.max(0, sortedCommandItems.value.length - 1);
+  }
+}
+
+function selectCommand(cmd: SlashCommandItem) {
+  const el = inputRef.value;
+  const m = commandMatch.value;
+  if (!el || !m) return;
+  const before = el.value.slice(0, m.start);
+  const after = el.value.slice(m.end).replace(/^\s+/, "");
+  const inserted = cmd.insert;
+  const nextText = before + inserted + (after ? (inserted.endsWith(" ") ? after : " " + after) : "");
+  const nextCaret = before.length + inserted.length;
+  el.value = nextText;
+  composer.text = nextText;
+  commandMatch.value = null;
+  grow();
+  saveDraft();
+  void nextTick(() => {
+    el.focus();
+    el.setSelectionRange(nextCaret, nextCaret);
+  });
+}
+
+function scrollActiveCommandIntoView() {
+  void nextTick(() => {
+    const activeEl = commandMenuRef.value?.querySelector<HTMLElement>('[data-command-active="true"]');
+    activeEl?.scrollIntoView({ block: "nearest" });
+  });
+}
 
 function updateMentionState() {
   const el = inputRef.value;
@@ -188,6 +326,7 @@ function handleInput() {
   grow();
   saveDraft();
   updateMentionState();
+  updateCommandState();
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -219,6 +358,34 @@ function handleKeydown(e: KeyboardEvent) {
       return;
     }
   }
+  if (commandOpen.value) {
+    const total = sortedCommandItems.value.length;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeCommandIndex.value = (activeCommandIndex.value + 1) % total;
+      scrollActiveCommandIntoView();
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeCommandIndex.value = (activeCommandIndex.value - 1 + total) % total;
+      scrollActiveCommandIntoView();
+      return;
+    }
+    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing) {
+      const chosen = sortedCommandItems.value[activeCommandIndex.value];
+      if (chosen) {
+        e.preventDefault();
+        selectCommand(chosen);
+        return;
+      }
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      commandMatch.value = null;
+      return;
+    }
+  }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !matchMedia("(max-width: 760px)").matches) {
     e.preventDefault();
     if (!sendDisabled.value) submitDraft();
@@ -228,6 +395,7 @@ function handleKeydown(e: KeyboardEvent) {
 async function handleSubmit(e?: Event) {
   e?.preventDefault();
   mentionMatch.value = null;
+  commandMatch.value = null;
   if (!sendDisabled.value) submitDraft();
 }
 
@@ -271,6 +439,7 @@ watch(boardChanged, () => {
 
 watch(() => chat.session, () => {
   mentionMatch.value = null;
+  commandMatch.value = null;
   restoreDraft();
   if (inputRef.value) {
     inputRef.value.value = composer.text;
@@ -283,7 +452,10 @@ watch(() => composer.text, (newVal) => {
     inputRef.value.value = newVal;
     grow();
   }
-  if (!newVal) mentionMatch.value = null;
+  if (!newVal) {
+    mentionMatch.value = null;
+    commandMatch.value = null;
+  }
 });
 
 watch(() => focusInput.value, () => {
@@ -293,10 +465,11 @@ watch(() => focusInput.value, () => {
 });
 
 function handleOutsideClick(e: MouseEvent) {
-  if (!mentionMatch.value) return;
+  if (!mentionMatch.value && !commandMatch.value) return;
   const t = e.target as Node | null;
-  if (t && (inputRef.value?.contains(t) || mentionMenuRef.value?.contains(t))) return;
+  if (t && (inputRef.value?.contains(t) || mentionMenuRef.value?.contains(t) || commandMenuRef.value?.contains(t))) return;
   mentionMatch.value = null;
+  commandMatch.value = null;
 }
 
 onMounted(() => {
@@ -364,6 +537,44 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <div
+      v-if="commandOpen"
+      id="command-menu"
+      ref="commandMenuRef"
+      role="listbox"
+      aria-label="Slash commands"
+    >
+      <div
+        v-for="group in commandGroups"
+        :key="group.category"
+        class="mention-group command-group"
+        :data-category="group.category"
+      >
+        <div class="mention-group-header">
+          <span class="command-category-dot" :data-category="group.category" aria-hidden="true"></span>
+          <span>{{ group.label }}</span>
+        </div>
+        <button
+          v-for="entry in group.items"
+          :key="entry.cmd.id"
+          type="button"
+          role="option"
+          class="mention-item command-item"
+          :class="{ active: entry.flatIndex === activeCommandIndex }"
+          :aria-selected="entry.flatIndex === activeCommandIndex ? 'true' : 'false'"
+          :data-command-active="entry.flatIndex === activeCommandIndex ? 'true' : undefined"
+          :data-command="entry.cmd.id"
+          :data-category="entry.cmd.category"
+          @mousedown.prevent="selectCommand(entry.cmd)"
+          @mouseenter="activeCommandIndex = entry.flatIndex"
+        >
+          <span class="command-name">{{ entry.cmd.label }}</span>
+          <span v-if="entry.cmd.args" class="command-args">{{ entry.cmd.args }}</span>
+          <span class="command-desc">{{ entry.cmd.description }}</span>
+        </button>
+      </div>
+    </div>
+
     <div id="atts" aria-label="Attached images">
       <div v-for="(a, i) in composer.attachments" :key="i">
         <span v-if="a.mimeType.startsWith('audio/')">Audio attachment</span>
@@ -403,8 +614,8 @@ onUnmounted(() => {
         aria-label="Message Luna"
         @input="handleInput"
         @keydown="handleKeydown"
-        @click="updateMentionState"
-        @keyup="e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionState(); }"
+        @click="() => { updateMentionState(); updateCommandState(); }"
+        @keyup="e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { updateMentionState(); updateCommandState(); } }"
       ></textarea>
 
       <div class="compose-bar">

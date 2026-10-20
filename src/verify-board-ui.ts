@@ -283,6 +283,38 @@ try {
   }, a.id);
   console.log('BOARD_MENTION_AUTOCOMPLETE_OK');
 
+  // Slash command autocomplete popup when typing / at start of input
+  const cmdMenu = page.locator('#command-menu');
+  await input.fill('/');
+  await input.dispatchEvent('input');
+  await cmdMenu.waitFor({ state: 'visible' });
+  const cmdGroups = await cmdMenu.locator('.command-group').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-category')));
+  assert.deepEqual(cmdGroups, ['side', 'busy', 'session']);
+  const allCmds = await cmdMenu.locator('.command-item').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-command')));
+  assert.deepEqual(allCmds, ['btw', 'bg', 'learn', 'queue', 'steer', 'redirect', 'queue list', 'queue edit', 'queue remove', 'queue move', 'queue clear', 'stop']);
+
+  // Prefix filtering (e.g. /b -> btw, bg; /queue -> queue & queue subcommands)
+  await input.fill('/b');
+  await input.dispatchEvent('input');
+  const bCmds = await cmdMenu.locator('.command-item').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-command')));
+  assert.deepEqual(bCmds, ['btw', 'bg']);
+  await input.press('ArrowDown');
+  await input.press('Enter');
+  assert.equal(await input.inputValue(), '/bg ');
+  assert.equal(await cmdMenu.count(), 0, 'Command menu closes after selecting command');
+
+  await input.fill('/queue m');
+  await input.dispatchEvent('input');
+  await cmdMenu.waitFor({ state: 'visible' });
+  const qCmds = await cmdMenu.locator('.command-item').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-command')));
+  assert.deepEqual(qCmds, ['queue move']);
+  await input.press('Tab');
+  assert.equal(await input.inputValue(), '/queue move ');
+  assert.equal(await cmdMenu.count(), 0);
+  await input.fill('');
+  await input.dispatchEvent('input');
+  console.log('SLASH_COMMAND_AUTOCOMPLETE_OK');
+
   await page.route(`**/v1/projects/${a.id}/board`, (route: any) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Board read unavailable' }) }));
   await page.locator('[data-panel="board"]').click();
   await page.getByRole('alert').filter({ hasText: 'Board read unavailable' }).waitFor();
