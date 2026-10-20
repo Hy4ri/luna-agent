@@ -63,6 +63,11 @@ try {
   store.markRead(a1.id); assert.equal(store.unreadCount(), 3, "Reading historical report does not change latest unread count");
   assert.throws(() => store.markRead(c2.id));
   assert.throws(() => store.markRead(99999));
+  const silent = add("silent-always", "always");
+  const s1 = finish(silent, "");
+  assert.equal(s1.report, true);
+  assert.equal(store.unreadCount(), 3, "'No output' reports do not increase unread count");
+  store.removeJob(silent.id);
   console.log("OK report policies, trim comparison, latest/history, cursor, unread and idempotent completion");
 
   const nextBefore = store.getJob(always.id)!.nextRun;

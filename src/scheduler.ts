@@ -416,6 +416,7 @@ export class CronStore {
     const r = this.db.prepare(`
       SELECT COUNT(*) as c FROM runs
       WHERE report=1 AND status != 'running' AND read_at IS NULL
+        AND (TRIM(COALESCE(output, '')) != '' OR TRIM(COALESCE(error, '')) != '')
         AND id IN (
           SELECT MAX(r2.id) FROM runs r2 WHERE r2.report=1 AND r2.status != 'running' GROUP BY r2.job_id
         )
