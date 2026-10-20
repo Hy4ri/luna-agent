@@ -25,7 +25,9 @@ export function createWebApp(root: URL): Hono {
   app.get("/", (c) => {
     const build = loadBuild();
     if (!build) return c.text("Web UI is not built. Run pnpm run build:web.", 503);
-    return c.html(build.page, 200, { "cache-control": "no-cache", "x-frame-options": "DENY", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" });
+    // Only the internal session pane can be framed, and only by this origin.
+    const pane = c.req.query("pane") === "session";
+    return c.html(build.page, 200, { "cache-control": "no-cache", "x-frame-options": pane ? "SAMEORIGIN" : "DENY", "content-security-policy": `frame-ancestors ${pane ? "'self'" : "'none'"}`, "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" });
   });
 
   app.get("/sw.js", (c) => {

@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { markRaw, reactive } from "vue";
 import { post } from "@/lib/api";
+import { draftsKey } from "@/lib/pane";
 import { addErr, chat, newSession, putSideJob } from "./chat";
 import { loadSessions } from "./sessions";
 
@@ -11,7 +12,7 @@ interface Draft { text: string; attachments: Attachment[] }
 
 const drafts = new Map<string | null, Draft>();
 try {
-  for (const [id, text] of JSON.parse(sessionStorage.getItem("luna.drafts") || "[]")) {
+  for (const [id, text] of JSON.parse(sessionStorage.getItem(draftsKey) || "[]")) {
     if ((id === null || typeof id === "string") && typeof text === "string") drafts.set(id, { text, attachments: [] });
   }
 } catch {}
@@ -29,7 +30,7 @@ let owner: string | null | undefined; // conversation the visible draft belongs 
 export function saveDraft() {
   if (owner === undefined) return;
   drafts.set(owner, { text: composer.text, attachments: composer.attachments });
-  try { sessionStorage.setItem("luna.drafts", JSON.stringify([...drafts].map(([id, d]) => [id, d.text]))); } catch {}
+  try { sessionStorage.setItem(draftsKey, JSON.stringify([...drafts].map(([id, d]) => [id, d.text]))); } catch {}
 }
 export function restoreDraft() {
   owner = chat.session;
