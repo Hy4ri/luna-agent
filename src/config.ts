@@ -46,6 +46,14 @@ export const ConfigSchema = z
       mode: z.enum(["interrupt", "queue", "steer"]).default("interrupt"),
       acknowledgements: z.boolean().default(true),
     }).prefault({}),
+    /** Continue a turn automatically after a usage limit resets. Off by default. */
+    autoContinue: z.strictObject({
+      enabled: z.boolean().default(false),
+      /** Longer waits (for example a weekly cap) are not scheduled. */
+      maxWaitHours: z.number().positive().max(24 * 31).default(168),
+      /** Continuations in a row that may hit a limit again before Luna stops. */
+      maxAttempts: z.number().int().min(1).max(50).default(5),
+    }).prefault({}),
     compaction: z.strictObject({
       enabled: z.boolean().default(true),
       triggerPercent: z.number().int().min(1).max(99).default(75),

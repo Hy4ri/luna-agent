@@ -1,0 +1,36 @@
+diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
+index 42aac9d5f61edf7254c975d47abb42eca59bdad8..4de8bf3e1f1d97a0be0dc6d4a5f70ed7d7c7b42a 100644
+--- a/dist/api/openai-codex-responses.js
++++ b/dist/api/openai-codex-responses.js
+@@ -547,7 +547,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+             continue;
+         if (type === "error") {
+             const { code, message } = extractCodexEventError(event);
+-            throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}`, {
++            const resetsAt = event.error?.resets_at ?? event.resets_at;
++            throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}${Number.isFinite(resetsAt) ? ` (resets_at=${resetsAt})` : ""}`, {
+                 code,
+                 payload: event,
+             });
+@@ -556,7 +557,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+             const response = event.response;
+             const code = response?.error?.code;
+             const message = response?.error?.message;
+-            throw new CodexApiError(message || "Codex response failed", { code, payload: event });
++            const resetsAt = response?.error?.resets_at;
++            throw new CodexApiError(`${message || "Codex response failed"}${Number.isFinite(resetsAt) ? ` (resets_at=${resetsAt})` : ""}`, { code, payload: event });
+         }
+         if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
+             const response = event.response;
+@@ -1256,6 +1258,11 @@ async function parseErrorResponse(response) {
+                 friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
+             }
+             message = err.message || friendlyMessage || message;
++            // luna: keep the exact reset time for automatic continuation.
++            if (Number.isFinite(err.resets_at)) {
++                message += ` (resets_at=${err.resets_at})`;
++                if (friendlyMessage) friendlyMessage += ` (resets_at=${err.resets_at})`;
++            }
+         }
+     }
+     catch { }

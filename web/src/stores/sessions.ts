@@ -81,6 +81,15 @@ export const toggleArchived = (s: SessionMeta) => act(async () => {
   if (!s.archived && String(chat.session) === String(s.id)) clearConversation();
 });
 /** Asks for confirmation (native dialog), then deletes the conversation and its children. */
+/** Cancel the automatic continuation scheduled after a usage limit. */
+export const cancelLimitWait = (s: SessionMeta) =>
+  act(() => json(`/v1/sessions/${s.id}/limit-wait`, { method: "DELETE" }));
+/** Local time of a scheduled continuation; the date appears only when it is not today. */
+export function resumeLabel(at: number, now = Date.now()) {
+  const d = new Date(at), sameDay = d.toDateString() === new Date(now).toDateString();
+  return "Resumes " + (sameDay ? "" : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " ")
+    + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
 export async function deleteSession(s: SessionMeta) {
   if (!confirm('Permanently delete "' + sessionTitle(s) + '" and all its child conversations and forks? Stored messages and search entries will be removed. This cannot be undone.')) return;
   return act(async () => {

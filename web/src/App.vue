@@ -13,7 +13,7 @@ import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
 import { ui, boot, login, setDrawer, closePanel, openPanel } from '@/stores/app';
 import { chat, newSession, addErr } from '@/stores/chat';
-import { history } from '@/stores/sessions';
+import { history, cancelLimitWait, resumeLabel } from '@/stores/sessions';
 import { sessionState, sessionStatusLabel } from '@/lib/session-status';
 import { useMobile } from '@/lib/dom';
 
@@ -83,6 +83,7 @@ onUnmounted(() => document.removeEventListener('keydown', keyboard));
           <div class="heading min-w-0 flex-1">
             <span id="title" class="block truncate text-sm font-medium">{{ chat.title }}</span>
             <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
+            <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt) }}</span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
           </div>
           <StatusBar />
           <button id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>

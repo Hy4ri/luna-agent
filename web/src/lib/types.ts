@@ -16,6 +16,8 @@ export interface SessionMeta {
   running?: boolean;
   status?: SessionStatus;
   statusReason?: string | null;
+  /** Epoch ms when Luna continues after a usage limit; null when nothing is scheduled. */
+  resumeAt?: number | null;
   project?: number | null;
   lastActivity?: number | null;
   createdAt?: number | null;

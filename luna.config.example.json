@@ -83,6 +83,11 @@
     "enabled": true,
     "triggerPercent": 75
   },
+  "autoContinue": {
+    "enabled": false,
+    "maxWaitHours": 168,
+    "maxAttempts": 5
+  },
   "busyInput": {
     "mode": "interrupt",
     "acknowledgements": true

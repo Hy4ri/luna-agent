@@ -7,4 +7,5 @@ allowBuilds:
   protobufjs: false
   "@google/genai": false
 patchedDependencies:
+  '@earendil-works/pi-ai@1.3.0': patches/@earendil-works__pi-ai@1.3.0.patch
   '@earendil-works/pi-durable@1.3.0': patches/@earendil-works__pi-durable@1.3.0.patch
