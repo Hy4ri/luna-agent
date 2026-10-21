@@ -205,7 +205,7 @@ export function createApp(opts: ServerOptions) {
   // runs. Rebuilding every row costs ~10 synchronous SQLite reads per conversation and blocked the event loop for
   // seconds. Cache the storage-derived part of each row and rebuild only conversations that a commit touched.
   // Metadata, project links and the limit-continue setting stay live: they are cheap and change outside commits.
-  type SessionRow = SessionState & { hidden: boolean; parent: unknown; firstUser: string; running: boolean; wait: number | null; lastActivity: number | null; createdAt: number | null };
+  type SessionRow = SessionState & { hidden: boolean; parent: unknown; firstUser: string; running: boolean; wait: number | null; lastActivity: number | null; createdAt: number | null; worker: number | null };
   const rows = new Map<string, SessionRow>();
   const generations = new Map<string, number>();
   let epoch = 0, caching = true;
@@ -222,13 +222,14 @@ export function createApp(opts: ServerOptions) {
     const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
     const firstUser = textOf(head.find((e) => e.kind === "pi.user")).replace(/\s+/g, " ").slice(0, 60);
     const ownHead = r.parent ? (await tx.scanEntries({ conversationId: r.id, order: "ascending", minEntryId: (Number(r.parent.at) + 1) as never }, 30)).items : head;
-    if (ownHead.some((e) => e.kind === "delegate.child")) return { hidden: true, parent: null, firstUser, running: false, status: "ready", statusReason: null, wait: null, lastActivity: null, createdAt: null };
+    if (ownHead.some((e) => e.kind === "delegate.child")) return { hidden: true, parent: null, firstUser, running: false, status: "ready", statusReason: null, wait: null, lastActivity: null, createdAt: null, worker: null };
     const running = await isRunning(tx, r.id);
     return {
       hidden: false, parent: r.parent ?? null, firstUser, running, ...await readSessionStatus(tx, r.id, running),
       wait: running ? null : (await readLimitWait(tx, r.id))?.resumeAt ?? null,
       lastActivity: await newestMessageTime(tx, r.id),
       createdAt: (await tx.doc(SessionCreated, r.id)).at ?? null,
+      worker: (await tx.doc(ExecTarget, r.id)).worker,
     };
   };
   // Concurrent requests (several tabs reacting to one event) share one storage pass.
@@ -259,7 +260,7 @@ export function createApp(opts: ServerOptions) {
     const built = await listRows();
     const links = opts.conversations?.projects.links();
     const continuing = !!opts.limitContinuer?.enabled();
-    const sessions: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; resumeAt: number | null; lastActivity: number | null; createdAt: number | null })[] = [];
+    const sessions: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; resumeAt: number | null; lastActivity: number | null; createdAt: number | null; worker: number | null })[] = [];
     for (const [id, row] of built) {
       if (row.hidden) continue;
       const { hidden: _hidden, firstUser, wait, ...rest } = row;
@@ -323,6 +324,22 @@ export function createApp(opts: ServerOptions) {
     if (!opts.conversations) return err(c, 404, "projects disabled");
     const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown };
     return c.json(opts.conversations.projects.update(projectId(c), b));
+  });
+  // Link a project to a machine: one project, one board, a working directory per machine.
+  const workerParam = (c: HonoContext) => { const n = Number(c.req.param("worker")); return Number.isSafeInteger(n) && n > 0 ? n : -1; };
+  app.put("/v1/projects/:id/machines/:worker", async (c) => {
+    if (!opts.conversations) return err(c, 404, "projects disabled");
+    const w = workerParam(c); if (!opts.workers?.store.get(w)) return err(c, 404, "no such worker");
+    const b = await c.req.json().catch(() => ({})) as { cwd?: unknown };
+    const project = opts.conversations.projects.setWorkerDir(projectId(c), w, b.cwd);
+    opts.conversations.touch();
+    return c.json(project);
+  });
+  app.delete("/v1/projects/:id/machines/:worker", (c) => {
+    if (!opts.conversations) return err(c, 404, "projects disabled");
+    const project = opts.conversations.projects.removeWorkerDir(projectId(c), workerParam(c));
+    opts.conversations.touch();
+    return c.json(project);
   });
   app.delete("/v1/projects/:id", (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
@@ -398,6 +415,7 @@ export function createApp(opts: ServerOptions) {
   app.delete("/v1/workers/:id", (c) => {
     const id = Number(c.req.param("id"));
     if (!opts.workers || !Number.isSafeInteger(id) || !opts.workers.remove(id)) return err(c, 404, "no such worker");
+    opts.conversations?.projects.forgetWorker(id);
     return c.json({ ok: true });
   });
 
@@ -413,8 +431,8 @@ export function createApp(opts: ServerOptions) {
       project = opts.conversations?.projects.get(b.project);
       if (!project) return err(c, 400, "unknown project");
     }
-    // Project directories are paths on this host. A worker session uses the given cwd or the worker's default directory.
-    const cwd = b.cwd || (worker === null ? project?.cwd : undefined);
+    // A project has one directory per machine. Without one, a worker session uses the worker's default directory.
+    const cwd = b.cwd || (project ? opts.conversations?.projects.dirFor(project.id, worker) : undefined);
     // The board is a default runtime extension, including existing unlinked sessions.
     const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
@@ -528,8 +546,8 @@ export function createApp(opts: ServerOptions) {
     if (worker !== null && (!Number.isSafeInteger(worker) || !opts.workers?.store.get(worker))) return err(c, 400, "unknown worker");
     if (b.cwd !== undefined && b.cwd !== null && (typeof b.cwd !== "string" || !b.cwd.trim())) return err(c, 400, "cwd must be a non-empty string");
     const project = opts.conversations?.projects.projectOf(Number(conv.id));
-    const projectCwd = project === undefined ? undefined : opts.conversations?.projects.get(project)?.cwd || undefined;
-    const cwd = (b.cwd as string | undefined)?.trim() || (worker === null ? projectCwd : undefined) || null;
+    const projectCwd = project === undefined ? undefined : opts.conversations?.projects.dirFor(project, worker) || undefined;
+    const cwd = (b.cwd as string | undefined)?.trim() || projectCwd || null;
     const moved = await harness.commit(async tx => {
       if (await isRunning(tx, conv.id)) return "busy";
       // Check retained OS work at the same boundary as task admission, not before this transaction.

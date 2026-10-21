@@ -19,6 +19,8 @@ export interface SessionMeta {
   /** Epoch ms when Luna continues after a usage limit; null when nothing is scheduled. */
   resumeAt?: number | null;
   project?: number | null;
+  /** Execution machine of the session: a worker id, or null for the main host. */
+  worker?: number | null;
   lastActivity?: number | null;
   createdAt?: number | null;
   [key: string]: any;
@@ -28,7 +30,10 @@ export interface Project {
   general?: boolean;
   id: number;
   name: string;
+  /** Working directory on the main host. */
   cwd: string;
+  /** Working directories on execution workers. One project, one board, a directory per machine. */
+  workerDirs?: { worker: number; cwd: string }[];
 }
 
 export interface ModelInfo {

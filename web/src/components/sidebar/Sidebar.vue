@@ -21,10 +21,12 @@ import {
   Settings as SettingsIcon,
   LoaderCircle,
   Command as CommandIcon,
+  Monitor,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, setPalette } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
+import { loadWorkers, workers } from "@/stores/workers";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
@@ -67,36 +69,72 @@ function sortSessions(sessions: any[]) {
   });
 }
 
-const groups = computed(() => {
+type Machine = { key: string; id: number | null; name: string; online: boolean };
+type Group = { key: string; name: string; project: number | null; sessions: any[]; machine?: Machine; head?: boolean };
+
+/** With more than one machine, history is machine, then project. One machine keeps the flat project list. */
+const machines = computed<Machine[]>(() => workers.list.length
+  ? [{ key: "main", id: null, name: "This host", online: true }, ...workers.list.map(w => ({ key: String(w.id), id: w.id, name: w.name, online: w.online }))]
+  : []);
+
+const groups = computed<Group[]>(() => {
   const filtered = filteredSessions.value;
-  if (history.projects.length === 0) {
+  if (history.projects.length === 0 && !machines.value.length) {
     return [{ key: "none", name: "Chats", project: null, sessions: sortSessions(filtered) }];
   }
-  const result: { key: string; name: string; project: number | null; sessions: any[] }[] = [];
-
-  for (const p of history.projects.filter(p => !p.general)) {
-    const pSessions = filtered.filter(s => Number(s.project) === Number(p.id));
-    if (pSessions.length > 0 || !history.query) {
-      result.push({ key: String(p.id), name: p.name, project: p.id, sessions: sortSessions(pSessions) });
+  const named = history.projects.filter(p => !p.general);
+  const isNamed = (s: any) => !!s.project && named.some(p => p.id === s.project);
+  if (!machines.value.length) {
+    const result: Group[] = [];
+    for (const p of named) {
+      const pSessions = filtered.filter(s => Number(s.project) === Number(p.id));
+      if (pSessions.length > 0 || !history.query) {
+        result.push({ key: String(p.id), name: p.name, project: p.id, sessions: sortSessions(pSessions) });
+      }
+    }
+    const noneSessions = filtered.filter(s => !isNamed(s));
+    if (noneSessions.length > 0 || !history.query) {
+      result.push({ key: "none", name: "Chats", project: null, sessions: sortSessions(noneSessions) });
+    }
+    return result;
+  }
+  const result: Group[] = [];
+  for (const m of machines.value) {
+    const here = filtered.filter(s => (s.worker ?? null) === m.id);
+    const part: Group[] = [];
+    for (const p of named) {
+      const pSessions = here.filter(s => Number(s.project) === Number(p.id));
+      // The host has a directory for every project. A worker lists a project once it is linked there or has sessions.
+      const linked = m.id === null || !!p.workerDirs?.some(d => d.worker === m.id);
+      if (pSessions.length > 0 || (linked && !history.query)) {
+        part.push({ key: `${m.key}:${p.id}`, name: p.name, project: p.id, sessions: sortSessions(pSessions), machine: m });
+      }
+    }
+    const noneSessions = here.filter(s => !isNamed(s));
+    if (noneSessions.length > 0 || (m.id === null && !history.query)) {
+      part.push({ key: `${m.key}:none`, name: "Chats", project: null, sessions: sortSessions(noneSessions), machine: m });
+    }
+    if (part.length || !history.query) {
+      if (!part.length) part.push({ key: `${m.key}:none`, name: "Chats", project: null, sessions: [], machine: m });
+      part[0]!.head = true;
+      result.push(...part);
     }
   }
-
-  const noneSessions = filtered.filter(s => !s.project || !history.projects.some(p => !p.general && p.id === s.project));
-  if (noneSessions.length > 0 || !history.query) {
-    result.push({ key: "none", name: "Chats", project: null, sessions: sortSessions(noneSessions) });
-  }
-
   return result;
 });
+
+const machineCollapsed = (m: Machine) => !!history.collapsedGroups["m:" + m.key];
+const machineShown = (g: Group) => !g.machine || !machineCollapsed(g.machine);
 
 function isGroupCollapsed(key: string): boolean {
   return !!history.collapsedGroups[key];
 }
 
-async function handleNewChat(projectId?: number | string | null) {
+async function handleNewChat(projectId?: number | string | null, worker?: number | null) {
   try {
     const id = await newSession(projectId);
     if (id) {
+      if (worker !== undefined && worker !== null) chat.draftWorker = worker;
       setDrawer(false);
       nextTick(() => document.querySelector<HTMLInputElement>("#input")?.focus());
     }
@@ -251,6 +289,7 @@ function menuKey(e: KeyboardEvent) {
 }
 onUnmounted(() => { document.removeEventListener('pointerdown', outsideMenu); document.removeEventListener('keydown', menuKey, true); });
 onMounted(() => {
+  loadWorkers().catch(() => {});
   document.addEventListener('pointerdown', outsideMenu);
   document.addEventListener('keydown', menuKey, true);
 });
@@ -387,7 +426,15 @@ onMounted(() => {
         </template>
 
         <template v-for="g in groups" :key="g.key">
-          <div class="session-group" :data-project="g.key">
+          <div v-if="g.head && g.machine" class="machine-header" :class="{ offline: !g.machine.online }" :data-machine="g.machine.key">
+            <button class="group-toggle" :aria-expanded="!machineCollapsed(g.machine) ? 'true' : 'false'" @click="toggleGroup('m:' + g.machine.key)">
+              <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !machineCollapsed(g.machine) }" />
+              <Monitor :size="14" />
+              <span class="group-name">{{ g.machine.name }}</span>
+              <span v-if="!g.machine.online" class="machine-state">Offline</span>
+            </button>
+          </div>
+          <div v-show="machineShown(g)" class="session-group" :class="{ 'in-machine': g.machine, offline: g.machine && !g.machine.online }" :data-project="g.key">
             <div class="group-header">
               <button
                 class="group-toggle"
@@ -401,9 +448,10 @@ onMounted(() => {
               </button>
               <button
                 class="group-new"
-                :aria-label="'New session in ' + g.name"
-                :title="'New session in ' + g.name"
-                @click="handleNewChat(g.project)"
+                :aria-label="'New session in ' + g.name + (g.machine ? ' on ' + g.machine.name : '')"
+                :title="g.machine && !g.machine.online ? g.machine.name + ' is offline' : 'New session in ' + g.name + (g.machine ? ' on ' + g.machine.name : '')"
+                :disabled="!!g.machine && !g.machine.online"
+                @click="handleNewChat(g.project, g.machine?.id)"
               >
                 <Plus :size="14" />
               </button>
