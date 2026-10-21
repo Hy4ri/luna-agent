@@ -183,6 +183,54 @@ try {
   assert.equal((await req(`/v1/sessions/${fresh.id}/title`, { method: "POST", body: "{}" })).status, 409);
   console.log("OK manual regenerate");
 
+  // Board references give both naming paths the task, not just its number.
+  const project = conversations.projects.create("Title project", dir);
+  const otherProject = conversations.projects.create("Other title project", dir);
+  const card = conversations.board.create(project.id, { subject: "Fix session sidebar scrolling", description: "Keep the selected session visible on mobile" });
+  const secondCard = conversations.board.create(project.id, { subject: "Preserve sidebar selection", description: "Do not reset selection during refresh" });
+  const otherCard = conversations.board.create(otherProject.id, { subject: "Private other project task", description: "Other project secret" });
+  const boardSession = await newSession();
+  conversations.projects.link(Number(boardSession.id), project.id);
+  const boardMessage = `do #${card.id} and #${secondCard.id} and #${otherCard.id} and #999999`;
+  respond([fauxAssistantMessage("done")], [titleReply('{"title": "Fix session sidebar scrolling"}')]);
+  await turn(boardSession, boardMessage);
+  await until(() => conversations.titleSource(Number(boardSession.id)) === "auto", "board-aware auto title");
+  assert.ok(calls.at(-1)!.body.includes(card.subject), "automatic naming receives the referenced card subject");
+  assert.ok(calls.at(-1)!.body.includes(card.description), "automatic naming receives the referenced card description");
+  assert.ok(calls.at(-1)!.body.includes(secondCard.subject) && calls.at(-1)!.body.includes(secondCard.description), "multiple referenced cards are included");
+  assert.ok(!calls.at(-1)!.body.includes(otherCard.subject), "other-project cards stay private");
+  assert.ok(!calls.at(-1)!.body.includes(otherCard.description), "other-project descriptions stay private");
+  conversations.board.update(project.id, card.id, { subject: "Repair mobile sidebar scrolling" });
+  respond([], [titleReply('{"title": "Repair mobile sidebar scrolling"}')]);
+  const boardRegenerate = await req(`/v1/sessions/${boardSession.id}/title`, { method: "POST", body: "{}" });
+  assert.equal(boardRegenerate.status, 200);
+  assert.ok(calls.at(-1)!.body.includes("Repair mobile sidebar scrolling"), "manual generation reads current card details");
+  assert.ok(calls.at(-1)!.body.includes(card.description));
+  assert.equal(conversations.get(Number(boardSession.id)).title, "Repair mobile sidebar scrolling");
+  console.log("OK automatic and manual titles receive project-scoped board details; missing cards ignored");
+
+  // The General board (project 0), archived references, and retry messages use the same lookup.
+  const generalCard = conversations.board.create(0, { subject: "Repair General board task", description: "General board description" });
+  conversations.board.update(0, generalCard.id, { archived: true });
+  const generalSession = await newSession();
+  respond([fauxAssistantMessage("hello")], [titleReply('{"title": "Friendly greeting"}')]);
+  await turn(generalSession, "hi"); await settle();
+  respond([fauxAssistantMessage("done")], [titleReply('{"title": "Repair General board task"}')]);
+  await turn(generalSession, `do #${generalCard.id} and #${generalCard.id} and #${card.id}`);
+  await until(() => conversations.titleSource(Number(generalSession.id)) === "auto", "General board retry title");
+  assert.ok(calls.at(-1)!.body.includes(generalCard.description), "retries resolve archived cards on the General board");
+  assert.equal(calls.at(-1)!.body.split(generalCard.subject).length - 1, 1, "duplicate mentions include the card once");
+  assert.ok(!calls.at(-1)!.body.includes(card.description), "General board cannot read another project's card");
+  console.log("OK retry messages, archived references, duplicate mentions, and General board");
+
+  // Large descriptions cannot turn a small naming request into a large context request.
+  conversations.board.update(project.id, card.id, { description: "large detail ".repeat(600) });
+  respond([], [titleReply('{"title": "Bounded board title"}')]);
+  assert.equal((await req(`/v1/sessions/${boardSession.id}/title`, { method: "POST", body: "{}" })).status, 200);
+  assert.ok(calls.at(-1)!.body.length < 4000, "board context is bounded");
+  assert.ok(calls.at(-1)!.body.includes("[truncated: board context]"), "truncation is explicit");
+  console.log("OK bounded board context");
+
   // 8. session_search shows stored titles.
   await harness.commit(tx => recall.sync(tx), context);
   assert.equal(recall.search("Dockerfile")[0]!.title, "Docker build caching");
