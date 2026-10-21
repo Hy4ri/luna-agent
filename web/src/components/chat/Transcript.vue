@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
-import { chat, entryList, activityLabel, dismissNotice } from "@/stores/chat";
+import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
 import AssistantText from "./AssistantText.vue";
@@ -61,6 +61,16 @@ const mediaBase = (entry: any) => `/v1/sessions/${encodeURIComponent(chat.sessio
 function blocks(content: unknown): any[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
 }
+// Peer session messages: the server writes a `luna.xsession.msg` marker before delivery. Only a header backed by a
+// marker from that sender gets a chip, so a typed look-alike stays plain text.
+const peerSenders = computed(() => new Set(entryList.value.filter(e => e.kind === 'luna.xsession.msg').map(e => Number(e.data?.from))));
+const PEER = /^\[message from session #(\d+) "((?:[^"\\]|\\.)*)": a peer session, not m57\.[^\]]*\]\n\n/;
+function peerMessage(entry: any, message: any): { from: number; title: string; body: string } | undefined {
+  if (entry.kind !== 'pi.user') return undefined;
+  const m = PEER.exec(messageText(message.content));
+  if (!m || !peerSenders.value.has(Number(m[1]))) return undefined;
+  return { from: Number(m[1]), title: m[2]!, body: messageText(message.content).slice(m[0].length) };
+}
 function backgroundReport(entry: any, message: any): boolean {
   // Background commands predate origin metadata. Match only their exact producer header.
   return entry.kind === 'pi.user' && /^Background process [a-f0-9-]+ finished:/.test(messageText(message.content));
@@ -79,6 +89,11 @@ function backgroundReport(entry: any, message: any): boolean {
           <pre>{{ messageText(message.content) }}</pre>
           <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" />
         </details>
+        <div v-else-if="message.role === 'user' && peerMessage(entry, message)" class="msg user peer" :data-entry="entry.id">
+          <button type="button" class="peer-chip" :data-peer="peerMessage(entry, message)!.from" :title="'Open session #' + peerMessage(entry, message)!.from" @click="openSession(peerMessage(entry, message)!.from)">From #{{ peerMessage(entry, message)!.from }} {{ peerMessage(entry, message)!.title }}</button>
+          <div class="user-content">{{ peerMessage(entry, message)!.body }}</div>
+          <MessageFooter :text="peerMessage(entry, message)!.body" :timestamp="message.timestamp" />
+        </div>
         <div v-else-if="message.role === 'user'" class="msg user" :data-entry="entry.id">
           <div class="user-content"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
           <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" />

@@ -9,6 +9,7 @@ import { modelLabel } from "@/stores/models";
 import { boardChanged, focusInput } from "@/stores/app";
 import ModelPicker from "./ModelPicker.vue";
 import ReasoningControl from "./ReasoningControl.vue";
+import { searchMentions, type MentionItem } from "@/lib/mention-sources";
 
 type Status = "todo" | "backlog" | "review" | "in_progress" | "done";
 type Priority = "urgent" | "high" | "medium" | "low";
@@ -71,6 +72,7 @@ const inputRef = ref<HTMLTextAreaElement | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
 const mentionMenuRef = ref<HTMLElement | null>(null);
 const commandMenuRef = ref<HTMLElement | null>(null);
+const atMenuRef = ref<HTMLElement | null>(null);
 const pickerOpen = ref(false);
 
 const boardCards = ref<MentionCard[]>([]);
@@ -79,6 +81,8 @@ const mentionMatch = ref<{ start: number; end: number; query: string } | null>(n
 const activeMentionIndex = ref(0);
 const commandMatch = ref<{ start: number; end: number; query: string } | null>(null);
 const activeCommandIndex = ref(0);
+const atMatch = ref<{ start: number; end: number; query: string } | null>(null);
+const activeAtIndex = ref(0);
 let loadTicket = 0;
 
 const activeProjectId = computed<number | null>(() => {
@@ -180,6 +184,48 @@ const commandGroups = computed(() => {
 });
 
 const commandOpen = computed(() => !mentionOpen.value && !!commandMatch.value && sortedCommandItems.value.length > 0);
+
+// `@` mentions: one group per registered source (sessions now; files and others later).
+const atGroups = computed(() => {
+  if (!atMatch.value) return [];
+  let flatIndex = 0;
+  return searchMentions(atMatch.value.query, { session: chat.session ? String(chat.session) : null })
+    .map(g => ({ id: g.source.id, label: g.source.label, items: g.items.map(item => ({ item, flatIndex: flatIndex++ })) }));
+});
+const atItems = computed<MentionItem[]>(() => atGroups.value.flatMap(g => g.items.map(e => e.item)));
+const atOpen = computed(() => !mentionOpen.value && !commandOpen.value && atItems.value.length > 0);
+
+function updateAtState() {
+  const el = inputRef.value;
+  if (!el) { atMatch.value = null; return; }
+  const caret = el.selectionStart ?? el.value.length;
+  const m = /(?:^|[\s([{"'])@([^\s@]*)$/.exec(el.value.slice(0, caret));
+  if (!m) { atMatch.value = null; return; }
+  const query = m[1] || "";
+  const prev = atMatch.value;
+  atMatch.value = { start: caret - query.length - 1, end: caret, query };
+  if (!prev || prev.query !== query) activeAtIndex.value = 0;
+}
+
+function selectAt(item: MentionItem) {
+  const el = inputRef.value;
+  const m = atMatch.value;
+  if (!el || !m) return;
+  const before = el.value.slice(0, m.start);
+  const after = el.value.slice(m.end);
+  const inserted = item.token + (after.startsWith(" ") || after.startsWith("\n") ? "" : " ");
+  const nextText = before + inserted + after;
+  const nextCaret = before.length + inserted.length;
+  el.value = nextText;
+  composer.text = nextText;
+  atMatch.value = null;
+  grow();
+  saveDraft();
+  void nextTick(() => {
+    el.focus();
+    el.setSelectionRange(nextCaret, nextCaret);
+  });
+}
 
 function updateCommandState() {
   const el = inputRef.value;
@@ -327,6 +373,7 @@ function handleInput() {
   saveDraft();
   updateMentionState();
   updateCommandState();
+  updateAtState();
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -386,6 +433,20 @@ function handleKeydown(e: KeyboardEvent) {
       return;
     }
   }
+  if (atOpen.value) {
+    const total = atItems.value.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      activeAtIndex.value = (activeAtIndex.value + (e.key === "ArrowDown" ? 1 : total - 1)) % total;
+      void nextTick(() => atMenuRef.value?.querySelector<HTMLElement>('[data-at-active="true"]')?.scrollIntoView({ block: "nearest" }));
+      return;
+    }
+    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing) {
+      const chosen = atItems.value[activeAtIndex.value];
+      if (chosen) { e.preventDefault(); selectAt(chosen); return; }
+    }
+    if (e.key === "Escape") { e.preventDefault(); atMatch.value = null; return; }
+  }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !matchMedia("(max-width: 760px)").matches) {
     e.preventDefault();
     if (!sendDisabled.value) submitDraft();
@@ -396,6 +457,7 @@ async function handleSubmit(e?: Event) {
   e?.preventDefault();
   mentionMatch.value = null;
   commandMatch.value = null;
+  atMatch.value = null;
   if (!sendDisabled.value) submitDraft();
 }
 
@@ -440,6 +502,7 @@ watch(boardChanged, () => {
 watch(() => chat.session, () => {
   mentionMatch.value = null;
   commandMatch.value = null;
+  atMatch.value = null;
   restoreDraft();
   if (inputRef.value) {
     inputRef.value.value = composer.text;
@@ -455,6 +518,7 @@ watch(() => composer.text, (newVal) => {
   if (!newVal) {
     mentionMatch.value = null;
     commandMatch.value = null;
+    atMatch.value = null;
   }
 });
 
@@ -465,11 +529,12 @@ watch(() => focusInput.value, () => {
 });
 
 function handleOutsideClick(e: MouseEvent) {
-  if (!mentionMatch.value && !commandMatch.value) return;
+  if (!mentionMatch.value && !commandMatch.value && !atMatch.value) return;
   const t = e.target as Node | null;
-  if (t && (inputRef.value?.contains(t) || mentionMenuRef.value?.contains(t) || commandMenuRef.value?.contains(t))) return;
+  if (t && (inputRef.value?.contains(t) || mentionMenuRef.value?.contains(t) || commandMenuRef.value?.contains(t) || atMenuRef.value?.contains(t))) return;
   mentionMatch.value = null;
   commandMatch.value = null;
+  atMatch.value = null;
 }
 
 onMounted(() => {
@@ -575,6 +640,29 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <div v-if="atOpen" id="at-menu" ref="atMenuRef" role="listbox" aria-label="Mentions">
+      <div v-for="group in atGroups" :key="group.id" class="mention-group" :data-source="group.id">
+        <div class="mention-group-header"><span>{{ group.label }}</span></div>
+        <button
+          v-for="entry in group.items"
+          :key="entry.item.key"
+          type="button"
+          role="option"
+          class="mention-item"
+          :class="{ active: entry.flatIndex === activeAtIndex }"
+          :aria-selected="entry.flatIndex === activeAtIndex ? 'true' : 'false'"
+          :data-at-active="entry.flatIndex === activeAtIndex ? 'true' : undefined"
+          :data-token="entry.item.token"
+          @mousedown.prevent="selectAt(entry.item)"
+          @mouseenter="activeAtIndex = entry.flatIndex"
+        >
+          <span class="mention-subject">{{ entry.item.label }}</span>
+          <span v-if="entry.item.detail" class="at-detail">{{ entry.item.detail }}</span>
+          <span v-if="entry.item.meta" class="at-meta">{{ entry.item.meta }}</span>
+        </button>
+      </div>
+    </div>
+
     <div id="atts" aria-label="Attached images">
       <div v-for="(a, i) in composer.attachments" :key="i">
         <span v-if="a.mimeType.startsWith('audio/')">Audio attachment</span>
@@ -614,8 +702,8 @@ onUnmounted(() => {
         aria-label="Message Luna"
         @input="handleInput"
         @keydown="handleKeydown"
-        @click="() => { updateMentionState(); updateCommandState(); }"
-        @keyup="e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { updateMentionState(); updateCommandState(); } }"
+        @click="() => { updateMentionState(); updateCommandState(); updateAtState(); }"
+        @keyup="e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { updateMentionState(); updateCommandState(); updateAtState(); } }"
       ></textarea>
 
       <div class="compose-bar">

@@ -54,6 +54,12 @@ export const ConfigSchema = z
       /** Continuations in a row that may hit a limit again before Luna stops. */
       maxAttempts: z.number().int().min(1).max(50).default(5),
     }).prefault({}),
+    /** Sessions can message each other with session_send. A peer message never interrupts and grants no permission. */
+    sessionTalk: z.strictObject({
+      enabled: z.boolean().default(true),
+      /** Messages allowed in one exchange between two sessions before session_send refuses. */
+      maxHops: z.number().int().min(1).max(20).default(3),
+    }).prefault({}),
     compaction: z.strictObject({
       enabled: z.boolean().default(true),
       triggerPercent: z.number().int().min(1).max(99).default(75),

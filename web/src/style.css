@@ -518,6 +518,8 @@ aside#side.collapsed #history-rail {
 .msg.assistant::before { content: 'Luna'; display: block; font-size: 12.5px; font-weight: 600; color: var(--muted-foreground); margin-bottom: 8px; }
 .msg.user { align-self: flex-end; width: auto; max-width: 85%; background: var(--secondary); border: 1px solid var(--border); border-radius: 14px 14px 4px 14px; padding: 12px 16px 6px; }
 .user-content { white-space: pre-wrap; font-size: 16.5px; font-weight: 460; }
+.peer-chip { display: inline-flex; max-width: 100%; margin-bottom: 6px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); color: var(--muted-foreground); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.peer-chip:hover { color: var(--foreground); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
 .msg.err { color: var(--destructive); background: var(--err-soft); border: 1px solid rgb(248 113 113 / .3); border-radius: 8px; padding: 10px 14px; white-space: pre-wrap; font-size: 15.5px; font-weight: 460; }
 .msg img.att { max-width: min(280px, 100%); max-height: 260px; border-radius: 8px; display: block; margin: 6px 0; }
 .message-footer { display: flex; align-items: center; gap: 8px; min-height: 28px; margin-top: 8px; color: var(--faint); font-size: 11.5px; line-height: 1.3; }
@@ -693,7 +695,8 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
 #composer { position: relative; border: 1px solid var(--input); background: var(--card); border-radius: 14px; }
 #composer:focus-within { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); }
 #mention-menu,
-#command-menu {
+#command-menu,
+#at-menu {
   position: absolute;
   left: 0;
   right: 0;
@@ -817,6 +820,8 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
   color: var(--muted-foreground);
   font-size: 13px;
 }
+.at-detail { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 12px; }
+.at-meta { flex: none; min-width: 2.5em; text-align: right; font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
 #atts { display: flex; gap: 8px; padding: 10px 12px 0; flex-wrap: wrap; }
 #atts:empty { display: none; }
 #atts div { position: relative; }
