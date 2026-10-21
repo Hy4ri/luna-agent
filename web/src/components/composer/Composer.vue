@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { ArrowUp, Square } from "@lucide/vue";
-import { json } from "@/lib/api";
+import { json, post } from "@/lib/api";
 import { composer, addAttachment, removeAttachment, saveDraft, restoreDraft, submitDraft, retrySend } from "@/stores/composer";
-import { chat, busy, sendDisabled, stopDisabled, stopRun } from "@/stores/chat";
+import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history, loadProjects } from "@/stores/sessions";
 import { modelLabel } from "@/stores/models";
 import { boardChanged, focusInput } from "@/stores/app";
@@ -67,6 +67,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "queue move", insert: "/queue move ", label: "/queue move", args: "<A> <B>", description: "Move queued message A to position B", category: "busy" },
   { id: "queue clear", insert: "/queue clear", label: "/queue clear", description: "Clear all queued messages", category: "busy" },
   { id: "stop", insert: "/stop", label: "/stop", description: "Stop the active turn immediately", category: "session" },
+  { id: "compact", insert: "/compact", label: "/compact", description: "Summarize older context now", category: "session" },
+  { id: "models", insert: "/models", label: "/models", description: "Open the model picker", category: "session" },
 ];
 
 const inputRef = ref<HTMLTextAreaElement | null>(null);
@@ -385,6 +387,27 @@ function handleInput() {
   updateAtState();
 }
 
+/** Run client-side commands (/compact, /models); returns true when handled. */
+function runLocalCommand(): boolean {
+  const cmd = /^\/(compact|compress|models?)$/.exec(composer.text.trim())?.[1];
+  if (!cmd) return false;
+  composer.text = ""; saveDraft();
+  if (cmd.startsWith("model")) {
+    document.getElementById("model-picker")?.showPopover?.();
+  } else if (!chat.session) {
+    addErr("/compact needs an open session.");
+  } else if (busy.value) {
+    addErr("/compact is not available while busy.");
+  } else {
+    post(`/v1/sessions/${chat.session}/compact`).catch(error => addErr((error as Error).message));
+  }
+  return true;
+}
+
+function submit() {
+  if (!runLocalCommand()) submitDraft();
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if (mentionOpen.value) {
     const total = sortedMentionItems.value.length;
@@ -458,7 +481,7 @@ function handleKeydown(e: KeyboardEvent) {
   }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !matchMedia("(max-width: 760px)").matches) {
     e.preventDefault();
-    if (!sendDisabled.value) submitDraft();
+    if (!sendDisabled.value) submit();
   }
 }
 
@@ -467,7 +490,7 @@ async function handleSubmit(e?: Event) {
   mentionMatch.value = null;
   commandMatch.value = null;
   atMatch.value = null;
-  if (!sendDisabled.value) submitDraft();
+  if (!sendDisabled.value) submit();
 }
 
 async function handleFileChange(e: Event) {
