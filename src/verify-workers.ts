@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -16,6 +16,7 @@ import { parseConfig } from "./config.js";
 import { startRuntime, type Runtime } from "./runtime.js";
 import { createApp } from "./server.js";
 import { CONNECT_PATH } from "./worker-protocol.js";
+import { materializeVideo } from "./video-source.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "luna-workers-")));
 const mainCwd = join(dir, "main"), workerCwd = join(dir, "worker");
@@ -56,7 +57,7 @@ async function invoke(conv: Conv, tool: string, args: any) {
   const { request, done } = start(conv, tool, args);
   assert.equal((await done).status, "done");
   assert.ok(request.result, `missing ${tool} result`);
-  return { error: !!request.result.isError, text: text(request.result.content), system: request.system ?? "" };
+  return { error: !!request.result.isError, text: text(request.result.content), content: request.result.content as any[], system: request.system ?? "" };
 }
 async function ok(conv: Conv, tool: string, args: any) { const r = await invoke(conv, tool, args); assert.equal(r.error, false, r.text); return r; }
 
@@ -76,10 +77,10 @@ const exited = (child: ChildProcess) => new Promise<void>(r => { if (child.exitC
 
 try {
   const imageFake: import("./image-gen.js").ImageGenProvider = {
-    name: "img-fake", is_available: () => true, capabilities: () => ({}),
+    name: "img-fake", is_available: () => true, capabilities: () => ({ edit: true }),
     async generate(request) {
       const sharp = (await import("sharp")).default;
-      const out = join(mainCwd, "generated.png");
+      const out = join(mainCwd, request.prompt === "clash" ? "clash.png" : "generated.png");
       await sharp({ create: { width: 16, height: 16, channels: 3, background: "green" } }).png().toFile(out);
       return { success: true, image: out, model: "f", prompt: request.prompt, aspect_ratio: request.aspect_ratio, provider: "img-fake", modality: "text-to-image" as const };
     },
@@ -197,10 +198,47 @@ try {
   assert.match(missingImg.text, /Image read failed on worker/);
 
   // Image generation stages the output file on the worker so the worker session can access it.
-  const generated = JSON.parse((await ok(conv, "image_generate", { prompt: "generate logo" })).text);
+  const generatedRes = await ok(conv, "image_generate", { prompt: "generate logo" });
+  const generated = JSON.parse(generatedRes.text);
   assert.equal(generated.success, true);
   assert.ok(generated.image.includes(workerCwd), `Expected worker path, got ${generated.image}`);
   assert.ok(existsSync(generated.image), "Generated image must exist on the worker");
+  assert.ok(generatedRes.content.some(b => b.type === "image"), "Preview must load from the staged worker path");
+  assert.ok(!/preview delivery failed/.test(generatedRes.text));
+  // A staging failure is a distinct delivery error; the main artifact is kept and nothing regenerates.
+  mkdirSync(join(workerCwd, "clash.png"));
+  const clash = await invoke(conv, "image_generate", { prompt: "clash" });
+  assert.equal(clash.error, true);
+  const clashData = JSON.parse(clash.text);
+  assert.equal(clashData.error_type, "worker_delivery_failed");
+  assert.equal(clashData.image, join(mainCwd, "clash.png"));
+  assert.ok(existsSync(join(mainCwd, "clash.png")));
+
+  // Worker image editing checks working-directory confinement
+  const escapeImg = join(dir, "outside.png");
+  await sharp({ create: { width: 16, height: 16, channels: 3, background: "yellow" } }).png().toFile(escapeImg);
+  const outsideEdit = await invoke(conv, "image_generate", { prompt: "edit logo", image_url: escapeImg });
+  assert.equal(outsideEdit.error, true);
+  assert.match(outsideEdit.text, /outside the conversation working directory/);
+  assert.equal(JSON.parse(outsideEdit.text).success, false);
+
+  // Video path protections apply to worker sessions too
+  const blockedVideo = join(workerCwd, "blocked.mp4");
+  writeFileSync(blockedVideo, Buffer.from("fake video content"));
+  // The video tool checks the API before reading, so exercise the source policy directly through the worker env.
+  const remote = rt.workers.env(workerId, workerCwd);
+  const videoOpts = { signal: new AbortController().signal, cwd: workerCwd, env: remote, dataDir: cfg.dataDir, blocked_paths: ["blocked.mp4"], blocked_hosts: [] };
+  const rejects = (name: string) => assert.rejects(materializeVideo(name, videoOpts), /Read blocked/, name);
+  await rejects("blocked.mp4");
+  // A symlink cannot rename a blocked file or a credential directory on the worker.
+  symlinkSync(blockedVideo, join(workerCwd, "alias.mp4"));
+  await rejects("alias.mp4");
+  mkdirSync(join(workerCwd, ".ssh"), { recursive: true });
+  writeFileSync(join(workerCwd, ".ssh", "key.mp4"), "secret");
+  symlinkSync(join(workerCwd, ".ssh", "key.mp4"), join(workerCwd, "key.mp4"));
+  await rejects("key.mp4");
+  writeFileSync(join(workerCwd, "fine.mp4"), "video bytes");
+  assert.equal(Buffer.from((await materializeVideo("fine.mp4", videoOpts)).data, "base64").toString(), "video bytes");
 
   // Streaming exit codes and background processes on the worker.
   const failing = await invoke(conv, "bash", { command: "echo out; echo err >&2; exit 3" });

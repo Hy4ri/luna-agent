@@ -102,7 +102,23 @@ async function localBytes(source: string, options: VideoSourceOptions): Promise<
     const ctx = withAbortSignal(options.signal, BACKGROUND_CONTEXT);
     const absPath = await options.env.absolutePath(source, ctx);
     if (!absPath.ok) throw new Error(`Video file error: ${absPath.error.message}`);
-    const read = await options.env.readBinaryFile(absPath.value, ctx);
+    // Fail closed: a path the worker cannot canonicalize is not read.
+    const canonical = await options.env.canonicalPath(absPath.value, ctx);
+    if (!canonical.ok) throw new Error(`Invalid video source: ${canonical.error.message}`);
+    const path = canonical.value;
+    // Main-host paths (dataDir, configPath) do not exist on the worker. Resolve blocked_paths on the worker.
+    for (const value of options.blocked_paths) {
+      const abs = await options.env.absolutePath(value, ctx);
+      if (!abs.ok) continue;
+      const real = await options.env.canonicalPath(abs.value, ctx);
+      const blocked = real.ok ? real.value : abs.value;
+      if (within(path, blocked) || within(absPath.value, abs.value)) throw new Error("Read blocked: protected credential or video.blocked_paths.");
+    }
+    if (credentialPath(path)) throw new Error("Read blocked: credential file.");
+    const info = await options.env.fileInfo(path, ctx);
+    if (!info.ok || info.value.kind !== "file") throw new Error("Invalid video source: expected a regular local file.");
+    if (info.value.size > VIDEO_MAX_BYTES) throw new Error("Video exceeds 50 MiB transport limit; compress or trim.");
+    const read = await options.env.readBinaryFile(path, ctx);
     if (!read.ok) throw new Error(`Invalid video source: failed to read from worker: ${read.error.message}`);
     const bytes = Buffer.from(read.value);
     if (bytes.length > VIDEO_MAX_BYTES) throw new Error("Video exceeds 50 MiB transport limit; compress or trim.");

@@ -45,7 +45,20 @@ async function source(value: unknown, cwd: string, signal: AbortSignal, env?: im
       const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
       const absPath = await env.absolutePath(value as string, ctx);
       if (!absPath.ok) throw new Error(`Source image error: ${absPath.error.message}`);
-      const read = await env.readBinaryFile(absPath.value, ctx);
+      const canonical = await env.canonicalPath(absPath.value, ctx);
+      // Fail closed: confinement needs both canonical paths from the worker.
+      if (!canonical.ok) throw new Error(`Source image error: ${canonical.error.message}`);
+      const actual = canonical.value;
+      const canonicalBase = await env.canonicalPath(env.cwd || cwd, ctx);
+      if (!canonicalBase.ok) throw new Error(`Source image error: ${canonicalBase.error.message}`);
+      const root = canonicalBase.value;
+      const rel = relative(root, actual);
+      if (rel === ".." || rel.startsWith("../") || isAbsolute(rel))
+        throw new Error("Source image is outside the conversation working directory.");
+      const info = await env.fileInfo(actual, ctx);
+      if (!info.ok || info.value.kind !== "file") throw new Error("Source must be a regular image file of at most 32 MiB.");
+      if (info.value.size > 32 * 1024 * 1024) throw new Error("Source image exceeds 32 MiB.");
+      const read = await env.readBinaryFile(actual, ctx);
       if (!read.ok) throw new Error(`Source image read failed on worker: ${read.error.message}`);
       const bytes = Buffer.from(read.value);
       if (bytes.length > 32 * 1024 * 1024) throw new Error("Source image exceeds 32 MiB.");
@@ -147,11 +160,18 @@ export class ImageGenManager {
           const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
           const targetDir = execution.env.cwd || execution.cwd;
           const target = await execution.env.joinPath([targetDir, filename], ctx);
-          if (target.ok) {
-            const written = await execution.env.writeFile(target.value, new Uint8Array(bytes), ctx);
-            if (written.ok) result.image = target.value;
-          }
-        } catch (e) {  }
+          // The provider already charged for this image. Report delivery failure distinctly and keep the main copy.
+          const delivery = (detail: string): ImageGenResult => ({ ...result, success: false, error_type: "worker_delivery_failed",
+            error: `Image generated and saved on the main host at ${result.image}, but delivery to the execution machine failed: ${detail}. Do not regenerate automatically.` });
+          if (!target.ok) return delivery(target.error.message);
+          const written = await execution.env.writeFile(target.value, new Uint8Array(bytes), ctx);
+          if (!written.ok) return delivery(written.error.message);
+          result.image = target.value;
+        } catch (e) {
+          if (signal.aborted) throw e;
+          return { ...result, success: false, error_type: "worker_delivery_failed",
+            error: `Image generated and saved on the main host at ${result.image}, but delivery to the execution machine failed: ${e instanceof Error ? e.message : String(e)}. Do not regenerate automatically.` };
+        }
       }
       return result;
     } catch {
@@ -174,7 +194,7 @@ export function createImageGenExtension(manager: ImageGenManager, defaultCwd = p
         const output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [{ type: "text", text: JSON.stringify(result) }];
         if (result.success && result.image) {
           try {
-            const image = await loadVisionImage(result.image, undefined, { signal });
+            const image = await loadVisionImage(result.image, undefined, { signal, cwd: agent.cwd, env: api.env });
             try { const preview = await fitVisionImage(image, { maxBytes: 256 * 1024, hardBytes: 1024 * 1024, longEdge: 2048, signal }); output.push({ type: "image", data: preview.data, mimeType: preview.mimeType }); }
             finally { await image.cleanup(); }
           } catch {
