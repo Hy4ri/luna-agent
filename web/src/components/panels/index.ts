@@ -1,4 +1,5 @@
 import type { Component } from "vue";
+import WorkersPanel from "./WorkersPanel.vue";
 import ProjectsPanel from "./ProjectsPanel.vue";
 import BoardPanel from "./BoardPanel.vue";
 import SessionPanel from "./SessionPanel.vue";
@@ -36,6 +37,7 @@ export const DESCRIPTIONS: Record<string, string> = {
 };
 
 export const PANELS: Record<string, { title: string; desc: string; component: Component }> = {
+  workers: { title: "Execution machines", desc: "Register machines for file and command execution.", component: WorkersPanel },
   projects: {
     title: TITLES.projects,
     desc: DESCRIPTIONS.projects,

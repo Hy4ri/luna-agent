@@ -142,9 +142,8 @@ try {
   await screen.waitFor({ state: "hidden" });
   assert.ok((await page.locator("#input").inputValue()).includes("A visible failure"));
   assert.ok((await page.locator("#input").inputValue()).includes(`#${failedRun.id}`));
-  const sid = await page.evaluate(() => sessionStorage.getItem("luna.session"));
-  const response = await app.request(`/v1/sessions/${sid}`, { headers: { authorization: "Bearer test" } });
-  const session: any = await response.json(); assert.equal(session.entries.some((entry: any) => entry.kind === "pi.user"), false);
+  const sid = await page.evaluate(() => localStorage.getItem("luna.session"));
+  assert.equal(sid, null, "Continue in chat leaves an unsent local draft without creating a server session");
   assert.equal(await page.locator("#log .msg.user").count(), 0);
   console.log("OK runs filters/details and Continue in chat creates an unsent draft");
 

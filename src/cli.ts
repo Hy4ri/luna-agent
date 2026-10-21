@@ -3,6 +3,12 @@
 // Env: LUNA_URL (default http://127.0.0.1:8787), LUNA_TOKEN.
 import { createInterface } from "node:readline/promises";
 
+// Shared-session mode extends this client without changing the legacy single-message command.
+if (process.argv[2] === "connect") {
+  await import("./connect.js");
+  process.exit(process.exitCode ?? 0);
+}
+
 const base = (process.env.LUNA_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const auth: Record<string, string> = process.env.LUNA_TOKEN ? { authorization: `Bearer ${process.env.LUNA_TOKEN}` } : {};
 

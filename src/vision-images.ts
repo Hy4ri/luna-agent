@@ -101,7 +101,7 @@ async function fetchBytes(value: string, signal: AbortSignal): Promise<Buffer> {
   }
   throw new Error("Image redirect limit exceeded.");
 }
-async function sourceBytes(source: string, cwd: string, signal: AbortSignal): Promise<Buffer> {
+async function sourceBytes(source: string, cwd: string, signal: AbortSignal, env?: import("@earendil-works/pi-durable/env").ExecutionEnv): Promise<Buffer> {
   if (/^https?:/i.test(source)) return fetchBytes(source, signal);
   if (/^data:/i.test(source)) {
     if (source.length > Math.ceil(MAX_BYTES * 4 / 3) + 1024) throw new Error("Image exceeds 32 MiB transport limit.");
@@ -114,6 +114,17 @@ async function sourceBytes(source: string, cwd: string, signal: AbortSignal): Pr
     return Buffer.from(decodeURIComponent(match[2]!));
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(source)) throw new Error("Unsupported image URL protocol.");
+  if (env && env.id !== "local") {
+    const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
+    const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
+    const absPath = await env.absolutePath(source, ctx);
+    if (!absPath.ok) throw new Error(`Image file error: ${absPath.error.message}`);
+    const read = await env.readBinaryFile(absPath.value, ctx);
+    if (!read.ok) throw new Error(`Image read failed on worker: ${read.error.message}`);
+    const bytes = Buffer.from(read.value);
+    if (bytes.length > MAX_BYTES) throw new Error("Image exceeds 32 MiB transport limit.");
+    return bytes;
+  }
   const file = await open(resolve(cwd, source), "r");
   try {
     const stat = await file.stat();
@@ -132,14 +143,14 @@ async function sourceBytes(source: string, cwd: string, signal: AbortSignal): Pr
 }
 let photon: ReturnType<typeof createNodePhotonImages> | undefined;
 export async function loadVisionImage(source: string, region: VisionRegion | undefined,
-  options: { signal: AbortSignal; cwd?: string; tempRoot?: string }): Promise<LoadedVisionImage> {
+  options: { signal: AbortSignal; cwd?: string; tempRoot?: string; env?: import("@earendil-works/pi-durable/env").ExecutionEnv }): Promise<LoadedVisionImage> {
   const { signal } = options;
   interrupted(signal);
   const dir = await mkdtemp(join(options.tempRoot ?? tmpdir(), "luna-vision-"));
   const cleanup = () => rm(dir, { recursive: true, force: true });
   try {
     await chmod(dir, 0o700);
-    let bytes = await sourceBytes(source, options.cwd ?? process.cwd(), signal);
+    let bytes = await sourceBytes(source, options.cwd ?? process.cwd(), signal, options.env);
     interrupted(signal);
     if (bytes.length > MAX_BYTES) throw new Error("Image exceeds 32 MiB transport limit.");
     const sourceKey = createHash("sha256").update(bytes).digest("hex");

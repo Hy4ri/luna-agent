@@ -14,6 +14,7 @@ export const VIDEO_DOWNLOAD_TIMEOUT = 60_000;
 export interface VideoSourceOptions {
   signal: AbortSignal; cwd?: string; dataDir: string; configPath?: string;
   blocked_paths: string[]; blocked_hosts: string[];
+  env?: import("@earendil-works/pi-durable/env").ExecutionEnv;
 }
 export function videoMime(source: string): string {
   const suffix = extname(/^https?:/i.test(source) ? new URL(source).pathname : source).toLowerCase();
@@ -96,6 +97,17 @@ async function download(source: string, options: VideoSourceOptions): Promise<Bu
 const within = (file: string, blocked: string) => file === blocked || file.startsWith(blocked + sep);
 const credentialPath = (path: string) => path.split(sep).some(p => /^\.env(?:\.|$)|^\.(?:ssh|aws|gnupg)$|^(?:auth|credentials|secrets)\.json$|^luna\.config(?:\.[^/]+)?\.json$/i.test(p));
 async function localBytes(source: string, options: VideoSourceOptions): Promise<Buffer> {
+  if (options.env && options.env.id !== "local") {
+    const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
+    const ctx = withAbortSignal(options.signal, BACKGROUND_CONTEXT);
+    const absPath = await options.env.absolutePath(source, ctx);
+    if (!absPath.ok) throw new Error(`Video file error: ${absPath.error.message}`);
+    const read = await options.env.readBinaryFile(absPath.value, ctx);
+    if (!read.ok) throw new Error(`Invalid video source: failed to read from worker: ${read.error.message}`);
+    const bytes = Buffer.from(read.value);
+    if (bytes.length > VIDEO_MAX_BYTES) throw new Error("Video exceeds 50 MiB transport limit; compress or trim.");
+    return bytes;
+  }
   const path = await realpath(resolve(options.cwd ?? process.cwd(), source));
   const protectedPaths = [join(options.dataDir, "auth.json"), join(options.dataDir, "mcp.json"),
     options.configPath, join(homedir(), ".ssh"), join(homedir(), ".aws"), join(homedir(), ".gnupg"),

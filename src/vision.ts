@@ -92,7 +92,7 @@ export function createVisionExtension(options: { config: () => Config; models: M
             ...(retry ? { retry: { use_active_model: true }, note: "Retry with the active vision model, bypassing only its profile veto." }
               : { note: "The active model cannot accept supported image tool results. Configure auxiliary.vision." }) }, true);
         }
-        image = await loadVisionImage(args.image_url, args.region, { signal, cwd: agent.cwd });
+        image = await loadVisionImage(args.image_url, args.region, { signal, cwd: agent.cwd, env: api.env });
         if (signal.aborted) throw new Error("Interrupted");
         const view = await options.history(api.conversationId, context);
         const userIndex = view.contributions.findLastIndex(part => part.some(m => m.role === "user"));

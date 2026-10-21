@@ -152,7 +152,7 @@ export const managers: Record<string, { id: string; title: string; description: 
     { id: 'memory', title: 'Saved memory', description: 'Search facts and notes, save a memory, or forget an existing item.' },
     { id: 'skills', title: 'Skill library', description: 'Browse skills, read their instructions, and inspect linked files.' },
   ],
-  tools: [{ id: 'mcp', title: 'Live MCP connections', description: 'Connect external tools, inspect status, enable, disable, or remove a managed server.' }],
+  tools: [{ id: 'mcp', title: 'Live MCP connections', description: 'Connect external tools, inspect status, enable, disable, or remove a managed server.' }, { id: 'workers', title: 'Execution machines', description: 'Connect machines for file and command execution.' }],
   automation: [
     { id: 'lessons', title: 'Review lessons', description: 'Decide on fixes Luna held as critical, inspect evidence, and roll back skill changes.' },
     { id: 'cron', title: 'Cron jobs & reports', description: 'Manage scheduled prompts and inspect their reports and run history.' },
