@@ -1,6 +1,7 @@
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
 import { GENERAL_PROJECT, ProjectError } from "./projects.js";
 import { BoardError } from "./board.js";
+import { cardEvents, deliverCardEvents, ownerSession } from "./board-events.js";
 import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
 import { Hono, type Context as HonoContext } from "hono";
@@ -326,7 +327,19 @@ export function createApp(opts: ServerOptions) {
   app.patch("/v1/projects/:id/cards/:cardId", async (c) => {
     const { conv, id } = boardOf(c);
     const b = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-    return c.json(await write(conv, () => conv.board.update(id, cardId(c), b)));
+    // A change through the HTTP API is a user change: the owner session gets an event (the model's board tool sends none).
+    const cid = cardId(c);
+    const before = conv.board.get(id, cid);
+    const card = await write(conv, () => conv.board.update(id, cid, b));
+    if (before) {
+      const events = cardEvents(before, card);
+      const dead = await deliverCardEvents(harness, events);
+      if (dead.length) {
+        for (const o of new Set([before.owner, card.owner])) if (o && dead.includes(ownerSession(o) ?? -1)) conv.board.clearOwner(id, cid, o);
+        conv.touch();
+      }
+    }
+    return c.json(conv.board.get(id, cid) ?? card);
   });
   app.delete("/v1/projects/:id/cards/:cardId", async (c) => {
     const { conv, id } = boardOf(c);
