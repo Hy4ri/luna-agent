@@ -108,6 +108,23 @@ try {
   assert.equal(boxes.length, 3);
   assert.ok(boxes[1].x >= boxes[0].x + boxes[0].width - 1 && boxes[2].x >= boxes[1].x + boxes[1].width - 1);
   assert.ok(Math.abs(boxes[0].width - boxes[2].width) < 2, "Desktop tiles share the workspace equally");
+  // Split controls: hidden until a 1s hover, then swap and resize.
+  const split = page.locator(".tile-split").first();
+  const xs = () => page.locator("[data-session-tile]:visible").evaluateAll((els: any[]) => els.map(el => ({ id: el.dataset.tileSession || "primary", x: el.getBoundingClientRect().x, w: el.getBoundingClientRect().width })).sort((a: any, b: any) => a.x - b.x));
+  const before = await xs();
+  const sb = await split.boundingBox(); assert.ok(sb);
+  await page.mouse.move(sb.x + 0.5, sb.y + sb.height / 2 + 120);
+  await page.waitForTimeout(300); assert.equal(await page.locator(".tile-split-actions").count(), 0, "Controls wait one second");
+  await page.waitForSelector(".tile-split-actions", { timeout: 2000 });
+  await page.locator('[aria-label="Swap tiles"]').click();
+  const swapped = await xs();
+  assert.equal(swapped[0].id, before[1].id, "Swap exchanges the two neighbouring tiles"); assert.equal(swapped[1].id, before[0].id);
+  const handle = await page.locator(".tile-resize").first().boundingBox(); assert.ok(handle);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2); await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + 120, handle.y + handle.height / 2, { steps: 6 }); await page.mouse.up();
+  const resized = await xs(); assert.ok(resized[0].w > swapped[0].w + 80, "Resize handle widens the left tile");
+  assert.equal(await page.locator(".tile-focused").count(), 1, "Exactly one tile has the focus border");
+  await page.mouse.move(5, 5);
   await drag(d); assert.equal(await tileCount(), 3, "A fourth session is rejected");
   assert.equal(await frameElement(d).count(), 0); assert.equal(await primaryId(), a);
   await drag(b); await drag(a);
@@ -175,13 +192,16 @@ try {
   assert.equal(await third.locator("#input").inputValue(), "keep C");
   await row(b).click(); assert.equal(await primaryId(), null); assert.equal(await tileCount(), 2);
   await right.locator("#close-tile").click(); await frameElement(b).waitFor({ state: "detached" });
-  assert.equal(await tileCount(), 1); assert.equal((await request(`/v1/sessions/${b}`)).id, Number(b), "X removes a tile, not the session");
-  assert.equal(await third.locator("#input").inputValue(), "keep C");
+  assert.equal((await request(`/v1/sessions/${b}`)).id, Number(b), "X removes a tile, not the session");
+  // One session left: tiling ends and it becomes the normal single view.
+  await frameElement(c).waitFor({ state: "detached" });
+  assert.equal(await tileCount(), 1); assert.equal(await primaryId(), c, "A lone surviving tile is promoted to the normal view");
+  assert.equal(await page.locator("#input").inputValue(), "keep C");
   await row(b).click(); await ready(page);
   assert.equal(await page.locator("#input").inputValue(), "keep B", "Draft follows a session from a removed frame into the native view");
   await page.locator("#input").fill("B moved between documents");
   await row(a).click(); await ready(page);
-  await drag(b, frameElement(c)); right = await frame(b);
+  await drag(c); await drag(b, frameElement(c)); right = await frame(b); third = await frame(c);
   assert.equal(await right.locator("#input").inputValue(), "B moved between documents", "A retiled session reads its current draft, not a stale document snapshot");
   assert.equal(await tileCount(), 3);
 
@@ -203,12 +223,14 @@ try {
   await right.locator("#input").fill("CLOSE"); await right.locator("#send").click();
   await bounded(gates.get("CLOSE")!.entered.promise, "close model entered");
   await page.locator("#close-tile").click();
+  await frameElement(b).waitFor({ state: "detached" });
+  assert.equal(await primaryId(), b, "Closing one of two tiles returns the other to the normal view");
   await page.setViewportSize({ width: 390, height: 844 });
-  await right.locator("#menu").click(); await page.locator("#side").waitFor({ state: "visible" });
+  await page.locator("#menu").click(); await page.locator("#side").waitFor({ state: "visible" });
   await page.locator("#side-close").click();
   await page.setViewportSize({ width: 1680, height: 1000 });
-  await right.locator("#close-tile").click();
-  await page.locator("#welcome").waitFor(); assert.equal(await tileCount(), 1, "Closing the final tile restores the blank chat view");
+  await page.locator("#close-tile").click();
+  await page.locator("#welcome").waitFor(); assert.equal(await tileCount(), 1, "Closing the final session restores the blank chat view");
   assert.equal((await request(`/v1/sessions/${b}`)).running, true, "Removing a tile does not stop its run");
   await request(`/v1/sessions/${b}/abort`, "POST");
   await drag(d); await ready(page);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { Menu, Ellipsis, Moon, Plus, X } from '@lucide/vue';
+import { Menu, Ellipsis, Moon, Plus, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
@@ -34,7 +34,77 @@ function readTiles(): string[] {
 watch(tileIds, ids => { if (!sessionPane) sessionStorage.setItem('luna.tiles', JSON.stringify(ids)); }, { deep: true });
 const showPrimary = computed(() => sessionPane || !!chat.session || tileIds.value.length === 0);
 const tileCount = computed(() => (chat.session ? 1 : 0) + tileIds.value.length);
-const tiled = computed(() => !sessionPane && tileIds.value.length > 0);
+const tiled = computed(() => !sessionPane && tileCount.value > 1);
+// A lone surviving iframe tile becomes the normal single view.
+watch([() => chat.session, () => tileIds.value.length], () => {
+  if (sessionPane || chat.session || tileIds.value.length !== 1) return;
+  const [id] = tileIds.value; tileIds.value = []; void openSession(id);
+});
+// Focused tile gets a thin outline. Frames take focus away from this window, so check activeElement on blur.
+const focusedTile = ref<string>('primary');
+function syncFocus() {
+  const el = document.activeElement;
+  if (el instanceof HTMLIFrameElement && el.dataset.tileSession) focusedTile.value = el.dataset.tileSession;
+}
+function onWindowBlur() { setTimeout(syncFocus, 0); }
+const focusClass = (id: string) => tiled.value && focusedTile.value === id ? 'tile-focused' : '';
+// Tile order and size. Order uses CSS `order`, so reordering never remounts a frame.
+const rank = ref<Record<string, number>>({});
+const weight = ref<Record<string, number>>({});
+const visible = computed(() => {
+  const ids = [...(showPrimary.value ? ['primary'] : []), ...tileIds.value];
+  return ids.map((id, i) => ({ id, i })).sort((a, b) => (rank.value[a.id] ?? 100 + a.i) - (rank.value[b.id] ?? 100 + b.i)).map(t => t.id);
+});
+function tileStyle(id: string) {
+  const pos = Math.max(0, visible.value.indexOf(id));
+  return sessionPane ? {} : { order: pos * 2, flexGrow: weight.value[id] ?? 1 };
+}
+function swapTiles(index: number) {
+  const ids = [...visible.value];
+  [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
+  ids.forEach((id, i) => { rank.value[id] = i; });
+}
+// Hover for one second before the split controls show.
+const splitHover = ref<number | null>(null);
+let splitTimer: ReturnType<typeof setTimeout> | undefined;
+let resizing = false;
+function splitEnter(index: number) {
+  clearTimeout(splitTimer);
+  splitTimer = setTimeout(() => { splitHover.value = index; }, 1000);
+}
+function splitLeave() {
+  clearTimeout(splitTimer);
+  if (!resizing) splitHover.value = null;
+}
+function resetSplit(index: number) {
+  weight.value[visible.value[index]] = 1; weight.value[visible.value[index + 1]] = 1;
+}
+function startResize(event: PointerEvent, index: number) {
+  const handle = event.currentTarget as HTMLElement;
+  const [a, b] = [visible.value[index], visible.value[index + 1]];
+  const els = [a, b].map(id => id === 'primary' ? document.getElementById('main') : tileFrame(id));
+  if (!els[0] || !els[1]) return;
+  const vertical = getComputedStyle(handle.closest('.chat-workspace') as Element).flexDirection === 'column';
+  const size = (el: Element) => vertical ? el.getBoundingClientRect().height : el.getBoundingClientRect().width;
+  const sa = size(els[0]), total = sa + size(els[1]);
+  const pair = (weight.value[a] ?? 1) + (weight.value[b] ?? 1);
+  const start = vertical ? event.clientY : event.clientX;
+  resizing = true;
+  handle.setPointerCapture(event.pointerId);
+  const move = (e: PointerEvent) => {
+    const share = Math.min(0.85, Math.max(0.15, (sa + (vertical ? e.clientY : e.clientX) - start) / total));
+    weight.value[a] = pair * share; weight.value[b] = pair * (1 - share);
+  };
+  const end = () => {
+    resizing = false; splitHover.value = null;
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', end);
+    handle.removeEventListener('pointercancel', end);
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+}
 const dropMessage = computed(() => {
   if (chat.session === draggedSession.value || tileIds.value.includes(draggedSession.value || '')) return 'Session already tiled';
   return tileCount.value >= 3 ? 'Maximum 3 sessions' : 'Drop to tile session';
@@ -154,12 +224,14 @@ onMounted(() => {
   stopViewport = trackViewport(document.getElementById('app')!);
   document.addEventListener('keydown', keyboard);
   window.addEventListener('message', paneMessage);
+  window.addEventListener('blur', onWindowBlur);
   window.addEventListener('dragend', endSessionDrag);
   void boot();
 });
 onUnmounted(() => {
   stopViewport?.(); document.removeEventListener('keydown', keyboard);
   window.removeEventListener('message', paneMessage);
+  window.removeEventListener('blur', onWindowBlur);
   window.removeEventListener('dragend', endSessionDrag);
   if (!sessionPane) setSessionRouter();
 });
@@ -171,7 +243,7 @@ onUnmounted(() => {
       <Sidebar v-if="!sessionPane" :inert="ui.login || !!ui.panel" />
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <div id="chat-workspace" v-show="ui.view === 'chat'" :inert="blocked" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
-        <main id="main" v-show="showPrimary" data-session-tile :inert="blocked" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <main id="main" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
             <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" :aria-controls="sessionPane ? undefined : 'side'" :aria-expanded="sessionPane ? undefined : ui.drawer" @click="openNavigation"><Menu :size="18" /></button>
             <div class="heading min-w-0 flex-1">
@@ -191,7 +263,14 @@ onUnmounted(() => {
           </div>
         </main>
         <template v-if="!ui.login">
-          <iframe v-for="(id, index) in tileIds" :key="id" :src="paneUrl(id)" :data-tile-session="id" data-session-tile :title="sessionTitle(history.list.find(s => String(s.id) === id) || { id })" class="session-pane" :class="{ 'tile-divider': index > 0 || showPrimary }" />
+          <iframe v-for="id in tileIds" :key="id" :src="paneUrl(id)" :data-tile-session="id" data-session-tile :title="sessionTitle(history.list.find(s => String(s.id) === id) || { id })" class="session-pane" :class="focusClass(id)" :style="tileStyle(id)" />
+          <div v-for="n in Math.max(0, visible.length - 1)" :key="'split-' + n" class="tile-split" :style="{ order: n * 2 - 1 }" @pointerenter="splitEnter(n - 1)" @pointerleave="splitLeave">
+            <div class="tile-split-hit" />
+            <div v-if="splitHover === n - 1" class="tile-split-actions">
+              <button class="icon-button" aria-label="Swap tiles" title="Swap tiles" @click="swapTiles(n - 1)"><ArrowLeftRight :size="14" /></button>
+              <button class="icon-button tile-resize" aria-label="Drag to resize, double-click to reset" title="Drag to resize, double-click to reset" @pointerdown.prevent="startResize($event, n - 1)" @dblclick="resetSplit(n - 1)"><MoveHorizontal :size="14" /></button>
+            </div>
+          </div>
         </template>
         <!-- HTML drag events do not bubble out of frames. This temporary surface
              receives the drop even when the pointer is over a live tile. -->
@@ -235,7 +314,16 @@ onUnmounted(() => {
   height: 100%;
   border: 0;
 }
-.session-pane.tile-divider { border-left: 1px solid var(--border); }
+.tile-split { position: relative; flex: 0 0 1px; background: var(--border); z-index: 10; }
+.tile-split-hit { position: absolute; inset: 0 -5px; }
+.tile-split-actions {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; gap: 4px; padding: 3px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--background);
+}
+.tile-split-actions .icon-button { width: 28px; height: 28px; }
+.tile-resize { cursor: col-resize; touch-action: none; }
+#main.tile-focused, .session-pane.tile-focused { outline: 1px solid var(--primary); outline-offset: -1px; }
 .tile-close { width: 28px; height: 28px; }
 .tile-drop-target {
   position: absolute;
@@ -254,6 +342,9 @@ onUnmounted(() => {
     height: 0;
     min-height: 0;
   }
-  .session-pane.tile-divider { border-left: 0; border-top: 1px solid var(--border); }
+  .tile-split-hit { inset: -5px 0; }
+  .tile-split-actions { flex-direction: row; }
+  .tile-resize { cursor: row-resize; }
+  .tile-resize svg { transform: rotate(90deg); }
 }
 </style>
