@@ -1,9 +1,9 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
 export const sections = [
-  { id: 'general', title: 'Chat', description: 'Choose how Luna handles new messages and usage limits.', keys: ['busyInput', 'autoContinue'] },
+  { id: 'general', title: 'Chat', description: 'Choose how Luna handles new messages and usage limits.', keys: ['busyInput', 'autoContinue', 'sessionTalk'] },
   { id: 'models', title: 'Models & accounts', description: 'Connect providers and choose models for each kind of work.', keys: ['provider', 'model', 'thinkingLevel', 'subagents', 'auxiliary', 'providers'] },
   { id: 'context', title: 'Memory & skills', description: 'Manage instructions, conversation context, and reusable knowledge.', keys: ['instructions', 'compaction', 'skillDirs'] },
-  { id: 'images', title: 'Images', description: 'Choose how Luna reads and creates images.', keys: ['vision', 'image_gen'] },
+  { id: 'images', title: 'Images', description: 'Choose how Luna reads and creates images.', keys: ['vision', 'image_gen', 'video'] },
   { id: 'tools', title: 'Tools & connections', description: 'Set up web access, browser control, commands, and external tools.', keys: ['web', 'browser', 'processes', 'mcpServers', 'extensions'] },
   { id: 'automation', title: 'Automation', description: 'Configure scheduled work and review what Luna learns.', keys: ['cron', 'learn', 'improve'] },
   { id: 'system', title: 'System', description: 'Set storage paths and server access. Inspect recorded usage.', keys: ['dataDir', 'cwd', 'server'] },
@@ -11,13 +11,14 @@ export const sections = [
 
 export const fieldTitles: Record<string, string> = {
   busyInput: 'Messages during a response', mode: 'Message handling', acknowledgements: 'Show message acknowledgements',
+  sessionTalk: 'Messages between sessions', maxHops: 'Messages per exchange',
   autoContinue: 'Continue after usage limits', maxWaitHours: 'Maximum reset wait (hours)', maxAttempts: 'Consecutive retry limit',
   provider: 'Provider ID', model: 'Model ID', thinkingLevel: 'Thinking level', subagents: 'Subagent defaults',
   auxiliary: 'Task-specific models', side_question: 'Side questions', session_title: 'Session titles',
   providers: 'Custom provider definitions', id: 'ID', name: 'Display name', api: 'API format', baseUrl: 'Base URL', models: 'Models',
   contextWindow: 'Context window (tokens)', maxTokens: 'Maximum output (tokens)', reasoning: 'Supports reasoning',
   instructions: 'Default instructions', compaction: 'Automatic context summarization', triggerPercent: 'Context trigger (%)', skillDirs: 'Extra skill directories',
-  vision: 'Image analysis', image_mode: 'Image analysis route', history_budget_bytes: 'History image budget (bytes)',
+  video: 'Video analysis', vision: 'Image analysis', image_mode: 'Image analysis route', history_budget_bytes: 'History image budget (bytes)',
   long_edge: 'Maximum long edge (pixels)', hard_bytes: 'Image size limit (bytes)', max_calls_per_image: 'Main-agent calls per image',
   subagent_max_calls_per_image: 'Subagent calls per image', profiles: 'Vision profiles', tool_result_images: 'Allow tool-result images',
   image_gen: 'Image generation', 'openai-codex': 'OpenAI Codex options', quality: 'Image quality', codexHome: 'Codex home directory', codexCommand: 'Codex command',
@@ -48,6 +49,7 @@ export function labelFor(path: (string | number)[]): string {
   if (full === 'processes.enabled') return 'Enable background command starts'
   if (full === 'compaction.enabled') return 'Enable automatic compaction'
   if (full === 'autoContinue.enabled') return 'Continue automatically when a usage limit resets'
+  if (full === 'sessionTalk.enabled') return 'Allow sessions to message each other'
   if (full.startsWith('vision.profiles.') && path.length === 3) return String(key)
   return fieldTitles[String(key)] || String(key).replace(/[_-]/g, ' ')
 }
@@ -57,6 +59,8 @@ const fieldHelp: Record<string, string> = {
   'busyInput.acknowledgements': 'Show confirmation when a message is queued or used to steer a response.',
   'autoContinue.enabled': 'Wait for a usage reset, then continue the stopped turn. A new message cancels the wait. Authentication, billing, and context errors do not retry.',
   'autoContinue.maxWaitHours': 'Do not schedule a continuation when the reset is farther away than this limit.',
+  'sessionTalk.enabled': 'Sessions can send messages to other sessions with session_send. A message waits for a busy session and never interrupts it.',
+  'sessionTalk.maxHops': 'Messages two sessions can exchange before session_send refuses. A new message from you starts a new exchange.',
   'autoContinue.maxAttempts': 'Stop after this many consecutive continuations hit another usage limit.',
   'provider': 'Provider ID from the catalog or a custom definition below.',
   'model': 'Exact model ID. Keep any slashes that are part of the ID. New defaults must be available in the catalog or defined below.',
@@ -113,12 +117,13 @@ export function helpFor(path: (string | number)[]): string {
 }
 
 export const timing: Record<string, string> = {
-  busyInput: 'Applies live', autoContinue: 'Applies live', compaction: 'Applies live',
+  busyInput: 'Applies live', autoContinue: 'Applies live', sessionTalk: 'Applies live', compaction: 'Applies live',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
 export const summaries: Record<string, string> = {
   busyInput: 'Control what happens when you send another message while Luna is working.',
   autoContinue: 'Resume a turn after a rate or usage limit, within the limits you set.',
+  sessionTalk: 'Let a session send messages to other sessions. Mention a session with @ in the chat box.',
   instructions: 'Set the instructions shared by new conversations.',
   compaction: 'Keep long conversations inside the model’s context window.',
   subagents: 'Delegated workers inherit the parent model and thinking level unless you set an override.',

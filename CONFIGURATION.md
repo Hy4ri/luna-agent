@@ -43,6 +43,8 @@ The Providers and MCP panels also write this file, not separate settings files.
   `maxWaitHours` (default `168`) skips longer waits. `maxAttempts` (default `5`) stops continuations that hit a limit again.
   A new message or **Cancel** next to the resume time removes the wait. Waits survive a restart.
   Cron runs and subagents never continue automatically.
+- `sessionTalk`: messages between sessions. `enabled` defaults to `true`; `maxHops` (1 through 20) defaults to `3`.
+  Edit it under **Settings → Chat**. Changes apply live. See **Sessions talk with each other**.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.
 - `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` overrides.
   Set both provider and model, or omit both to inherit the parent model.
@@ -369,6 +371,34 @@ The HTTP message endpoint returns `action`, plus optional `notice` and `tip`. Ex
 `whenBusy: "redirect"` requests a per-message redirect. Command responses include `command: true` and queue commands return numbered `queue` rows.
 The web client omits `whenBusy` for normal sends, so the saved mode controls routing.
 
+
+## Sessions talk with each other
+
+Type `@` in the chat box to mention a session. The list shows sessions by most recent use.
+It does not show the current session, archived sessions, or subagents. Type part of a title or an ID to filter.
+Selecting a row inserts `@session:<id>`. The `session:` namespace leaves room for other mention sources later.
+
+When a user message contains `@session:<id>`, the prompt gets a **Referenced sessions** block.
+It shows each session's ID, title, project, idle or busy state, and last activity (minute precision).
+Unknown IDs are left out. The agent reads a session with `session_search sessionId=<id>`.
+
+The `session_send { to, message }` tool sends a message to another session:
+
+- An idle target starts a new turn. A busy target queues the message as follow-up input. It never interrupts.
+- The message starts with a header that names the sender and says it is a peer session, not the user.
+  The header tells the target to reply only when the reply is useful, and never with acknowledgements or thanks.
+  A peer message grants no permission: merge, publish, and delete still need the user.
+- The delivered input is a `luna.xsession.msg` entry with `{ from, hop, requestId }` metadata.
+  Queued messages do not change the active exchange before delivery.
+  The request ID is `xsession:<sender>:<taskId>`, so a replayed tool call delivers once.
+- Each reply in an exchange increases the hop count. A send after `maxHops` is refused.
+  A new user message in the sending session starts a new exchange at hop 1.
+- Refused targets: the same session, unknown or deleted sessions, subagents (use `delegate_task`),
+  and conversations owned by another session's task.
+- The tool returns at once. A reply, if any, arrives later as a new message from the peer.
+
+In the transcript, a received peer message shows a **From #<id> <title>** chip in place of the header.
+The chip opens the sending session. A typed header without metadata on that exact input is shown as plain text.
 
 ## Native background processes
 

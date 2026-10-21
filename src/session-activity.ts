@@ -11,7 +11,7 @@ export async function newestMessageTime(tx: Pick<Tx, "scanEntries">, id: Convers
     const page = await tx.scanEntries({ conversationId: id, order: "descending" }, size, cursor);
     size = Math.min(size * 4, 200);
     for (const entry of page.items) {
-      const role = entry.kind === "pi.user" ? "user" : entry.kind === "pi.assistant" ? "assistant" : null;
+      const role = (entry.kind === "pi.user" || entry.kind === "luna.xsession.msg") ? "user" : entry.kind === "pi.assistant" ? "assistant" : null;
       if (!role) continue;
       let timestamp: number | null = null;
       for (const message of entry.model ?? []) {

@@ -6,6 +6,7 @@ import { createVisionExtension } from "./vision.js";
 import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
+import { createSessionTalkExtension } from "./session-talk.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
@@ -152,6 +153,15 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     } : undefined,
   }) : undefined;
   if (ask) extensions.push(ask);
+  // Live policy: Settings changes apply to the next send without a restart.
+  extensions.push(createSessionTalkExtension({
+    policy: () => (settings?.resolved() ?? cfg).sessionTalk,
+    harness: () => harnessRef,
+    titles: () => conversationsRef && {
+      title: (id) => conversationsRef!.get(id).title,
+      project: (id) => { const p = conversationsRef!.projects.projectOf(id); return p === undefined ? undefined : conversationsRef!.projects.get(p)?.name; },
+    },
+  }));
   const recall = on("recall") ? new RecallIndex(join(cfg.dataDir, "recall.db")) : undefined;
   if (recall) extensions.push(createRecallExtension(recall));
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));

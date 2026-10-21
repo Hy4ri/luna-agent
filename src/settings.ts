@@ -100,6 +100,6 @@ function restoreMap(map: Record<string,string> | undefined, old: Record<string,s
 }
 
 function structural(s: Settings) {
-  const { provider, model, subagents, thinkingLevel, instructions, compaction, busyInput, autoContinue, auxiliary, vision, image_gen, ...rest } = s;
+  const { provider, model, subagents, thinkingLevel, instructions, compaction, busyInput, autoContinue, sessionTalk, auxiliary, vision, image_gen, ...rest } = s;
   return JSON.stringify(rest);
 }
