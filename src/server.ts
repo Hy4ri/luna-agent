@@ -10,7 +10,7 @@ import { createWebApp } from "./web-assets.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
-import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type UserInput } from "@earendil-works/pi-durable";
+import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { AskDoc, checkAnswer } from "./ask.js";
@@ -210,10 +210,11 @@ export function createApp(opts: ServerOptions) {
       const k = String(id); rows.delete(k); generations.set(k, (generations.get(k) ?? 0) + 1);
     }
   }); } catch { caching = false; } // No commit feed means no invalidation: rebuild every row instead.
-  const buildRow = async (tx: Tx, r: { id: ConversationId; parent?: unknown }): Promise<SessionRow> => {
+  const buildRow = async (tx: Tx, r: Pick<ConversationRecord, "id" | "parent">): Promise<SessionRow> => {
     const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
     const firstUser = textOf(head.find((e) => e.kind === "pi.user")).replace(/\s+/g, " ").slice(0, 60);
-    if (head.some((e) => e.kind === "delegate.child")) return { hidden: true, parent: null, firstUser, running: false, status: "ready", statusReason: null, wait: null, lastActivity: null, createdAt: null };
+    const ownHead = r.parent ? (await tx.scanEntries({ conversationId: r.id, order: "ascending", minEntryId: (Number(r.parent.at) + 1) as never }, 30)).items : head;
+    if (ownHead.some((e) => e.kind === "delegate.child")) return { hidden: true, parent: null, firstUser, running: false, status: "ready", statusReason: null, wait: null, lastActivity: null, createdAt: null };
     const running = await isRunning(tx, r.id);
     return {
       hidden: false, parent: r.parent ?? null, firstUser, running, ...await readSessionStatus(tx, r.id, running),

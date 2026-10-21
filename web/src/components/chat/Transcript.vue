@@ -61,14 +61,12 @@ const mediaBase = (entry: any) => `/v1/sessions/${encodeURIComponent(chat.sessio
 function blocks(content: unknown): any[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
 }
-// Peer session messages: the server writes a `luna.xsession.msg` marker before delivery. Only a header backed by a
-// marker from that sender gets a chip, so a typed look-alike stays plain text.
-const peerSenders = computed(() => new Set(entryList.value.filter(e => e.kind === 'luna.xsession.msg').map(e => Number(e.data?.from))));
+// Peer identity comes from metadata on this exact delivered input, never from a typed header.
 const PEER = /^\[message from session #(\d+) "((?:[^"\\]|\\.)*)": a peer session, not m57\.[^\]]*\]\n\n/;
 function peerMessage(entry: any, message: any): { from: number; title: string; body: string } | undefined {
-  if (entry.kind !== 'pi.user') return undefined;
+  if (entry.kind !== 'luna.xsession.msg') return undefined;
   const m = PEER.exec(messageText(message.content));
-  if (!m || !peerSenders.value.has(Number(m[1]))) return undefined;
+  if (!m || Number(entry.data?.from) !== Number(m[1])) return undefined;
   return { from: Number(m[1]), title: m[2]!, body: messageText(message.content).slice(m[0].length) };
 }
 function backgroundReport(entry: any, message: any): boolean {

@@ -388,7 +388,8 @@ The `session_send { to, message }` tool sends a message to another session:
 - The message starts with a header that names the sender and says it is a peer session, not the user.
   The header tells the target to reply only when the reply is useful, and never with acknowledgements or thanks.
   A peer message grants no permission: merge, publish, and delete still need the user.
-- Before delivery, a `luna.xsession.msg` entry `{ from, hop, requestId }` is written into the target.
+- The delivered input is a `luna.xsession.msg` entry with `{ from, hop, requestId }` metadata.
+  Queued messages do not change the active exchange before delivery.
   The request ID is `xsession:<sender>:<taskId>`, so a replayed tool call delivers once.
 - Each reply in an exchange increases the hop count. A send after `maxHops` is refused.
   A new user message in the sending session starts a new exchange at hop 1.
@@ -397,7 +398,7 @@ The `session_send { to, message }` tool sends a message to another session:
 - The tool returns at once. A reply, if any, arrives later as a new message from the peer.
 
 In the transcript, a received peer message shows a **From #<id> <title>** chip in place of the header.
-The chip opens the sending session. A header without a matching marker entry is shown as plain text.
+The chip opens the sending session. A typed header without metadata on that exact input is shown as plain text.
 
 ## Native background processes
 

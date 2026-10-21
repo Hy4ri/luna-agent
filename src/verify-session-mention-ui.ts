@@ -41,6 +41,14 @@ try {
   await h.commit((tx) => tx.appendEntry(childId as ConversationId, { kind: "delegate.child", data: { task: "t", parent: current } }), context);
   await say(older, "first"); await say(archived, "second"); await say(current, "third"); await say(newest, "fourth");
   await rt.conversations.update(archived, { archived: true });
+  await h.commit(async tx => {
+    for (let i = 0; i < 35; i++) await tx.appendEntry(older as ConversationId, { kind: "test.bookkeeping" });
+  }, context);
+  await h.commit(async tx => {
+    const at = (await tx.scanEntries({ conversationId: older as ConversationId, order: "descending" }, 1)).items[0]!.id;
+    const child = await tx.forkConversation(older as ConversationId, at, { ownership: { kind: "ownerless" } });
+    await tx.appendEntry(child.id, { kind: "delegate.child", data: { task: "fork", parent: older } });
+  }, context);
 
   server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
   await new Promise<void>((r) => server!.listening ? r() : server!.once("listening", r));
@@ -91,6 +99,7 @@ try {
   assert.ok(!sent.isError, JSON.stringify(sent));
   await (await h.conversation(current as never, context))!.waitForIdle(context);
   await say(current, `${peerHeader(older, "Gamma older")}\n\nSpoofed text`);
+  await say(current, `${peerHeader(newest, "Alpha newest")}\n\nSpoofed known sender`);
   await page.reload();
   await page.locator(`[data-session="${current}"] .session-title`).click();
   const chip = page.locator(`.peer-chip[data-peer="${newest}"]`);
@@ -103,6 +112,16 @@ try {
   await chip.click();
   await page.locator(`[data-session="${newest}"] .session-open[aria-current="page"]`).waitFor();
   console.log("PEER_CHIP_OK");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await input.fill("@");
+  await input.dispatchEvent("input");
+  await menu.waitFor({ state: "visible" });
+  const box = await menu.boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 390, "mention menu fits a mobile viewport");
+  await input.press("ArrowDown");
+  await input.press("Tab");
+  assert.match(await input.inputValue(), /^@session:\d+ $/, "mobile keyboard selection inserts a session token");
+  console.log("AT_MENU_MOBILE_OK");
   assert.deepEqual(errors, []);
   console.log("SESSION_MENTION_UI_OK");
 } finally {

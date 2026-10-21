@@ -10,8 +10,10 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCal
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { loadConfig } from "./config.js";
 import { context } from "./luna.js";
+import { newestInputBoundary } from "./session-status.js";
+import { newestMessageTime } from "./session-activity.js";
 import { startRuntime } from "./runtime.js";
-import { createSessionTalkExtension, mentionedSessionIds, XSESSION_MSG, type XSessionMarker } from "./session-talk.js";
+import { createSessionTalkExtension, mentionedSessionIds, peerHeader, XSESSION_MSG, type XSessionMarker } from "./session-talk.js";
 
 const dir = mkdtempSync(join(tmpdir(), "luna-xsession-"));
 const textOf = (m: any): string => typeof m?.content === "string" ? m.content : (m?.content ?? []).map((c: any) => c.text ?? "").join("");
@@ -61,7 +63,7 @@ try {
   const idle = async (id: number) => (await h.conversation(id as never, context))!.waitForIdle(context);
   // Committed transcript entries; safe to read while the conversation runs.
   const userTexts = async (id: number) => h.commit(async (tx) => (await tx.scanEntries({ conversationId: id as ConversationId, order: "ascending" }, 500)).items
-    .filter((e) => e.kind === "pi.user").flatMap((e) => (e.model ?? []).filter((m) => m.role === "user").map(textOf)), context);
+    .filter((e) => (e.kind === "pi.user" || e.kind === XSESSION_MSG)).flatMap((e) => (e.model ?? []).filter((m) => m.role === "user").map(textOf)), context);
   const markers = async (id: number) => h.commit(async (tx) => (await tx.scanEntries({ conversationId: id as ConversationId, order: "ascending" }, 500)).items
     .filter((e) => e.kind === XSESSION_MSG).map((e) => ({ ...(e.data as XSessionMarker) })), context);
 
@@ -77,7 +79,7 @@ try {
   await idle(A); await idle(B);
   const sys = systems[`ask beta @session:${B} please`]!;
   assert.match(sys, /Referenced sessions:/, "mention adds the Referenced sessions block");
-  assert.match(sys, new RegExp(`@session:${B} "Beta review": (idle|busy), last activity`), "block names the session, title and state");
+  assert.match(sys, new RegExp(`@session:${B} "Beta review"(?: \\(project General\\))?: (idle|busy), last activity`), "block names the session, title and state");
   assert.ok(!/@session:999999/.test(sys));
   console.log("MENTION_BLOCK_OK");
   const bUser = await userTexts(B);
@@ -107,6 +109,7 @@ try {
     return Number((await tx.createConversation({ ownership: { kind: "task", taskId: task.id } })).id);
   }, context);
   assert.ok(!tB.some((t) => t.endsWith("QUEUED NOTE")), "not placed while the target runs");
+  assert.equal((await markers(B)).length, 1, "queued input does not change the active exchange before delivery");
   hold.release.resolve();
   await until(async () => (await userTexts(B)).some((t) => t.endsWith("QUEUED NOTE")), "queued delivery");
   await idle(B);
@@ -124,6 +127,18 @@ try {
   assert.match(r[2]!, /^Error: session \d+ is a subagent; use delegate_task/);
   assert.match(r[3]!, /^Error: session \d+ belongs to another session's task/);
   console.log("REJECTIONS_OK");
+  // Forked children place their own delegate marker after inherited history, not in its first page.
+  await h.commit(async tx => { for (let i = 0; i < 35; i++) await tx.appendEntry(A as ConversationId, { kind: "test.bookkeeping" }); }, context);
+  const forked = await h.commit(async tx => {
+    const fork = await tx.forkConversation(A as ConversationId, (await tx.scanEntries({ conversationId: A as ConversationId, order: "descending" }, 1)).items[0]!.id, { ownership: { kind: "ownerless" } });
+    await tx.appendEntry(fork.id, { kind: "delegate.child", data: { task: "fork", parent: A } });
+    return Number(fork.id);
+  }, context);
+  const forkTool = createSessionTalkExtension({ policy: () => ({ enabled: true, maxHops: 3 }), harness: () => h, titles: () => undefined }).tools![0]!;
+  const forkResult = await forkTool.execute({ to: forked, message: "not a peer" } as never, { conversationId: C as ConversationId, taskId: 4239,
+    commit: (fn: any, ctx: any) => h.commit(fn, ctx), conversation: (id: ConversationId, ctx: any) => h.conversation(id, ctx) } as any, context as never);
+  assert.ok(forkResult.isError && /subagent/.test(textOf({ content: forkResult.output })), "forked child remains protected after inherited history");
+  console.log("FORKED_CHILD_REJECTION_OK");
 
   // 4. Replay: the same task id twice gives one marker and one delivery. Real harness, real tool body.
   const ext = createSessionTalkExtension({ policy: () => ({ enabled: true, maxHops: 3 }), harness: () => h, titles: () => undefined });
@@ -131,12 +146,45 @@ try {
   const api = { conversationId: C as ConversationId, taskId: 4242, commit: (fn: any, ctx: any) => h.commit(fn, ctx),
     conversation: (id: ConversationId, ctx: any) => h.conversation(id, ctx) } as any;
   const first = await tool.execute({ to: A, message: "REPLAYED" } as never, api, context as never);
+  await h.commit(async tx => {
+    for (let i = 0; i < 205; i++) await tx.appendEntry(A as ConversationId, { kind: "test.bookkeeping" });
+  }, context);
   const again = await tool.execute({ to: A, message: "REPLAYED" } as never, api, context as never);
   assert.ok(!first.isError && !again.isError, JSON.stringify([first, again]));
   await idle(A);
   assert.equal((await userTexts(A)).filter((t) => t.endsWith("REPLAYED")).length, 1, "replay delivered once");
   assert.equal((await markers(A)).filter((m) => m.requestId === `xsession:${C}:4242`).length, 1, "replay marker once");
   console.log("REPLAY_ONCE_OK");
+
+  // Custom input metadata participates in activity and handoff boundaries, while human look-alikes reset hops.
+  const D = await make(), E = await make();
+  const one = createSessionTalkExtension({ policy: () => ({ enabled: true, maxHops: 1 }), harness: () => h, titles: () => undefined }).tools![0]!;
+  const fromD = { ...api, conversationId: D as ConversationId, taskId: 5001 };
+  assert.ok(!(await one.execute({ to: E, message: "PEER BOUNDARY" } as never, fromD, context as never)).isError);
+  await idle(E);
+  await h.commit(async tx => {
+    const entries = (await tx.scanEntries({ conversationId: E as ConversationId, order: "ascending" }, 100)).items;
+    const input = entries.find(e => e.kind === XSESSION_MSG)!;
+    assert.equal(await newestInputBoundary(tx, E as ConversationId), Number(input.id));
+    assert.ok((await newestMessageTime(tx, E as ConversationId))! >= input.model![0]!.timestamp);
+  }, context);
+  const fromE = { ...api, conversationId: E as ConversationId, taskId: 5002 };
+  assert.ok((await one.execute({ to: D, message: "LIMITED" } as never, fromE, context as never)).isError, "peer input retains its authenticated hop");
+  await (await h.conversation(E as never, context))!.submit({ type: "input", content: `${peerHeader(D, "typed look-alike")}\n\nHuman message` }, context);
+  await idle(E);
+  assert.ok(!(await one.execute({ to: D, message: "RESET" } as never, { ...fromE, taskId: 5003 }, context as never)).isError, "a human header cannot impersonate peer metadata or prevent a reset");
+  await idle(D);
+  console.log("PEER_BOUNDARY_AND_HUMAN_RESET_OK");
+
+  // A very long referenced title cannot grow an always-on prompt without a bound.
+  await rt.conversations.update(B, { title: "x".repeat(5000) });
+  const capTrigger = `bounded mention @session:${B}`;
+  await (await h.conversation(C as never, context))!.submit({ type: "input", content: capTrigger }, context);
+  await idle(C);
+  const block = systems[capTrigger]!.match(/<sessions>([\s\S]*?)<\/sessions>/)![1]!;
+  assert.ok(block.length <= 3000, `session prompt length ${block.length}`);
+  assert.match(block, /\[truncated:.*session_search/);
+  console.log("MENTION_BUDGET_OK");
 
   // 5. Disabled policy refuses without touching the target.
   const off = createSessionTalkExtension({ policy: () => ({ enabled: false, maxHops: 3 }), harness: () => h, titles: () => undefined });
