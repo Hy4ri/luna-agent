@@ -8,6 +8,7 @@ import http from "node:http";
 import https from "node:https";
 import sharp from "sharp";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
+import { isWorkerEnv } from "./worker-protocol.js";
 
 export interface VisionRegion { x: number; y: number; width: number; height: number }
 export interface LoadedVisionImage {
@@ -114,11 +115,14 @@ async function sourceBytes(source: string, cwd: string, signal: AbortSignal, env
     return Buffer.from(decodeURIComponent(match[2]!));
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(source)) throw new Error("Unsupported image URL protocol.");
-  if (env && env.id !== "local") {
+  if (env && isWorkerEnv(env)) {
     const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
     const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
     const absPath = await env.absolutePath(source, ctx);
     if (!absPath.ok) throw new Error(`Image file error: ${absPath.error.message}`);
+    const info = await env.fileInfo(absPath.value, ctx);
+    if (!info.ok) throw new Error(`Image read failed on worker: ${info.error.message}`);
+    if (info.value.kind !== "file" || info.value.size > MAX_BYTES) throw new Error("Image must be a regular file within 32 MiB.");
     const read = await env.readBinaryFile(absPath.value, ctx);
     if (!read.ok) throw new Error(`Image read failed on worker: ${read.error.message}`);
     const bytes = Buffer.from(read.value);

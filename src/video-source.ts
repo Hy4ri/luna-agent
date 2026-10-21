@@ -7,6 +7,7 @@ import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import { isPublicVisionAddress } from "./vision-images.js";
+import { isWorkerEnv } from "./worker-protocol.js";
 
 export const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 export const VIDEO_WARNING_BYTES = 20 * 1024 * 1024;
@@ -97,7 +98,7 @@ async function download(source: string, options: VideoSourceOptions): Promise<Bu
 const within = (file: string, blocked: string) => file === blocked || file.startsWith(blocked + sep);
 const credentialPath = (path: string) => path.split(sep).some(p => /^\.env(?:\.|$)|^\.(?:ssh|aws|gnupg)$|^(?:auth|credentials|secrets)\.json$|^luna\.config(?:\.[^/]+)?\.json$/i.test(p));
 async function localBytes(source: string, options: VideoSourceOptions): Promise<Buffer> {
-  if (options.env && options.env.id !== "local") {
+  if (options.env && isWorkerEnv(options.env)) {
     const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
     const ctx = withAbortSignal(options.signal, BACKGROUND_CONTEXT);
     const absPath = await options.env.absolutePath(source, ctx);

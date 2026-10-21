@@ -15,7 +15,8 @@ import { context } from "./luna.js";
 import { parseConfig } from "./config.js";
 import { startRuntime, type Runtime } from "./runtime.js";
 import { createApp } from "./server.js";
-import { CONNECT_PATH } from "./worker-protocol.js";
+import { CONNECT_PATH, isWorkerEnv } from "./worker-protocol.js";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { materializeVideo } from "./video-source.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "luna-workers-")));
@@ -225,6 +226,9 @@ try {
   // Video path protections apply to worker sessions too
   const blockedVideo = join(workerCwd, "blocked.mp4");
   writeFileSync(blockedVideo, Buffer.from("fake video content"));
+  // Local sessions must keep the local media guards: only a worker env takes the remote media branches.
+  assert.equal(isWorkerEnv(new NodeExecutionEnv({ cwd: mainCwd })), false);
+  assert.equal(isWorkerEnv(rt.workers.env(workerId, workerCwd)), true);
   // The video tool checks the API before reading, so exercise the source policy directly through the worker env.
   const remote = rt.workers.env(workerId, workerCwd);
   const videoOpts = { signal: new AbortController().signal, cwd: workerCwd, env: remote, dataDir: cfg.dataDir, blocked_paths: ["blocked.mp4"], blocked_hosts: [] };

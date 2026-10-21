@@ -2,6 +2,11 @@
 // Main sends calls; the worker runs them on its own ExecutionEnv and sends output chunks and one result per call.
 import { ExecutionError, FileError, type Result } from "@earendil-works/pi-durable/env";
 
+/** Env id prefix of RemoteExecutionEnv. Local envs (pi-durable "node:local") never match. */
+export const WORKER_ENV_PREFIX = "luna-worker:";
+/** True only for a session env that runs on an execution worker. */
+export const isWorkerEnv = (env: { id: string } | undefined): boolean => !!env && env.id.startsWith(WORKER_ENV_PREFIX);
+
 export const PROTOCOL_VERSION = 1;
 export const CONNECT_PATH = "/v1/workers/connect";
 

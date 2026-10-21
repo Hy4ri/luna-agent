@@ -5,6 +5,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type, type TSchema } from "typebox";
 import { loadVisionImage, fitVisionImage } from "./vision-images.js";
+import { isWorkerEnv } from "./worker-protocol.js";
 
 export type AspectRatio = "landscape" | "square" | "portrait";
 export type CreativeControl = "creativity" | "intensity" | "complexity" | "movement";
@@ -40,7 +41,7 @@ async function source(value: unknown, cwd: string, signal: AbortSignal, env?: im
   if (typeof value !== "string" || !value.trim()) throw new Error("Image sources must be nonempty strings.");
   let input = value;
   if (!/^https?:|^data:/i.test(value)) {
-    if (env && env.id !== "local") {
+    if (env && isWorkerEnv(env)) {
       const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
       const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
       const absPath = await env.absolutePath(value as string, ctx);
@@ -150,7 +151,7 @@ export class ImageGenManager {
       // JS TypeError is not Python's unexpected-keyword exception. Modalities are checked above.
       const result = await provider.generate(request, signal);
       signal.throwIfAborted();
-      if (result.success && result.image && execution.env && execution.env.id !== "local") {
+      if (result.success && result.image && execution.env && isWorkerEnv(execution.env)) {
         try {
           const { readFile } = await import("node:fs/promises");
           const { basename } = await import("node:path");

@@ -10,7 +10,7 @@ import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import { ExecutionError, FileError, type ExecutionEnv, type Result, type ShellExecOptions } from "@earendil-works/pi-durable/env";
 import { CONNECT_PATH, PROTOCOL_VERSION, decodeResult, encode,
-  type Capabilities, type EnvMethod, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
+  type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 
 /** Where a session's file and shell tools run. `worker: null` is the main host. Forks keep their source's machine. */
 export const ExecTarget = defineDoc<{ worker: number | null }>({
@@ -216,7 +216,7 @@ const READER_OPS = ["info", "read", "scanLines", "readLine", "next", "close"] as
 class RemoteExecutionEnv {
   readonly id: string;
   private explicitCwd: string | undefined;
-  constructor(private hub: WorkerHub, private workerId: number, cwd: string | undefined) { this.id = `luna-worker:${workerId}`; this.explicitCwd = cwd; }
+  constructor(private hub: WorkerHub, private workerId: number, cwd: string | undefined) { this.id = `${WORKER_ENV_PREFIX}${workerId}`; this.explicitCwd = cwd; }
   get cwd() { return this.explicitCwd ?? this.hub.defaultCwd(this.workerId) ?? ""; }
   set cwd(value: string) { this.explicitCwd = value; }
   private call(method: EnvMethod, args: unknown[], context: Context, onOutput?: ShellExecOptions["onOutput"]) {
