@@ -172,7 +172,7 @@ const Params = Type.Object({
 const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}${c.archived ? "|archived" : ""}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
 const detail = (c: Card) => [line(c), ...(c.description ? [`  description: ${c.description}`] : []), `  updated: ${new Date(c.updated).toISOString()}`].join("\n");
 
-function extractMentionedCardIds(messages: readonly { role?: string; content?: unknown }[]): number[] {
+export function extractMentionedCardIds(messages: readonly { role?: string; content?: unknown }[]): number[] {
   const ids: number[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]!;

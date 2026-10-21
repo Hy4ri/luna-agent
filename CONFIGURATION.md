@@ -499,13 +499,19 @@ Automatic titles replace that fallback with a short generated title:
 Without `session_title`, titles use the `side_question` route. Without either route, automatic titles are off.
 The session's own model is never used, so a large session model does not change the cost.
 
-- Timing: once, after the first finished answer of a top-level session. Forks and subagent children are skipped.
-- Cost: one call. Thinking is always off, whatever the session's thinking level.
-  Input is the first user message (1,200 characters) and the first answer (800 characters). Output is at most 40 tokens.
-  Usage is recorded against the session.
-- Failure: no retry. The first-message fallback stays.
+- Timing: when a user message is stored, in parallel with the turn. An instant title uses the first non-empty line,
+  shortened to about 48 characters. Forks and subagent children are skipped.
+- Cost: a separate auxiliary call with thinking off. Input is the user message (up to 1,000 characters),
+  plus the subject and description of any `#<id>` board references in that message. References are resolved
+  against the session's project board (including General and archived cards); missing and other-project cards
+  are ignored. Added board context is limited to 2,000 characters with an explicit truncation marker.
+  Card details are supplied as context, not instructions. Output is at most 512 tokens. Usage is recorded against the session.
+- Failure: the instant title stays. Later user messages can retry during the first three user turns,
+  with at most three automatic model calls per session per process. Retries use the latest user message and its references.
+  A successful generated title stops automatic naming; greeting placeholders remain eligible for upgrade.
 - User titles win. Automatic titles never replace a rename, including a rename made while the call runs.
-- **Generate title** in the session menu replaces the current title on request. It is unavailable without a route.
+- **Generate title** in the session menu replaces the current title on request, using the opening message and current
+  details of its board references. It is unavailable without a route.
 - `session_search` shows stored titles (renames and generated titles) instead of the first message.
 
 ## Web frontend development
