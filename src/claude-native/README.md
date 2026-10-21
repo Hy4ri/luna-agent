@@ -11,7 +11,6 @@ One generation is one CLI process group and one admitted upstream Messages reque
 - `transport.ts`: environment guard, CLI spawn, frame replay, event loop, final response.
 - `inert-mcp.mjs`: tool inventory without implementations. Luna executes every tool.
 - `types.ts`: shared shapes.
-- `fixtures/python-parity.json`: outputs captured from the retired Python transport; `verify-claude-native-units.ts` checks them.
 
 ## Upstream provenance
 

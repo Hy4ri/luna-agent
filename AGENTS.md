@@ -37,25 +37,21 @@ pnpm run start              # Start the HTTP/SSE daemon (src/daemon.ts)
 pnpm run chat               # Run the interactive CLI client (src/cli.ts)
 ```
 
-### Verification & Test Gates
+### Verification
 
-Every subsystem has a dedicated verification script (`src/verify-*.ts`) that exercises real behavior and prints an `*_OK` marker on success:
+This repo has **no tests**. Do not write, add, or restore test files, `verify-*.ts` scripts, fixtures, or test harnesses. Check changes with the TypeScript compiler only:
 
 ```bash
-pnpm run smoke              # Basic harness smoke check
-pnpm run verify             # Core tool and extension verification
-pnpm run verify:runtime     # End-to-end runtime wiring (MCP, cron, delegation, config rejection)
-pnpm run verify:<name>      # Targeted backend check (e.g. verify:providers, verify:memory, verify:cron)
-pnpm run verify:<name>-ui   # Playwright browser UI check (e.g. verify:chat-view-ui, verify:settings-ui)
-pnpm run test               # Full gate: typecheck + typecheck:web + build:web + all verify suites
+pnpm run typecheck          # Backend (tsc -p .)
+pnpm run typecheck:web      # Frontend, when web/ changed
+pnpm run build:web          # Frontend build, when web/ changed
 ```
 
 ### Verification Rules for Changes
 
-1. **Before opening a PR:** Run `pnpm run typecheck`, `pnpm run typecheck:web` (if `web/` changed), `pnpm run build:web` (before any web/UI test), and all targeted `pnpm run verify:*` scripts that cover the modified code.
-2. **New features and bug fixes:** Add or update a regression test in the corresponding `src/verify-*.ts` script. When introducing a new `src/verify-<feature>.ts` script, register it in `package.json` `scripts` AND append it to the `pnpm run test` chain.
-3. **Live tests (`verify:*:live`):** Require external network services or paid credentials. Do not add `*:live` scripts to the default `pnpm run test` chain.
-4. **Exit codes:** Run verification commands unpiped so nonzero exit codes are preserved. Never report a timed-out or nonzero command as passing.
+1. **Before opening a PR:** Run `pnpm run typecheck`, plus `pnpm run typecheck:web` and `pnpm run build:web` if `web/` changed.
+2. **No tests:** Do not add regression tests for features or bug fixes. Do not add `test` or `verify*` scripts to `package.json`.
+3. **Exit codes:** Run checks unpiped so nonzero exit codes are preserved. Never report a timed-out or nonzero command as passing.
 
 ---
 
@@ -103,8 +99,7 @@ luna-pi/
 │   ├── busy-input.ts           # Interrupt / queue / steer policies for active turns
 │   ├── busy-tools.ts           # Background process tools (process_start, process_manage)
 │   ├── side-commands.ts        # Ephemeral side questions (/btw) without polluting main context
-│   ├── limit-continue.ts       # Automatic turn continuation after rate/quota reset
-│   └── verify-*.ts             # End-to-end, unit, and Playwright UI verification suites
+│   └── limit-continue.ts       # Automatic turn continuation after rate/quota reset
 └── web/
     ├── vite.config.ts          # Vite 8 config + TS 5 SFC registration + service worker emitter
     ├── tsconfig.json           # Frontend TypeScript configuration
@@ -123,8 +118,8 @@ luna-pi/
 
 ### 1. Three-Layer Shipping Requirement
 A capability is complete only when all three layers are verified:
-1. **Module layer:** The module exists and its unit/verification script passes.
-2. **Runtime layer:** `src/runtime.ts` and `src/server.ts` install and wire the module into the real daemon entrypoint. A module imported only by its own `verify-*.ts` script is dead code.
+1. **Module layer:** The module exists and typechecks.
+2. **Runtime layer:** `src/runtime.ts` and `src/server.ts` install and wire the module into the real daemon entrypoint. A module that nothing in the daemon imports is dead code.
 3. **User/Agent layer:** The agent can invoke the tool (or the user can operate the UI control) and receive the delivered result end-to-end.
 
 ### 2. Single Strictly Validated Configuration (`src/config.ts`)
@@ -168,10 +163,10 @@ A capability is complete only when all three layers are verified:
 
 1. **Never use unconditional `crypto.randomUUID()` in `web/`:**
    Browsers restrict `crypto.randomUUID()` to Secure Contexts (`https://` or `localhost`). When accessing the web UI over plain HTTP on a LAN IP (e.g. `http://192.168.1.x:8787`), `crypto.randomUUID()` throws `TypeError` and breaks interactions. Always provide a fallback using `crypto.getRandomValues()` or timestamp/random hex.
-2. **Rebuild `web/` before running UI or asset verification:**
-   The daemon and Playwright tests serve compiled assets from `dist/web/`. Always run `pnpm run build:web` after modifying files in `web/` before running `pnpm run verify:*-ui` or `pnpm run verify:web*`.
+2. **Rebuild `web/` after changing it:**
+   The daemon serves compiled assets from `dist/web/`. Always run `pnpm run build:web` after modifying files in `web/`.
 3. **Read installed `pi-durable` and `pi-ai` declarations first:**
-   Before writing extensions, tools, or faux-model test harnesses, inspect the exact TypeScript definitions in `node_modules/@earendil-works/pi-durable/dist/` (`types.d.ts`, `harness/types.d.ts`, `harness/events.d.ts`) and `node_modules/@earendil-works/pi-ai/dist/`. Do not invent event shapes or method signatures.
+   Before writing extensions or tools, inspect the exact TypeScript definitions in `node_modules/@earendil-works/pi-durable/dist/` (`types.d.ts`, `harness/types.d.ts`, `harness/events.d.ts`) and `node_modules/@earendil-works/pi-ai/dist/`. Do not invent event shapes or method signatures.
 4. **Updating `patches/*.patch`:**
    Dependency patches are managed in `patches/` and declared in `pnpm-workspace.yaml`. Never hand-edit hunk headers or line counts in `.patch` files; generate diffs cleanly and verify with `git apply --check --reverse`.
 5. **Single-turn CLI adapters (`src/claude-cli.ts`, `src/claude-native/`):**
@@ -187,11 +182,10 @@ Every change must go through a branch and Pull Request targeting `main`. Never p
 ```bash
 git checkout main && git pull origin main
 git checkout -b feat/short-description      # or fix/..., refactor/..., docs/..., test/..., chore/...
-# implement changes and run verification gates:
+# implement changes and run the checks:
 pnpm run typecheck
 pnpm run typecheck:web
 pnpm run build:web
-pnpm run verify:<target>
 git commit -m "feat(scope): concise summary"
 git push -u origin HEAD
 gh pr create --base main --title "feat(scope): concise summary" --body "..."
