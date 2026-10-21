@@ -3,6 +3,7 @@ import { nextTick, reactive, ref } from "vue";
 import { onUnauthorized, setToken, token } from "@/lib/api";
 import { isMobile } from "@/lib/dom";
 import { sections } from "@/pages/settings/catalog";
+import { sessionPane } from "@/lib/pane";
 
 export type View = "chat" | "cron" | "analytics" | "settings";
 export const SETTINGS_TABS: readonly string[] = sections.map(section => section.id);
@@ -26,7 +27,26 @@ export const ui = reactive({
   cronUnread: 0,
   /** Board edit form open: list-feed refreshes must not clobber it. */
   boardEditing: false,
+  /** Command palette open. */
+  palette: false,
+  /** Split view shown; the second pane stays mounted after it closes. */
+  split: !sessionPane && sessionStorage.getItem("luna.split.open") === "1",
+  splitMounted: false,
 });
+ui.splitMounted = ui.split;
+/** Increments when settings are saved outside the Settings page. */
+export const settingsChanged = ref(0);
+
+export function toggleSplit() {
+  if (sessionPane) return;
+  ui.split = !ui.split;
+  if (ui.split) ui.splitMounted = true;
+  sessionStorage.setItem("luna.split.open", ui.split ? "1" : "0");
+}
+export function setPalette(open: boolean) {
+  if (open && (ui.login || sessionPane)) return;
+  ui.palette = open;
+}
 /** Increments on every board_changed list-feed event. */
 export const boardChanged = ref(0);
 /** Increments when the composer input should take focus. */
@@ -36,6 +56,8 @@ export const focusInput = ref(0);
 export interface SettingsGuard { canLeave(): boolean; isDirty(): boolean; canChangeTab?(): boolean }
 let guard: SettingsGuard | null = null;
 export function setSettingsGuard(g: SettingsGuard | null) { guard = g; }
+/** True while the Settings page holds unsaved or in-flight edits. */
+export const settingsDirty = () => ui.view === "settings" && !!guard?.isDirty();
 const settingsHash = (tab = ui.settingsTab) => (tab === "general" ? "#settings" : "#settings/" + tab);
 const clearHash = () => history.replaceState(null, "", location.pathname + location.search);
 

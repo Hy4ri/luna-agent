@@ -20,9 +20,10 @@ import {
   Trash2,
   Settings as SettingsIcon,
   LoaderCircle,
+  Command as CommandIcon,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
-import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer } from "@/stores/app";
+import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, setPalette } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
@@ -289,6 +290,11 @@ onMounted(() => {
       <button id="new" title="New chat" class="side-item" @click="handleNewChat()">
         <Plus :size="18" />
         <span class="side-label">New chat</span>
+      </button>
+      <button id="open-palette" class="side-item" title="Commands (Ctrl+K)" aria-keyshortcuts="Control+K Meta+K" @click="setDrawer(false); setPalette(true)">
+        <CommandIcon :size="18" />
+        <span class="side-label">Commands</span>
+        <kbd class="side-kbd">Ctrl K</kbd>
       </button>
       <button class="side-item" data-panel="cron" title="Cron" :aria-current="ui.view === 'cron' ? 'page' : undefined" @click="openPanel('cron')">
         <Clock :size="18" />
