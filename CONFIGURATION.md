@@ -798,6 +798,7 @@ Scheduled runs and delegated children do not receive the board tool.
   The empty directory means General has no directory override.
 - `GET /v1/sessions` and `GET /v1/sessions/:id` report `project: 0` for General chats.
 - `POST /v1/sessions` accepts `project: 0`. Omitting `project` also uses General.
+- Creation also accepts optional `model: { provider, modelId }` and `thinkingLevel` overrides. Valid reasoning levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Omitted overrides use the configured defaults. The empty chat keeps explicit choices locally and sends them when the first message creates the session.
 - Existing board and card routes accept `/v1/projects/0/board` and `/v1/projects/0/cards`.
 - `PATCH` and `DELETE /v1/projects/0` return `409`. The name General is reserved for new projects.
 - Deleting a named project keeps its conversations and directories. Those conversations then use General.

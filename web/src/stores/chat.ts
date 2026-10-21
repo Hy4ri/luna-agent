@@ -257,6 +257,7 @@ function setSession(id: string | null) {
 export function clearConversation() {
   saveDraft(); detachView(); setSession(null);
   chat.title = "New conversation";
+  models.draft = {};
   setSelectedModel(models.defaultModel); models.thinking = "off"; chat.usage = null;
   restoreDraft();
 }
@@ -400,7 +401,7 @@ export async function newSession(project?: number | string | null): Promise<bool
 export async function createSession(project?: number | string | null): Promise<string | undefined> {
   if (!leavePages()) return;
   const epoch = chat.epoch;
-  const body = project ? { project: Number(project) } : {};
+  const body = { ...(project ? { project: Number(project) } : {}), ...models.draft };
   const { id } = await post<{ id: number | string }>("/v1/sessions", body);
   if (epoch !== chat.epoch) return String(id);
   resetHistoryView();

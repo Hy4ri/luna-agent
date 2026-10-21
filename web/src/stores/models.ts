@@ -20,6 +20,7 @@ export const models = reactive({
   defaultModel: null as ModelRef | null,
   selected: null as ModelRef | null,
   thinking: "off",
+  draft: {} as { model?: ModelRef; thinkingLevel?: string },
   pins: readPins(),
   loaded: false,
   refresh: null as { checkedAt: number | null; refreshing: boolean; intervalMs: number; errors: Record<string, string> } | null,
@@ -55,16 +56,20 @@ export async function loadModels() {
   }
   models.loaded = true;
   const { chat } = await import("./chat");
-  if (!chat.session) setSelectedModel(models.defaultModel);
+  if (!chat.session) setSelectedModel(models.draft.model ?? models.defaultModel);
   return true;
 }
 
-/** Switches the model of the open conversation (creating one first when needed). */
+/** Selects a draft model, or updates the open server conversation. */
 export async function chooseModel(m: ModelInfo): Promise<boolean> {
-  const { chat, newSession, addErr } = await import("./chat");
+  const { chat, addErr } = await import("./chat");
   try {
-    const target = chat.session || String((await newSession()) || "");
-    if (!target) return false;
+    const target = chat.session;
+    if (!target) {
+      models.draft.model = { provider: m.provider, modelId: m.id };
+      setSelectedModel(models.draft.model);
+      return true;
+    }
     await post(`/v1/sessions/${target}`, { model: { provider: m.provider, modelId: m.id } }, "PATCH");
     if (chat.session === target) { setSelectedModel({ provider: m.provider, modelId: m.id }); return true; }
   } catch (e) { addErr((e as Error).message); }
@@ -75,6 +80,6 @@ export async function setThinking(level: string) {
   const { chat, addErr } = await import("./chat");
   models.thinking = level;
   const sid = chat.session, epoch = chat.epoch;
-  if (!sid) return;
+  if (!sid) { models.draft.thinkingLevel = level; return; }
   await post(`/v1/sessions/${sid}`, { thinkingLevel: level }, "PATCH").catch(e => { if (epoch === chat.epoch) addErr((e as Error).message); });
 }

@@ -36,6 +36,8 @@ import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
 import { entryMedia } from "./media-directives.js";
 import { activeContextTokens } from "./context-usage.js";
 
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
 export interface ServerOptions {
@@ -357,8 +359,9 @@ export function createApp(opts: ServerOptions) {
   });
 
   app.post("/v1/sessions", async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; instructions?: string; cwd?: string; project?: number };
+    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; thinkingLevel?: string; instructions?: string; cwd?: string; project?: number };
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
+    if (b.thinkingLevel !== undefined && !THINKING_LEVELS.includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
     // Named projects supply a cwd; General preserves the normal session default.
     let project;
     if (b.project !== undefined && b.project !== null) {
@@ -367,7 +370,7 @@ export function createApp(opts: ServerOptions) {
     }
     const cwd = b.cwd || project?.cwd;
     // The board is a default runtime extension, including existing unlinked sessions.
-    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
+    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
     if (project) opts.conversations!.projects.link(Number(conv.id), project.id);
     return c.json({ id: conv.id }, 201);
@@ -463,7 +466,7 @@ export function createApp(opts: ServerOptions) {
     const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string } | null; thinkingLevel?: string | null; instructions?: string | null };
     if (await harness.commit(tx => isRunning(tx, conv.id), context)) return err(c, 409, "Cannot change the model or agent settings while busy.");
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
-    if (b.thinkingLevel && !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
+    if (b.thinkingLevel && !THINKING_LEVELS.includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
     await conv.configure({
       ...(b.model !== undefined && { model: b.model }),
       ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }),

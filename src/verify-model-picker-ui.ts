@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import { createModels, fauxProvider } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { parseConfig } from "./config.js";
 import { startRuntime } from "./runtime.js";
 import { createApp } from "./server.js";
@@ -13,6 +13,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.LUNA_PLAYWRIGHT_PATH || "playwright");
 const dir = mkdtempSync(join(tmpdir(), "luna-model-picker-"));
 const faux = fauxProvider({ models: [{ id: "main" }, { id: "nested/child" }] });
+faux.setResponses([() => fauxAssistantMessage([fauxText("Selected model reply")])]);
 const models = createModels(); models.setProvider(faux.provider);
 const model = { provider: "faux", modelId: "main" };
 const rt = await startRuntime(parseConfig({ dataDir: dir, provider: "faux" }, dir, {}), { models, model });
@@ -43,15 +44,50 @@ try {
   await group.getByRole("button", { name: "Pin faux/nested/child", exact: true }).click();
   const pinned = picker.locator("[data-pinned-models]");
   assert.equal(await picker.locator(":scope > :first-child").getAttribute("data-pinned-models"), "");
+  const writes: string[] = [];
+  page.on("request", (request: any) => {
+    if (["POST", "PATCH"].includes(request.method()) && new URL(request.url()).pathname.startsWith("/v1/sessions")) writes.push(request.url());
+  });
   await pinned.locator('[data-model="faux/nested/child"]').click();
   await picker.waitFor({ state: "hidden" });
   assert.match(await page.locator("#model").textContent(), /nested\/child/);
+  assert.equal(await page.evaluate(() => localStorage.getItem("luna.session")), null, "Choosing a model leaves the conversation local");
+  await page.locator("#think").click();
+  await page.locator("#reasoning-slider").focus(); await page.keyboard.press("End");
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#think").getAttribute("aria-label"), "Reasoning level: Max");
+  // Reopening refreshes the catalog without discarding the draft model or reasoning.
+  await Promise.all([page.waitForResponse((response: any) => new URL(response.url()).pathname === "/v1/models"), open()]);
+  assert.match(await page.locator("#model").textContent(), /nested\/child/);
+  await page.keyboard.press("Escape");
+  assert.deepEqual(writes, [], "Empty-session choices must not write a nonexistent session");
+  // A failed creation must preserve both choices for a retry.
+  await page.route("**/v1/sessions", async (route: any) => {
+    if (route.request().method() === "POST") await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Creation failed for retry test" }) });
+    else await route.continue();
+  });
+  await page.locator("#input").fill("Retry selected options"); await page.locator("#send").click();
+  await page.getByText("Creation failed for retry test", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem("luna.session")), null);
+  assert.match(await page.locator("#model").textContent(), /nested\/child/);
+  assert.equal(await page.locator("#think").getAttribute("aria-label"), "Reasoning level: Max");
+  await page.unroute("**/v1/sessions");
+  await page.locator("#input").fill("Use the selected model and reasoning");
+  await page.locator("#send").click();
+  await page.waitForFunction(() => !!localStorage.getItem("luna.session"));
   const session = await page.evaluate(() => (globalThis as any).localStorage.getItem("luna.session"));
   const state = await (await app.request(`/v1/sessions/${session}`, { headers: { authorization: "Bearer test" } })).json() as any;
   assert.deepEqual(state.agent.model, { provider: "faux", modelId: "nested/child" });
+  assert.equal(state.agent.thinkingLevel, "max", "The first message uses the selected reasoning level");
   await page.reload(); await open();
   assert.equal(await group.getAttribute("open"), null);
   assert.equal(await pinned.locator('[data-model="faux/nested/child"]').count(), 1);
+  assert.equal(await page.locator("#think").getAttribute("aria-label"), "Reasoning level: Max");
+  await group.locator("summary").click();
+  await group.locator('[data-model="faux/main"]').click(); await picker.waitFor({ state: "hidden" });
+  const switched = await (await app.request(`/v1/sessions/${session}`, { headers: { authorization: "Bearer test" } })).json() as any;
+  assert.deepEqual(switched.agent.model, model, "Existing sessions still switch through PATCH");
+  await open();
   await page.keyboard.press("Escape"); await picker.waitFor({ state: "hidden" });
   // Read storage on each open, not only on page load. Unavailable pins remain removable.
   await page.evaluate(() => (globalThis as any).localStorage.setItem("luna.pinnedModels", JSON.stringify(["offline/missing"])));
@@ -74,6 +110,10 @@ try {
   await picker.waitFor({ state: "visible" }); await page.keyboard.press("Escape");
   assert.equal(await page.locator("#model").getAttribute("aria-expanded"), "false");
   await open(); await page.locator("#title").click(); await picker.waitFor({ state: "hidden" });
+  await page.locator("#new-session").click();
+  assert.equal(await page.evaluate(() => localStorage.getItem("luna.session")), null);
+  assert.match(await page.locator("#model").textContent(), /faux.*main/);
+  assert.equal(await page.locator("#think").getAttribute("aria-label"), "Reasoning level: Off", "A fresh draft clears previous choices");
   assert.deepEqual(errors, []);
   console.log("MODEL_PICKER_UI_OK: collapsed providers, pins, reload, stale pins, real selection, keyboard, mobile layout");
 } finally {
