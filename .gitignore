@@ -9,3 +9,6 @@ dist/
 .env.*
 luna.config.json
 .luna/
+
+# direnv
+.direnv/
