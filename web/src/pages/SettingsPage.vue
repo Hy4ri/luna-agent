@@ -299,6 +299,33 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .section-heading { margin-bottom: 24px; }
 .section-heading h2 { font-size: 21.5px; font-weight: 600; letter-spacing: -.02em; }
 .settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; min-width: 0; padding: 0; margin: 0; border: 0; }
+@media (min-width: 961px) {
+  .settings-body {
+    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-rows: repeat(8, max-content) 1fr;
+    grid-auto-flow: dense;
+    column-gap: 32px;
+    row-gap: 8px;
+  }
+  .settings-body:not(:has(> details.settings-card[open] ~ details.settings-card[open])) > details.settings-card[open] > :deep(.group-content) {
+    grid-row: 1 / 10;
+  }
+  .settings-body:not(:has(> details.settings-card[open]))::after {
+    content: "Select a setting group on the left to inspect and edit its options.";
+    grid-column: 2;
+    grid-row: 1 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+    padding: 32px;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    color: var(--muted-foreground);
+    font-size: 14px;
+    text-align: center;
+  }
+}
 .section-description, .help { color: var(--muted-foreground); line-height: 1.6; font-size: 14px; max-width: 76ch; }
 .settings-subtabs { display: flex; gap: 20px; margin: -8px 0 24px; border-bottom: 1px solid var(--border); overflow-x: auto; min-width: 0; }
 .settings-subtabs button { min-height: 44px; padding: 10px 2px; flex-shrink: 0; border-bottom: 2px solid transparent; font-size: 15px; color: var(--muted-foreground); cursor: pointer; white-space: nowrap; }
@@ -343,7 +370,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .mobile-only { display: none; }
 .refresh-spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (min-width: 1400px) { .settings-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } .full-span { grid-column: 1 / -1; } }
 @media (max-width: 1000px) and (min-width: 761px) { .settings-nav { flex-basis: 180px; padding-inline: 8px; } .settings-content { padding: 24px; } .settings-tabs button { font-size: 14px; padding-inline: 8px; gap: 8px; } }
 @media (max-width: 760px) {
   .settings-header { padding: 12px 16px; gap: 12px; }
