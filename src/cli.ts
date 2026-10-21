@@ -94,7 +94,7 @@ try {
   if (args.length) {
     await send(session, args.join(" "));
   } else {
-    console.error(`session ${session} (/new, /quit, /btw <question>, /bg <task>, /learn <source> [objective])`);
+    console.error(`session ${session} (/new, /quit, /btw <question>, /bg <task>, /review [focus], /learn <source> [objective])`);
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     for (;;) {
       const line = (await rl.question("> ").catch(() => "/quit")).trim();

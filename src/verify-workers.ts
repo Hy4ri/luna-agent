@@ -187,6 +187,9 @@ try {
   }, "background child finishes on worker");
   assert.equal(readFileSync(join(workerCwd, "bg-child.txt"), "utf8").trim(), "bg-worker");
   assert.equal(existsSync(join(mainCwd, "bg-child.txt")), false);
+  // /review reads main's filesystem, so it refuses a worker session instead of reviewing the wrong tree.
+  const review = await api("POST", `/v1/sessions/${sid}/messages`, { content: "/review" });
+  assert.equal(review.status, 400); assert.match(review.body.error ?? "", /review runs on main only/);
 
   // Vision tools read local images from the worker environment, never falling back to main.
   const workerImg = join(workerCwd, "worker-img.png");

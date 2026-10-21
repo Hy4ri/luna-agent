@@ -6,11 +6,12 @@ import { join } from "node:path";
 import type { Message, Models, Model, Usage } from "@earendil-works/pi-ai";
 import { AgentDoc, ProviderDoc, UsageDoc, type Agent, type AgentState, type Conversation } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
+import { runReview } from "./review.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export type SideInput = string | ({ type: "text"; text: string } | { type: "image" | "audio"; data: string; mimeType: string })[];
 export interface SideJob {
-  id: string; sessionId: string; kind: "btw" | "bg"; prompt: string;
+  id: string; sessionId: string; kind: "btw" | "bg" | "review"; prompt: string;
   status: "running" | "complete" | "failed"; text: string; conversationId?: number; createdAt: number;
 }
 const INSTRUCTION = "Answer only the side question. Do not continue or critique the main task. " +
@@ -61,6 +62,10 @@ export class SideCommands {
   constructor(private readonly options: {
     harness: Harness; models?: Models; route?: () => { provider: string; modelId: string } | undefined;
     remoteEnv?: (worker: number, cwd?: string) => import("@earendil-works/pi-durable/env").ExecutionEnv;
+    /** Model for /review. Unset means /review refuses to start; it never falls back to another model. */
+    reviewRoute?: () => { provider: string; modelId: string } | undefined;
+    /** Working directory when the source conversation has none. */
+    cwd?: string;
   }) {}
 
   list(sessionId: string): SideJob[] {
@@ -92,7 +97,7 @@ export class SideCommands {
     })();
   }
 
-  async start(source: Conversation, kind: "btw" | "bg", prompt: string, content: SideInput, requestId?: string): Promise<SideJob> {
+  async start(source: Conversation, kind: "btw" | "bg" | "review", prompt: string, content: SideInput, requestId?: string): Promise<SideJob> {
     if (this.closing) throw new Error("side commands are shutting down");
     if (!prompt.trim()) throw new Error(`Usage: /${kind} <${kind === "btw" ? "question" : "prompt"}>`);
     // Register before the first await: concurrent retries share exactly one admission.
@@ -112,19 +117,23 @@ export class SideCommands {
     finally { this.admissions.delete(promise); }
   }
 
-  private async admit(source: Conversation, kind: "btw" | "bg", prompt: string, content: SideInput): Promise<SideJob> {
+  private async admit(source: Conversation, kind: "btw" | "bg" | "review", prompt: string, content: SideInput): Promise<SideJob> {
     let messages: Message[] = [];
-    if (kind === "btw") {
+    if (kind === "btw" || kind === "review") {
       try { messages = structuredClone((await source.context(context)).messages) as Message[]; }
       catch { throw new Error("history unreadable"); }
       if (!messages.some(m => m.role !== "system")) throw new Error("no history");
     }
     const agent = await source.agent(context);
-    const route = kind === "btw" ? this.options.route?.() : undefined;
+    const route = kind === "btw" ? this.options.route?.() : kind === "review" ? this.options.reviewRoute?.() : undefined;
+    // /review reads files and runs git on main. It must not review main's tree for a session that runs elsewhere.
+    if (kind === "review" && (await this.options.harness.snapshot(ExecTarget, source.id, context))?.worker != null)
+      throw new Error("review runs on main only: move this session to main to review it");
+    if (kind === "review" && !route) throw new Error("no review model: set auxiliary.review in Settings");
     const ref = route ?? agent.model;
     const models = this.options.models;
     const model = ref && models?.getModel(ref.provider, ref.modelId);
-    if (!models || !model || !await models.getAuth(model)) throw new Error(kind === "bg" ? "no credentials" : "no provider");
+    if (!models || !model || !await models.getAuth(model)) throw new Error(kind === "bg" ? "no credentials" : kind === "review" ? "no credentials for the review model" : "no provider");
     const state = kind === "bg" ? await this.options.harness.snapshot(AgentDoc, source.id, context) : undefined;
     const identity = kind === "btw" ? await this.options.harness.snapshot(ProviderDoc, source.id, context) : undefined;
     if (this.closing) throw new Error("side commands are shutting down");
@@ -141,7 +150,10 @@ export class SideCommands {
     const task = Promise.resolve().then(async () => {
       try {
         if (controller.signal.aborted) throw new Error("side job stopped during shutdown");
-        const text = kind === "btw"
+        const text = kind === "review"
+          ? await runReview({ models: models!, model, thinking: agent.thinkingLevel, messages, cwd: agent.cwd ?? this.options.cwd ?? process.cwd(),
+            focus: prompt, signal: controller.signal, usage: usage => this.usage(source, model, usage) })
+          : kind === "btw"
           ? await this.answer(source, prompt, messages, model, agent, !!route, identity?.sessionId, controller.signal)
           : await this.background(source, job, model, agent, state, content, controller.signal);
         if (controller.signal.aborted) throw new Error("side job stopped during shutdown");

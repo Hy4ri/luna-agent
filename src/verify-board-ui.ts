@@ -326,7 +326,7 @@ try {
   const cmdGroups = await cmdMenu.locator('.command-group').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-category')));
   assert.deepEqual(cmdGroups, ['side', 'busy', 'session']);
   const allCmds = await cmdMenu.locator('.command-item').evaluateAll((els: any[]) => els.map(el => el.getAttribute('data-command')));
-  assert.deepEqual(allCmds, ['btw', 'bg', 'learn', 'queue', 'steer', 'redirect', 'queue list', 'queue edit', 'queue remove', 'queue move', 'queue clear', 'stop']);
+  assert.deepEqual(allCmds, ['btw', 'bg', 'review', 'learn', 'queue', 'steer', 'redirect', 'queue list', 'queue edit', 'queue remove', 'queue move', 'queue clear', 'stop']);
 
   // Prefix filtering (e.g. /b -> btw, bg; /queue -> queue & queue subcommands)
   await input.fill('/b');

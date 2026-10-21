@@ -470,6 +470,7 @@ They do not interrupt, steer, or queue the main turn. They also work while a mai
 | --- | --- | --- | --- |
 | `/btw question` | Snapshot of this conversation | Denied | Short text answer |
 | `/bg prompt` | Fresh conversation | Same enabled tools as the source | Full task result and media |
+| `/review [focus]` | Requirements, claims, and diff | Read-only reviewer tools | Review report. See Session review |
 
 An empty argument returns usage. `/btw` reports unreadable history, empty history, or unavailable provider credentials before starting.
 `/bg` can start from an empty chat. Include all necessary task context in its prompt.
@@ -519,6 +520,51 @@ HTTP clients use the normal message endpoint. Side commands return HTTP 202 with
 `GET /v1/sessions/:id/side-jobs` lists only that chat's jobs.
 The session event stream sends `side_jobs` on connection and `side_job` for state changes.
 Retries with the same request ID reuse the same job; conflicting reuse is rejected.
+
+## Session review (`/review`)
+
+`/review [focus]` starts a read-only reviewer for the current chat. It judges two things: whether the agent
+covered what you asked, and the quality of the code. It runs as a background job on its own model and returns a report
+in the chat, like `/btw` and `/bg`. Reports stay at their start position, above later messages.
+The report is not a main-history entry. The main agent sees it only if you click **Send to agent** on a
+completed report. This sends the full report and focus as a user message to the same session. If the agent is
+busy, the message waits for the active turn. Your composer draft stays unchanged. Repeated delivery of the
+same report uses one request ID to prevent duplicate messages.
+
+```json
+"auxiliary": {
+  "review": { "provider": "openai", "model": "gpt-4.1" }
+}
+```
+
+`auxiliary.review` is required. Without it, `/review` returns an error. It never uses the session model.
+Changes apply to the next review (**Settings → Models & accounts → Session review**).
+
+What the reviewer receives:
+
+- All user messages (the requirements), capped at 30,000 characters, newest kept first.
+- The agent's text replies (its completion claims), capped at 20,000 characters. Tool calls are named, not shown.
+- Working directory, branch, `HEAD`, `git status`, the diff stat, and the diff against `HEAD`
+  (60,000 characters, with a marker when cut). Untracked files are listed by `git status`.
+- Your optional focus text.
+
+What it can do: it has four tools, and nothing else.
+
+| Tool | Limit |
+| --- | --- |
+| `read_file` | Text files under the working directory. Symlinks that leave it are refused. |
+| `search` | `grep -E` under the working directory. Skips `.git`, `node_modules`, `dist`. |
+| `git` | `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, with an allowlist of flags. External diff and textconv programs are disabled. |
+| `session_message` | Full text of one earlier message by its `#` index. |
+
+It has no shell, no write tools, no delegation, and no way to run tests. The limits live in code, not in the prompt.
+It stops after 40 tool rounds and then must answer. Usage is recorded against the source session.
+
+The report has a verdict, request coverage, findings with file and line, and limits. If the workspace changed while
+the review ran, the report says so. Committed work is not in the diff against `HEAD`. The reviewer finds it with `git log`.
+Outside a git repository, it reviews by reading files.
+
+Like other side jobs, results last for the current daemon process.
 
 ## Session titles
 
@@ -933,3 +979,30 @@ pnpm run verify:workers-ui    # real browser; draft target and explicit transfer
 # Opt-in real desktop test. Copies a temporary bundled worker; installs no desktop service.
 LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 pnpm run verify:workers:desktop
 ```
+
+## Manual session pruning
+
+In **History → History actions → Prune sessions**, enter a positive whole number of days (default seven).
+The preview counts sessions across all projects. Archived sessions are excluded unless **Include archived sessions** is selected.
+The selected session and open split tiles are protected. Running tasks, background processes, and side questions are also protected.
+Pinned sessions have no additional protection. There is no automatic schedule or configuration setting.
+
+Age uses the newest user or assistant message timestamp, including cross-session messages.
+Creation time protects newer sessions and forks with inherited old messages. Empty sessions use their creation time.
+Sessions with no known message or creation timestamp are kept. A day means 24 hours; the cutoff is strictly older than the selected age.
+Renaming, pinning, archiving, and reading do not count as message activity.
+
+Both endpoints require the normal API authorization:
+
+- `POST /v1/sessions/prune/preview` accepts `{ "days": 7, "includeArchived": false, "excludeIds": [123] }`.
+  It returns `{ "ids": [456, 789] }` without deleting sessions. `excludeIds` contains the sessions the client must keep.
+- `POST /v1/sessions/prune` accepts the same fields plus `"ids": [456, 789]` from the preview.
+  It rechecks age, archive state, exclusions, running work, and descendants on the harness mutation line.
+  It returns `{ "deleted": [456, 789] }`, which can be smaller than the preview. It never adds unconfirmed sessions.
+
+All fields are required. Unknown fields, invalid IDs, and nonpositive or fractional days return `400`.
+An empty confirmation list deletes nothing. Disabled conversation management returns `404`.
+A fork or delegated child must also qualify before its parent can be removed.
+Recent, archived, running, excluded, or unconfirmed descendants protect their ancestors from cascading deletion.
+Deletion uses the existing atomic hard purge, including messages, descendants, documents, metadata, and search entries.
+It is permanent. A failed purge leaves the selected sessions intact; the UI reports the error. A storage fault can require a daemon restart before retry.

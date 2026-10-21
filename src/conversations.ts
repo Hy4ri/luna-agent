@@ -6,7 +6,9 @@ import { context } from "./luna.js";
 import type { RecallIndex } from "./recall.js";
 import { ProjectStore } from "./projects.js";
 import { BoardStore } from "./board.js";
+import { newestMessageTime, SessionCreated } from "./session-activity.js";
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
+export type PruneOptions = { days: number; includeArchived: boolean; excludeIds: number[] };
 export type ConversationMeta = { title: string | null; archived: boolean; pinned: boolean };
 export class ConversationError extends Error {
   constructor(readonly status: 404 | 409, message: string) { super(message); }
@@ -85,24 +87,68 @@ export class ConversationStore {
     if (written) this.notify();
     return written;
   }
+  /** Same dependency closure used by manual deletion and pruning. */
+  private deletionTree() {
+    const records = this.db.prepare("SELECT record FROM conversations").all() as { record: string }[];
+    const children = new Map<number, Set<number>>();
+    const link = (parent: number, id: number) => {
+      const set = children.get(parent) ?? new Set<number>(); set.add(id); children.set(parent, set);
+    };
+    for (const row of records) {
+      const c = JSON.parse(row.record) as ConversationRecord;
+      if (c.parent) link(c.parent.conversationId, c.id);
+      if (c.owner) link(c.owner.conversationId, c.id);
+    }
+    const delegates = this.db.prepare("SELECT conversation_id AS id, json_extract(record, '$.data.parent') AS parent FROM entries WHERE json_extract(record, '$.kind')='delegate.child'").all() as { id: number; parent: number }[];
+    for (const child of delegates) link(child.parent, child.id);
+    return (roots: number[]) => {
+      const selected = new Set(roots);
+      for (const id of selected) for (const child of children.get(id) ?? []) selected.add(child);
+      return [...selected];
+    };
+  }
   async delete(id: number) {
-    // A busy conversation must be stopped first. Do not race an invocation that can still write its result.
+    return this.purge(async tx => {
+      if (!await tx.conversation(id as never)) throw new ConversationError(404, "no such session");
+      return this.deletionTree()([id]);
+    });
+  }
+  /** Recheck every member of each deletion tree on the harness mutation line. Unknown ages stay safe. */
+  async prune(options: PruneOptions, confirmed?: number[], protectedSession?: (id: number, tx: Tx) => Promise<boolean>) {
+    const cutoff = Date.now() - options.days * 86400000;
+    return this.purge(async tx => {
+      const treeOf = this.deletionTree();
+      const eligible = new Set<number>(), excluded = new Set(options.excludeIds);
+      const allowed = confirmed && new Set(confirmed);
+      const busy = new Set((this.db.prepare("SELECT DISTINCT conversation_id AS id FROM tasks WHERE status <> 'terminal'").all() as { id: number }[]).map(r => r.id));
+      let cursor;
+      do {
+        const page = await tx.scanConversations({}, 100, cursor);
+        for (const row of page.items) {
+          const id = Number(row.id);
+          if (excluded.has(id) || busy.has(id) || (allowed && !allowed.has(id)) || (!options.includeArchived && this.get(id).archived)) continue;
+          if (await protectedSession?.(id, tx)) continue;
+          const message = await newestMessageTime(tx, row.id), created = (await tx.doc(SessionCreated, row.id)).at;
+          const activity = message === null ? created : Math.max(message, created ?? 0);
+          if (activity !== null && Number.isFinite(activity) && activity < cutoff) eligible.add(id);
+        }
+        cursor = page.next;
+      } while (cursor);
+      const selected = new Set<number>();
+      for (const id of eligible) {
+        const tree = treeOf([id]);
+        // Never cascade through a recent, archived, running, excluded, or unconfirmed descendant.
+        if (tree.every(child => eligible.has(child))) for (const child of tree) selected.add(child);
+      }
+      return [...selected].sort((a, b) => a - b);
+    }, confirmed === undefined);
+  }
+  private async purge(select: (tx: Tx) => Promise<number[]>, preview = false) {
     const store = conversationStorage(this.harness);
     let pendingPurge: (() => void) | undefined;
     try { return await this.harness.commit(async tx => {
-      if (!await tx.conversation(id as never)) throw new ConversationError(404, "no such session");
-      // Forks inherit their ancestors' entries. Purge descendants too, so no fork refers to removed history.
-      const records = this.db.prepare("SELECT record FROM conversations").all() as { record: string }[];
-      const conversations = records.map(r => JSON.parse(r.record) as ConversationRecord);
-      const delegates = this.db.prepare("SELECT conversation_id AS id, json_extract(record, '$.data.parent') AS parent FROM entries WHERE json_extract(record, '$.kind')='delegate.child'").all() as { id: number; parent: number }[];
-      const selected = new Set([id]);
-      let size;
-      do {
-        size = selected.size;
-        for (const c of conversations) if ((c.parent && selected.has(c.parent.conversationId)) || (c.owner && selected.has(c.owner.conversationId))) selected.add(c.id);
-        for (const child of delegates) if (selected.has(child.parent)) selected.add(child.id);
-      } while (size !== selected.size);
-      const ids = [...selected];
+      const ids = await select(tx);
+      if (preview || !ids.length) return ids;
       // Use a temp table instead of a SQL variable limit for large child trees.
       this.db.exec("CREATE TEMP TABLE IF NOT EXISTS purge_conversations(id INTEGER PRIMARY KEY); DELETE FROM purge_conversations;");
       const add = this.db.prepare("INSERT INTO purge_conversations VALUES (?)"); for (const n of ids) add.run(n);
@@ -140,7 +186,7 @@ export class ConversationStore {
         try { purge(); this.db.exec("COMMIT"); } catch (e) { this.db.exec("ROLLBACK"); throw e; }
       }
       return ids;
-    }, context).then(ids => { this.recall?.forget(ids); this.notify(); return ids; });
+    }, context).then(ids => { if (!preview && ids.length) { this.recall?.forget(ids); this.notify(); } return ids; });
     } finally { if (store.afterWrite === pendingPurge) store.afterWrite = undefined; }
   }
 }

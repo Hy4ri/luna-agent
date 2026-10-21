@@ -33,6 +33,7 @@ import { ExecTarget, WorkerError, type WorkerHub } from "./workers.js";
 import { createAnalyticsCache, readAnalytics } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
 import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
+import { REVIEW_DEFAULT_PROMPT } from "./review.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
 import { entryMedia } from "./media-directives.js";
@@ -267,6 +268,24 @@ export function createApp(opts: ServerOptions) {
     }
     sessions.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id));
     return c.json({ sessions });
+  });
+
+  // POST preview avoids query-string coercion and shares strict validation with confirmation.
+  for (const preview of [true, false]) app.post(preview ? "/v1/sessions/prune/preview" : "/v1/sessions/prune", async c => {
+    if (!opts.conversations) return err(c, 404, "conversation management disabled");
+    const b = await c.req.json().catch(() => null);
+    const ids = (v: unknown): v is number[] => Array.isArray(v) && v.every(n => Number.isSafeInteger(n) && n > 0);
+    if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some(k => !["days", "includeArchived", "excludeIds", ...(preview ? [] : ["ids"])].includes(k))
+      || !Number.isSafeInteger(b.days) || b.days < 1 || !Number.isSafeInteger(b.days * 86400000)
+      || typeof b.includeArchived !== "boolean" || !ids(b.excludeIds) || (!preview && !ids(b.ids))) {
+      return err(c, 400, "positive whole days, includeArchived, excludeIds, and confirmed ids for deletion required");
+    }
+    const selected = await opts.conversations.prune(b, preview ? undefined : b.ids, async (id, tx) => {
+      if (sideCommands.list(String(id)).some(job => job.status === "running")) return true;
+      const owner = (await tx.doc(ProcessOwner, id as ConversationId)).token;
+      return harness.busyTools?.sessionProcesses(id as ConversationId, owner).some(p => p.status === "running") ?? false;
+    });
+    return c.json(preview ? { ids: selected } : { deleted: selected });
   });
 
   app.patch("/v1/sessions/:id/metadata", async c => {
@@ -677,9 +696,9 @@ export function createApp(opts: ServerOptions) {
     if (body.requestId !== undefined && (typeof body.requestId !== "string" || !body.requestId.trim())) return err(c, 400, "requestId must be a nonempty string");
     if (body.whenBusy !== undefined && !["steer", "followUp", "reject", "redirect"].includes(body.whenBusy)) return err(c, 400, "invalid whenBusy");
     const commandText = typeof content === "string" ? content : content.filter(b => b.type === "text").map(b => b.type === "text" ? b.text : "").join("\n");
-    const side = /^\/(btw|bg)(?:\s+([\s\S]*))?$/.exec(commandText.trim());
+    const side = /^\/(btw|bg|review)(?:\s+([\s\S]*))?$/.exec(commandText.trim());
     if (side) {
-      const kind = side[1] as "btw" | "bg", prompt = (side[2] ?? "").trim();
+      const kind = side[1] as "btw" | "bg" | "review", prompt = (side[2] ?? "").trim() || (kind === "review" ? REVIEW_DEFAULT_PROMPT : "");
       if (!prompt) return err(c, 400, `Usage: /${kind} <${kind === "btw" ? "question" : "prompt"}>`);
       try {
         const job = await sideCommands.start(conv, kind, prompt, content as Input, body.requestId);
