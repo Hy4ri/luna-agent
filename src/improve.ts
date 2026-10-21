@@ -105,7 +105,7 @@ export interface ImproverOptions {
   /** Named benchmarks the model may reference by name. */
   benchmarks?: Record<string, Benchmark>;
   /** Allow the model to supply a shell command as benchmark. Default false: it runs arbitrary shell. */
-  allowCommandBenchmarks?: boolean;
+  allowCommandBenchmarks?: boolean | (() => boolean);
   /** All skill dirs in scan order (default: skillsDir only), so `read` sees the skill that is actually active. */
   readDirs?: string[];
 }
@@ -224,7 +224,7 @@ const text = (t: string, isError = false) => ({ output: [{ type: "text" as const
 /** Tools: inspect_runs, extract_lessons, skill_propose, skill_rollback. */
 export function createImproveExtension(imp: SkillImprover, o: Pick<ImproverOptions, "benchmarks" | "allowCommandBenchmarks"> = {}) {
   const named = o.benchmarks ?? {};
-  const allowCmd = o.allowCommandBenchmarks ?? false;
+  const allowCmd = () => typeof o.allowCommandBenchmarks === "function" ? o.allowCommandBenchmarks() : (o.allowCommandBenchmarks ?? false);
   const inspect = defineTool({
     name: "inspect_runs",
     description: "List recent past runs (scheduled jobs etc.) with status and error/output text, newest first.",
@@ -268,7 +268,7 @@ export function createImproveExtension(imp: SkillImprover, o: Pick<ImproverOptio
         bench = named[a.benchmark];
         if (!bench) return text(`Unknown benchmark "${a.benchmark}". Registered: ${Object.keys(named).join(", ") || "none"}`, true);
       } else if (a.benchmark_command) {
-        if (!allowCmd) return text("benchmark_command is disabled", true);
+        if (!allowCmd()) return text("benchmark_command is disabled", true);
         bench = commandBenchmark(a.benchmark_command);
       } else if (a.must_contain?.length) bench = containsBenchmark(a.must_contain);
       try {

@@ -120,7 +120,7 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
     <DropdownMenu><DropdownMenuTrigger as-child><button class="input choice-trigger" type="button" aria-label="Choose built-in tools" v-bind="{ 'data-setting': full }" :disabled="disabled"><span>{{ (value || []).length }} enabled</span><ChevronDown :size="16" /></button></DropdownMenuTrigger>
       <DropdownMenuContent align="start" class="w-72 max-w-[calc(100vw-32px)]" :aria-label="text"><DropdownMenuCheckboxItem v-for="option in safeSchema.items.enum" :key="option" :aria-label="titleCase(option)" :model-value="(value || []).includes(option)" :disabled="disabled" class="min-h-10" @select.prevent @update:model-value="setExtension(option, $event)">{{ titleCase(option) }}</DropdownMenuCheckboxItem></DropdownMenuContent>
     </DropdownMenu>
-    <p class="field-help">Choose the tools Luna can use. Changes apply after a restart.</p>
+    <p class="field-help">Choose the tools Luna can use. Changes need a Luna restart.</p>
   </div>
   <div v-else-if="safeSchema.type === 'array'" class="field-stack">
     <div class="field-toolbar"><span class="field-help">{{ value?.length || 0 }} configured</span><button class="field-button" type="button" @click="addItem"><Plus :size="14" />Add {{ itemName }}</button></div>

@@ -36,13 +36,13 @@ function checkInteger(args: unknown, key: string, minimum: number) {
       throw new Error(`${key} must be an integer greater than or equal to ${minimum}.`);
   }
 }
-export function createBrowserToolsExtension(config: { provider: string }, providers: ReadonlyMap<string, BrowserProvider>) {
+export function createBrowserToolsExtension(config: () => { provider: string }, providers: ReadonlyMap<string, BrowserProvider>) {
   async function run<T>(context: { abortSignal?: AbortSignal }, action: (provider: BrowserProvider, signal: AbortSignal) => Promise<T>, render: (value: T) => Output = json) {
     const signal = context.abortSignal ?? new AbortController().signal;
     signal.throwIfAborted();
-    if (config.provider === "disabled") throw new Error("Browser tools are disabled. Select a provider in Settings > Tools.");
-    const provider = providers.get(config.provider);
-    if (!provider) throw new Error(`Browser provider "${config.provider}" is unavailable.`);
+    if (config().provider === "disabled") throw new Error("Browser tools are disabled. Select a provider in Settings > Tools.");
+    const provider = providers.get(config().provider);
+    if (!provider) throw new Error(`Browser provider "${config().provider}" is unavailable.`);
     const result = await action(provider, signal);
     signal.throwIfAborted();
     return { output: render(result) };

@@ -92,7 +92,7 @@ const fieldHelp: Record<string, string> = {
   'processes.enabled': 'Background commands have the same host access as bash. Completion resumes the owning chat. Normal shutdown stops commands.',
   'processes.retentionHours': 'How long completed command output remains available.',
   'processes.maxOutputBytes': 'Maximum retained output for each command. Extra output is truncated.',
-  'mcpServers': 'Saved definitions need a restart. Use the connection manager for live connection changes. Secret markers preserve existing credentials.',
+  'mcpServers': 'Saving connects, reconnects or disconnects changed servers. Secret markers preserve existing credentials.',
   'cron.notifyUrl': 'Optional notification endpoint for completed scheduled runs, for example an ntfy topic URL.',
   'cron.runTimeoutMinutes': 'Optional time limit for a scheduled run. Decimal minutes are allowed.',
   'learn.idleMinutes': 'Scan a conversation for lesson signals after this many idle minutes.',
@@ -119,6 +119,7 @@ export function helpFor(path: (string | number)[]): string {
 
 export const timing: Record<string, string> = {
   busyInput: 'Applies live', autoContinue: 'Applies live', sessionTalk: 'Applies live', compaction: 'Applies live',
+  dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Restart required', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
 export const summaries: Record<string, string> = {

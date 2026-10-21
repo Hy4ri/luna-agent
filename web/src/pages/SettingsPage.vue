@@ -141,7 +141,7 @@ async function loadSettings() {
     draft.value = structuredClone(res.config)
     baseline.value = JSON.stringify(draft.value)
     saveError.value = false
-    statusText.value = res.restartRequired ? 'Saved. Restart Luna to apply runtime changes.' : 'No unsaved changes.'
+    statusText.value = res.restartRequired ? 'Saved startup settings need a Luna restart.' : 'No unsaved changes.'
   } catch (e: any) {
     if (mounted) loadError.value = e.message || 'Failed to load settings'
   } finally {
@@ -160,7 +160,9 @@ async function saveSettings() {
     baseline.value = JSON.stringify(draft.value)
     await loadModels()
     scheduleContext()
-    statusText.value = res.restartRequired ? 'Saved. Restart Luna to apply runtime changes.' : 'Settings saved. Compaction changes apply now. New sessions and subagents use the new defaults.'
+    const warn = (res.warnings || []).join(' ')
+    statusText.value = (res.restartRequired ? 'Saved. Applied live except startup settings: restart Luna to apply those.' : 'Settings saved and applied. New sessions and subagents use the new defaults.') + (warn ? ' ' + warn : '')
+    saveError.value = !!warn
   } catch (e: any) {
     statusText.value = e.message || 'Failed to save settings'
     saveError.value = true
@@ -270,7 +272,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
             </template>
 
             <template v-for="key in section.keys" :key="key">
-              <SettingsGroup v-if="activeTab !== 'models' || ['auxiliary', 'providers'].includes(key)" :title="fieldTitles[key] || key" :description="summaries[key]" :status="groupStatus(key)" :timing="timing[key] || 'Restart required'" :data-section="key"><ComponentField :schema="saved.schema.properties[key]" :path="[key]" :required="(saved.schema.required || []).includes(key)" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" /></SettingsGroup>
+              <SettingsGroup v-if="activeTab !== 'models' || ['auxiliary', 'providers'].includes(key)" :title="fieldTitles[key] || key" :description="summaries[key]" :status="groupStatus(key)" :timing="timing[key] || 'Applies live'" :data-section="key"><ComponentField :schema="saved.schema.properties[key]" :path="[key]" :required="(saved.schema.required || []).includes(key)" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" /></SettingsGroup>
             </template>
             <SettingsGroup v-if="activeTab === 'system'" title="Configuration file" timing="Read only" class="full-span" data-section="configuration-file"><p class="config-path">{{ saved.path }}</p><p class="section-description">Save settings writes every section to this file. Saved secret markers keep existing credentials unchanged.</p><p v-if="saved.environmentOverrides.length" class="help">Environment overrides: {{ saved.environmentOverrides.join(', ') }}. These values take precedence over saved settings.</p><p v-else class="help">No environment overrides are active.</p></SettingsGroup>
           </fieldset>

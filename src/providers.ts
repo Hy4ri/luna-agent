@@ -350,7 +350,6 @@ export class ProviderManager {
 
   // ---- custom providers ----
   async addCustom(input: { id?: unknown; name?: unknown; api?: unknown; baseUrl?: unknown; key?: unknown; models?: unknown }) {
-    this.settings?.assertMutable();
     const id = String(input.id ?? "").trim().toLowerCase();
     if (!ID_RE.test(id)) throw new Error("id: lowercase letters, digits and -, max 40");
     if (this.models.getProvider(id)) throw new Error(`provider ${id} already exists`);
@@ -383,8 +382,22 @@ export class ProviderManager {
     return def;
   }
 
+  /** Bring registered custom providers in line with saved settings. Credentials stay in auth.json. */
+  reconcile(next: CustomProviderDef[]) {
+    const same = (a: CustomProviderDef, b: CustomProviderDef) => JSON.stringify(a) === JSON.stringify(b);
+    for (const old of this.state.custom) {
+      if (!next.some((n) => n.id === old.id)) this.models.deleteProvider(old.id);
+    }
+    for (const def of next) {
+      const prev = this.state.custom.find((c) => c.id === def.id);
+      if (prev && same(prev, def)) continue;
+      if (!prev && this.models.getProvider(def.id)) throw new Error(`provider ${def.id} conflicts with an existing provider`);
+      this.models.setProvider(customProvider(def, this.fetchImpl));
+    }
+    this.state.custom = structuredClone(next);
+  }
+
   async removeCustom(id: string) {
-    this.settings?.assertMutable();
     const i = this.state.custom.findIndex((c) => c.id === id);
     if (i < 0) throw new Error("not a custom provider");
     if (this.settings && this.settings.read().subagents.provider === id) throw new Error("Provider is selected as the subagent default");

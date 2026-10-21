@@ -102,7 +102,7 @@ For example, use the following entries with the rest of your configuration:
 Use an absolute command path if DDGS is not on the daemon's PATH.
 DDGS options remain under `web.providers.ddgs`. Its proxy credentials, if needed, remain in the protected MCP environment (`DDGS_PROXY`).
 Connection timeouts use the existing MCP `timeoutMs`. Cancellation reaches the same managed connection.
-Save and restart Luna to apply web provider selection or option changes.
+Saving applies web provider selection and option changes to the next tool call.
 A disabled or disconnected selection fails explicitly. There is no silent fallback to another provider.
 
 Run `verify:web-tools` for deterministic runtime checks.
@@ -217,7 +217,7 @@ Provider options stay under `browser.providers.camofox`. Connection settings and
 For the Camofox MCP server, use its `CAMOFOX_BASE_URL`, `CAMOFOX_ACCESS_KEY`, and session environment settings when required.
 The MCP manager keeps protected values out of Settings responses. It supplies the connection timeout and cancellation signal.
 Cancellation stops waiting for the call; it cannot undo an action already sent to the browser.
-Save and restart Luna to apply provider selection or option changes. Disabled, disconnected, or failed providers return explicit errors.
+Saving applies provider selection and option changes to the next tool call. Disabled, disconnected, or failed providers return explicit errors.
 There is no silent fallback. Other adapters implement `BrowserProvider`; tool names and parameters do not change.
 
 Run `verify:browser-tools` for deterministic runtime, routing, schema, error, image, and cancellation checks.
@@ -232,10 +232,10 @@ It uses a scripted model; it proves execution and result delivery, not real-mode
 
 Model, thinking, instruction, and subagent defaults apply to new sessions or children.
 Existing sessions retain their selected model and settings.
-Provider and MCP panel operations apply live.
-Other Settings form changes need a restart, including provider definitions and MCP connections.
-The UI shows a restart notice. Provider and MCP mutations are blocked until that restart.
-This prevents an old in-memory connection list from overwriting saved settings.
+**Save settings** applies every change to the running daemon, including providers, MCP connections, web and browser routes, `cron`, `improve`, `learn`, `video` and `vision`.
+Saving connects, reconnects or disconnects changed MCP servers. A server that fails to connect is reported after the save.
+Only these startup settings need a Luna restart: `dataDir`, `cwd`, `extensions`, `skillDirs`, `processes` and `server`.
+The UI shows a restart notice after you save one of them.
 
 Environment variables still override the file: `LUNA_DATA`, `LUNA_CWD`, `LUNA_PROVIDER`,
 `LUNA_MODEL`, `LUNA_HOST`, and `LUNA_PORT`. Settings lists active override names.
@@ -417,7 +417,7 @@ Enable explicit background commands under **Settings → Tools → Background pr
 }
 ```
 
-`enabled` defaults to `false`. Save and restart Luna to apply changes.
+`enabled` defaults to `false`. Save and restart Luna to apply changes (`processes` is a startup setting).
 The `coding` extension must also be enabled. These tools have the same host access as `bash`; they are not a sandbox.
 Existing correction-detached commands remain supported when explicit background starts are disabled.
 

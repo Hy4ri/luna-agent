@@ -15,9 +15,9 @@ export function validateWebUrl(value: string): string {
     throw new Error("An HTTP(S) URL without embedded credentials is required.");
   return value;
 }
-export function createWebToolsExtension(config: { searchProvider: string; extractProvider: string }, providers: ReadonlyMap<string, WebProvider>) {
+export function createWebToolsExtension(config: () => { searchProvider: string; extractProvider: string }, providers: ReadonlyMap<string, WebProvider>) {
   const provider = (operation: "search" | "extract") => {
-    const id = operation === "search" ? config.searchProvider : config.extractProvider;
+    const id = operation === "search" ? config().searchProvider : config().extractProvider;
     if (id === "disabled") throw new Error(`Web ${operation} is disabled. Select a provider in Settings > Tools.`);
     const selected = providers.get(id);
     if (!selected) throw new Error(`Web ${operation} provider "${id}" is unavailable.`);

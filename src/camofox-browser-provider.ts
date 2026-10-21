@@ -43,11 +43,11 @@ function tab(data: Record<string, unknown>): BrowserTab {
   validateWebUrl(data.url);
   return { tabId: data.tabId, url: data.url };
 }
-export function createCamofoxBrowserProvider(options: { mcpServer: string }, mcp: Pick<McpManager, "callTool">): BrowserProvider {
+export function createCamofoxBrowserProvider(options: () => { mcpServer: string }, mcp: Pick<McpManager, "callTool">): BrowserProvider {
   async function call(tool: string, args: object, signal: AbortSignal, json = true) {
     signal.throwIfAborted();
     if ("tabId" in args) checkTabId(args.tabId);
-    const result = await mcp.callTool(options.mcpServer, tool, Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined)), signal);
+    const result = await mcp.callTool(options().mcpServer, tool, Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined)), signal);
     signal.throwIfAborted();
     return decode(result, json);
   }

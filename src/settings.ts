@@ -10,6 +10,7 @@ const HIDDEN = "<secret: unchanged>";
 
 export class SettingsStore {
   private applied: Settings;
+  private listeners: ((old: Settings, next: Settings) => Promise<string[]>)[] = [];
   get restartRequired() { return structural(this.read()) !== structural(this.applied); }
   constructor(readonly path: string, dataDir: string) {
     const raw = this.readRaw();
@@ -48,15 +49,19 @@ export class SettingsStore {
       renameSync(tmp, this.path);
     } finally { if (existsSync(tmp)) unlinkSync(tmp); }
   }
-  assertMutable() {
-    if (this.restartRequired) throw new Error("Restart Luna to apply saved settings before making more changes.");
+  /** Register live-apply code. It runs after a Settings form save; it returns warnings for the UI. */
+  onApply(fn: (old: Settings, next: Settings) => Promise<string[]>) { this.listeners.push(fn); }
+  /** Apply a saved change to the running daemon. Fields in `structural` still need a restart. */
+  async apply(old: Settings): Promise<string[]> {
+    const next = this.read(), warnings: string[] = [];
+    for (const fn of this.listeners) {
+      try { warnings.push(...await fn(old, next)); } catch (e) { warnings.push((e as Error).message); }
+    }
+    return warnings;
   }
   update(fn: (s: Settings) => void) {
-    this.assertMutable();
     const next = this.read(); fn(next);
-    const value = ConfigSchema.parse(next);
-    this.write(value);
-    this.applied = value;
+    this.write(ConfigSchema.parse(next));
   }
   revision() { return createHash("sha256").update(readFileSync(this.path)).digest("hex"); }
   view() {
@@ -100,6 +105,7 @@ function restoreMap(map: Record<string,string> | undefined, old: Record<string,s
 }
 
 function structural(s: Settings) {
-  const { provider, model, subagents, thinkingLevel, instructions, compaction, busyInput, autoContinue, sessionTalk, auxiliary, vision, image_gen, ...rest } = s;
-  return JSON.stringify(rest);
+  // Only these fields are read once at startup. Everything else applies live.
+  const { dataDir, cwd, extensions, skillDirs, processes, server } = s;
+  return JSON.stringify({ dataDir, cwd, extensions, skillDirs, processes, server });
 }

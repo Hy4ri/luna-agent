@@ -17,16 +17,16 @@ function decode(response: unknown): unknown {
   });
   return blocks.length === 1 ? blocks[0] : blocks;
 }
-export function createDdgsWebProvider(options: LunaConfig["web"]["providers"]["ddgs"], mcp: Pick<McpManager, "callTool">): WebProvider {
+export function createDdgsWebProvider(options: () => LunaConfig["web"]["providers"]["ddgs"], mcp: Pick<McpManager, "callTool">): WebProvider {
   const call = async (tool: string, args: Record<string, unknown>, signal: AbortSignal) => {
     signal.throwIfAborted();
-    const result = await mcp.callTool(options.mcpServer, tool, args, signal);
+    const result = await mcp.callTool(options().mcpServer, tool, args, signal);
     signal.throwIfAborted();
     return decode(result);
   };
   return {
     async search(request, signal) {
-      let data = await call("search_text", { query: request.query, max_results: request.count ?? 5, backend: options.backend, region: options.region, safesearch: options.safesearch }, signal);
+      let data = await call("search_text", { query: request.query, max_results: request.count ?? 5, backend: options().backend, region: options().region, safesearch: options().safesearch }, signal);
       if (record(data) && "href" in data) data = [data];
       if (!Array.isArray(data)) throw new Error("DDGS returned malformed search results.");
       return data.map((row): WebSearchResult => {
