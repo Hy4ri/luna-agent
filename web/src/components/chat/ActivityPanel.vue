@@ -3,7 +3,10 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { Activity, ArrowUpRight, Check, ChevronRight, Circle, CircleAlert, LoaderCircle, Square } from "@lucide/vue";
 import { json } from "@/lib/api";
-import { chat, childLive, openSession, stopChild, stopProcess, type ChildRow, type ProcessRow } from "@/stores/chat";
+import { activityVisible, chat, childLive, openSession, stopChild, stopProcess, type ChildRow, type ProcessRow } from "@/stores/chat";
+
+// Docked in the session rail: always expanded, no disclosure row.
+const props = defineProps<{ docked?: boolean }>();
 
 const todos = computed(() => (chat.extras?.todos || []).filter((t: any) => t.status !== "deleted"));
 const processes = computed(() => chat.extras?.processes || []);
@@ -13,7 +16,7 @@ const activeTask = computed(() => todos.value.find((t: any) => t.status === "in_
 const liveProcesses = computed(() => processes.value.filter(p => p.running));
 const liveChildren = computed(() => children.value.filter(childLive));
 const live = computed(() => !!activeTask.value || liveProcesses.value.length > 0 || liveChildren.value.length > 0);
-const visible = computed(() => todos.value.length + processes.value.length + children.value.length > 0);
+const visible = activityVisible;
 
 const label = computed(() => {
   if (activeTask.value) return activeTask.value.activeForm || activeTask.value.subject;
@@ -50,7 +53,7 @@ function toggleOutput(p: ProcessRow) {
 }
 
 const now = ref(Date.now());
-const clock = setInterval(() => { if (open.value && live.value) now.value = Date.now(); }, 1000);
+const clock = setInterval(() => { if ((open.value || props.docked) && live.value) now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(clock));
 function duration(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -67,8 +70,8 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
 </script>
 
 <template>
-  <details v-if="visible" class="card activity" :class="{ live }" :open="open" @toggle="open = ($event.target as HTMLDetailsElement).open">
-    <summary aria-label="Session activity">
+  <component :is="docked ? 'section' : 'details'" v-if="visible" class="card activity" :class="{ live, docked }" v-bind="docked ? { 'aria-label': 'Session activity' } : { open }" @toggle="open = ($event.target as HTMLDetailsElement).open">
+    <summary v-if="!docked" aria-label="Session activity">
       <Activity :size="15" aria-hidden="true" />
       <span class="activity-counts">
         <span v-if="todos.length">Tasks {{ doneTasks }}/{{ todos.length }}</span>
@@ -127,5 +130,5 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
         </div>
       </section>
     </div>
-  </details>
+  </component>
 </template>

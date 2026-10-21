@@ -252,6 +252,9 @@ try {
   await page.locator('.user').first().getByRole('button', { name: 'Copy message', exact: true }).click();
   await page.locator('.user').first().getByText('Failed to copy', { exact: true }).waitFor({ state: 'attached' });
   assert.equal(await page.locator('textarea[aria-hidden="true"]').count(), 0, 'Clipboard fallback always removes its temporary node');
+  // Narrow tile: session details stay inline (rail undocked).
+  await page.setViewportSize({ width: 1100, height: 1000 });
+  await page.locator('#session-rail').waitFor({ state: 'detached' });
   const activity = page.locator('#extras .activity');
   assert.equal(await page.locator('#extras .activity').count(), 1, 'Tasks, processes and subagents share one disclosure');
   assert.equal(await activity.getAttribute('open'), null);
@@ -291,6 +294,40 @@ try {
   assert.equal(await page.locator('#context-meter').getAttribute('aria-valuenow'), '24');
   assert.match(await page.locator('#usage').textContent(), /13.0k in.*2.5k out/);
   await page.locator('#statusbar > summary').click();
+  // Wide tile: goal/activity/context dock into one right rail, expanded, and leave their inline spots.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const rail = page.locator('#session-rail');
+  await rail.waitFor();
+  assert.equal(await page.locator('#extras').count(), 0, 'Docked rail removes the inline extras');
+  assert.equal(await page.locator('#top #statusbar').count(), 0, 'Docked rail removes the header usage popover');
+  assert.equal(await page.locator('.activity').count(), 1, 'Activity renders in exactly one place');
+  assert.equal(await rail.locator('.activity summary').count(), 0, 'Docked activity has no disclosure row');
+  await rail.locator('[data-process="p-fail"]').waitFor({ state: 'visible' });
+  await rail.locator('[data-child="91"]').waitFor({ state: 'visible' });
+  assert.equal(await rail.locator('.todo-item').count(), 30);
+  const railY = async (sel: string) => (await rail.locator(sel).first().boundingBox()).y;
+  assert.ok(await railY('#statusbar') < await railY('[aria-label="Background processes"]') && await railY('[aria-label="Subagents"]') < await railY('[aria-label="Tasks"]'), 'Rail order: session, live work, then the long task list');
+  assert.equal(await rail.locator('#context-meter').getAttribute('aria-valuenow'), '24');
+  assert.match(await rail.locator('#usage').textContent(), /13.0k in.*2.5k out/);
+  const railBox = await rail.boundingBox(), logBox = await page.locator('#log').boundingBox(), composeBox = await page.locator('#compose').boundingBox();
+  assert.ok(logBox.x + logBox.width <= railBox.x + 1 && composeBox.x + composeBox.width <= railBox.x + 1, 'Transcript and composer stay left of the rail');
+  assert.ok(Math.abs(railBox.width - 300) <= 1, 'Rail is 300px');
+  assert.equal(await rail.evaluate((el: any) => el.scrollWidth <= el.clientWidth + 1), true, 'Rail content fits its width');
+  await page.screenshot({ path: '/tmp/luna-session-rail.png' });
+  // Hysteresis: a tile width between the two thresholds keeps the current placement.
+  const sideWidth = 1440 - (await page.locator('#main').evaluate((el: any) => el.getBoundingClientRect().width));
+  await page.setViewportSize({ width: Math.round(sideWidth + 1100), height: 1000 });
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal(await rail.count(), 1, 'Rail stays docked inside the dead zone');
+  await page.setViewportSize({ width: Math.round(sideWidth + 1060), height: 1000 });
+  await rail.waitFor({ state: 'detached' });
+  await page.locator('#extras .activity').waitFor();
+  assert.equal(await page.locator('#extras .activity').getAttribute('open'), null, 'Undocked activity returns collapsed');
+  assert.equal(await page.locator('#top #statusbar').count(), 1, 'Usage popover returns to the header');
+  await page.setViewportSize({ width: Math.round(sideWidth + 1100), height: 1000 });
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal(await rail.count(), 0, 'Rail stays undocked inside the dead zone');
+  await page.setViewportSize({ width: 1100, height: 1000 });
   emit('42', 'run_start', {}); emit('42', 'turn_start', {});
   await page.locator('#activity').filter({ hasText: 'Thinking' }).waitFor();
   await page.locator('#stop').waitFor(); assert.equal(await page.locator('#send').isVisible(), false);
@@ -369,7 +406,7 @@ try {
   assert.equal(await page.locator('#extras .activity').evaluate((el: any) => el.scrollWidth <= el.clientWidth + 1), true, 'Open activity fits 320px');
   await page.screenshot({ path: '/tmp/luna-activity-mobile.png' });
   await page.locator('#extras .activity summary').click();
-  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.setViewportSize({ width: 1100, height: 1000 });
   const newThenSend = async (id: string, text = 'hi') => {
     const before = creations.length;
     await page.locator('#new-session').click();

@@ -2,6 +2,9 @@
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { ChevronDown } from '@lucide/vue';
 import { chat, usageText, contextView } from '@/stores/chat';
+import ContextUsage from './ContextUsage.vue';
+// Docked in the session rail: a plain open section instead of a header popover.
+const props = defineProps<{ docked?: boolean }>();
 const disclosure = ref<HTMLDetailsElement | null>(null);
 const percent = computed(() => contextView.value?.known ? `${contextView.value.percent.toFixed(0)}%` : '—');
 const cost = computed(() => {
@@ -19,17 +22,17 @@ onMounted(() => { document.addEventListener('pointerdown', dismiss); document.ad
 onUnmounted(() => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', dismiss); });
 </script>
 <template>
-  <details v-if="contextView || usageText" id="statusbar" ref="disclosure" class="usage-disclosure">
+  <section v-if="props.docked && (contextView || usageText)" id="statusbar" class="card rail-session" aria-label="Context and usage">
+    <h4>Session</h4>
+    <ContextUsage />
+  </section>
+  <details v-else-if="contextView || usageText" id="statusbar" ref="disclosure" class="usage-disclosure">
     <summary class="usage-summary" aria-label="Context and usage">
       <span class="usage-summary-label">Context</span><span class="usage-percent">{{ percent }}</span>
       <span v-if="cost" class="usage-cost" title="Estimated model cost">{{ cost }}</span><ChevronDown :size="12" aria-hidden="true" />
     </summary>
     <div class="usage-details">
-      <div id="context-bar" :hidden="!contextView" :data-level="contextView?.level" :title="contextView?.title">
-        <div id="context-meter" :hidden="!contextView?.known" role="progressbar" aria-label="Estimated context usage" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="contextView?.percent" :aria-valuetext="contextView?.valueText"><div id="context-fill" :style="{ width: contextView?.percent + '%' }"></div></div>
-        <span id="context-text">{{ contextView?.text }}</span>
-      </div>
-      <div v-if="usageText" id="usage">{{ usageText }}</div>
+      <ContextUsage />
     </div>
   </details>
 </template>
