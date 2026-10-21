@@ -112,9 +112,15 @@ export class BoardStore {
     if (JSON.stringify(blocked) !== JSON.stringify(cur.blockedBy)) this.blockers(project, id, blocked);
     // A card moved into progress without an owner belongs to whoever moved it.
     if (actor && f.status === "in_progress" && cur.status !== "in_progress" && !f.owner && i.owner === undefined) f.owner = actor;
+    // Done or archived releases the owner, unless the same change sets one by hand.
+    if (i.owner === undefined && ((f.status === "done" && cur.status !== "done") || (f.archived && !cur.archived))) f.owner = null;
     this.db.prepare(`UPDATE luna_board_cards SET subject=?,description=?,priority=?,status=?,blocked_by=?,owner=?,labels=?,archived=?,updated=? WHERE id=? AND project_id=?`)
       .run(f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, JSON.stringify(f.labels), Number(f.archived), Date.now(), id, project);
     return this.need(project, id);
+  }
+  /** Drop an owner whose session no longer exists. */
+  clearOwner(project: number, id: number, owner: string) {
+    this.db.prepare("UPDATE luna_board_cards SET owner=NULL WHERE id=? AND project_id=? AND owner=?").run(id, project, owner);
   }
   /** User-only: the model archives. */
   delete(project: number, id: number) {
