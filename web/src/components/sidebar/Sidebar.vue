@@ -397,7 +397,7 @@ onMounted(() => {
 
             <div :id="'group-' + g.key" class="group-body">
               <template v-for="s in g.sessions" :key="s.id">
-                <div v-show="!isGroupCollapsed(g.key) || s.pinned || !['ready', 'stopped'].includes(sessionState(s))" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
+                <div v-show="!isGroupCollapsed(g.key) || String(chat.session) === String(s.id) || s.pinned || !['ready', 'stopped'].includes(sessionState(s))" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
                   <!-- Inline rename input -->
                   <input
                     v-if="renamingId === s.id"
