@@ -81,7 +81,7 @@ interface ProvidersFile { custom: CustomProviderDef[]; defaultModel?: ModelRef; 
 const API_IMPL = { "openai-completions": openAICompletionsApi, "openai-responses": openAIResponsesApi, "anthropic-messages": anthropicMessagesApi };
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
-function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch = fetch): Provider {
+export function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch = fetch): Provider {
   const baseUrl = def.baseUrl.replace(/\/+$/, "");
   const toModel = (m: CustomModelDef): Model<CustomApi> => ({
     id: m.id, name: m.name || m.id, api: def.api, provider: def.id, baseUrl,

@@ -670,3 +670,78 @@ The opt-in live check is `pnpm run verify:image-gen:live --live`.
 It uses an isolated runtime, submits exactly one real subscription generation, verifies chat preview delivery,
 and retains the generated image under the configured data directory. It never changes live configuration.
 The live check is excluded from the default suite and requires explicit permission to consume subscription quota.
+
+
+## Whole-video analysis
+
+`video_analyze(video_url, question)` sends a complete video to an auxiliary provider and returns text only.
+It never attaches the video to the main conversation. It does not extract frames, resize, crop, or apply image history/call limits.
+
+The tool is offered only when an authenticated auxiliary vision client resolves.
+An explicit `auxiliary.vision` provider is authoritative. Without it, resolution tries the active provider, `openrouter`, then `nous`.
+Automatic selection prefers a Gemini catalog model within each provider, then the active model, then other image-capable models.
+An image-capable catalog entry is not proof of video support. Use a video-capable model such as Gemini.
+Unsupported APIs/models return a structured error rather than sending the video to the main model.
+
+```json
+{
+  "auxiliary": {
+    "vision": { "provider": "openrouter", "model": "google/gemini-2.5-flash" },
+    "video": { "model": "google/gemini-2.5-flash" }
+  },
+  "video": {
+    "blocked_paths": [],
+    "blocked_hosts": [],
+    "timeout_ms": 180000
+  }
+}
+```
+
+The video model uses this precedence: `auxiliary.video.model`, `auxiliary.vision.model`,
+`AUXILIARY_VIDEO_MODEL`, `AUXILIARY_VISION_MODEL`, then the resolved catalog model.
+The video model override keeps the resolved vision provider. Credentials, endpoint overrides, and headers come from `Models.getAuth`.
+They use the existing provider environment, stored credentials, and OAuth resolution. No new credential file is added.
+OpenAI-compatible chat-completion APIs receive one `video_url` data URL.
+The direct Gemini API receives the same complete base64 bytes as one `inlineData` part.
+Other API types are not supported. Provider HTTP redirects are refused to prevent credential forwarding.
+
+The analysis prompt is `Fully describe everything: visuals, motion, audio cues, text overlays, scene transitions. Then answer: <question>`.
+Temperature is `0.1`. `video.timeout_ms` must be at least `180000`; that deadline covers both attempts.
+An empty response is retried once. A successful result is `{ "success": true, "analysis": "..." }`.
+Errors are `{ "success": false, "error": "...", "analysis": "..." }`.
+Friendly errors distinguish interruption (`Interrupted`), timeout, authentication, rate/quota, size, unsupported input/model, and access failures.
+Provider error bodies and credentials are not returned.
+
+Sources can be local regular files (relative to the conversation working directory) or public HTTP(S) URLs.
+Luna-pi has no remote terminal backend or media resolver; remote paths and data URLs are unsupported.
+Local files remain in place and are never removed. Video-specific read guards resolve symlinks and block known credential paths,
+including the runtime config, auth/MCP credential files, `.env*`, `.ssh`, `.aws`, and `.gnupg`.
+`video.blocked_paths` adds blocked files/directories, relative to the conversation working directory.
+These guards do not change the policy of other tools.
+
+URL downloads reject embedded credentials, nonpublic/mixed DNS addresses, and non-HTTP(S) redirects.
+DNS addresses are pinned to the checked socket address. Every redirect repeats SSRF and site-access checks.
+`video.blocked_hosts` blocks exact hostnames and their subdomains, without a scheme or port.
+Downloads permit five redirects, three retries after the initial transient failure, and a 60-second timeout per attempt.
+Download size is limited to 50 MiB, including streamed responses without a Content-Length header.
+Downloads use private directories in `<dataDir>/video-cache`; owned files are removed on success, error, and interruption.
+
+Supported suffixes are `mp4`, `webm`, `mov`, `mpeg`, `mpg`, `avi`, and `mkv` (case-insensitive).
+MOV maps to `video/quicktime`, MPG/MPEG to `video/mpeg`, and WebM to `video/webm`.
+AVI and MKV intentionally map to `video/mp4`. Other suffixes return `Unsupported video format`.
+Files larger than 20 MiB add a slow/rejection warning. Base64 payloads larger than 50 MiB fail with `compress or trim`.
+No compression is performed automatically.
+
+Run `pnpm run verify:video` for deterministic source, transport, auxiliary-request, and real-runtime tool tests.
+These tests use controlled provider responses. They do not establish real-provider video understanding.
+A live video-capable provider call requires explicit permission and is not part of the default test chain.
+
+After approval, run a real clip with an expected answer pattern:
+
+```sh
+LUNA_VIDEO_LIVE_APPROVED=1 LUNA_CONFIG=/absolute/path/luna.config.json \
+  pnpm run verify:video:live /absolute/path/clip.mp4 "Describe the motion and colors." "red|blue"
+```
+
+Review the returned description against the actual clip. A regex match alone does not prove complete video understanding.
+The live script does not start or restart the daemon or edit configuration. Provider auth can refresh stored OAuth credentials.

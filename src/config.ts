@@ -58,9 +58,15 @@ export const ConfigSchema = z
       enabled: z.boolean().default(true),
       triggerPercent: z.number().int().min(1).max(99).default(75),
     }).prefault({}),
+    video: z.strictObject({
+      blocked_paths: z.array(z.string().min(1)).default([]),
+      blocked_hosts: z.array(z.string().min(1)).default([]),
+      timeout_ms: z.number().int().min(180_000).default(180_000),
+    }).prefault({}),
     auxiliary: z.strictObject({
       side_question: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
       session_title: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
+      video: z.strictObject({ model: z.string().min(1) }).optional(),
       vision: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
     }).prefault({}),
     vision: z.strictObject({
