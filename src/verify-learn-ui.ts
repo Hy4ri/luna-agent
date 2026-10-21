@@ -25,9 +25,10 @@ const L = rt.learn!;
 const turn = (text: string) => [{ entry: 1, role: "assistant" as const, text: "", ts: Date.now(), calls: [] }, { entry: 2, role: "user" as const, text, ts: Date.now(), calls: [] }];
 const sig = (conv: number, text: string) => L.ingest(conv, turn(text), 2);
 const proposed = L.record({ claim: "Deploy to staging before production.", cause: "missing", skill: "deploy", signal_ids: [...sig(11, "No, staging first."), ...sig(12, "Wrong, staging first please.")] });
-await L.propose(rt.improver!, { lesson_id: proposed.id, content: v1, must_contain: ["staging first"] });
+await L.propose(rt.improver!, { lesson_id: proposed.id, content: v1, must_contain: ["staging first"], critical: "changes the production deploy order" });
 const guard = L.record({ claim: "Never push to main.", cause: "ignored", skill: "deploy", signal_ids: [...sig(13, "No, don't push to main."), ...sig(14, "Stop, wrong branch.")] });
 const weak = L.record({ claim: "Check the file path first.", cause: "missing", signal_ids: sig(15, "No, that's the wrong file.") });
+const noise = L.dismiss(L.record({ claim: "Use the other file.", cause: "missing", signal_ids: sig(17, "No, the other one, thanks.") }).id, "not a real rule");
 sig(16, "No, the other one.");
 
 const app = createApp({ harness: rt.harness, models: rt.models, agent: { model }, token: "test", memory: rt.memory, learn: { store: L, improver: rt.improver!, scan: rt.learnScan } });
@@ -52,6 +53,9 @@ try {
   const diffText = await card(proposed.id).locator(".lesson-diff").textContent();
   assert.match(diffText, /\+ Deploy to staging first, verify, then production\./);
   assert.match(await card(proposed.id).textContent(), /must contain "staging first"/);
+  assert.match(await card(proposed.id).locator("[data-critical]").textContent(), /Held because: changes the production deploy order/);
+  assert.equal(await page.getByRole("button", { name: "Dismiss" }).count(), 0, "no user triage buttons");
+  assert.equal(await card(weak.id).locator("button").filter({ hasText: /Approve|Reject|Roll back/ }).count(), 0, "evidence-only lessons have no actions");
   await card(proposed.id).getByRole("button", { name: "Evidence (2)" }).click();
   assert.match(await card(proposed.id).locator(".evidence").textContent(), /session 11 · message 2[\s\S]*session 12 · message 2/);
   await page.screenshot({ path: process.env.LEARN_UI_SHOT || join(dir, "lessons.png"), fullPage: true });
@@ -61,17 +65,14 @@ try {
   assert.equal(readFileSync(skill, "utf8"), v1, "approve applied the skill");
   assert.equal(await card(proposed.id).getByRole("button", { name: "Roll back" }).count(), 1);
 
-  page.once("dialog", (d: any) => d.accept("not a real rule"));
-  await card(weak.id).getByRole("button", { name: "Dismiss" }).click();
   await page.getByRole("button", { name: /Show rejected and retired \(1\)/ }).click();
-  assert.match(await card(weak.id).textContent(), /rejected[\s\S]*not a real rule/);
-  assert.equal(L.lesson(weak.id)!.status, "rejected");
+  assert.match(await card(noise.id).textContent(), /rejected[\s\S]*dismissed by Luna: not a real rule/);
 
   await page.setViewportSize({ width: 360, height: 800 });
   assert.ok(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "no horizontal overflow at 360px");
   if (process.env.LEARN_UI_SHOT) await page.screenshot({ path: process.env.LEARN_UI_SHOT.replace(/\.png$/, "-mobile.png"), fullPage: true });
   assert.deepEqual(errors, []);
-  console.log("LEARN_UI_OK: groups, diff, regression phrases, evidence pointers, approve applies, dismiss remembers reason, 360px, no page errors");
+  console.log("LEARN_UI_OK: groups, critical reason, diff, regression phrases, evidence pointers, approve applies, no user dismiss, agent dismissal shown, 360px, no page errors");
 } finally {
   await browser?.close(); await new Promise<void>((r) => server.close(() => r())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }

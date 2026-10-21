@@ -1,7 +1,7 @@
 // Verifies session learning end to end on a real runtime with a faux model:
 // detector units -> idle scan of real conversations -> deterministic tool lessons -> daily cron pass drives the deferred
-// learn tools -> evidence/cause/growth gates -> HTTP review queue (approve/reject/rollback) -> recurrence -> code-guard flag
-// -> confirmation by later sessions.
+// learn tools -> the agent applies routine fixes, holds critical ones and dismisses noise -> evidence/cause/growth gates
+// -> HTTP queue for critical proposals (approve/reject/rollback) -> recurrence -> code-guard flag -> confirmation.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -10,7 +10,8 @@ import { parseConfig } from "./config.js";
 import { context } from "./luna.js";
 import { startRuntime } from "./runtime.js";
 import { createApp } from "./server.js";
-import { detectSignals, LEARN_JOB, redact, type ScanMessage } from "./learn.js";
+import { detectSignals, LEARN_JOB, LearnStore, redact, type ScanMessage } from "./learn.js";
+import { DatabaseSync } from "node:sqlite";
 
 const ok = (m: string) => console.log("OK", m);
 
@@ -43,6 +44,20 @@ const ok = (m: string) => console.log("OK", m);
 
 const d = mkdtempSync(join(process.cwd(), ".vlearn-"));
 try {
+  // ---- migration: a learn.db from before the critical column opens and keeps its pending proposal for the user ----
+  {
+    const old = new DatabaseSync(join(d, "old.db"));
+    old.exec(`CREATE TABLE lessons (id INTEGER PRIMARY KEY, key TEXT UNIQUE, claim TEXT NOT NULL, cause TEXT, scope TEXT NOT NULL DEFAULT 'skill', skill TEXT,
+      status TEXT NOT NULL DEFAULT 'candidate', proposal TEXT, tests TEXT, fact_key TEXT, note TEXT, needs_guard INTEGER NOT NULL DEFAULT 0,
+      failures INTEGER NOT NULL DEFAULT 0, version INTEGER, applied_at INTEGER, created INTEGER NOT NULL, updated INTEGER NOT NULL);
+      INSERT INTO lessons(claim, status, proposal, created, updated) VALUES ('old', 'proposed', 'x', 1, 1);`);
+    old.close();
+    const migrated = new LearnStore(join(d, "old.db"));
+    assert.equal(migrated.lesson(1)!.critical, "proposed before automatic review", "an old pending proposal stays with the user");
+    migrated.close();
+    ok("migration adds the critical column; old pending proposals stay held for the user");
+  }
+
   const data = join(d, "data");
   const skillsDir = join(data, "skills");
   mkdirSync(join(skillsDir, "deploy"), { recursive: true });
@@ -65,7 +80,7 @@ try {
     assert.ok(job && job.enabled && job.expr === "0 4 * * *", "daily learn job synced");
     const root = await rt.harness.root(context, { agent: { model } });
     const agent = await root.agent(context);
-    for (const t of ["learn_review", "lesson_record", "lesson_propose"]) {
+    for (const t of ["learn_review", "lesson_record", "lesson_propose", "lesson_dismiss"]) {
       assert.ok(agent.deferred.some((x) => x.name === t), `${t} deferred`);
       assert.ok(!agent.tools.some((x) => x.name === t), `${t} must not be in every prompt`);
     }
@@ -120,8 +135,9 @@ try {
         case 0: return fauxAssistantMessage([fauxToolCall("tool_search", { query: "learn lessons review record propose" })], { stopReason: "toolUse" });
         case 1: return fauxAssistantMessage([fauxToolCall("learn_review", {})], { stopReason: "toolUse" });
         case 2: return fauxAssistantMessage([fauxToolCall("lesson_record", { claim: "Deploy to staging before production.", cause: "missing", skill: "deploy", signal_ids: [corr!.id, rule!.id] })], { stopReason: "toolUse" });
-        case 3: return fauxAssistantMessage([fauxToolCall("lesson_propose", { lesson_id: L.lessons().find((l) => l.skill === "deploy")!.id, content: v1, must_contain: ["staging first"] })], { stopReason: "toolUse" });
-        default: return fauxAssistantMessage([fauxText("proposed 1 lesson")]);
+        case 3: return fauxAssistantMessage([fauxToolCall("lesson_propose", { lesson_id: L.lessons().find((l) => l.skill === "deploy")!.id, content: v1, must_contain: ["staging first"], critical: "changes the production deploy order" })], { stopReason: "toolUse" });
+        case 4: return fauxAssistantMessage([fauxToolCall("lesson_dismiss", { lesson_id: L.lessons().find((l) => l.key?.startsWith("recovery:read:"))!.id, reason: "normal retry, not a lesson" })], { stopReason: "toolUse" });
+        default: return fauxAssistantMessage([fauxText("held 1 lesson, dismissed 1")]);
       }
     };
     faux.setResponses(Array(8).fill(respond));
@@ -131,12 +147,15 @@ try {
     assert.equal(run.status, "ok", JSON.stringify(run));
     assert.match(outputs[1] ?? "", /Unassigned signals:[\s\S]*correction · session/, outputs[1] ?? "");
     assert.match(outputs[2] ?? "", /\[corroborated\] Deploy to staging/, outputs[2] ?? "");
-    assert.match(outputs[3] ?? "", /\[proposed\][\s\S]*Waiting for user review/, outputs[3] ?? "");
-    assert.equal(readFileSync(join(skillsDir, "deploy", "SKILL.md"), "utf8"), v0, "nothing applied before approval");
+    assert.match(outputs[3] ?? "", /\[proposed, held for the user\][\s\S]*Held for the user/, outputs[3] ?? "");
+    assert.match(outputs[4] ?? "", /\[rejected\][\s\S]*dismissed by Luna: normal retry/, outputs[4] ?? "");
+    assert.equal(readFileSync(join(skillsDir, "deploy", "SKILL.md"), "utf8"), v0, "a critical fix is not applied before approval");
     const lesson = L.lessons().find((l) => l.skill === "deploy")!;
+    assert.equal(lesson.critical, "changes the production deploy order");
+    assert.equal(L.lesson(tool!.id)!.status, "rejected", "the agent dismissed the noise lesson");
     await rt.learnScan();
     assert.ok(!L.db.prepare("SELECT 1 FROM scans WHERE conv=?").get(Number(run.conversationId)), "cron run conversations are never scanned");
-    ok("daily cron pass: tool_search -> learn_review -> lesson_record -> lesson_propose; proposal waits for review");
+    ok("daily cron pass: tool_search -> learn_review -> lesson_record -> critical lesson_propose held -> lesson_dismiss drops noise");
 
     // ---- gates ----
     const one = L.ingest(90001, [
@@ -160,7 +179,10 @@ try {
     single = L.record({ lesson_id: single.id, cause: "ignored" });
     assert.equal(single.needs_guard, 1);
     await assert.rejects(L.propose(rt.improver!, { lesson_id: single.id, content: v1, must_contain: ["staging"] }), /code guard/);
-    ok("gates: evidence rule, regression phrases, growth budget, trigger fix for not_loaded, ignored -> code guard");
+    await assert.rejects(L.propose(rt.improver!, { lesson_id: lesson.id, content: v1, must_contain: ["staging first"] }), /waiting for the user/, "the agent cannot apply a held fix");
+    assert.throws(() => L.dismiss(lesson.id, "noise"), /waiting for the user/, "the agent cannot dismiss a held fix");
+    assert.throws(() => L.dismiss(single.id, " "), /reason is required/);
+    ok("gates: evidence rule, regression phrases, growth budget, trigger fix for not_loaded, ignored -> code guard, held fixes stay with the user");
 
     // ---- review queue over HTTP ----
     const app = createApp({ harness: rt.harness, agent: { model }, models: rt.models, memory: rt.memory, skillDirs: rt.skillDirs,
@@ -177,11 +199,10 @@ try {
     assert.equal(((await r.json()) as any).status, "applied");
     assert.equal(readFileSync(join(skillsDir, "deploy", "SKILL.md"), "utf8"), v1, "approved skill is live");
     assert.equal((await post(`/v1/lessons/${lesson.id}/approve`)).status, 409, "double approve refused");
-    r = await post(`/v1/lessons/${tool!.id}/reject`, { note: "normal retry, not a lesson" });
-    assert.equal(((await r.json()) as any).status, "rejected");
     await assert.rejects(L.propose(rt.improver!, { lesson_id: tool!.id, content: v1, must_contain: ["staging"] }), /rejected[\s\S]*Do not propose it again/);
+    assert.throws(() => L.dismiss(lesson.id, "noise"), /applied; only the user can roll it back/);
     assert.equal((await post("/v1/lessons/99999/approve")).status, 404);
-    ok("HTTP review queue: evidence + current skill shown; approve applies with backup; reject is remembered");
+    ok("HTTP queue: critical proposal shows evidence + current skill; user approve applies with backup; dismissed lesson is never re-proposed");
 
     // ---- measure: recurrence after apply -> ineffective; twice -> needs code guard ----
     const c3 = await session(["No, I said staging first!"]);
@@ -193,8 +214,9 @@ try {
     assert.equal(after.needs_guard, 0);
     const v2 = v1.replace("Deploy to staging first", "Deploy to staging first (always, even for hotfixes)");
     after = await L.propose(rt.improver!, { lesson_id: lesson.id, content: v2, must_contain: ["staging first"] });
-    after = await L.approve(lesson.id, rt.improver!, rt.memory);
-    assert.equal(after.status, "applied");
+    assert.equal(after.status, "applied", "a routine fix is applied at once");
+    assert.equal(after.critical, null);
+    assert.equal(readFileSync(join(skillsDir, "deploy", "SKILL.md"), "utf8"), v2);
     await sleep(5);
     const c4 = await session(["Wrong, staging first."]);
     await rt.learnScan();
@@ -214,18 +236,25 @@ try {
     let fresh = L.record({ claim: "The staging host is st-1.", cause: "missing", scope: "memory", signal_ids: rule });
     assert.equal(fresh.status, "corroborated", "an explicit user rule counts as evidence");
     await assert.rejects(L.propose(rt.improver!, { lesson_id: fresh.id }), /need `fact`/);
-    fresh = await L.propose(rt.improver!, { lesson_id: fresh.id, fact: "The staging host is st-1.", fact_key: "env.staging_host" });
-    r = await post(`/v1/lessons/${fresh.id}/approve`);
-    assert.equal(r.status, 200, await r.clone().text());
-    assert.ok(rt.memory!.recall("st-1").some((m) => m.key === "env.staging_host"), "memory lesson written on approval");
-    ok("memory lessons: explicit rule is enough evidence; approval writes the fact");
+    fresh = await L.propose(rt.improver!, { lesson_id: fresh.id, fact: "The staging host is st-1.", fact_key: "env.staging_host" }, rt.memory);
+    assert.equal(fresh.status, "applied");
+    assert.ok(rt.memory!.recall("st-1").some((m) => m.key === "env.staging_host"), "routine memory lesson written at once");
+    const heldRule = L.ingest(90006, [{ entry: 1, role: "user", text: "Remember that prod deploys need my OK.", ts: Date.now(), calls: [] }], 1);
+    let held = L.record({ claim: "Prod deploys need user approval.", cause: "missing", scope: "memory", signal_ids: heldRule });
+    held = await L.propose(rt.improver!, { lesson_id: held.id, fact: "Prod deploys need m57's OK.", critical: "changes permission behavior" }, rt.memory);
+    assert.equal(held.status, "proposed");
+    assert.ok(!rt.memory!.recall("Prod deploys").length, "critical memory lesson waits");
+    r = await post(`/v1/lessons/${held.id}/reject`, { note: "already in USER.md" });
+    assert.equal(((await r.json()) as any).status, "rejected");
+    assert.ok(!rt.memory!.recall("Prod deploys").length);
+    ok("memory lessons: explicit rule is enough evidence; routine fact written at once; critical fact waits and user reject drops it");
 
     const two2 = L.ingest(90004, [{ entry: 1, role: "assistant", text: "", ts: Date.now(), calls: [] }, { entry: 2, role: "user", text: "No, check health first.", ts: Date.now(), calls: [] }], 2);
     const three = L.ingest(90005, [{ entry: 1, role: "assistant", text: "", ts: Date.now(), calls: [] }, { entry: 2, role: "user", text: "No, health check first.", ts: Date.now(), calls: [] }], 2);
     let health = L.record({ claim: "Run the health check after deploy.", cause: "missing", skill: "deploy", signal_ids: [...two2, ...three] });
     const v3 = v1.replace("verify, then production", "run the health check, then production");
     health = await L.propose(rt.improver!, { lesson_id: health.id, content: v3, must_contain: ["health check"] });
-    health = await L.approve(health.id, rt.improver!);
+    assert.equal(health.status, "applied");
     await sleep(5);
     for (let i = 0; i < 3; i++) await session([]);
     await rt.learnScan();

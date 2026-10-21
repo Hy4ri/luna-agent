@@ -137,13 +137,18 @@ The `learn` extension finds lessons in past sessions. It does nothing during a l
 3. **Fix.** A lesson needs evidence from 2+ sessions or one explicit user rule. A skill proposal needs
    regression phrases (`must_contain`), passes a dry-run verification, and can grow the skill by at most 1500 characters.
    A `not_loaded` fix must change the skill description. An `ignored` rule is not rewritten; it is flagged for a code guard.
-4. **Review.** Proposals wait in **Settings → Workspace → Lessons** with a diff and evidence.
-   Approve applies the change with a backup, Reject stops it from being proposed again, and Roll back restores the backup.
+4. **Review.** The learning agent reviews its own proposals. It applies a routine fix at once (`lesson_propose`),
+   with a backup. It drops noise lessons with `lesson_dismiss`, so they are never proposed again.
+   A fix that removes or reverses a rule, or changes identity, safety, permission, publishing, money, or privacy behavior,
+   is held with a `critical` reason. Only held fixes wait in **Settings → Automation → Lessons**, with the reason, a diff, and evidence.
+   Approve applies a held fix, and Reject stops it from being proposed again. Roll back restores the backup of any applied skill change.
+   The agent cannot apply or dismiss a held fix, and cannot dismiss an applied lesson.
 5. **Measure.** A recurrence after apply marks the lesson `ineffective`; a second failure flags it for a code guard.
    Three later sessions that load the skill without a recurrence mark it `confirmed`.
 
 Data lives in `<dataDir>/learn.db`. HTTP: `GET /v1/lessons`, `POST /v1/lessons/scan`, and
-`POST /v1/lessons/:id/approve|reject|rollback` (`reject` takes an optional `note`).
+`POST /v1/lessons/:id/approve|reject|rollback` (`reject` takes an optional `note`). Each lesson has `critical`:
+the hold reason, or `null`. Proposals that were pending before automatic review stay held for the user.
 
 ## Learning from a source
 

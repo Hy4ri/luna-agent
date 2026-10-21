@@ -7,6 +7,7 @@ type Lesson = {
   id: number; claim: string; cause: string | null; scope: "skill" | "memory"; skill: string | null; status: string;
   proposal: string | null; tests: string[]; fact_key: string | null; note: string | null; needs_guard: boolean;
   failures: number; version: number | null; sessions: number; current: string | null; evidence: Evidence[]; updated: number;
+  critical: string | null;
 };
 
 const loading = ref(true);
@@ -53,10 +54,10 @@ async function scan() {
 }
 
 const groups = computed(() => [
-  { id: "review", title: "Needs review", items: lessons.value.filter((l) => l.status === "proposed") },
+  { id: "review", title: "Needs your decision", hint: "Luna applies routine fixes herself. She held these because they are critical.", items: lessons.value.filter((l) => l.status === "proposed") },
   { id: "guard", title: "Needs a code guard", hint: "Text did not fix these. They need a tool check or policy in code.", items: lessons.value.filter((l) => l.needs_guard && !["rejected", "retired", "proposed"].includes(l.status)) },
-  { id: "watch", title: "Applied", hint: "Checked against later sessions.", items: lessons.value.filter((l) => ["applied", "confirmed", "ineffective"].includes(l.status) && !l.needs_guard) },
-  { id: "evidence", title: "Collecting evidence", hint: "A lesson needs 2+ sessions or an explicit rule from you.", items: lessons.value.filter((l) => ["candidate", "corroborated"].includes(l.status) && !l.needs_guard) },
+  { id: "watch", title: "Applied", hint: "Checked against later sessions. Roll back undoes a change.", items: lessons.value.filter((l) => ["applied", "confirmed", "ineffective"].includes(l.status) && !l.needs_guard) },
+  { id: "evidence", title: "Collecting evidence", hint: "A lesson needs 2+ sessions or an explicit rule from you. The daily pass dismisses noise.", items: lessons.value.filter((l) => ["candidate", "corroborated"].includes(l.status) && !l.needs_guard) },
 ]);
 const history = computed(() => lessons.value.filter((l) => ["rejected", "retired"].includes(l.status)));
 
@@ -78,6 +79,7 @@ function diff(a: string, b: string): { t: " " | "-" | "+"; s: string }[] {
   return out;
 }
 
+const rollbackable = (l: Lesson) => ["applied", "confirmed", "ineffective"].includes(l.status) && l.scope === "skill" && l.version !== null;
 const when = (ts: number | null) => (ts ? new Date(ts).toLocaleString() : "");
 const CAUSES: Record<string, string> = { missing: "rule was missing", not_loaded: "skill was not loaded", ignored: "rule was ignored", wrong: "rule was wrong" };
 
@@ -112,6 +114,7 @@ onMounted(load);
         </div>
 
         <template v-if="l.status === 'proposed'">
+          <div v-if="l.critical" class="text-xs" data-critical>Held because: {{ l.critical }}</div>
           <pre v-if="l.scope === 'memory'" class="lesson-diff"><span class="add">+ {{ l.fact_key ? `${l.fact_key}: ` : "" }}{{ l.proposal }}</span></pre>
           <pre v-else class="lesson-diff"><span v-for="(d, i) in diff(l.current ?? '', l.proposal ?? '')" :key="i" :class="{ add: d.t === '+', del: d.t === '-' }">{{ d.t }} {{ d.s }}
 </span></pre>
@@ -123,13 +126,12 @@ onMounted(load);
           <li v-for="e in l.evidence" :key="e.id"><span class="muted">{{ e.kind }} · session {{ e.session }} · message {{ e.message }} · {{ when(e.ts) }}</span><br>{{ e.summary }}</li>
         </ul>
 
-        <div class="row">
+        <div v-if="l.status === 'proposed' || rollbackable(l)" class="row">
           <template v-if="l.status === 'proposed'">
             <button :disabled="busy !== null" @click="act(l, 'approve')">Approve</button>
             <button :disabled="busy !== null" @click="act(l, 'reject')">Reject</button>
           </template>
-          <button v-else-if="['applied', 'confirmed', 'ineffective'].includes(l.status) && l.scope === 'skill' && l.version !== null" :disabled="busy !== null" @click="act(l, 'rollback')">Roll back</button>
-          <button v-if="['candidate', 'corroborated', 'ineffective'].includes(l.status) || (l.needs_guard && l.status !== 'proposed')" :disabled="busy !== null" @click="act(l, 'reject')">Dismiss</button>
+          <button v-else :disabled="busy !== null" @click="act(l, 'rollback')">Roll back</button>
         </div>
       </div>
     </section>

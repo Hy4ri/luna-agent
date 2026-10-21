@@ -6,8 +6,9 @@
 //    missing -> add text, not_loaded -> fix the skill trigger, ignored -> needs a code guard (text will not help),
 //    wrong -> edit or remove the rule.
 // 3. Fix: a lesson becomes a proposal only with evidence from 2+ sessions or an explicit user rule. A proposal is a
-//    full SKILL.md checked by lint, its regression phrases and a growth budget. It waits for user approval; approval
-//    applies it through SkillImprover (backup + rollback).
+//    full SKILL.md checked by lint, its regression phrases and a growth budget. The diagnosis agent reviews it: a
+//    routine fix is applied at once through SkillImprover (backup + rollback); only a fix the agent marks critical
+//    waits for the user. The agent also dismisses noise lessons, so the user never triages them.
 // 4. Measure: after apply, a recurrence makes the lesson ineffective; 3 later sessions that load the skill without a
 //    recurrence confirm it. A lesson that fails twice, or whose cause is "ignored", is flagged for a code guard.
 import { DatabaseSync } from "node:sqlite";
@@ -29,6 +30,8 @@ export interface LessonRow {
   id: number; key: string | null; claim: string; cause: Cause | null; scope: Scope; skill: string | null; status: LessonStatus;
   proposal: string | null; tests: string | null; fact_key: string | null; note: string | null; needs_guard: number; failures: number;
   version: number | null; applied_at: number | null; created: number; updated: number;
+  /** Why the agent held the proposal for the user; null when it was routine. */
+  critical: string | null;
 }
 
 /** Tokens, keys and passwords never enter the ledger. */
@@ -151,6 +154,11 @@ export class LearnStore {
         skills TEXT NOT NULL DEFAULT '[]', ts INTEGER, lesson INTEGER REFERENCES lessons(id), UNIQUE (conv, entry, kind));
       CREATE INDEX IF NOT EXISTS signals_lesson ON signals(lesson);
     `);
+    const cols = this.db.prepare("PRAGMA table_info(lessons)").all() as { name: string }[];
+    if (!cols.some((c) => c.name === "critical")) {
+      // Proposals from before automatic review were waiting for the user; they stay with the user.
+      this.db.exec("ALTER TABLE lessons ADD COLUMN critical TEXT; UPDATE lessons SET critical='proposed before automatic review' WHERE status='proposed'");
+    }
   }
   close() { this.db.close(); }
 
@@ -260,13 +268,19 @@ export class LearnStore {
     } catch (e) { this.db.exec("ROLLBACK"); throw e; }
   }
 
-  /** Store a fix for user review. It is verified now and applied only on approval. */
-  async propose(imp: SkillImprover, a: { lesson_id: number; content?: string; must_contain?: string[]; fact?: string; fact_key?: string }, now = Date.now()): Promise<LessonRow> {
+  /**
+   * Verify a fix. A routine fix is applied at once (backup + rollback). A fix with a `critical` reason is held for
+   * the user and applied only on approval.
+   */
+  async propose(imp: SkillImprover, a: { lesson_id: number; content?: string; must_contain?: string[]; fact?: string; fact_key?: string; critical?: string },
+    memory?: MemoryStore, now = Date.now()): Promise<LessonRow> {
     const l = this.lesson(a.lesson_id);
     if (!l) throw new Error(`no such lesson ${a.lesson_id}`);
     if (l.status === "rejected") throw new Error(`lesson ${l.id} was rejected${l.note ? `: ${l.note}` : ""}. Do not propose it again.`);
     if (l.status !== "corroborated" && l.status !== "ineffective" && l.status !== "proposed")
       throw new Error(`lesson ${l.id} is ${l.status}; a proposal needs evidence from 2+ sessions or an explicit user rule`);
+    if (l.status === "proposed" && l.critical) throw new Error(`lesson ${l.id} is waiting for the user (${l.critical}); leave it`);
+    const critical = a.critical?.trim() ? oneLine(redact(a.critical), 300) : null;
     if (!l.cause) throw new Error("set the lesson cause with lesson_record first");
     if (l.cause === "ignored") {
       this.set(l.id, { needs_guard: 1 }, now);
@@ -275,8 +289,8 @@ export class LearnStore {
     if (l.scope === "memory") {
       const fact = a.fact?.trim();
       if (!fact) throw new Error("memory lessons need `fact`");
-      this.set(l.id, { status: "proposed", proposal: oneLine(redact(fact), 600), fact_key: a.fact_key ?? null, tests: null }, now);
-      return this.lesson(l.id)!;
+      this.set(l.id, { status: "proposed", proposal: oneLine(redact(fact), 600), fact_key: a.fact_key ?? null, tests: null, critical }, now);
+      return critical ? this.lesson(l.id)! : this.approve(l.id, imp, memory, now);
     }
     if (!l.skill) throw new Error("set the target skill with lesson_record first");
     if (!a.content) throw new Error("skill lessons need `content` (full SKILL.md)");
@@ -289,11 +303,11 @@ export class LearnStore {
       throw new Error("cause is 'not_loaded': the fix must change the skill description (its trigger), not only the body");
     const r = await imp.propose(l.skill, a.content, containsBenchmark(tests), true);
     if (r.reason !== "verified (dry run, not written)") throw new Error(`proposal failed verification: ${r.reason}${r.lint.length ? ` (${r.lint.join("; ")})` : ""}`);
-    this.set(l.id, { status: "proposed", proposal: a.content, tests: JSON.stringify(tests) }, now);
-    return this.lesson(l.id)!;
+    this.set(l.id, { status: "proposed", proposal: a.content, tests: JSON.stringify(tests), critical }, now);
+    return critical ? this.lesson(l.id)! : this.approve(l.id, imp, memory, now);
   }
 
-  /** User approval: apply the proposal. Skills go through SkillImprover (lint + regression phrases + backup). */
+  /** Apply a stored proposal (the agent for routine fixes, the user for critical ones). Skills go through SkillImprover (lint + regression phrases + backup). */
   async approve(id: number, imp: SkillImprover, memory?: MemoryStore, now = Date.now()): Promise<LessonRow> {
     const l = this.lesson(id);
     if (!l) throw new Error(`no such lesson ${id}`);
@@ -314,8 +328,19 @@ export class LearnStore {
   reject(id: number, note: string, now = Date.now()): LessonRow {
     const l = this.lesson(id);
     if (!l) throw new Error(`no such lesson ${id}`);
-    this.set(id, { status: "rejected", note: oneLine(note || "rejected", 400), proposal: null, tests: null }, now);
+    if (l.status === "rejected" || l.status === "retired") throw new Error(`lesson ${id} is already ${l.status}`);
+    this.set(id, { status: "rejected", note: oneLine(note || "rejected", 400), proposal: null, tests: null, critical: null }, now);
     return this.lesson(id)!;
+  }
+
+  /** Agent triage: drop a lesson that is noise. A proposal held for the user and an applied change are not the agent's to drop. */
+  dismiss(id: number, reason: string, now = Date.now()): LessonRow {
+    const l = this.lesson(id);
+    if (!l) throw new Error(`no such lesson ${id}`);
+    if (l.status === "proposed" && l.critical) throw new Error(`lesson ${id} is waiting for the user; leave it`);
+    if (l.status === "applied" || l.status === "confirmed") throw new Error(`lesson ${id} is ${l.status}; only the user can roll it back`);
+    if (!reason.trim()) throw new Error("reason is required");
+    return this.reject(id, `dismissed by Luna: ${reason}`, now);
   }
 
   /** Undo an applied skill change: restore the backup taken at apply time. */
@@ -388,22 +413,27 @@ export async function scanIdle(o: LearnScannerOptions, now = Date.now()): Promis
 /** Name and prompt of the built-in daily diagnosis job. */
 export const LEARN_JOB = "luna-learn";
 export const LEARN_PROMPT =
-  "Learning pass. Load the tools with tool_search \"learn lessons\" if they are not available. 1) Call learn_review. If it shows no unassigned signals " +
-  "and no corroborated or ineffective lessons, answer 'nothing to learn' and stop. 2) For each unassigned correction or rule, read its context with " +
+  "Learning pass. You review lessons for the user: apply routine fixes yourself and hold only critical ones. " +
+  "Load the tools with tool_search \"learn lessons\" if they are not available. 1) Call learn_review. If it shows no unassigned signals " +
+  "and no candidate, corroborated, ineffective or code-guard lessons, answer 'nothing to learn' and stop. 2) For each unassigned correction or rule, read its context with " +
   "session_search {sessionId, aroundMessageId}. Group signals that teach the same thing with lesson_record (one claim, a cause, a scope, a target skill). " +
   "Ignore signals that are not about how Luna works (casual talk, one-off task details). Use the causes exactly: missing = no rule existed; " +
   "not_loaded = a skill had the rule but was not loaded; ignored = the skill was loaded and the rule was ignored; wrong = the rule itself is wrong. " +
   "3) For each corroborated or ineffective lesson with cause missing, not_loaded or wrong, load the target skill with skill_view and call lesson_propose " +
   "with the full new SKILL.md and must_contain phrases that would have prevented the failure. Keep the skill the same size or smaller: merge or replace text. " +
-  "Memory lessons (facts true in every session) need `fact`. Never propose a rejected lesson. 4) Answer with what you recorded and proposed.";
+  "Memory lessons (facts true in every session) need `fact`. Never propose a rejected lesson. A proposal is applied at once unless you set `critical`. " +
+  "Set `critical` (one line: why the user must decide) only when the fix removes or reverses an existing rule, changes identity, safety, permission, " +
+  "publishing, money or privacy behavior, or you are unsure the evidence supports it. 4) Call lesson_dismiss with a reason for each lesson that is noise: " +
+  "a normal retry, a one-off task detail, a mistaken signal, or a code-guard lesson that no longer applies. Do not dismiss a lesson only because it is old. " +
+  "5) Answer with what you recorded, applied, held for the user, and dismissed.";
 
 const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 const fmtLesson = (s: LearnStore, l: LessonRow) =>
-  `lesson ${l.id} [${l.status}${l.needs_guard ? ", needs code guard" : ""}] ${l.claim}` +
+  `lesson ${l.id} [${l.status}${l.status === "proposed" && l.critical ? ", held for the user" : ""}${l.needs_guard ? ", needs code guard" : ""}] ${l.claim}` +
   `\n   cause: ${l.cause ?? "?"} · scope: ${l.scope}${l.skill ? ` · skill: ${l.skill}` : ""} · sessions: ${s.sessions(l.id)}${l.note ? ` · note: ${l.note}` : ""}`;
 
 /** Tools for the diagnosis pass. Deferred: normal sessions never pay for their schemas. */
-export function createLearnExtension(store: LearnStore, imp: SkillImprover) {
+export function createLearnExtension(store: LearnStore, imp: SkillImprover, memory?: MemoryStore) {
   const review = defineTool({
     name: "learn_review",
     description: "Learning ledger: unassigned session signals (corrections, rules, tool errors) with session/message pointers, and open lessons.",
@@ -442,7 +472,7 @@ export function createLearnExtension(store: LearnStore, imp: SkillImprover) {
   });
   const propose = defineTool({
     name: "lesson_propose",
-    description: "Attach a verified fix to a corroborated lesson for user review. Skill: full SKILL.md + must_contain regression phrases. Memory: fact (+ fact_key). Nothing is applied until the user approves.",
+    description: "Verify and apply a fix for a corroborated lesson (backup + rollback). Skill: full SKILL.md + must_contain regression phrases. Memory: fact (+ fact_key). Set critical to hold it for the user instead of applying.",
     deferred: true,
     parameters: Type.Object({
       lesson_id: Type.Number(),
@@ -450,12 +480,26 @@ export function createLearnExtension(store: LearnStore, imp: SkillImprover) {
       must_contain: Type.Optional(Type.Array(Type.String())),
       fact: Type.Optional(Type.String()),
       fact_key: Type.Optional(Type.String()),
+      critical: Type.Optional(Type.String({ description: "Only for a fix the user must decide: one line saying why. Omit to apply now." })),
     }),
     replay: "unsafe",
     async execute(a) {
-      try { return text(fmtLesson(store, await store.propose(imp, a)) + "\nWaiting for user review."); }
+      try {
+        const l = await store.propose(imp, a, memory);
+        return text(fmtLesson(store, l) + (l.status === "proposed" ? "\nHeld for the user." : "\nApplied. The user can roll it back."));
+      } catch (e) { return text((e as Error).message, true); }
+    },
+  });
+  const dismiss = defineTool({
+    name: "lesson_dismiss",
+    description: "Drop a lesson that is noise (normal retry, one-off detail, mistaken signal). It is never proposed again. Cannot drop applied lessons or ones held for the user.",
+    deferred: true,
+    parameters: Type.Object({ lesson_id: Type.Number(), reason: Type.String({ description: "One line: why this is not a lesson." }) }),
+    replay: "unsafe",
+    async execute({ lesson_id, reason }) {
+      try { return text(fmtLesson(store, store.dismiss(lesson_id, reason))); }
       catch (e) { return text((e as Error).message, true); }
     },
   });
-  return defineExtension({ name: "learn", tools: [review, record, propose] });
+  return defineExtension({ name: "learn", tools: [review, record, propose, dismiss] });
 }
