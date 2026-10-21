@@ -525,7 +525,11 @@ Retries with the same request ID reuse the same job; conflicting reuse is reject
 
 `/review [focus]` starts a read-only reviewer for the current chat. It judges two things: whether the agent
 covered what you asked, and the quality of the code. It runs as a background job on its own model and returns a report
-beside the chat, like `/btw` and `/bg`. The report is not a main-history entry, and the main agent never sees it.
+in the chat, like `/btw` and `/bg`. Reports stay at their start position, above later messages.
+The report is not a main-history entry. The main agent sees it only if you click **Send to agent** on a
+completed report. This sends the full report and focus as a user message to the same session. If the agent is
+busy, the message waits for the active turn. Your composer draft stays unchanged. Repeated delivery of the
+same report uses one request ID to prevent duplicate messages.
 
 ```json
 "auxiliary": {

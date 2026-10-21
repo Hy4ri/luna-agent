@@ -18,7 +18,7 @@ const png = join(dir, "image.png");
 writeFileSync(png, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==", "base64"));
 const faux = fauxProvider(), models = createModels(); models.setProvider(faux.provider);
 const fm = faux.getModel(), model = { provider: fm.provider, modelId: fm.id };
-const rt = await startRuntime(parseConfig({ dataDir: dir, cwd: dir, extensions: [] }, dir, {}), { models, model });
+const rt = await startRuntime(parseConfig({ dataDir: dir, cwd: dir, extensions: [], auxiliary: { review: { provider: fm.provider, model: fm.id } } }, dir, {}), { models, model });
 const app = createApp({ harness: rt.harness, models, sideCommands: rt.sideCommands, conversations: rt.conversations, agent: { model }, token: "test" });
 const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
 await new Promise<void>(r => server.listening ? r() : server.once("listening", r));
@@ -93,7 +93,58 @@ try {
   // A reload reconnects and restores out-of-band results without adding transcript entries.
   await page.reload(); await page.locator(".side-job").filter({ hasText: "FAST_ANSWER" }).waitFor();
   assert.equal((await rt.sideCommands.list(String(conv.id))).length, 3);
-  console.log("SIDE_COMMANDS_UI_OK: busy dispatch, separate results, escaped text, inline authenticated media, reconnect, late receipt race");
+  // Review cards stay at their start position as later durable and live messages arrive.
+  faux.setResponses([fauxAssistantMessage("REVIEW_FINDING: Missing coverage for cancellation.")]);
+  await send("/review cancellation coverage");
+  const review = page.locator('.side-job').filter({ hasText: 'cancellation coverage' });
+  await review.getByRole('button', { name: 'Send to agent', exact: true }).waitFor();
+  assert.ok(!JSON.stringify((await conv.context(context)).messages).includes('REVIEW_FINDING'));
+  faux.setResponses([fauxAssistantMessage('Later reply')]);
+  await send('Later user message');
+  await page.getByText('Later reply', { exact: true }).waitFor();
+  async function assertOrder() {
+    assert.equal(await review.evaluate((card: any) => {
+      const later = [...(globalThis as any).document.querySelectorAll('.user-content')].find(el => el.textContent === 'Later user message');
+      return !!later && !!(card.compareDocumentPosition(later) & (globalThis as any).Node.DOCUMENT_POSITION_FOLLOWING);
+    }), true, 'later user messages render below the review');
+  }
+  await assertOrder();
+  await page.reload();
+  await review.getByRole('button', { name: 'Send to agent', exact: true }).waitFor();
+  await assertOrder();
+  // A rejected submission preserves the draft and allows the same report to be retried.
+  await page.locator('#input').fill('Keep this draft');
+  await page.route('**/messages?async=1', (route: any) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Report delivery failed' }) }));
+  await review.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await page.getByText('Send not confirmed: Report delivery failed', { exact: true }).waitFor();
+  assert.equal(await page.locator('#input').inputValue(), 'Keep this draft');
+  await page.unroute('**/messages?async=1');
+  let received = '';
+  const busyStarted = gate(), busyRelease = gate();
+  let busyAborted = false;
+  faux.setResponses([async (_ctx, options) => {
+    options?.signal?.addEventListener('abort', () => { busyAborted = true; }, { once: true });
+    busyStarted.resolve(); await Promise.race([busyRelease.promise, new Promise<void>(r => options?.signal?.addEventListener('abort', () => r(), { once: true }))]); return fauxAssistantMessage('Busy task finished');
+  }, ctx => { received = JSON.stringify(ctx.messages); return fauxAssistantMessage('Review received'); }]);
+  await send('Work before receiving review'); await busyStarted.promise;
+  await page.locator('#input').fill('Keep this draft');
+  await review.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await review.getByRole('button', { name: 'Sent to agent', exact: true }).waitFor();
+  assert.equal(received, '', 'review waits for the active turn');
+  assert.equal(busyAborted, false, 'send review must not interrupt the active turn');
+  busyRelease.resolve();
+  await page.getByText('Review received', { exact: true }).waitFor();
+  assert.ok(received.includes('REVIEW_FINDING: Missing coverage for cancellation.'));
+  assert.equal(await page.locator('#input').inputValue(), 'Keep this draft');
+  // A reload can expose the action again, but its stable request ID must not append twice.
+  const before = (await conv.context(context)).messages.filter(m => m.role === 'user' && JSON.stringify(m.content).includes('REVIEW_FINDING')).length;
+  assert.equal(before, 1);
+  await page.reload();
+  await review.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await review.getByRole('button', { name: 'Sent to agent', exact: true }).waitFor();
+  assert.equal((await conv.context(context)).messages.filter(m => m.role === 'user' && JSON.stringify(m.content).includes('REVIEW_FINDING')).length, 1);
+  assert.deepEqual(errors, []);
+  console.log("SIDE_COMMANDS_UI_OK: busy dispatch, separate results, escaped text, inline authenticated media, reconnect, late receipt race, chronological reports, explicit idempotent review delivery, retry, draft preservation, busy queue");
 } finally {
   mainRelease.resolve(); btwRelease.resolve(); bgRelease.resolve();
   await browser?.close(); await new Promise<void>(r => server.close(() => r())); await rt.close(); rmSync(dir, { recursive: true, force: true });
