@@ -105,7 +105,7 @@ const groups = computed<Group[]>(() => {
     for (const p of named) {
       const pSessions = here.filter(s => Number(s.project) === Number(p.id));
       // The host has a directory for every project. A worker lists a project once it is linked there or has sessions.
-      const linked = m.id === null || !!p.workerDirs?.some(d => d.worker === m.id);
+      const linked = m.id === null ? !!p.cwd : !!p.workerDirs?.some(d => d.worker === m.id);
       if (pSessions.length > 0 || (linked && !history.query)) {
         part.push({ key: `${m.key}:${p.id}`, name: p.name, project: p.id, sessions: sortSessions(pSessions), machine: m });
       }

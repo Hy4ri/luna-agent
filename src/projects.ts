@@ -60,20 +60,35 @@ export class ProjectStore {
     return this.get(id)!;
   }
   removeWorkerDir(id: number, worker: number): Project {
-    if (!this.get(id)) throw new ProjectError(404, "no such project");
+    const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
+    const here = cur.workerDirs?.some(d => d.worker === worker);
+    if (here && !cur.cwd && cur.workerDirs!.length === 1) throw new ProjectError(409, "This is the last machine of the project. Delete the project to remove its board.");
     this.db.prepare("DELETE FROM luna_project_worker_dirs WHERE project_id=? AND worker_id=?").run(id, worker);
+    return this.get(id)!;
+  }
+  /** Take the project off the main host. Other machines keep it and its board. An empty `cwd` means not on this host. */
+  removeHostDir(id: number): Project {
+    if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
+    const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
+    if (!cur.cwd) return cur;
+    if (!cur.workerDirs?.length) throw new ProjectError(409, "This is the last machine of the project. Delete the project to remove its board.");
+    this.db.prepare("UPDATE luna_projects SET cwd='' WHERE id=?").run(id);
     return this.get(id)!;
   }
   /** A removed worker leaves no stale links. */
   forgetWorker(worker: number) { this.db.prepare("DELETE FROM luna_project_worker_dirs WHERE worker_id=?").run(worker); }
-  private clean(name: unknown, cwd: unknown): { name: string; cwd: string } {
+  private cleanName(name: unknown): string {
     if (typeof name !== "string" || !name.trim() || name.trim().length > 100) throw new ProjectError(400, "name must contain 1 to 100 characters");
+    return name.trim();
+  }
+  private clean(name: unknown, cwd: unknown): { name: string; cwd: string } {
+    const clean = this.cleanName(name);
     if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new ProjectError(400, "cwd must be an absolute path");
     const dir = resolve(cwd);
     let ok = false;
     try { ok = statSync(dir).isDirectory(); } catch {}
     if (!ok) throw new ProjectError(400, "cwd is not an existing directory");
-    return { name: name.trim(), cwd: dir };
+    return { name: clean, cwd: dir };
   }
   private taken(name: string, except?: number) {
     if (name.toLowerCase() === GENERAL_PROJECT.name.toLowerCase() && this.get(except ?? -1)?.name.toLowerCase() !== name.toLowerCase()) throw new ProjectError(409, "General is reserved for chats outside named projects");
@@ -88,7 +103,11 @@ export class ProjectStore {
   update(id: number, changes: { name?: unknown; cwd?: unknown }): Project {
     if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
     const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
-    const v = this.clean(changes.name ?? cur.name, changes.cwd ?? cur.cwd); this.taken(v.name, id);
+    const next = changes.cwd ?? cur.cwd;
+    if (next === "" && !cur.workerDirs?.length) throw new ProjectError(400, "cwd must be an absolute path");
+    // A project that is only on other machines keeps an empty host directory.
+    const v = next === "" ? { name: this.cleanName(changes.name ?? cur.name), cwd: "" } : this.clean(changes.name ?? cur.name, next);
+    this.taken(v.name, id);
     this.db.prepare("UPDATE luna_projects SET name=?, cwd=? WHERE id=?").run(v.name, v.cwd, id);
     return { id, ...v, workerDirs: cur.workerDirs ?? [] };
   }

@@ -337,7 +337,8 @@ export function createApp(opts: ServerOptions) {
   });
   app.delete("/v1/projects/:id/machines/:worker", (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
-    const project = opts.conversations.projects.removeWorkerDir(projectId(c), workerParam(c));
+    // "main" is the host. Removing a machine never touches the board; only deleting the project does.
+    const project = c.req.param("worker") === "main" ? opts.conversations.projects.removeHostDir(projectId(c)) : opts.conversations.projects.removeWorkerDir(projectId(c), workerParam(c));
     opts.conversations.touch();
     return c.json(project);
   });
