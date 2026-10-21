@@ -826,7 +826,7 @@ pre.code { background: var(--sidebar); border: 1px solid var(--border); padding:
 .send-error { margin: 8px; width: auto; font-size: 13px; }
 #form { display: flex; flex-direction: column; padding: 10px 12px; gap: 8px; }
 #input { width: 100%; min-height: 38px; max-height: 22dvh; resize: none; overflow-y: auto; scrollbar-width: thin; border: 0; background: transparent; border-radius: 0; padding: 4px 2px 6px; outline: none; font-size: 16px; font-weight: 450; line-height: 1.6; }
-#input:focus-visible { outline: none; }
+#input:focus-visible, #palette-input:focus-visible { outline: none; }
 .compose-bar { display: flex; align-items: center; gap: 8px; }
 #attach { flex: none; color: var(--muted-foreground); }
 #attach svg, #send svg, #stop svg { width: 18px; height: 18px; }
@@ -947,6 +947,9 @@ aside#side.collapsed .brand { display:none; }
 aside#side.collapsed .side-head { padding:12px; justify-content:center; }
 aside#side.collapsed .side-item { justify-content:center; padding:8px; }
 aside#side.collapsed .pill { display:none; }
+.side-kbd { margin-left:auto; font-family:var(--mono); font-size:11px; padding:1px 6px; border:1px solid var(--sidebar-border); border-radius:var(--r-sm); color:var(--faint); }
+aside#side.collapsed .side-kbd { display:none; }
+@media (max-width: 760px) { .side-kbd { display:none; } }
 
 /* Tailwind resets list markers; Markdown must retain semantic list presentation. */
 .md ul { list-style:disc; }

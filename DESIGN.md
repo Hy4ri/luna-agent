@@ -103,6 +103,11 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - Top navigation items (`.side-item`) switch between primary views (`chat`, `cron`, `analytics`, `settings`) or open workspace panels (`projects`, `board`, `memory`, `skills`, `lessons`). Active view uses `[aria-current="page"]` (`background: var(--acc-soft); color: var(--primary)`).
   - **Session History (`#sessions`):** Grouped by project (`.session-group`) with collapsible headers (`.group-toggle`) and a per-project quick-create button (`.group-new`). Pinned sessions sort first, followed by most recent activity. Collapsed groups keep pinned sessions and sessions with any status except `ready` or `stopped` visible, indented beneath their own header. Expanding restores the full list in the same order.
   - **Mobile Drawer (`@media (max-width: 760px)`):** Slides over the canvas (`width: 280px`, `transform: translateX(-100%)` → `translateX(0)` when `.open`) with a backdrop scrim (`#shade`).
+- **Command Palette (`CommandPalette.vue`, `#command-palette`):**
+  - `Ctrl+K` / `Cmd+K` or the sidebar `#open-palette` entry opens a centered `--popover` dialog (`width: min(640px, 100vw - 24px)`). It is not available in the split-view second pane.
+  - Every entry runs an existing action: go to a page or Settings tab, open a panel, toggle the sidebar or split view, open or create a conversation, choose a model or thinking level, or write a boolean/enum setting through `PUT /v1/settings`.
+  - Entries show real state only: a check for the current page, panel, conversation, model, or option, and an `On`/`Off` chip for toggles. Settings entries reload from the server on every open.
+  - Toggles keep the palette open and confirm the save in `#palette-status`. Writes are refused while the Settings page has unsaved edits.
 - **Top Header (`#top`):**
   - Displays current conversation title (`#title`), live session status (`#session-status` when state !== `ready`), rate-limit auto-continue countdown with inline `Cancel` (`#limit-wait`), `#statusbar` usage disclosure, `#new-session` button (creates a session in the active project), and `#more` (`SessionPanel` trigger).
 

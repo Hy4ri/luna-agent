@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, provide, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { ui, setSettingsGuard, setDrawer, navigate, setSettingsTab } from '@/stores/app'
+import { ui, setSettingsGuard, setDrawer, navigate, setSettingsTab, settingsChanged } from '@/stores/app'
 import { scheduleContext } from '@/stores/chat'
 import { loadModels, models } from '@/stores/models'
 import { json, post } from '@/lib/api'
@@ -213,6 +213,8 @@ onMounted(() => {
   void loadSettings()
 })
 onUnmounted(() => { mounted = false; setSettingsGuard(null) })
+// The command palette writes only while this page has no unsaved edits; load its new revision.
+watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSettings() })
 </script>
 
 <template>

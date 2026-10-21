@@ -8,10 +8,11 @@ import Extras from '@/components/chat/Extras.vue';
 import StatusBar from '@/components/chat/StatusBar.vue';
 import Composer from '@/components/composer/Composer.vue';
 import PanelHost from '@/components/panels/PanelHost.vue';
+import CommandPalette from '@/components/CommandPalette.vue';
 import CronPage from '@/pages/CronPage.vue';
 import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
-import { ui, boot, login, setDrawer, closePanel, openPanel } from '@/stores/app';
+import { ui, boot, login, setDrawer, closePanel, openPanel, toggleSplit, setPalette } from '@/stores/app';
 import { chat, newSession, openSession, clearConversation, addErr } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, projectName } from '@/stores/sessions';
 import { sessionPane } from '@/lib/pane';
@@ -20,17 +21,10 @@ import { useMobile } from '@/lib/dom';
 import { trackViewport } from '@/lib/viewport';
 
 const mobile = useMobile();
-const split = ref(!sessionPane && sessionStorage.getItem('luna.split.open') === '1');
-const splitMounted = ref(split.value);
 const paneUrl = new URL(location.href);
 paneUrl.searchParams.set('pane', 'session');
 paneUrl.hash = '';
 const paneSessions = computed(() => history.list.filter(s => !s.archived || String(s.id) === chat.session));
-function toggleSplit() {
-  split.value = !split.value;
-  if (split.value) splitMounted.value = true;
-  sessionStorage.setItem('luna.split.open', split.value ? '1' : '0');
-}
 function selectPaneSession(event: Event) {
   const id = (event.target as HTMLSelectElement).value;
   if (id) void openSession(id);
@@ -39,6 +33,7 @@ function selectPaneSession(event: Event) {
 const activeSession = computed(() => history.list.find(row => String(row.id) === chat.session));
 const password = ref('');
 const blocked = computed(() => ui.login || !!ui.panel || (mobile.value && ui.drawer));
+const split = computed(() => ui.split);
 
 const activeProject = computed(() => {
   if (chat.session) {
@@ -70,6 +65,13 @@ async function handleNewSession() {
 }
 
 function keyboard(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && !ui.login && !sessionPane) {
+    e.preventDefault();
+    setPalette(!ui.palette);
+    return;
+  }
+  // The palette dialog owns Escape and focus while it is open.
+  if (ui.palette) return;
   if (e.key === 'Escape') {
     if (ui.panel) { e.preventDefault(); closePanel(); }
     else if (ui.drawer) { e.preventDefault(); setDrawer(false); }
@@ -126,7 +128,7 @@ onUnmounted(() => { stopViewport?.(); document.removeEventListener('keydown', ke
         </main>
         <!-- Keep the document alive when hidden: closing the split must not lose
              unsent attachments, in-flight submissions, or the second pane's view. -->
-        <iframe v-if="splitMounted" v-show="split" id="secondary-pane" :src="paneUrl.href" title="Second session" class="session-pane" />
+        <iframe v-if="ui.splitMounted" v-show="split" id="secondary-pane" :src="paneUrl.href" title="Second session" class="session-pane" />
       </div>
       <div v-if="ui.view !== 'chat'" :inert="blocked" class="flex min-w-0 flex-1 overflow-hidden">
         <CronPage v-if="ui.view === 'cron'" :inert="blocked" />
@@ -134,6 +136,7 @@ onUnmounted(() => { stopViewport?.(); document.removeEventListener('keydown', ke
         <SettingsPage v-if="ui.view === 'settings'" :inert="blocked" />
       </div>
       <PanelHost />
+      <CommandPalette v-if="!sessionPane" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
       <div v-if="ui.login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" class="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-5">
         <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password)">
           <div class="flex items-center gap-3"><Moon :size="22" class="text-primary" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>
