@@ -138,12 +138,11 @@ try {
   assert.equal(disk().busyInput.mode, 'interrupt', 'Settings page saves after a palette write');
   assert.equal(disk().compaction.enabled, false, 'Settings page save keeps the palette write');
 
-  // Layout toggles.
+  // Sidebar layout remains available. Session tiling is drag-only; the old
+  // split-view command must not survive as an inert toggle.
   await openPalette(); await run('go to chat', 'view:chat');
-  await openPalette(); await run('split view', 'layout:split');
-  await page.locator('#secondary-pane').waitFor({ state: 'visible' });
-  assert.equal(await option('layout:split').locator('.palette-state').textContent(), 'On');
-  await input.press('Enter'); await page.locator('#secondary-pane').waitFor({ state: 'hidden' });
+  await openPalette();
+  assert.equal(await option('layout:split').count(), 0, 'No obsolete split-view toggle');
   await run('collapse sidebar', 'layout:sidebar');
   await page.locator('aside#side.collapsed').waitFor();
   await page.keyboard.press('Escape');
@@ -159,7 +158,7 @@ try {
   await page.screenshot({ path: '/tmp/luna-command-palette-mobile.png' });
 
   assert.deepEqual(errors, []);
-  console.log('COMMAND_PALETTE_UI_OK: shortcut, filter, screens, panels, conversations, boolean and enum settings, dirty guard, layout toggles, mobile');
+  console.log('COMMAND_PALETTE_UI_OK: shortcut, filter, screens, panels, conversations, boolean and enum settings, dirty guard, sidebar layout, removed split toggle, mobile');
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }

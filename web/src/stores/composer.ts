@@ -25,17 +25,20 @@ export const composer = reactive({
   /** Last failed submission per conversation, for "Retry send". */
   sendErrors: new Map<string, { body: any; message: string }>(),
 });
+const draftTextKey = (id: string | null) => `luna.draft.${id ?? "new"}`;
 let owner: string | null | undefined; // conversation the visible draft belongs to
 
 export function saveDraft() {
   if (owner === undefined) return;
   drafts.set(owner, { text: composer.text, attachments: composer.attachments });
-  try { sessionStorage.setItem(draftsKey, JSON.stringify([...drafts].map(([id, d]) => [id, d.text]))); } catch {}
+  try { sessionStorage.setItem(draftTextKey(owner), composer.text); } catch {}
 }
 export function restoreDraft() {
   owner = chat.session;
   const draft = drafts.get(owner);
-  composer.text = draft?.text || ""; composer.attachments = draft?.attachments || [];
+  let text = draft?.text || "";
+  try { text = sessionStorage.getItem(draftTextKey(owner)) ?? text; } catch {}
+  composer.text = text; composer.attachments = draft?.attachments || [];
 }
 
 // ---- attachments ----

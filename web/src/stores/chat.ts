@@ -4,7 +4,7 @@
 import { computed, markRaw, reactive } from "vue";
 import { api, json, post } from "@/lib/api";
 import { watchFeed, type Feed } from "@/lib/sync";
-import { savedSession, rememberSession } from "@/lib/pane";
+import { savedSession, rememberSession, routeSession, sessionPane, notifySessionPanes } from "@/lib/pane";
 import { focusInput, leavePages } from "./app";
 import { composer, restoreDraft, saveDraft } from "./composer";
 import { models, setSelectedModel } from "./models";
@@ -360,7 +360,7 @@ function onSessionEvent(type: string, e: any, epoch: number) {
 export const toolArgsText = (args: unknown) => (args ? "args: " + JSON.stringify(args, null, 1) + "\n" : "");
 
 export async function openSession(id: string | number) {
-  if (!leavePages()) return;
+  if (!leavePages() || routeSession(String(id))) return;
   saveDraft(); detachView();
   setSession(String(id));
   const sid = chat.session!, epoch = chat.epoch;
@@ -422,16 +422,22 @@ function reloadList(): Promise<void> {
   return listLoading;
 }
 export function startListFeed() {
+  if (sessionPane) return; // The workspace shares list notifications; each tile keeps its own session feed.
   listFeed?.stop();
   listFeed = watchFeed({
     path: "/v1/events", api,
     onEvent: async type => {
-      if (type === "sessions_changed") { void reloadList(); return; }
-      if (type === "board_changed") { const { boardChanged } = await import("./app"); boardChanged.value++; }
+      if (type === "sessions_changed") { void reloadList(); notifySessionPanes(type); return; }
+      if (type === "board_changed") { notifySessionPanes(type); const { boardChanged } = await import("./app"); boardChanged.value++; }
     },
     onDisconnect: e => e.message !== "unauthorized",
   });
 }
+window.addEventListener("message", async event => {
+  if (!sessionPane || event.origin !== location.origin || event.source !== window.parent || event.data?.type !== "luna:workspace-event") return;
+  if (event.data.event === "sessions_changed") void reloadList();
+  if (event.data.event === "board_changed") { const { boardChanged } = await import("./app"); boardChanged.value++; }
+});
 function reconnectFeeds() { activeFeed?.reconnect(); listFeed?.reconnect(); }
 window.addEventListener("online", reconnectFeeds);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) reconnectFeeds(); });
