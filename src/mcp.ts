@@ -209,7 +209,6 @@ export class McpManager {
 
   /** Validate, connect, then save. A server that cannot connect is not saved. */
   async add(input: unknown): Promise<McpServerInfo> {
-    this.settings?.assertMutable();
     const r = McpServerSchema.safeParse(input);
     if (!r.success) throw new Error(r.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "));
     const cfg = r.data;
@@ -228,7 +227,6 @@ export class McpManager {
   }
 
   async setEnabled(name: string, enabled: boolean) {
-    this.settings?.assertMutable();
     const i = this.webServer(name);
     const next = { ...this.web[i]!, enabled } as McpServerConfig;
     if (enabled) await this.connect(next); else await this.disconnect(name);
@@ -238,11 +236,25 @@ export class McpManager {
   }
 
   async remove(name: string) {
-    this.settings?.assertMutable();
     const i = this.webServer(name);
     await this.disconnect(name);
     this.web.splice(i, 1);
     this.save();
+  }
+
+  /** Apply saved settings: drop removed or changed servers, connect new or changed ones. Returns failures. */
+  async reconcile(next: McpServerConfig[]): Promise<{ name: string; error: string }[]> {
+    const key = (s: McpServerConfig) => JSON.stringify(s);
+    const old = new Map(this.web.map((s) => [s.name, key(s)]));
+    const keep = new Set(next.filter((s) => old.get(s.name) === key(s)).map((s) => s.name));
+    for (const s of this.web) if (!keep.has(s.name)) await this.disconnect(s.name);
+    this.web = structuredClone(next);
+    const failed: { name: string; error: string }[] = [];
+    for (const s of this.web) {
+      if (keep.has(s.name)) continue;
+      try { await this.connect(s); } catch (e) { failed.push({ name: s.name, error: (e as Error).message }); }
+    }
+    return failed;
   }
 
   async close() { await Promise.all([...this.conns.values()].map((c) => c.close().catch(() => {}))); }

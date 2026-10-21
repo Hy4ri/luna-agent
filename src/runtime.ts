@@ -111,11 +111,13 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     history: async (id, ctx) => (await (await harnessRef!.conversation(id, ctx))!.context(ctx)) }));
   extensions.push(createVideoExtension({ config: () => settings?.resolved() ?? cfg, models: built.models,
     defaultModel: () => providers.defaultModel(), fetch: o.fetch }));
-  extensions.push(createWebToolsExtension(cfg.web, new Map([
-    ["ddgs", createDdgsWebProvider(cfg.web.providers.ddgs, mcp)],
+  // Read per call so Settings changes apply to the next tool call.
+  const live = () => settings?.resolved() ?? cfg;
+  extensions.push(createWebToolsExtension(() => live().web, new Map([
+    ["ddgs", createDdgsWebProvider(() => live().web.providers.ddgs, mcp)],
   ])));
-  extensions.push(createBrowserToolsExtension(cfg.browser, new Map([
-    ["camofox", createCamofoxBrowserProvider(cfg.browser.providers.camofox, mcp)],
+  extensions.push(createBrowserToolsExtension(() => live().browser, new Map([
+    ["camofox", createCamofoxBrowserProvider(() => live().browser.providers.camofox, mcp)],
   ])));
   // Identity and always-on memory belong to the runtime, including cron and child conversations.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
@@ -135,7 +137,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
     : undefined;
-  if (on("improve")) extensions.push(createImproveExtension(improver!, { allowCommandBenchmarks: cfg.improve.allowCommandBenchmarks }));
+  if (on("improve")) extensions.push(createImproveExtension(improver!, { allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks }));
   if (on("skills")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs)));
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
   const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db")) : undefined;
@@ -147,12 +149,14 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const board = createBoardExtension(() => conversationsRef);
   extensions.push(board);
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
-  const notifyUrl = cfg.cron.notifyUrl;
+  const notifyUrl = () => live().cron.notifyUrl;
   const ask = on("ask-user") ? createAskExtension({
-    onAsk: notifyUrl ? async (conv, p) => {
+    onAsk: async (conv, p) => {
+      const url = notifyUrl();
+      if (!url) return;
       const body = p.questions.map((q) => `• ${q.question}`).join("\n");
-      await (o.fetch ?? fetch)(notifyUrl, { method: "POST", headers: { Title: `Luna is asking (session ${conv})`, "Content-Type": "text/plain; charset=utf-8" }, body: body.slice(0, 4000) });
-    } : undefined,
+      await (o.fetch ?? fetch)(url, { method: "POST", headers: { Title: `Luna is asking (session ${conv})`, "Content-Type": "text/plain; charset=utf-8" }, body: body.slice(0, 4000) });
+    },
   }) : undefined;
   if (ask) extensions.push(ask);
   // Live policy: Settings changes apply to the next send without a restart.
@@ -187,15 +191,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     processDirectory: join(cfg.dataDir, "processes"),
     remoteEnv: (worker, cwd) => workers.env(worker, cwd),
     log,
-    processNotify: notifyUrl ? async (id, message) => {
-      const response = await (o.fetch ?? fetch)(notifyUrl, {
+    processNotify: async (id, message) => {
+      const url = notifyUrl();
+      if (!url) return;
+      const response = await (o.fetch ?? fetch)(url, {
         method: "POST", signal: AbortSignal.timeout(5000),
         headers: { Title: `Luna process finished (session ${id})`, "Content-Type": "text/plain; charset=utf-8" },
         // Shell output can contain secrets. External notifications carry status only.
         body: message.split("\n", 1)[0]!.slice(0, 500),
       });
       if (!response.ok) throw new Error(`notification HTTP ${response.status}`);
-    } : undefined,
+    },
     memory,
     ...(on("skills") ? { skillDirs: cfg.allSkillDirs } : {}),
     extensions,
@@ -208,8 +214,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("cron")) {
     scheduler = new Scheduler({
       harness, store: store!, defaultModel: () => providers.defaultModel(), log,
-      ...(cfg.cron.runTimeoutMinutes ? { runTimeoutMs: cfg.cron.runTimeoutMinutes * 60_000 } : {}),
-      onFinish: notifyUrl ? (job, run) => deliverRun(notifyUrl, job, run, o.fetch) : undefined,
+      runTimeoutMs: () => { const m = live().cron.runTimeoutMinutes; return m ? m * 60_000 : 30 * 60_000; },
+      onFinish: (job, run) => { const url = notifyUrl(); return url ? deliverRun(url, job, run, o.fetch) : undefined; },
       exclude: [board, ...(ask ? [ask] : [])],
     });
     syncImproveJob(cfg, store!);
@@ -224,17 +230,30 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     if (!learn || learnRunning) return learnRunning;
     const isCronRun = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
     learnRunning = scanIdle({
-      store: learn, idleMs: cfg.learn.idleMinutes * 60_000, log,
+      store: learn, idleMs: live().learn.idleMinutes * 60_000, log,
       commit: (fn) => harness.commit(fn, context),
       skip: (id) => !!isCronRun?.get(String(id)),
     }).catch((e) => log(`learn: scan failed: ${(e as Error).message}`)).finally(() => { learnRunning = undefined; });
     return learnRunning;
   };
   if (learn) {
-    learnTimer = setInterval(learnScan, Math.max(60_000, Math.min(5 * 60_000, cfg.learn.idleMinutes * 60_000)));
+    learnTimer = setInterval(learnScan, 60_000);
     learnTimer.unref();
     void learnScan();
   }
+
+  // Settings saved while running: bring live state in line without a restart.
+  settings?.onApply(async (_old, next) => {
+    const warnings: string[] = [];
+    providers.reconcile(next.providers);
+    for (const f of await mcp.reconcile(next.mcpServers)) warnings.push(`mcp ${f.name}: ${f.error}`);
+    if (scheduler && store) {
+      syncImproveJob(live(), store);
+      syncJob(store, LEARN_JOB, learn ? live().learn.schedule : undefined, LEARN_PROMPT);
+      scheduler.rearm();
+    }
+    return warnings;
+  });
 
   const sideCommands = new SideCommands({ harness, models: built.models, remoteEnv: (worker, cwd) => workers.env(worker, cwd), route: () => {
     const route = (settings?.resolved() ?? cfg).auxiliary.side_question;

@@ -474,7 +474,7 @@ export interface SchedulerOptions {
   /** Model for jobs without their own; a function is read at each run (the UI can change it). */
   defaultModel: ModelRef | (() => ModelRef);
   /** Max time one run may take before it is aborted and logged as error. Default 30 min. */
-  runTimeoutMs?: number;
+  runTimeoutMs?: number | (() => number);
   log?: (msg: string) => void;
   /** Called once per finished run (ok or error), e.g. to deliver the result. Errors are logged, never thrown. */
   onFinish?: (job: Job | undefined, run: Run) => void | Promise<void>;
@@ -601,7 +601,7 @@ export class Scheduler {
         if (!command.length) throw new Error("empty script command");
         const ac = new AbortController();
         a.abort = () => ac.abort();
-        const timeout = setTimeout(() => { a.reason ??= this.timeoutReason(); ac.abort(); }, this.o.runTimeoutMs);
+        const timeout = setTimeout(() => { a.reason ??= this.timeoutReason(); ac.abort(); }, this.timeoutMs());
         try {
           const output = await new Promise<string>((resolve, reject) => {
             execFile(command[0]!, command.slice(1), { cwd, signal: ac.signal, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -638,7 +638,8 @@ export class Scheduler {
     } catch (e) { store.finish(run.id, "error", null, this.failText(a, errText(e))); }
   }
 
-  private timeoutReason() { return `timed out after ${this.o.runTimeoutMs / 1000}s`; }
+  private timeoutMs() { const t = this.o.runTimeoutMs; return typeof t === "function" ? t() : t; }
+  private timeoutReason() { return `timed out after ${this.timeoutMs() / 1000}s`; }
 
   private async answerText(conv: { context(c: any): Promise<any> } | undefined, id: unknown): Promise<string | null> {
     if (!conv) return null;
@@ -654,7 +655,7 @@ export class Scheduler {
     // Submission.abort() only withdraws a queued input; once the turn has started it returns "already_placed"
     // and cancels nothing. Aborting the run's own (ownerless) conversation cancels the live turn.
     a.abort = async () => { if ((await sub.abort(context)) === "already_placed") await conv?.abort(context); };
-    const timeout = setTimeout(() => { a.reason ??= this.timeoutReason(); void Promise.resolve(a.abort?.()).catch((e) => this.o.log(`run ${run.id} timeout abort failed: ${errText(e)}`)); }, this.o.runTimeoutMs);
+    const timeout = setTimeout(() => { a.reason ??= this.timeoutReason(); void Promise.resolve(a.abort?.()).catch((e) => this.o.log(`run ${run.id} timeout abort failed: ${errText(e)}`)); }, this.timeoutMs());
     try {
       const s = await sub.wait(context);
       if (s.status === "done") this.o.store.finish(run.id, "ok", await this.answerText(conv, s.answer), null);

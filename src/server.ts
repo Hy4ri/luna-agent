@@ -196,7 +196,8 @@ export function createApp(opts: ServerOptions) {
         }
       }
       opts.settings.replace(b.config, b.revision);
-      return c.json(opts.settings.view());
+      const warnings = await opts.settings.apply(old);
+      return c.json({ ...opts.settings.view(), warnings });
     } catch (e) { return err(c, (e as Error).message.includes("Reload before") ? 409 : 400, (e as Error).message); }
   });
 

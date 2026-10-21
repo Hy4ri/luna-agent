@@ -89,7 +89,7 @@ async function writeSetting(path: string[], value: unknown) {
     settings.value = next;
     settingsChanged.value++;
     scheduleContext();
-    status.value = next.restartRequired ? `Saved ${fieldTitle(path)}. Restart Luna to apply runtime changes.` : `Saved ${fieldTitle(path)}.`;
+    status.value = next.restartRequired ? `Saved ${fieldTitle(path)}. Restart Luna to apply this startup setting.` : `Saved ${fieldTitle(path)}.`;
   } catch (e) {
     status.value = (e as Error).message || 'Failed to save the setting.';
     statusError.value = true;
