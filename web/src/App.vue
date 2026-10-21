@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { Menu, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -281,6 +282,7 @@ onUnmounted(() => {
               <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
               <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt) }}</span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
             </div>
+            <MachineStatus />
             <StatusBar v-if="!docked" />
             <button v-if="activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>

@@ -2,6 +2,7 @@
 // Port of vanilla session.js + extras.js + transcript.js state. Components only render this.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { computed, markRaw, reactive } from "vue";
+import type { Machine } from "./workers";
 import { api, json, post } from "@/lib/api";
 import { watchFeed, type Feed } from "@/lib/sync";
 import { savedSession, rememberSession, routeSession, sessionPane, notifySessionPanes } from "@/lib/pane";
@@ -34,6 +35,10 @@ export const chat = reactive({
   session: savedSession(),
   title: "New conversation",
   project: null as number | null,
+  machine: null as Machine | null,
+  cwd: null as string | null,
+  draftWorker: null as number | null,
+  draftCwd: "",
   /** Bumps on every conversation switch; async work from older views is dropped. */
   epoch: 0,
   /** Bumps when durable entries change. */
@@ -246,7 +251,7 @@ function detachView() {
   if (liveFrame !== null) cancelAnimationFrame(liveFrame); liveFrame = null;
   chat.connected = false; chat.runActive = chat.generationActive = false; chat.queuedCount = 0;
   liveMessage = null; chat.liveText = ""; chat.liveThinking = ""; entries = new Map(); chat.rev++;
-  chat.project = null;
+  chat.project = null; chat.machine = null; chat.cwd = null; chat.draftWorker = null; chat.draftCwd = "";
   chat.toolLive = {}; chat.toolStarts = {}; chat.toolResults = {}; chat.activeTools = new Set();
   chat.notices = []; chat.extras = null;
 }
@@ -262,6 +267,7 @@ export function clearConversation() {
   restoreDraft();
 }
 function applyAgent(agent: any) {
+  chat.cwd = agent?.cwd ?? null;
   setSelectedModel(agent?.model || models.defaultModel); models.thinking = agent?.thinkingLevel || "off";
 }
 function syncLive() {
@@ -379,6 +385,7 @@ export async function openSession(id: string | number) {
       if (epoch !== chat.epoch) return;
       entries = new Map(s.entries.map((e: any) => [e.id, markRaw(e)])); chat.rev++;
       chat.project = s.project ?? history.list.find(row => String(row.id) === sid)?.project ?? null;
+      chat.machine = s.machine ?? null;
       applyAgent(s.agent); chat.usage = s.usage ? markRaw(s.usage) : null; showContext(s.contextUsage); setExtras(s);
       chat.followTick++;
     },
@@ -394,14 +401,14 @@ export async function openSession(id: string | number) {
 export async function newSession(project?: number | string | null): Promise<boolean> {
   if (!leavePages()) return false;
   clearConversation();
-  chat.project = project ? Number(project) : null;
+  chat.project = project !== undefined && project !== null ? Number(project) : null;
   return true;
 }
 /** Creates the server session and opens it. Called when the first message is sent from an empty conversation. */
 export async function createSession(project?: number | string | null): Promise<string | undefined> {
   if (!leavePages()) return;
   const epoch = chat.epoch;
-  const body = { ...(project ? { project: Number(project) } : {}), ...models.draft };
+  const body = { ...(project !== undefined && project !== null ? { project: Number(project) } : {}), ...models.draft, ...(chat.draftWorker !== null ? { worker: chat.draftWorker } : {}), ...(chat.draftCwd ? { cwd: chat.draftCwd } : {}) };
   const { id } = await post<{ id: number | string }>("/v1/sessions", body);
   if (epoch !== chat.epoch) return String(id);
   resetHistoryView();

@@ -3,6 +3,7 @@
 // spawning tool call and the parent's abort. Each parent records its own children in a conversation document,
 // so list/wait/steer/stop only ever touch that parent's children. Replay safety: spawn is keyed by the tool
 // call's task id (a rerun after a crash finds the child it already made) and every message has a deterministic requestId.
+import { ExecTarget } from "./workers.js";
 import { Type } from "@earendil-works/pi-ai";
 import { configure, defineDoc, defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 
@@ -58,10 +59,13 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
           // Children cannot delegate further or mutate a shared board without a project link.
           // Configured child defaults override the parent.
           const defaults = settings();
+          // The configured child cwd is a main-host path; children of a worker session keep the parent's directory.
+          const onWorker = !!(await api.commit(async (tx) => (await tx.doc(ExecTarget, api.conversationId)).worker, context));
+          const childCwd = onWorker ? parent.cwd : defaults.cwd ?? parent.cwd;
           const childAgent = {
             model: defaults.provider && defaults.model ? { provider: defaults.provider, modelId: defaults.model } : parent.model,
             thinkingLevel: defaults.thinkingLevel ?? parent.thinkingLevel, extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board")] },
-            ...((defaults.cwd ?? parent.cwd) ? { cwd: defaults.cwd ?? parent.cwd } : {}),
+            ...(childCwd ? { cwd: childCwd } : {}),
           } as never;
 
           const mine = (): Promise<ChildRow[]> =>
@@ -136,6 +140,8 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
                 } else {
                   const c = await tx.createConversation({ ownership: { kind: "ownerless" } });
                   await configure(tx, c.id, childAgent);
+                  // A child works on its parent's machine. Forks copy this document themselves.
+                  (await tx.doc(ExecTarget, c.id)).worker = (await tx.doc(ExecTarget, api.conversationId)).worker;
                   await tx.appendEntry(c.id, { kind: NOTE, data: { task, parent: api.conversationId as number } });
                   childId = c.id as number;
                 }

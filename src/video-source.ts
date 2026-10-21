@@ -7,6 +7,8 @@ import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import { isPublicVisionAddress } from "./vision-images.js";
+import { confinedReader, isWorkerEnv } from "./worker-protocol.js";
+import { credentialPath, within } from "./confined-read.js";
 
 export const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 export const VIDEO_WARNING_BYTES = 20 * 1024 * 1024;
@@ -14,6 +16,7 @@ export const VIDEO_DOWNLOAD_TIMEOUT = 60_000;
 export interface VideoSourceOptions {
   signal: AbortSignal; cwd?: string; dataDir: string; configPath?: string;
   blocked_paths: string[]; blocked_hosts: string[];
+  env?: import("@earendil-works/pi-durable/env").ExecutionEnv;
 }
 export function videoMime(source: string): string {
   const suffix = extname(/^https?:/i.test(source) ? new URL(source).pathname : source).toLowerCase();
@@ -93,9 +96,21 @@ async function download(source: string, options: VideoSourceOptions): Promise<Bu
   }
   throw new Error("Video download failed.");
 }
-const within = (file: string, blocked: string) => file === blocked || file.startsWith(blocked + sep);
-const credentialPath = (path: string) => path.split(sep).some(p => /^\.env(?:\.|$)|^\.(?:ssh|aws|gnupg)$|^(?:auth|credentials|secrets)\.json$|^luna\.config(?:\.[^/]+)?\.json$/i.test(p));
 async function localBytes(source: string, options: VideoSourceOptions): Promise<Buffer> {
+  if (options.env && isWorkerEnv(options.env)) {
+    // One worker-side open: the policy is checked on the opened file and the bytes come from it.
+    // Main-host paths (dataDir, configPath) do not exist on the worker; blocked_paths resolve on the worker.
+    const reader = confinedReader(options.env);
+    if (!reader) throw new Error("Invalid video source: this execution machine cannot read media safely. Update the worker.");
+    const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
+    const read = await reader.readConfined(source, { blocked: options.blocked_paths, credentials: true, maxBytes: VIDEO_MAX_BYTES },
+      withAbortSignal(options.signal, BACKGROUND_CONTEXT));
+    if (read.ok) return Buffer.from(read.value);
+    const message = read.error.message;
+    if (/^Read blocked/.test(message)) throw new Error(message);
+    if (/exceeds/.test(message)) throw new Error("Video exceeds 50 MiB transport limit; compress or trim.");
+    throw new Error(`Invalid video source: ${message}`);
+  }
   const path = await realpath(resolve(options.cwd ?? process.cwd(), source));
   const protectedPaths = [join(options.dataDir, "auth.json"), join(options.dataDir, "mcp.json"),
     options.configPath, join(homedir(), ".ssh"), join(homedir(), ".aws"), join(homedir(), ".gnupg"),

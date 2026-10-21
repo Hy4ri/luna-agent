@@ -1,9 +1,29 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import { json, api, post } from "@/lib/api";
 import { chat, openSession } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
 
+import { loadWorkers, workers } from "@/stores/workers";
+const target = ref("");
+const targetCwd = ref("");
+const moving = ref(false);
+async function moveMachine() {
+  if (moving.value) return;
+  const worker = target.value ? Number(target.value) : null;
+  if (!chat.session) {
+    chat.draftWorker = worker; chat.draftCwd = targetCwd.value.trim();
+    toast("Execution machine selected for the new session."); return;
+  }
+  moving.value = true;
+  const sid = chat.session;
+  try {
+    const r = await post(`/v1/sessions/${sid}/machine`, { worker, cwd: targetCwd.value.trim() || null }, "PUT");
+    if (chat.session === sid) { chat.machine = r.machine; chat.cwd = r.cwd; await fetchData(); }
+    toast("Future file and command tools use the selected machine. Existing files and processes stay where they are.");
+  } catch (e: any) { toast(e.message); }
+  finally { moving.value = false; }
+}
 const loading = ref(true);
 const errorMsg = ref("");
 const sessionData = ref<any>(null);
@@ -28,6 +48,8 @@ async function fetchData() {
   try {
     const r = await json(`/v1/sessions/${chat.session}?limit=1`);
     sessionData.value = r;
+    target.value = r.machine ? String(r.machine.id) : "";
+    targetCwd.value = r.agent?.cwd || "";
     instructions.value = r.agent?.instructions || "";
   } catch (e: any) {
     if (e.message !== "unauthorized") {
@@ -73,8 +95,12 @@ async function resetSessionContext() {
 }
 
 onMounted(() => {
+  target.value = chat.draftWorker ? String(chat.draftWorker) : "";
+  targetCwd.value = chat.draftCwd;
+  loadWorkers().catch(e => { errorMsg.value = e.message; });
   fetchData();
 });
+watch(() => chat.session, fetchData);
 </script>
 
 <template>
@@ -87,6 +113,22 @@ onMounted(() => {
     <!-- Loading / Error -->
     <p v-if="loading" class="muted" role="status">Loading…</p>
     <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+
+    <div class="card grid" id="machine-picker">
+      <b>Execution machine</b>
+      <label>Machine
+        <select v-model="target" aria-label="Target machine" :disabled="moving || chat.runActive">
+          <option value="">This host</option>
+          <option v-for="w in workers.list" :key="w.id" :value="String(w.id)">{{ w.name }} · {{ w.online ? 'Online' : 'Offline' }}</option>
+        </select>
+      </label>
+      <label>Working directory
+        <input v-model="targetCwd" aria-label="Target working directory" placeholder="Machine default directory" :disabled="moving || chat.runActive" />
+      </label>
+      <p class="muted text-xs">File and command tools use this machine. Browser and other tools stay on the main host. Files and running processes do not move.</p>
+      <button type="button" :disabled="moving || chat.runActive" @click="moveMachine">{{ chat.session ? 'Move future execution' : 'Select execution machine' }}</button>
+      <span v-if="chat.runActive" class="muted text-xs">Stop or wait for the current turn before moving execution.</span>
+    </div>
 
     <template v-if="!chat.session">
       <p class="muted">Open a session first.</p>

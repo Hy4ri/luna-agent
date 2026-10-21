@@ -57,7 +57,8 @@ try {
   assert.equal(await page.getByLabel("Working directory", { exact: true }).count(), 0);
   await page.locator('#project-chat').click();
   await page.locator('#panel').waitFor({ state: 'hidden' });
-  await page.waitForFunction(() => (globalThis as any).document.querySelectorAll('.session-group[data-project="none"] [data-session]').length === 2);
+  // Project-chat starts a local draft in General; stored session rows stay at 1 until the first send.
+  await page.waitForFunction(() => (globalThis as any).document.querySelectorAll('.session-group[data-project="none"] [data-session]').length === 1);
   const named = rt.conversations.projects.create("Named", dir);
   const namedCard = rt.conversations.board.create(named.id, { subject: "Named-only browser card" });
   // A saved named board must not override the active General chat on reopen.

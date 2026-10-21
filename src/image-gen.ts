@@ -5,6 +5,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type, type TSchema } from "typebox";
 import { loadVisionImage, fitVisionImage } from "./vision-images.js";
+import { confinedReader, isWorkerEnv } from "./worker-protocol.js";
 
 export type AspectRatio = "landscape" | "square" | "portrait";
 export type CreativeControl = "creativity" | "intensity" | "complexity" | "movement";
@@ -36,10 +37,24 @@ function schema(caps: ImageGenCapabilities) {
   for (const control of caps.controls ?? []) properties[control] = Type.Optional(Type.Number());
   return Type.Object(properties, { additionalProperties: false });
 }
-async function source(value: unknown, cwd: string, signal: AbortSignal): Promise<ImageGenSource> {
+async function source(value: unknown, cwd: string, signal: AbortSignal, env?: import("@earendil-works/pi-durable/env").ExecutionEnv): Promise<ImageGenSource> {
   if (typeof value !== "string" || !value.trim()) throw new Error("Image sources must be nonempty strings.");
   let input = value;
   if (!/^https?:|^data:/i.test(value)) {
+    if (env && isWorkerEnv(env)) {
+      // One worker-side open: confinement is checked on the opened file and the bytes come from it.
+      const reader = confinedReader(env);
+      if (!reader) throw new Error("This execution machine cannot read source images safely. Update the worker.");
+      const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
+      const read = await reader.readConfined(value, { root: env.cwd || cwd, maxBytes: 32 * 1024 * 1024 }, withAbortSignal(signal, BACKGROUND_CONTEXT));
+      if (!read.ok) throw new Error(/outside the conversation working directory/.test(read.error.message)
+        ? "Source image is outside the conversation working directory." : `Source image read failed on worker: ${read.error.message}`);
+      const bytes = Buffer.from(read.value);
+      const sharp = (await import("sharp")).default;
+      const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata();
+      const mime = metadata.format === "jpeg" ? "image/jpeg" : `image/${metadata.format}`;
+      input = `data:${mime};base64,${bytes.toString("base64")}`;
+    } else {
     // Inspect the open descriptor, not just the pathname. A symlink swap cannot change what gets uploaded.
     const root = await realpath(cwd);
     const file = await open(resolve(root, value), constants.O_RDONLY | constants.O_NONBLOCK);
@@ -65,6 +80,7 @@ async function source(value: unknown, cwd: string, signal: AbortSignal): Promise
       const mime = metadata.format === "jpeg" ? "image/jpeg" : `image/${metadata.format}`;
       input = `data:${mime};base64,${bytes.toString("base64")}`;
     } finally { await file.close(); }
+    }
   }
   const loaded = await loadVisionImage(input, undefined, { cwd, signal });
   try { return { bytes: loaded.bytes, mimeType: loaded.mimeType }; } finally { await loaded.cleanup(); }
@@ -80,7 +96,7 @@ export class ImageGenManager {
     try { return !!this.selected()?.is_available(); } catch { return false; }
   }
   parameters() { return schema(this.selected()?.capabilities() ?? {}); }
-  async generate(args: Record<string, unknown>, execution: { cwd: string; signal: AbortSignal; backend?: string }): Promise<ImageGenResult> {
+  async generate(args: Record<string, unknown>, execution: { cwd: string; signal: AbortSignal; backend?: string; env?: import("@earendil-works/pi-durable/env").ExecutionEnv }): Promise<ImageGenResult> {
     const { signal, cwd } = execution;
     try {
       signal.throwIfAborted();
@@ -93,7 +109,7 @@ export class ImageGenManager {
         if (args.reference_image_urls !== undefined && !Array.isArray(args.reference_image_urls)) throw new Error("reference_image_urls must be an array.");
         const refs = (args.reference_image_urls ?? []) as unknown[];
         sources = [];
-        for (const value of [...(args.image_url !== undefined ? [args.image_url] : []), ...refs]) sources.push(await source(value, cwd, signal));
+        for (const value of [...(args.image_url !== undefined ? [args.image_url] : []), ...refs]) sources.push(await source(value, cwd, signal, execution.env));
       } catch (error) {
         if (signal.aborted) throw error;
         return fail("source_rejected", error instanceof Error ? error.message : "Invalid source image.");
@@ -122,6 +138,29 @@ export class ImageGenManager {
       // JS TypeError is not Python's unexpected-keyword exception. Modalities are checked above.
       const result = await provider.generate(request, signal);
       signal.throwIfAborted();
+      if (result.success && result.image && execution.env && isWorkerEnv(execution.env)) {
+        try {
+          const { readFile } = await import("node:fs/promises");
+          const { basename } = await import("node:path");
+          const bytes = await readFile(result.image);
+          const filename = basename(result.image);
+          const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
+          const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
+          const targetDir = execution.env.cwd || execution.cwd;
+          const target = await execution.env.joinPath([targetDir, filename], ctx);
+          // The provider already charged for this image. Report delivery failure distinctly and keep the main copy.
+          const delivery = (detail: string): ImageGenResult => ({ ...result, success: false, error_type: "worker_delivery_failed",
+            error: `Image generated and saved on the main host at ${result.image}, but delivery to the execution machine failed: ${detail}. Do not regenerate automatically.` });
+          if (!target.ok) return delivery(target.error.message);
+          const written = await execution.env.writeFile(target.value, new Uint8Array(bytes), ctx);
+          if (!written.ok) return delivery(written.error.message);
+          result.image = target.value;
+        } catch (e) {
+          if (signal.aborted) throw e;
+          return { ...result, success: false, error_type: "worker_delivery_failed",
+            error: `Image generated and saved on the main host at ${result.image}, but delivery to the execution machine failed: ${e instanceof Error ? e.message : String(e)}. Do not regenerate automatically.` };
+        }
+      }
       return result;
     } catch {
       return signal.aborted ? fail("interrupted", "Image generation interrupted. A submitted request may already consume provider quota.")
@@ -139,11 +178,11 @@ export function createImageGenExtension(manager: ImageGenManager, defaultCwd = p
       parameters: manager.parameters(),
       async execute(args, api, context) {
         const agent = await api.agent(context), signal = context.abortSignal ?? new AbortController().signal;
-        const result = await manager.generate(args, { cwd: agent.cwd ?? defaultCwd, signal });
+        const result = await manager.generate(args, { cwd: agent.cwd ?? defaultCwd, signal, env: api.env });
         const output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [{ type: "text", text: JSON.stringify(result) }];
         if (result.success && result.image) {
           try {
-            const image = await loadVisionImage(result.image, undefined, { signal });
+            const image = await loadVisionImage(result.image, undefined, { signal, cwd: agent.cwd, env: api.env });
             try { const preview = await fitVisionImage(image, { maxBytes: 256 * 1024, hardBytes: 1024 * 1024, longEdge: 2048, signal }); output.push({ type: "image", data: preview.data, mimeType: preview.mimeType }); }
             finally { await image.cleanup(); }
           } catch {

@@ -119,8 +119,9 @@ export class BusyExecutions {
     p.delivering = task; this.deliveries.add(task);
     void task.then(() => { p.delivering = undefined; this.deliveries.delete(task); });
   }
-  env(session: ConversationId, cwd: string, owner = "legacy"): ExecutionEnv {
-    const env = new NodeExecutionEnv({ cwd });
+  /** Wrap a session environment so bash can yield and process tools own it. `base` defaults to the local host. */
+  env(session: ConversationId, cwd: string, owner = "legacy", base?: ExecutionEnv): ExecutionEnv {
+    const env = base ?? new NodeExecutionEnv({ cwd });
     const proxy = new Proxy(env, { get: (target, key) => key === "exec" ? ((command, options, caller) => {
       const { p, yielded } = this.begin(target, session, command, options, caller, false, owner);
       return Promise.race([p.done, yielded]);
@@ -209,7 +210,7 @@ export class BusyExecutions {
           if (!this.options.enabled) throw new Error("Background command starts are disabled. Enable them in Settings > Tools > Background processes.");
           if (!args.command.trim()) throw new Error("Command must not be blank.");
           const managed = api.env && this.environments.get(api.env);
-          if (!managed) throw new Error("Native process execution requires the managed local environment.");
+          if (!managed) throw new Error("Native process execution requires a managed session environment.");
           const { p } = this.begin(managed.env, api.conversationId, args.command, { cwd: args.cwd, timeout: args.timeoutSec }, caller, true, managed.owner);
           return text(this.summary(p));
         },

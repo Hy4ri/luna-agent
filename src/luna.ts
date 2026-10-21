@@ -10,6 +10,7 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
 import { SessionStatusExtension } from "./session-status.js";
+import { ExecTarget } from "./workers.js";
 
 export const context = BACKGROUND_CONTEXT;
 // New incarnations of a deleted root must not inherit old process handles or deliveries.
@@ -36,6 +37,8 @@ export interface LunaOptions {
   /** Explicit background execution is opt-in; correction-detached bash keeps its existing behavior. */
   processes?: { enabled: boolean; retentionHours: number; maxOutputBytes: number };
   processDirectory?: string;
+  /** Environment on an execution worker for sessions whose ExecTarget names one. */
+  remoteEnv?: (worker: number, cwd: string | undefined) => import("@earendil-works/pi-durable/env").ExecutionEnv;
   processNotify?: (id: import("@earendil-works/pi-durable").ConversationId, message: string) => Promise<void>;
   log?: (message: string) => void;
 }
@@ -84,7 +87,17 @@ export async function openLuna(opts: LunaOptions) {
         // so pi-durable cannot extend a retained model-context range from its deleted incarnation.
         if (conversation.id === ROOT_CONVERSATION_ID) await tx.appendEntry(conversation.id, { kind: "luna.context-start", head: "self" });
       },
-      env: async ({ cwd, conversationId, read }, ctx) => busyTools.env(conversationId, cwd ?? opts.cwd ?? process.cwd(), (await read.snapshot(ProcessOwner, conversationId, ctx))?.token ?? "legacy"),
+      env: async ({ cwd, conversationId, read }, ctx) => {
+        const owner = (await read.snapshot(ProcessOwner, conversationId, ctx))?.token ?? "legacy";
+        const worker = (await read.snapshot(ExecTarget, conversationId, ctx))?.worker;
+        // A worker session never falls back to this host: an unavailable worker fails each call instead.
+        if (worker) {
+          if (!opts.remoteEnv) throw new Error("This session targets an execution worker, but workers are not enabled on this daemon.");
+          const remote = opts.remoteEnv(worker, cwd);
+          return busyTools.env(conversationId, remote.cwd, owner, remote);
+        }
+        return busyTools.env(conversationId, cwd ?? opts.cwd ?? process.cwd(), owner);
+      },
     },
     context,
   );

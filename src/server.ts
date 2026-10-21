@@ -11,7 +11,7 @@ import { createWebApp } from "./web-assets.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
-import { LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput } from "@earendil-works/pi-durable";
+import { configure, LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { AskDoc, checkAnswer } from "./ask.js";
@@ -28,6 +28,8 @@ import { context, ProcessOwner, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
+import { workerMediaResponse } from "./worker-media.js";
+import { ExecTarget, WorkerError, type WorkerHub } from "./workers.js";
 import { createAnalyticsCache, readAnalytics } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
 import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
@@ -69,6 +71,8 @@ export interface ServerOptions {
   skillDirs?: string[];
   /** MCP servers: list, add, enable, remove at runtime. */
   mcp?: McpManager;
+  /** Execution workers. Absent: sessions run on this host only. */
+  workers?: WorkerHub;
   /** Session learning ledger and the improver that applies approved proposals. */
   learn?: { store: LearnStore; improver: SkillImprover; scan?: () => Promise<unknown> | undefined };
 }
@@ -377,8 +381,30 @@ export function createApp(opts: ServerOptions) {
     return c.json({ ok: true });
   });
 
+  // ---- execution workers ----
+  const machineOf = async (id: ConversationId) => {
+    const worker = (await harness.snapshot(ExecTarget, id, context).catch(() => undefined))?.worker ?? null;
+    if (worker === null) return null;
+    const w = opts.workers?.view(worker);
+    return w ? { id: w.id, name: w.name, online: w.online } : { id: worker, name: null, online: false };
+  };
+  const workerErr = (c: HonoContext, e: unknown) => { if (e instanceof WorkerError) return err(c, e.status, e.message); throw e; };
+  app.get("/v1/workers", (c) => c.json({ workers: opts.workers?.list() ?? [] }));
+  app.post("/v1/workers", async (c) => {
+    if (!opts.workers) return err(c, 404, "workers disabled");
+    const b = await c.req.json().catch(() => ({})) as { name?: unknown };
+    try { return c.json(opts.workers.store.create(b.name), 201); } catch (e) { return workerErr(c, e); }
+  });
+  app.delete("/v1/workers/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (!opts.workers || !Number.isSafeInteger(id) || !opts.workers.remove(id)) return err(c, 404, "no such worker");
+    return c.json({ ok: true });
+  });
+
   app.post("/v1/sessions", async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; thinkingLevel?: string; instructions?: string; cwd?: string; project?: number };
+    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; thinkingLevel?: string; instructions?: string; cwd?: string; project?: number; worker?: number | null };
+    const worker = b.worker ?? null;
+    if (worker !== null && (!Number.isSafeInteger(worker) || !opts.workers?.store.get(worker))) return err(c, 400, "unknown worker");
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
     if (b.thinkingLevel !== undefined && !THINKING_LEVELS.includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
     // Named projects supply a cwd; General preserves the normal session default.
@@ -387,10 +413,15 @@ export function createApp(opts: ServerOptions) {
       project = opts.conversations?.projects.get(b.project);
       if (!project) return err(c, 400, "unknown project");
     }
-    const cwd = b.cwd || project?.cwd;
+    // Project directories are paths on this host. A worker session uses the given cwd or the worker's default directory.
+    const cwd = b.cwd || (worker === null ? project?.cwd : undefined);
     // The board is a default runtime extension, including existing unlinked sessions.
     const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
+    await harness.commit(async tx => {
+      (await tx.doc(ExecTarget, conv.id)).worker = worker;
+      await tx.appendEntry(conv.id, { kind: "luna.execution", data: { worker, cwd: cwd ?? null } });
+    }, context);
     if (project) opts.conversations!.projects.link(Number(conv.id), project.id);
     return c.json({ id: conv.id }, 201);
   });
@@ -467,6 +498,7 @@ export function createApp(opts: ServerOptions) {
       statusReason: sessionStatus.statusReason,
       resumeAt: sessionStatus.resumeAt,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
+      machine: await machineOf(conv.id),
       usage: usage ?? null,
       contextUsage: await contextUsage(conv),
       children: await childViews(kids?.children ?? []),
@@ -476,6 +508,41 @@ export function createApp(opts: ServerOptions) {
       goal: goal?.goal ?? null,
       entries: page.items,
     });
+  });
+
+  app.get("/v1/sessions/:id/machine", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    return c.json({ machine: await machineOf(conv.id), cwd: (await conv.agent(context)).cwd ?? null });
+  });
+
+  // Move an idle session to another machine. `worker: null` is this host. The cwd is a path on the target machine;
+  // omitted, it becomes the worker's default directory (or the project directory on this host).
+  app.put("/v1/sessions/:id/machine", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const b = await c.req.json().catch(() => null) as { worker?: unknown; cwd?: unknown } | null;
+    if (!b || !("worker" in b)) return err(c, 400, "worker required (a worker id, or null for this host)");
+    if (b.worker !== null && typeof b.worker !== "number") return err(c, 400, "worker must be a numeric id or null");
+    const worker = b.worker as number | null;
+    if (worker !== null && (!Number.isSafeInteger(worker) || !opts.workers?.store.get(worker))) return err(c, 400, "unknown worker");
+    if (b.cwd !== undefined && b.cwd !== null && (typeof b.cwd !== "string" || !b.cwd.trim())) return err(c, 400, "cwd must be a non-empty string");
+    const project = opts.conversations?.projects.projectOf(Number(conv.id));
+    const projectCwd = project === undefined ? undefined : opts.conversations?.projects.get(project)?.cwd || undefined;
+    const cwd = (b.cwd as string | undefined)?.trim() || (worker === null ? projectCwd : undefined) || null;
+    const moved = await harness.commit(async tx => {
+      if (await isRunning(tx, conv.id)) return "busy";
+      // Check retained OS work at the same boundary as task admission, not before this transaction.
+      const owner = (await tx.doc(ProcessOwner, conv.id)).token;
+      if (harness.busyTools?.sessionProcesses(conv.id, owner).some(p => p.running)) return "processes";
+      (await tx.doc(ExecTarget, conv.id)).worker = worker;
+      await configure(tx, conv.id, { cwd });
+      await tx.appendEntry(conv.id, { kind: "luna.execution", data: { worker, cwd } });
+      return "moved";
+    }, context);
+    if (moved === "busy") return err(c, 409, "Cannot move a session while it runs.");
+    if (moved === "processes") return err(c, 409, "Stop or finish background processes before moving execution.");
+    return c.json({ machine: await machineOf(conv.id), cwd });
   });
 
   // Change a session's model, thinking level or instructions. null resets a field to the default.
@@ -577,7 +644,13 @@ export function createApp(opts: ServerOptions) {
     if (!job || job.kind !== "bg" || job.status !== "complete" || !Number.isSafeInteger(index) || index < 0) return err(c, 404, "no such media");
     const child = job.conversationId && await harness.conversation(job.conversationId as never, context);
     const cwd = child ? (await child.agent(context)).cwd : undefined;
-    return mediaResponse(c, sideMedia(job.text, cwd)[index]);
+    const media = sideMedia(job.text, cwd)[index];
+    const worker = child && (await harness.snapshot(ExecTarget, child.id, context))?.worker;
+    if (worker && media) {
+      if (!opts.workers) return err(c, 404, "execution workers unavailable");
+      return workerMediaResponse(c, opts.workers, worker, cwd, media);
+    }
+    return mediaResponse(c, media);
   });
   // Files named by MEDIA: directives in an assistant message of this conversation. The index counts
   // directives across the entry's assistant text blocks (see entryMedia); nothing else is served.
@@ -589,7 +662,25 @@ export function createApp(opts: ServerOptions) {
     const entry = await harness.commit(tx => tx.entry(entryId as never), context).catch(() => undefined);
     if (!entry || String(entry.conversationId) !== String(conv.id)) return err(c, 404, "no such media");
     const directive = entryMedia(entry.model)[index];
-    return mediaResponse(c, directive && resolveMedia(directive, (await conv.agent(context)).cwd));
+    if (!directive) return err(c, 404, "no such media");
+    // A transfer changes future execution only. Old answers keep their original machine and directory.
+    const origin = await harness.commit(async tx => {
+      let cursor;
+      for (;;) {
+        const page = await tx.scanEntries({ conversationId: conv.id, maxEntryId: entry.id, order: "descending" }, 100, cursor);
+        const marker = page.items.find(e => e.kind === "luna.execution");
+        if (marker) return marker.data as { worker: number | null; cwd: string | null };
+        if (!page.next) return undefined;
+        cursor = page.next;
+      }
+    }, context);
+    const worker = origin ? origin.worker : (await harness.snapshot(ExecTarget, conv.id, context))?.worker;
+    const cwd = origin ? origin.cwd ?? undefined : (await conv.agent(context)).cwd;
+    if (worker) {
+      if (!opts.workers) return err(c, 404, "execution workers unavailable");
+      return workerMediaResponse(c, opts.workers, worker, cwd, directive);
+    }
+    return mediaResponse(c, resolveMedia(directive, cwd));
   });
 
   // ---- messages ----

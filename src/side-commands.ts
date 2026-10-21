@@ -1,3 +1,4 @@
+import { ExecTarget } from "./workers.js";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,6 +53,7 @@ export class SideCommands {
   private readonly tasks = new Set<Promise<void>>();
   private readonly controllers = new Set<AbortController>();
   private readonly tempDirs = new Set<string>();
+  private readonly remoteTempDirs: { worker: number; path: string }[] = [];
   private readonly requests = new Map<string, { fingerprint: string; promise: Promise<SideJob> }>();
   private readonly admissions = new Set<Promise<SideJob>>();
   private closing = false;
@@ -59,6 +61,7 @@ export class SideCommands {
   private closePromise?: Promise<void>;
   constructor(private readonly options: {
     harness: Harness; models?: Models; route?: () => { provider: string; modelId: string } | undefined;
+    remoteEnv?: (worker: number, cwd?: string) => import("@earendil-works/pi-durable/env").ExecutionEnv;
     /** Model for /review. Unset means /review refuses to start; it never falls back to another model. */
     reviewRoute?: () => { provider: string; modelId: string } | undefined;
     /** Working directory when the source conversation has none. */
@@ -85,7 +88,12 @@ export class SideCommands {
       for (const controller of this.controllers) controller.abort();
       await Promise.allSettled([...this.tasks]);
       for (const dir of this.tempDirs) rmSync(dir, { recursive: true, force: true });
-      this.tempDirs.clear(); this.listeners.clear(); this.requests.clear();
+      this.tempDirs.clear();
+      if (this.options.remoteEnv) {
+        await Promise.allSettled(this.remoteTempDirs.map(({ worker, path }) =>
+          this.options.remoteEnv!(worker).remove(path, { recursive: true, force: true }, context)));
+      }
+      this.remoteTempDirs.length = 0; this.listeners.clear(); this.requests.clear();
     })();
   }
 
@@ -118,6 +126,9 @@ export class SideCommands {
     }
     const agent = await source.agent(context);
     const route = kind === "btw" ? this.options.route?.() : kind === "review" ? this.options.reviewRoute?.() : undefined;
+    // /review reads files and runs git on main. It must not review main's tree for a session that runs elsewhere.
+    if (kind === "review" && (await this.options.harness.snapshot(ExecTarget, source.id, context))?.worker != null)
+      throw new Error("review runs on main only: move this session to main to review it");
     if (kind === "review" && !route) throw new Error("no review model: set auxiliary.review in Settings");
     const ref = route ?? agent.model;
     const models = this.options.models;
@@ -198,6 +209,9 @@ export class SideCommands {
       cwd: agent.cwd, instructions: agent.instructions, extensions: agent.extensions,
     }, init: async (tx, id) => {
       // Copy stored filters, not tool implementations, and never widen the parent's enabled tool set.
+      const worker = (await tx.doc(ExecTarget, source.id)).worker;
+      (await tx.doc(ExecTarget, id)).worker = worker;
+      await tx.appendEntry(id, { kind: "luna.execution", data: { worker, cwd: agent.cwd ?? null } });
       const doc = await tx.doc(AgentDoc, id);
       if (state?.tools !== undefined) doc.tools = structuredClone(state.tools);
       if (state?.modelTools !== undefined) doc.modelTools = structuredClone(state.modelTools);
@@ -213,12 +227,28 @@ export class SideCommands {
       for (const block of typeof content === "string" ? [] : content) {
         if (block.type === "image") blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
         else if (block.type === "audio") {
-          const dir = mkdtempSync(join(tmpdir(), "luna-bg-audio-")); this.tempDirs.add(dir);
           const extension = ({ "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/wav": "wav", "audio/x-wav": "wav", "audio/ogg": "ogg",
             "audio/webm": "webm", "audio/mp4": "m4a", "audio/flac": "flac" } as Record<string, string>)[block.mimeType];
           if (!extension) throw new Error("unsupported audio type");
-          const path = join(dir, `attachment.${extension}`);
-          writeFileSync(path, Buffer.from(block.data, "base64"), { mode: 0o600 });
+          const worker = (await this.options.harness.snapshot(ExecTarget, child.id, context))?.worker;
+          const bytes = Buffer.from(block.data, "base64");
+          let path: string;
+          if (worker) {
+            if (!this.options.remoteEnv) throw new Error("Execution workers are unavailable for audio attachments.");
+            const env = this.options.remoteEnv(worker, agent.cwd);
+            const tmp = await env.createTempDir("luna-bg-audio-", context);
+            if (!tmp.ok) throw new Error(`Failed to stage audio on worker: ${tmp.error.message}`);
+            this.remoteTempDirs.push({ worker, path: tmp.value });
+            const joined = await env.joinPath([tmp.value, `attachment.${extension}`], context);
+            if (!joined.ok) throw new Error(`Failed to stage audio on worker: ${joined.error.message}`);
+            const written = await env.writeFile(joined.value, new Uint8Array(bytes), context);
+            if (!written.ok) throw new Error(`Failed to stage audio on worker: ${written.error.message}`);
+            path = joined.value;
+          } else {
+            const dir = mkdtempSync(join(tmpdir(), "luna-bg-audio-")); this.tempDirs.add(dir);
+            path = join(dir, `attachment.${extension}`);
+            writeFileSync(path, bytes, { mode: 0o600 });
+          }
           blocks.push({ type: "text", text: `Audio attachment available at ${path}; use tools to inspect it.` });
         }
       }

@@ -867,6 +867,119 @@ An idle session starts a new turn. A busy session queues the event. A session th
 - Activity: `GET /v1/projects/:id/cards/:cardId/activity` lists who changed the card and when, newest first
   (`user` or `session <id>`). The card editor shows it.
 
+## Execution machines (first version)
+
+One main daemon owns sessions, history, agent execution, models, skills, memory, settings, and schedules.
+A worker runs only file and shell operations for sessions that explicitly target it.
+Opening or sending instructions to a session never changes its execution machine.
+Browser, MCP, web, image generation, vision, and video tools run on main.
+In a worker session, they read local file paths from the worker.
+`video_analyze` applies the credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
+`image_generate` source images must be inside the worker's working directory.
+The worker opens each protected file once. It checks the opened file and reads from it, so a symlink swap cannot redirect the read.
+These protected reads need a Linux worker at the same Luna version as main. Other workers refuse them.
+A generated image is copied into the worker's working directory.
+If that copy fails, the tool reports `worker_delivery_failed` and gives the path of the copy on main. Do not regenerate the image.
+
+### Register and connect
+
+In **Settings → Tools & connections → Execution machines**, create a named machine.
+Copy its token immediately. Luna shows it once and stores only its hash in `<dataDir>/workers.db`.
+The token grants execution-worker access, not access to the shared HTTP API.
+Removing a machine revokes its token and closes its connection.
+
+Use the same package checkout and `pnpm install --frozen-lockfile` on the worker machine.
+The worker needs Node.js compatible with this package. It does not need provider keys or a session database.
+Set these environment variables through your shell or service configuration:
+
+```sh
+export LUNA_URL=https://your-main-luna
+export LUNA_WORKER_TOKEN=lw_your_worker_token
+export LUNA_WORKER_CWD=/home/you/Projects  # optional; default: home directory
+pnpm run worker
+```
+
+Workers dial main over WebSocket on the main HTTP port. They need no inbound port.
+Use HTTPS/WSS or a trusted private network. Do not send bearer tokens over an untrusted plain HTTP network.
+Reverse proxies must forward the WebSocket upgrade at `/v1/workers/connect`.
+Worker tokens permit arbitrary commands on the worker through sessions assigned to that machine.
+Run workers as the desktop user, not as root.
+
+### Web and terminal controls
+
+The conversation header shows a machine control when workers are registered.
+The Session panel selects the machine and working directory for a new conversation.
+For an existing session, **Move future execution** changes only future file and command tools.
+A turn or background process must finish or stop before execution moves.
+An omitted directory uses the worker's default directory, or the main project's directory on main.
+Project directories are main-host paths. They are not automatically reused on a worker.
+Files, repositories, processes, and browser state do not move or synchronize.
+
+The existing terminal client also has a shared-session mode:
+
+```sh
+export LUNA_URL=https://your-main-luna
+export LUNA_TOKEN=your_main_api_token
+# Optional: also set LUNA_WORKER_TOKEN to run the local worker in this same process.
+pnpm run connect
+# Equivalent: pnpm run chat connect
+```
+
+Commands:
+
+- `/sessions`: list shared sessions, status, execution machine, and directory.
+- `/open ID`: view a session and its live output without moving execution.
+- `/new [WORKER_ID]`: create a shared session on main or the named worker id.
+- `/machine main|WORKER_ID [DIRECTORY]`: explicitly move idle execution.
+- `/status`: show the current execution machine and directory.
+- `/stop`: stop the viewed session's turn.
+- `/questions`: print pending questions and their call ids.
+- `/answer CALL_ID JSON`: submit the same answer object used by the web question API.
+- `/quit`: leave the client. An embedded worker also stops; a separate worker can stay online.
+
+Normal input sends an instruction. The prompt remains available while the agent runs.
+The old `pnpm run chat --session ID message` interface remains available.
+
+### HTTP API
+
+All ordinary endpoints below require the main API token when authentication is enabled.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/v1/workers` | List registered machines, capabilities, connection state, and last-seen time. No tokens. |
+| POST | `/v1/workers` | `{ "name": "desktop" }` → `{ worker, token }`. Token shown once. |
+| DELETE | `/v1/workers/:id` | Remove machine, revoke token, close its link. Existing sessions keep an unavailable target. |
+| GET | `/v1/sessions/:id/machine` | `{ machine, cwd }`. `machine: null` means main. |
+| PUT | `/v1/sessions/:id/machine` | `{ "worker": 1, "cwd": "/home/you/project" }`; null worker means main. Busy sessions return 409. |
+| WebSocket | `/v1/workers/connect` | Worker protocol v1. Uses a separate per-worker bearer token, not the main API token. |
+
+`POST /v1/sessions` accepts optional `worker` (numeric worker id or null) and `cwd`.
+`GET /v1/sessions/:id` includes `machine` (`{ id, name, online }` or null).
+Forks, delegated children, and background-task sessions keep their parent's execution machine.
+Native background processes use that environment and retain their output centrally.
+Files named by an assistant `MEDIA:` directive are fetched on demand from the source worker.
+For sessions created through the API, existing answer attachments keep their source after execution transfers.
+
+### Disconnection and recovery
+
+History and last known progress stay on main when a worker disconnects.
+In-flight calls fail. New file and shell calls fail clearly instead of falling back to main.
+Calls are never automatically replayed after reconnect. A new link cannot reuse an old file-reader handle.
+Worker shutdown and a detected connection loss abort its commands and close readers.
+A hard crash can leave OS processes running. Main reports their state as unknown; check before repeating a command.
+The worker reconnects automatically with bounded delay. Removing its token stops future connections.
+New agent turns require main to be reachable. There is no independent desktop agent loop or offline session store.
+
+Verification:
+
+```sh
+pnpm run verify:workers       # isolated main + worker process; real tools, scripted model
+pnpm run verify:workers-cli   # real CLI, HTTP, SSE, explicit execution targeting
+pnpm run verify:workers-ui    # real browser; draft target and explicit transfer
+# Opt-in real desktop test. Copies a temporary bundled worker; installs no desktop service.
+LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 pnpm run verify:workers:desktop
+```
+
 ## Manual session pruning
 
 In **History → History actions → Prune sessions**, enter a positive whole number of days (default seven).

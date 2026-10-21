@@ -36,6 +36,7 @@ import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
 import { LimitContinuer } from "./limit-continue.js";
+import { createWorkersExtension, WorkerHub, WorkerStore } from "./workers.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
@@ -166,6 +167,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const recall = on("recall") ? new RecallIndex(join(cfg.dataDir, "recall.db")) : undefined;
   if (recall) extensions.push(createRecallExtension(recall));
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
+  // Execution workers: other machines that run a session's file and shell tools. Always available; unused without workers.
+  const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
+  extensions.push(createWorkersExtension(() => workers));
 
   const compaction = () => settings?.resolved().compaction ?? cfg.compaction;
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
@@ -181,6 +185,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     coding: on("coding"),
     processes: cfg.processes,
     processDirectory: join(cfg.dataDir, "processes"),
+    remoteEnv: (worker, cwd) => workers.env(worker, cwd),
     log,
     processNotify: notifyUrl ? async (id, message) => {
       const response = await (o.fetch ?? fetch)(notifyUrl, {
@@ -231,7 +236,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     void learnScan();
   }
 
-  const sideCommands = new SideCommands({ harness, models: built.models, route: () => {
+  const sideCommands = new SideCommands({ harness, models: built.models, remoteEnv: (worker, cwd) => workers.env(worker, cwd), route: () => {
     const route = (settings?.resolved() ?? cfg).auxiliary.side_question;
     return route ? { provider: route.provider, modelId: route.model } : undefined;
   }, reviewRoute: () => {
@@ -277,6 +282,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     store,
     scheduler,
     mcp,
+    workers,
     async close() {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
@@ -286,6 +292,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       providers.close();
       await scheduler?.stop();
       await harness.close(context).catch(() => {});
+      workers.close();
+      workers.store.close();
       await mcp.close();
       store?.close();
       if (memory) memory.close();

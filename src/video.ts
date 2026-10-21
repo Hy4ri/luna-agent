@@ -43,7 +43,7 @@ export function videoError(error: unknown, signal: AbortSignal): { success: fals
   return { success: false, error: message, analysis: message };
 }
 export async function analyzeVideo(options: { models: Models; config: Config; active: Ref; source: string; question: string;
-  cwd?: string; signal: AbortSignal; fetch?: typeof fetch }) {
+  cwd?: string; signal: AbortSignal; fetch?: typeof fetch; env?: import("@earendil-works/pi-durable/env").ExecutionEnv }) {
   const { signal } = options;
   let video: Awaited<ReturnType<typeof materializeVideo>> | undefined;
   let analysisSignal: AbortSignal | undefined;
@@ -55,7 +55,7 @@ export async function analyzeVideo(options: { models: Models; config: Config; ac
     const auth = await options.models.getAuth(model);
     if (!auth) throw new Error("Auxiliary credentials unavailable.");
     if (!["openai-completions", "google-generative-ai"].includes(model.api)) throw new Error("Unsupported video API");
-    video = await materializeVideo(options.source, { ...options.config.video, signal, cwd: options.cwd,
+    video = await materializeVideo(options.source, { ...options.config.video, signal, cwd: options.cwd, env: options.env,
       dataDir: options.config.dataDir, configPath: options.config.configPath });
     const timeout = Math.max(180_000, options.config.video.timeout_ms);
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(timeout)]);
@@ -107,7 +107,7 @@ export function createVideoExtension(options: { config: () => Config; models: Mo
     async execute(args, api, context) {
       const agent = await api.agent(context);
       const result = await analyzeVideo({ models: options.models, config: options.config(), active: agent.model ?? options.defaultModel(),
-        source: args.video_url, question: args.question, cwd: agent.cwd, signal: context.abortSignal ?? new AbortController().signal, fetch: options.fetch });
+        source: args.video_url, question: args.question, cwd: agent.cwd, signal: context.abortSignal ?? new AbortController().signal, fetch: options.fetch, env: api.env });
       return { output: [{ type: "text" as const, text: JSON.stringify(result) }], isError: !result.success };
     },
   })] });
