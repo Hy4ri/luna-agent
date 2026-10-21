@@ -361,6 +361,8 @@ Inspect or change the queue without calling the model:
 Queue numbers start at 1. Each command applies atomically to the current queue. Repeated request IDs do not repeat mutations.
 `/stop` and the Stop button always hard-stop the current work and withdraw pending input. They do not become model messages.
 `/model`, `/compress`, `/compact`, and `/retry` are rejected while busy. Use session controls when idle.
+
+The web composer also handles `/compact` (summarize context now) and `/models` (open the model picker) locally.
 Input sent while a stop is draining receives a notice and HTTP 409. Send it again after the stop finishes.
 
 Acknowledgements name the accepted action: queued, steered, or redirected. They are limited to one per session per 30 seconds.
