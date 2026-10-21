@@ -1,5 +1,5 @@
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
-import { ProjectError } from "./projects.js";
+import { GENERAL_PROJECT, ProjectError } from "./projects.js";
 import { BoardError } from "./board.js";
 import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
@@ -255,7 +255,7 @@ export function createApp(opts: ServerOptions) {
       if (row.hidden) continue;
       const { hidden: _hidden, firstUser, wait, ...rest } = row;
       const meta = opts.conversations?.get(id) ?? { title: null, archived: false, pinned: false };
-      sessions.push({ ...rest, id, project: links?.get(id) ?? null, ...meta, title: meta.title ?? firstUser, resumeAt: continuing && !row.running ? wait : null });
+      sessions.push({ ...rest, id, project: links?.get(id) ?? (opts.conversations ? GENERAL_PROJECT.id : null), ...meta, title: meta.title ?? firstUser, resumeAt: continuing && !row.running ? wait : null });
     }
     sessions.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id));
     return c.json({ sessions });
@@ -285,7 +285,7 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- projects: a named working directory that new sessions inherit ----
-  const projectId = (c: HonoContext) => { const n = Number(c.req.param("id")); return Number.isSafeInteger(n) && n > 0 ? n : 0; };
+  const projectId = (c: HonoContext) => { const n = Number(c.req.param("id")); return Number.isSafeInteger(n) && n >= 0 ? n : -1; };
   app.get("/v1/projects", (c) => opts.conversations ? c.json({ projects: opts.conversations.projects.list() }) : err(c, 404, "projects disabled"));
   app.post("/v1/projects", async (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
@@ -336,14 +336,14 @@ export function createApp(opts: ServerOptions) {
   app.post("/v1/sessions", async (c) => {
     const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; instructions?: string; cwd?: string; project?: number };
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
-    // A project supplies the default cwd. An explicit cwd still wins. No project: nothing changes.
+    // Named projects supply a cwd; General preserves the normal session default.
     let project;
     if (b.project !== undefined && b.project !== null) {
       project = opts.conversations?.projects.get(b.project);
       if (!project) return err(c, 400, "unknown project");
     }
     const cwd = b.cwd || project?.cwd;
-    // Project sessions also get the board tool and prompt section; other sessions never do.
+    // The board is a default runtime extension, including existing unlinked sessions.
     const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
     if (project) opts.conversations!.projects.link(Number(conv.id), project.id);
@@ -416,6 +416,7 @@ export function createApp(opts: ServerOptions) {
     }, context);
     return c.json({
       id: conv.id,
+      project: opts.conversations?.projects.projectOf(Number(conv.id)) ?? null,
       running,
       status: sessionStatus.status,
       statusReason: sessionStatus.statusReason,

@@ -139,7 +139,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (learn) extensions.push(createLearnExtension(learn, improver!));
   if (on("tool-search")) extensions.push(createToolSearchExtension());
   if (on("todo")) extensions.push(Todo);
-  // Installed always, selected only by project sessions (see openLuna). The store exists once the harness is open.
+  // All chat sessions get a board. Unlinked sessions use General. The store exists once the harness is open.
   let conversationsRef: ConversationStore | undefined;
   const board = createBoardExtension(() => conversationsRef);
   extensions.push(board);
@@ -195,7 +195,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       harness, store: store!, defaultModel: () => providers.defaultModel(), log,
       ...(cfg.cron.runTimeoutMinutes ? { runTimeoutMs: cfg.cron.runTimeoutMinutes * 60_000 } : {}),
       onFinish: notifyUrl ? (job, run) => deliverRun(notifyUrl, job, run, o.fetch) : undefined,
-      ...(ask ? { exclude: [ask] } : {}),
+      exclude: [board, ...(ask ? [ask] : [])],
     });
     syncImproveJob(cfg, store!);
     syncJob(store!, LEARN_JOB, learn ? cfg.learn.schedule : undefined, LEARN_PROMPT);

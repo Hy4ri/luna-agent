@@ -136,7 +136,7 @@ export class BoardStore {
       const waits = c.blockedBy.filter(d => !done.has(d));
       return `#${c.id} [${c.status}|${c.priority}] ${clip(c.subject)}${c.owner ? ` (${clip(c.owner)})` : ""}${waits.length ? ` waits on ${waits.map(d => "#" + d).join(",")}` : ""}`;
     });
-    return [`Project "${clip(name)}" (working directory ${cwd}). Board: ${STATUSES.map(s => `${s} ${count[s]}`).join(", ")}.`,
+    return [`Project "${clip(name)}"${cwd ? ` (working directory ${cwd})` : ""}. Board: ${STATUSES.map(s => `${s} ${count[s]}`).join(", ")}.`,
       ...(lines.length ? ["Cards in progress, in review, or high priority:", ...lines] : []),
       "Use the board tool to list, read, create, move, or archive cards. Plan the steps of a card with the todo tool and pass metadata {cardId}."].join("\n");
   }
@@ -202,7 +202,7 @@ const DESCRIPTION = [
 
 type Conversations = { projects: { projectOf(conversationId: number): number | undefined; get(id: number): { id: number; name: string; cwd: string } | undefined }; board: BoardStore; touch(): void };
 
-/** Extension: the `board` tool and a compact `board` prompt section. Selected only for sessions created in a project. */
+/** Extension: the `board` tool and a compact `board` prompt section. Unlinked chat sessions use General. */
 export function createBoardExtension(conversations: () => Conversations | undefined) {
   return defineExtension({
     name: "board",

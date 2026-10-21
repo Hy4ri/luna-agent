@@ -69,14 +69,14 @@ const groups = computed(() => {
   }
   const result: { key: string; name: string; project: number | null; sessions: any[] }[] = [];
 
-  for (const p of history.projects) {
+  for (const p of history.projects.filter(p => !p.general)) {
     const pSessions = filtered.filter(s => Number(s.project) === Number(p.id));
     if (pSessions.length > 0 || !history.query) {
       result.push({ key: String(p.id), name: p.name, project: p.id, sessions: sortSessions(pSessions) });
     }
   }
 
-  const noneSessions = filtered.filter(s => !s.project || !history.projects.some(p => p.id === s.project));
+  const noneSessions = filtered.filter(s => !s.project || !history.projects.some(p => !p.general && p.id === s.project));
   if (noneSessions.length > 0 || !history.query) {
     result.push({ key: "none", name: "Chats", project: null, sessions: sortSessions(noneSessions) });
   }

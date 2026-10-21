@@ -25,6 +25,7 @@ export interface SessionMeta {
 }
 
 export interface Project {
+  general?: boolean;
   id: number;
   name: string;
   cwd: string;

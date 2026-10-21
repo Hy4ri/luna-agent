@@ -55,11 +55,12 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
         execute: async (args, api, context) => {
           const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], isError });
           const parent = await api.agent(context);
-          // Children cannot delegate further. Configured child defaults override the parent.
+          // Children cannot delegate further or mutate a shared board without a project link.
+          // Configured child defaults override the parent.
           const defaults = settings();
           const childAgent = {
             model: defaults.provider && defaults.model ? { provider: defaults.provider, modelId: defaults.model } : parent.model,
-            thinkingLevel: defaults.thinkingLevel ?? parent.thinkingLevel, extensions: { remove: [extension] },
+            thinkingLevel: defaults.thinkingLevel ?? parent.thinkingLevel, extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board")] },
             ...((defaults.cwd ?? parent.cwd) ? { cwd: defaults.cwd ?? parent.cwd } : {}),
           } as never;
 

@@ -92,7 +92,7 @@ if (process.argv[2] === "stdio-server") {
     const agent = await root.agent(context);
     const offered = agent.tools.map((t) => t.name);
     const deferred = agent.deferred.map((t) => t.name);
-    for (const t of ["bash", "read", "write", "edit", "remember", "recall", "forget", "skill_view", "delegate_task", "cron_create", "cron_list", "cron_get", "cron_update", "cron_toggle", "cron_remove", "cron_run", "cron_stop", "cron_runs", "cron_run_get", "inspect_runs", "extract_lessons", "skill_propose", "skill_rollback", "tool_search", "local__add"])
+    for (const t of ["bash", "read", "write", "edit", "remember", "recall", "forget", "skill_view", "delegate_task", "cron_create", "cron_list", "cron_get", "cron_update", "cron_toggle", "cron_remove", "cron_run", "cron_stop", "cron_runs", "cron_run_get", "inspect_runs", "extract_lessons", "skill_propose", "skill_rollback", "board", "tool_search", "local__add"])
       assert.ok(offered.includes(t), `missing tool ${t}; offered: ${offered.join(",")}`);
     assert.ok(deferred.includes("web__add") && !offered.includes("web__add"), "http MCP tools should be deferred");
     ok(`all subsystems wired (${offered.length} offered, ${deferred.length} deferred)`);
@@ -133,6 +133,9 @@ if (process.argv[2] === "stdio-server") {
     await rt.scheduler!.idle();
     const run = rt.store!.runs(job.id)[0]!;
     assert.equal(run.status, "ok");
+    const cronConversation = await rt.harness.conversation(Number(run.conversationId) as never, context);
+    assert.ok(cronConversation);
+    assert.ok(!(await cronConversation.agent(context)).tools.some(t => t.name === "board"), "scheduled runs do not gain the General board");
     const got = delivered.find((x) => x.title.includes("hourly-ping"));
     assert.ok(got && got.body === "pong" && /ok$/.test(got.title), "delivery: " + JSON.stringify(delivered));
     ok("cron run delivered to notifyUrl (title + output)");
@@ -187,6 +190,9 @@ if (process.argv[2] === "stdio-server") {
     const s2 = await (await root.submit({ type: "input", content: "orchestrate" }, context)).wait(context);
     assert.equal(s2.status, "done");
     const childId = Number(/child (\d+)/.exec(childRes[0]!)![1]);
+    const child = await rt.harness.conversation(childId as never, context);
+    assert.ok(child);
+    assert.ok(!(await child.agent(context)).tools.some(t => t.name === "board"), "unlinked delegates do not gain a shared board");
     assert.match(childRes[1]!, new RegExp(`\\[${childId}\\] done\\nchild ok`));
     // The other conversation lists nothing and may not steer root's child.
     let ostep = 0; const ores: string[] = [];

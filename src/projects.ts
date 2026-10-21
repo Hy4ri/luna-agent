@@ -1,11 +1,15 @@
 // Projects: a named working directory. A session created in a project starts with that directory as its cwd.
-// Sessions outside any project are unaffected. A project's directory is copied into the session at creation,
+// General is built in for unlinked sessions and does not change their working directories.
+// A named project's directory is copied into the session at creation,
 // so editing or deleting a project never changes sessions that already exist.
 import type { DatabaseSync } from "node:sqlite";
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
-export type Project = { id: number; name: string; cwd: string };
+export type Project = { id: number; name: string; cwd: string; general?: boolean };
+// ID zero is reserved; persisted project IDs start at one. No migration or session rewrites are needed.
+export const GENERAL_PROJECT: Readonly<Project> = Object.freeze({ id: 0, name: "General", cwd: "", general: true });
+
 export class ProjectError extends Error {
   constructor(readonly status: 400 | 404 | 409, message: string) { super(message); }
 }
@@ -20,9 +24,10 @@ export class ProjectStore {
       ) STRICT;`);
   }
   list(): Project[] {
-    return this.db.prepare("SELECT id, name, cwd FROM luna_projects ORDER BY name COLLATE NOCASE").all() as Project[];
+    return [{ ...GENERAL_PROJECT }, ...this.db.prepare("SELECT id, name, cwd FROM luna_projects ORDER BY name COLLATE NOCASE").all() as Omit<Project, "general">[]];
   }
   get(id: number): Project | undefined {
+    if (id === GENERAL_PROJECT.id) return { ...GENERAL_PROJECT };
     return this.db.prepare("SELECT id, name, cwd FROM luna_projects WHERE id=?").get(id) as Project | undefined;
   }
   private clean(name: unknown, cwd: unknown): { name: string; cwd: string } {
@@ -35,6 +40,7 @@ export class ProjectStore {
     return { name: name.trim(), cwd: dir };
   }
   private taken(name: string, except?: number) {
+    if (name.toLowerCase() === GENERAL_PROJECT.name.toLowerCase() && this.get(except ?? -1)?.name.toLowerCase() !== name.toLowerCase()) throw new ProjectError(409, "General is reserved for chats outside named projects");
     const row = this.db.prepare("SELECT id FROM luna_projects WHERE name=? COLLATE NOCASE").get(name) as { id: number } | undefined;
     if (row && row.id !== except) throw new ProjectError(409, "a project with that name exists");
   }
@@ -44,13 +50,15 @@ export class ProjectStore {
     return { id: Number(r.lastInsertRowid), ...v };
   }
   update(id: number, changes: { name?: unknown; cwd?: unknown }): Project {
+    if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
     const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
     const v = this.clean(changes.name ?? cur.name, changes.cwd ?? cur.cwd); this.taken(v.name, id);
     this.db.prepare("UPDATE luna_projects SET name=?, cwd=? WHERE id=?").run(v.name, v.cwd, id);
     return { id, ...v };
   }
-  /** Existing sessions keep their directory; only the project link is removed. */
+  /** Existing sessions keep their directory and fall back to General. */
   delete(id: number) {
+    if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be deleted");
     if (!this.get(id)) throw new ProjectError(404, "no such project");
     this.db.prepare("DELETE FROM luna_session_projects WHERE project_id=?").run(id);
     this.db.prepare("DELETE FROM luna_projects WHERE id=?").run(id);
@@ -61,7 +69,7 @@ export class ProjectStore {
   }
   projectOf(conversationId: number): number | undefined {
     const r = this.db.prepare("SELECT project_id FROM luna_session_projects WHERE conversation_id=?").get(conversationId) as { project_id: number } | undefined;
-    return r?.project_id;
+    return r && this.get(r.project_id) ? r.project_id : GENERAL_PROJECT.id;
   }
   /** conversation id -> project id, for the session list. */
   links(): Map<number, number> {

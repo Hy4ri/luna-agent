@@ -745,3 +745,21 @@ LUNA_VIDEO_LIVE_APPROVED=1 LUNA_CONFIG=/absolute/path/luna.config.json \
 
 Review the returned description against the actual clip. A regex match alone does not prove complete video understanding.
 The live script does not start or restart the daemon or edit configuration. Provider auth can refresh stored OAuth credentials.
+
+## General chat board
+
+The built-in **General** project is always available. It shares one persistent board across sessions in **Chats**.
+Existing unlinked sessions use it automatically. Named project boards stay separate.
+General does not change a conversation's working directory. It cannot be renamed, edited, or deleted.
+Scheduled runs and delegated children do not receive the board tool.
+
+- `GET /v1/projects` includes `{ "id": 0, "name": "General", "cwd": "", "general": true }` before named projects.
+  The empty directory means General has no directory override.
+- `GET /v1/sessions` and `GET /v1/sessions/:id` report `project: 0` for General chats.
+- `POST /v1/sessions` accepts `project: 0`. Omitting `project` also uses General.
+- Existing board and card routes accept `/v1/projects/0/board` and `/v1/projects/0/cards`.
+- `PATCH` and `DELETE /v1/projects/0` return `409`. The name General is reserved for new projects.
+- Deleting a named project keeps its conversations and directories. Those conversations then use General.
+
+Open **Board** from the sidebar. It selects the active chat's project when opened.
+General cards also appear in the composer's `#` picker. Card references remain scoped to the selected project.
