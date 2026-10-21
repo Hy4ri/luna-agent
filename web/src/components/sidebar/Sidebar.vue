@@ -29,6 +29,10 @@ import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameS
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 
+import PruneSessionsDialog from "./PruneSessionsDialog.vue";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+
+const pruneOpen = ref(false), pruneResult = ref("");
 const mobile = useMobile();
 const collapsed = computed(() => ui.collapsed && !mobile.value);
 defineProps<{ inert?: boolean }>();
@@ -345,6 +349,14 @@ onMounted(() => {
         >
           <Archive :size="16" />
         </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <button class="icon-button" aria-label="History actions" title="History actions"><Ellipsis :size="16" /></button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem @select="pruneResult = ''; pruneOpen = true"><Trash2 :size="14" />Prune sessions</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <div id="search-bar" :hidden="!history.searchOpen" v-if="!collapsed">
@@ -362,6 +374,8 @@ onMounted(() => {
       <p id="history-status" role="status" class="text-destructive text-xs px-3 py-1" v-if="history.status && !ui.collapsed">
         {{ history.status }}
       </p>
+
+      <p id="prune-status" role="status" class="text-muted-foreground text-xs px-3 py-1" v-if="pruneResult && !collapsed">{{ pruneResult }}</p>
 
       <div id="sessions" v-if="!collapsed">
         <div class="eyebrow px-3 py-1 text-xs font-semibold text-muted-foreground" v-if="history.archived">Archived</div>
@@ -524,5 +538,6 @@ onMounted(() => {
         <span>Delete</span>
       </button>
     </div></Teleport>
+    <PruneSessionsDialog v-if="pruneOpen" @close="pruneOpen = false" @deleted="message => pruneResult = message" />
   </aside>
 </template>

@@ -265,6 +265,24 @@ export function createApp(opts: ServerOptions) {
     return c.json({ sessions });
   });
 
+  // POST preview avoids query-string coercion and shares strict validation with confirmation.
+  for (const preview of [true, false]) app.post(preview ? "/v1/sessions/prune/preview" : "/v1/sessions/prune", async c => {
+    if (!opts.conversations) return err(c, 404, "conversation management disabled");
+    const b = await c.req.json().catch(() => null);
+    const ids = (v: unknown): v is number[] => Array.isArray(v) && v.every(n => Number.isSafeInteger(n) && n > 0);
+    if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some(k => !["days", "includeArchived", "excludeIds", ...(preview ? [] : ["ids"])].includes(k))
+      || !Number.isSafeInteger(b.days) || b.days < 1 || !Number.isSafeInteger(b.days * 86400000)
+      || typeof b.includeArchived !== "boolean" || !ids(b.excludeIds) || (!preview && !ids(b.ids))) {
+      return err(c, 400, "positive whole days, includeArchived, excludeIds, and confirmed ids for deletion required");
+    }
+    const selected = await opts.conversations.prune(b, preview ? undefined : b.ids, async (id, tx) => {
+      if (sideCommands.list(String(id)).some(job => job.status === "running")) return true;
+      const owner = (await tx.doc(ProcessOwner, id as ConversationId)).token;
+      return harness.busyTools?.sessionProcesses(id as ConversationId, owner).some(p => p.status === "running") ?? false;
+    });
+    return c.json(preview ? { ids: selected } : { deleted: selected });
+  });
+
   app.patch("/v1/sessions/:id/metadata", async c => {
     if (!opts.conversations) return err(c, 404, "conversation management disabled");
     const b = await c.req.json().catch(() => null);
