@@ -73,13 +73,13 @@ function swapTiles(index: number) {
   [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
   ids.forEach((id, i) => { rank.value[id] = i; });
 }
-// Hover for one second before the split controls show.
+// Hover for half a second before the split controls show.
 const splitHover = ref<number | null>(null);
 let splitTimer: ReturnType<typeof setTimeout> | undefined;
 let resizing = false;
 function splitEnter(index: number) {
   clearTimeout(splitTimer);
-  splitTimer = setTimeout(() => { splitHover.value = index; }, 1000);
+  splitTimer = setTimeout(() => { splitHover.value = index; }, 500);
 }
 function splitLeave() {
   clearTimeout(splitTimer);
