@@ -7,6 +7,9 @@ import { ConversationError, type ConversationStore, type ConversationMeta } from
 import { Hono, type Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "node:crypto";
+import { homedir } from "node:os";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { completeFiles } from "./file-mentions.js";
 import { createWebApp } from "./web-assets.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 import type { Models } from "@earendil-works/pi-ai";
@@ -73,6 +76,8 @@ export interface ServerOptions {
   mcp?: McpManager;
   /** Execution workers. Absent: sessions run on this host only. */
   workers?: WorkerHub;
+  /** Default working directory on this host, for `@file:` completion before a session exists. */
+  cwd?: string;
   /** Session learning ledger and the improver that applies approved proposals. */
   learn?: { store: LearnStore; improver: SkillImprover; scan?: () => Promise<unknown> | undefined };
 }
@@ -534,6 +539,37 @@ export function createApp(opts: ServerOptions) {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
     return c.json({ machine: await machineOf(conv.id), cwd: (await conv.agent(context)).cwd ?? null });
+  });
+
+  // `@file:` completion. Lists the working directory of the session's machine; a typed directory part (`~/x/`, `/etc/`,
+  // `../`) lists that directory on the same machine. Without a session, `worker`/`project`/`cwd` describe a draft chat.
+  app.get("/v1/files", async (c) => {
+    const q = c.req.query("q") ?? "";
+    const sid = c.req.query("session");
+    let worker: number | null, cwd: string | undefined;
+    if (sid) {
+      const conv = await getConv(sid);
+      if (!conv) return err(c, 404, "no such session");
+      worker = (await harness.snapshot(ExecTarget, conv.id, context).catch(() => undefined))?.worker ?? null;
+      cwd = (await conv.agent(context)).cwd ?? undefined;
+    } else {
+      const w = c.req.query("worker");
+      worker = w ? Number(w) : null;
+      if (worker !== null && (!Number.isSafeInteger(worker) || !opts.workers?.store.get(worker))) return err(c, 400, "unknown worker");
+      const project = Number(c.req.query("project"));
+      cwd = c.req.query("cwd") || (Number.isSafeInteger(project) ? opts.conversations?.projects.dirFor(project, worker) : undefined);
+    }
+    let env, home: string | undefined;
+    if (worker !== null) {
+      if (!opts.workers) return err(c, 404, "workers disabled");
+      env = opts.workers.env(worker, cwd);
+      home = opts.workers.store.get(worker)?.capabilities?.home;
+    } else {
+      env = new NodeExecutionEnv({ cwd: cwd ?? opts.cwd ?? process.cwd() });
+      home = homedir();
+    }
+    const { entries, error } = await completeFiles(env, home, q, context);
+    return c.json({ cwd: env.cwd, entries, ...(error ? { error } : {}) });
   });
 
   // Move an idle session to another machine. `worker: null` is this host. The cwd is a path on the target machine;
