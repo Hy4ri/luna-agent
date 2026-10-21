@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from "vue";
+import { ref, computed, nextTick, watch, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
 import { messageText } from "@/lib/message";
@@ -15,26 +15,47 @@ import Questions from "./Questions.vue";
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
 const jumpTopRef = ref<HTMLElement | null>(null);
+// The jump buttons show only while the user scrolls, then hide again.
+const IDLE_MS = 1500;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let programmaticAt = 0;
+let programmaticTop = -1;
+function hideJumps() {
+  if (jumpRef.value) jumpRef.value.hidden = true;
+  if (jumpTopRef.value) jumpTopRef.value.hidden = true;
+}
 function scroll(force = false) {
   const log = logRef.value;
-  if (log && (force || log.scrollHeight - log.scrollTop - log.clientHeight < 200)) log.scrollTop = log.scrollHeight;
-  handleScroll();
+  if (log && (force || log.scrollHeight - log.scrollTop - log.clientHeight < 200)) {
+    programmaticAt = Date.now();
+    log.scrollTop = log.scrollHeight;
+    programmaticTop = log.scrollTop;
+  }
 }
 function jumpToTop() {
-  if (logRef.value) logRef.value.scrollTop = 0;
+  programmaticAt = Date.now();
+  if (logRef.value) logRef.value.scrollTop = programmaticTop = 0;
   handleScroll();
 }
-function handleScroll() {
-  const log = logRef.value;
-  if (log && jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
-  if (log && jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
+function jumpToBottom() {
+  scroll(true);
+  handleScroll();
 }
+function handleScroll(event?: Event) {
+  const log = logRef.value;
+  if (!log) return;
+  if (event?.type === "scroll" && Date.now() - programmaticAt < 150 && log.scrollTop === programmaticTop) return;
+  if (jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
+  if (jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(hideJumps, IDLE_MS);
+}
+onBeforeUnmount(() => clearTimeout(idleTimer));
 // Show newly arrived clarifications at their start, without creating a second scroll area.
 watch(() => chat.extras?.questions, (questions, previous) => {
   const added = questions?.find(q => !previous?.some(old => old.callId === q.callId));
   void nextTick(() => {
     if (added) document.querySelector<HTMLElement>(`[data-ask="${CSS.escape(added.callId)}"]`)?.scrollIntoView({ block: "start" });
-    handleScroll();
   });
 });
 watch(() => chat.followTick, () => nextTick(() => scroll(true)));
@@ -76,7 +97,7 @@ function backgroundReport(entry: any, message: any): boolean {
 </script>
 
 <template>
-  <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll">
+  <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll" @wheel.passive="handleScroll" @touchmove.passive="handleScroll">
     <Welcome v-if="!entryList.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
     <template v-for="entry in entryList" :key="entry.id">
       <div v-if="entry.kind === 'pi.reset'" class="msg muted">— context reset —</div>
@@ -134,6 +155,6 @@ function backgroundReport(entry: any, message: any): boolean {
   </div>
   <div class="transcript-jumps">
     <button id="jump-top" ref="jumpTopRef" type="button" hidden aria-label="Jump to top" title="Jump to top" @click="jumpToTop"><ArrowUp :size="18" aria-hidden="true" /></button>
-    <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="scroll(true)"><ArrowDown :size="18" aria-hidden="true" /></button>
+    <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="jumpToBottom"><ArrowDown :size="18" aria-hidden="true" /></button>
   </div>
 </template>
