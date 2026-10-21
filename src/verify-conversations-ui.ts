@@ -112,10 +112,54 @@ try {
   assert.equal(await row(first).locator(".session-title").textContent(), "Renamed <safe> conversation");
   await row(first).locator(".session-open").click();
   await page.locator("#title").filter({ hasText: "Renamed <safe> conversation" }).waitFor();
+  // Header pins use real metadata, stay synchronized with the menu, and survive reload.
+  const headerPin = page.locator('#pin-session');
+  assert.equal(await headerPin.getAttribute('aria-label'), 'Unpin session');
+  assert.equal(await headerPin.getAttribute('aria-pressed'), 'true');
+  await headerPin.click();
+  await row(first).locator('.session-pin').waitFor({ state: 'hidden' });
+  assert.equal(rt.conversations.get(first).pinned, false);
+  await manage(first); await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+  await close();
+  await page.waitForFunction(() => (globalThis as any).document.querySelector('#pin-session')?.getAttribute('aria-pressed') === 'true');
+  await page.reload();
+  await page.getByRole('button', { name: 'Unpin session', exact: true }).waitFor();
+  assert.equal(rt.conversations.get(first).pinned, true);
+  // A pending write blocks repeated clicks. Failure preserves state and is visible in the chat.
+  let rejectWrite!: () => void;
+  const held = new Promise<void>(resolve => { rejectWrite = resolve; });
+  let writes = 0;
+  await page.route(`**/v1/sessions/${first}/metadata`, async (route: any) => {
+    writes++; await held;
+    await route.fulfill({ status: 409, json: { error: 'Pin write rejected' } });
+  });
+  await headerPin.click();
+  await page.waitForFunction(() => (globalThis as any).document.querySelector('#pin-session')?.disabled);
+  assert.equal(await headerPin.getAttribute('aria-pressed'), 'true');
+  await headerPin.evaluate((button: any) => button.click());
+  rejectWrite();
+  await page.locator('#log').getByText('Pin write rejected', { exact: true }).waitFor();
+  assert.equal(writes, 1);
+  assert.equal(rt.conversations.get(first).pinned, true);
+  assert.equal(await headerPin.isEnabled(), true);
+  await page.unroute(`**/v1/sessions/${first}/metadata`);
+  // The same control works at mobile width, without opening navigation.
+  await page.setViewportSize({ width: 320, height: 844 });
+  const pinBounds = await headerPin.boundingBox();
+  assert.ok(pinBounds && pinBounds.x >= 0 && pinBounds.x + pinBounds.width <= 320);
+  await headerPin.click();
+  await page.getByRole('button', { name: 'Pin session', exact: true }).waitFor();
+  assert.equal(rt.conversations.get(first).pinned, false);
+  await headerPin.click();
+  await page.getByRole('button', { name: 'Unpin session', exact: true }).waitFor();
+  await page.screenshot({ path: '/tmp/luna-session-pin-mobile.png' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: '/tmp/luna-session-pin-desktop.png' });
   await manage(first); await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
   await row(first).waitFor({ state: "hidden" });
   assert.equal(await row(first).count(), 0);
   assert.equal(await page.locator("#title").textContent(), "New conversation");
+  assert.equal(await headerPin.count(), 0, 'an unsaved conversation has no pin action');
   await page.locator("#history-view").click();
   await assert.equal(await page.locator("#history-view").getAttribute("aria-pressed"), "true");
   await row(first).waitFor();
