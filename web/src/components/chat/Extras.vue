@@ -3,11 +3,12 @@ import { computed } from "vue";
 import ActivityPanel from "./ActivityPanel.vue";
 import { chat, goalAction } from "@/stores/chat";
 
+defineProps<{ docked?: boolean }>();
 const goal = computed(() => chat.extras?.goal || null);
 </script>
 
 <template>
-  <div id="extras" class="chat-extras">
+  <div :id="docked ? 'rail-extras' : 'extras'" class="chat-extras" :class="{ docked }">
     <!-- Goal Card -->
     <div v-if="goal" class="card grid">
       <div class="row">
@@ -23,6 +24,6 @@ const goal = computed(() => chat.extras?.goal || null);
     </div>
 
     <!-- Tasks, background processes, subagents -->
-    <ActivityPanel />
+    <ActivityPanel :docked="docked" />
   </div>
 </template>

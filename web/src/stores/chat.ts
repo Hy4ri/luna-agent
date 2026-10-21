@@ -114,6 +114,10 @@ export const usageText = computed(() => {
   return `${(inT / 1000).toFixed(1)}k in · ${(outT / 1000).toFixed(1)}k out${cost ? " · $" + cost.toFixed(4) : ""}`;
 });
 
+// Tasks, processes, or subagents exist for this session.
+export const activityVisible = computed(() =>
+  (chat.extras?.todos || []).some((t: any) => t.status !== "deleted") || !!chat.extras?.processes?.length || !!chat.extras?.children?.length);
+
 // ---- context estimate ----
 export const contextView = computed(() => {
   const value = chat.context;

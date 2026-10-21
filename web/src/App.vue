@@ -13,7 +13,7 @@ import CronPage from '@/pages/CronPage.vue';
 import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette } from '@/stores/app';
-import { chat, newSession, openSession, clearConversation, addErr } from '@/stores/chat';
+import { chat, newSession, openSession, clearConversation, addErr, activityVisible, contextView, usageText } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
 import { sessionState, sessionStatusLabel } from '@/lib/session-status';
@@ -21,6 +21,15 @@ import { useMobile } from '@/lib/dom';
 import { trackViewport } from '@/lib/viewport';
 
 const mobile = useMobile();
+// Session rail (#88): dock goal, activity, and context to the right when this tile has room.
+// Measure the tile, not the window: split view gives each tile its own width.
+// Two thresholds prevent flicker near the boundary.
+const RAIL_DOCK_AT = 1120, RAIL_UNDOCK_BELOW = 1080;
+const mainRef = ref<HTMLElement | null>(null);
+const railRoom = ref(false);
+let railObserver: ResizeObserver | undefined;
+const railContent = computed(() => !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
+const docked = computed(() => railRoom.value && railContent.value);
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
 const tileIds = ref<string[]>(readTiles());
@@ -222,6 +231,14 @@ watch(mobile, value => { if (!value && ui.drawer) setDrawer(false); });
 watch(() => ui.login, value => { if (value) void nextTick(() => document.getElementById('token')?.focus()); });
 let stopViewport: (() => void) | undefined;
 onMounted(() => {
+  if (mainRef.value && typeof ResizeObserver !== 'undefined') {
+    railObserver = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      if (width >= RAIL_DOCK_AT) railRoom.value = true;
+      else if (width < RAIL_UNDOCK_BELOW) railRoom.value = false;
+    });
+    railObserver.observe(mainRef.value);
+  }
   stopViewport = trackViewport(document.getElementById('app')!);
   document.addEventListener('keydown', keyboard);
   window.addEventListener('message', paneMessage);
@@ -230,6 +247,7 @@ onMounted(() => {
   void boot();
 });
 onUnmounted(() => {
+  railObserver?.disconnect();
   stopViewport?.(); document.removeEventListener('keydown', keyboard);
   window.removeEventListener('message', paneMessage);
   window.removeEventListener('blur', onWindowBlur);
@@ -244,7 +262,7 @@ onUnmounted(() => {
       <Sidebar v-if="!sessionPane" :inert="ui.login || !!ui.panel" />
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <div id="chat-workspace" v-show="ui.view === 'chat'" :inert="blocked" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
-        <main id="main" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <main id="main" ref="mainRef" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
             <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" :aria-controls="sessionPane ? undefined : 'side'" :aria-expanded="sessionPane ? undefined : ui.drawer" @click="openNavigation"><Menu :size="18" /></button>
             <div class="heading min-w-0 flex-1">
@@ -252,15 +270,23 @@ onUnmounted(() => {
               <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
               <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt) }}</span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
             </div>
-            <StatusBar />
+            <StatusBar v-if="!docked" />
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
             <button v-if="chat.session" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
           </header>
-          <Transcript />
-          <Extras />
-          <div id="compose" class="mx-auto w-full max-w-4xl shrink-0 px-4 pb-3 pt-2 md:px-8">
-            <Composer />
+          <div class="chat-body">
+            <div class="chat-column">
+              <Transcript />
+              <Extras v-if="!docked" />
+              <div id="compose" class="mx-auto w-full max-w-4xl shrink-0 px-4 pb-3 pt-2 md:px-8">
+                <Composer />
+              </div>
+            </div>
+            <aside v-if="docked" id="session-rail" aria-label="Session details">
+              <StatusBar docked />
+              <Extras docked />
+            </aside>
           </div>
         </main>
         <template v-if="!ui.login">
@@ -307,6 +333,13 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+.chat-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.chat-column { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+#session-rail {
+  flex: 0 0 300px; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px; border-left: 1px solid var(--border);
 }
 .session-pane {
   flex: 1 1 0;
