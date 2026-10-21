@@ -136,8 +136,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     : undefined;
   if (on("improve")) extensions.push(createImproveExtension(improver!, { allowCommandBenchmarks: cfg.improve.allowCommandBenchmarks }));
   if (on("skills")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs)));
+  const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
   const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db")) : undefined;
-  if (learn) extensions.push(createLearnExtension(learn, improver!));
+  if (learn) extensions.push(createLearnExtension(learn, improver!, memory || undefined));
   if (on("tool-search")) extensions.push(createToolSearchExtension());
   if (on("todo")) extensions.push(Todo);
   // All chat sessions get a board. Unlinked sessions use General. The store exists once the harness is open.
@@ -166,7 +167,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (recall) extensions.push(createRecallExtension(recall));
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
 
-  const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
   const compaction = () => settings?.resolved().compaction ?? cfg.compaction;
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
   const harness = await openLuna({

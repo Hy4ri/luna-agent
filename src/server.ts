@@ -956,7 +956,7 @@ export function createApp(opts: ServerOptions) {
     return opts.memory.forget(Number(c.req.param("id"))) ? c.json({ ok: true }) : err(c, 404, "no such memory");
   });
 
-  // ---- lessons: session learning review queue. Nothing is applied without approve. ----
+  // ---- lessons: the learning agent applies routine fixes; only proposals it marks critical wait for approve/reject. ----
   const lessonView = (l: ReturnType<LearnStore["lesson"]> & {}) => {
     const L = opts.learn!.store;
     return {

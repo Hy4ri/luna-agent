@@ -138,7 +138,7 @@ export const summaries: Record<string, string> = {
   extensions: 'Choose the built-in capabilities available after Luna restarts.',
   skillDirs: 'Add local sources of reusable instructions.',
   cron: 'Set the limits and notifications used by scheduled prompts.',
-  learn: 'Collect lesson signals from idle conversations and prepare proposals for review.',
+  learn: 'Collect lesson signals from idle conversations. The daily pass applies routine fixes and holds critical ones for you.',
   improve: 'Schedule skill checks and control access to command benchmarks.',
   dataDir: 'Choose where Luna stores its persistent data.', cwd: 'Choose the default directory for tool commands.', server: 'Choose where the HTTP server listens.',
 }
@@ -154,7 +154,7 @@ export const managers: Record<string, { id: string; title: string; description: 
   ],
   tools: [{ id: 'mcp', title: 'Live MCP connections', description: 'Connect external tools, inspect status, enable, disable, or remove a managed server.' }],
   automation: [
-    { id: 'lessons', title: 'Review lessons', description: 'Scan idle sessions, inspect evidence, approve or reject proposals, and roll back skill changes.' },
+    { id: 'lessons', title: 'Review lessons', description: 'Decide on fixes Luna held as critical, inspect evidence, and roll back skill changes.' },
     { id: 'cron', title: 'Cron jobs & reports', description: 'Manage scheduled prompts and inspect their reports and run history.' },
   ],
   system: [{ id: 'analytics', title: 'Usage analytics', description: 'Filter model usage, compare tokens and recorded costs, and inspect reported tool usage.' }],

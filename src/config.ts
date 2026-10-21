@@ -127,7 +127,7 @@ export const ConfigSchema = z
     mcpServers: z.array(McpServerSchema).default([]),
     cron: z.strictObject({ notifyUrl: z.url().optional(), runTimeoutMinutes: z.number().positive().optional() }).prefault({}),
     improve: z.strictObject({ schedule: cronExpr.optional(), allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
-    /** Session learning: scan idle conversations for lessons; a daily cron pass diagnoses them and proposes fixes for review. */
+    /** Session learning: scan idle conversations for lessons; a daily cron pass diagnoses them, applies routine fixes and holds critical ones for the user. */
     learn: z.strictObject({
       idleMinutes: z.number().positive().default(30),
       schedule: cronExpr.default("0 4 * * *"),
