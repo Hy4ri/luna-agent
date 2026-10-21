@@ -83,6 +83,8 @@ try {
   await page.locator(`.pw-item[data-project="${beta.id}"]`).click();
   await page.locator('#project-chat').click();
   await dialog.waitFor({ state: 'hidden' });
+  assert.equal((await (await fetch(`${url}/v1/sessions`)).json() as { sessions: { project: number | null }[] }).sessions.some(s => s.project === beta.id), false, 'Opening a project chat creates nothing yet');
+  await page.locator('#input').fill('hello'); await page.locator('#send').click();
   await page.waitForFunction(() => (globalThis as any).document.querySelector('#title')?.textContent?.startsWith('Conversation'));
   const sessions = (await (await fetch(`${url}/v1/sessions`)).json() as { sessions: { id: number; project: number | null }[] }).sessions;
   assert.ok(sessions.some(s => s.project === beta.id && s.id !== seeded.id), 'New chat is linked to the project');

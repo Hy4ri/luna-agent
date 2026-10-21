@@ -207,6 +207,7 @@ try {
     await row(newer).locator('.session-pin').waitFor();
     const createdResponse = page.waitForResponse((response: any) => response.url().endsWith('/v1/sessions') && response.request().method() === 'POST');
     await page.getByRole('button', { name: group === 'group-none' ? 'New session in Chats' : 'New session in Activity project', exact: true }).click();
+    await page.locator('#input').fill('first message'); await page.locator('#send').click();
     const created = await (await createdResponse).json() as { id: number };
     await row(created.id).waitFor();
     await waitFirst(group, newer);
@@ -216,7 +217,7 @@ try {
     await waitFirst(group, created.id);
     const list = await (await app.request('/v1/sessions', { headers })).json() as { sessions: any[] };
     const empty = list.sessions.find(s => s.id === created.id);
-    assert.equal(empty.lastActivity, null);
+    assert.equal(typeof empty.lastActivity, 'number', 'session is created by its first message');
     assert.equal(typeof empty.createdAt, 'number');
     await page.reload();
     await waitFirst(group, created.id);
@@ -264,10 +265,13 @@ try {
   // Creating while collapsed must keep the group collapsed and use the correct project.
   const createdResponse = page.waitForResponse((response: any) => response.url().endsWith('/v1/sessions') && response.request().method() === 'POST');
   await projectGroup.locator('.group-new').click();
+  await page.locator('#input').fill('first message'); await page.locator('#send').click();
   const created = await (await createdResponse).json() as { id: number };
   const createdList = await (await app.request('/v1/sessions', { headers })).json() as { sessions: any[] };
   assert.equal(createdList.sessions.find(s => s.id === created.id)?.project, project.id);
   await page.locator('#menu').click();
+  // The first message starts a run; a running row stays visible. Wait for it to settle to Ready/Stopped.
+  await page.waitForFunction((id: number) => { const r = (globalThis as any).document.querySelector(`[data-session="${id}"]`); return !r || !r.querySelector('.session-state'); }, created.id, { timeout: 20000 });
   await assertProjectHidden();
   await projectToggle.click();
   await row(created.id).waitFor();
