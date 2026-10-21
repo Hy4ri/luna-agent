@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { detectCycle } from "./todo.js";
+import { deliverCardEvents, wakeEvents } from "./board-events.js";
 
 export const STATUSES = ["backlog", "todo", "in_progress", "review", "done"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
@@ -12,20 +13,21 @@ export type CardStatus = (typeof STATUSES)[number];
 export type CardPriority = (typeof PRIORITIES)[number];
 export type Card = {
   id: number; project: number; subject: string; description: string; priority: CardPriority; status: CardStatus;
-  blockedBy: number[]; owner: string | null; labels: string[]; archived: boolean; created: number; updated: number;
+  blockedBy: number[]; owner: string | null; blocked: string | null; labels: string[]; archived: boolean; created: number; updated: number;
 };
+export type Activity = { id: number; card: number; at: number; by: string; text: string };
 export type CardInput = {
   subject?: unknown; description?: unknown; priority?: unknown; status?: unknown; owner?: unknown; labels?: unknown;
-  archived?: unknown; addBlockedBy?: unknown; removeBlockedBy?: unknown; blockedBy?: unknown;
+  archived?: unknown; blocked?: unknown; addBlockedBy?: unknown; removeBlockedBy?: unknown; blockedBy?: unknown;
 };
 export class BoardError extends Error {
   constructor(readonly status: 400 | 404, message: string) { super(message); }
 }
 const RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
-type Row = { id: number; project_id: number; subject: string; description: string; priority: string; status: string; blocked_by: string; owner: string | null; labels: string; archived: number; created: number; updated: number };
+type Row = { id: number; project_id: number; subject: string; description: string; priority: string; status: string; blocked_by: string; owner: string | null; blocked_reason: string | null; labels: string; archived: number; created: number; updated: number };
 const toCard = (r: Row): Card => ({
   id: r.id, project: r.project_id, subject: r.subject, description: r.description, priority: r.priority as CardPriority, status: r.status as CardStatus,
-  blockedBy: JSON.parse(r.blocked_by), owner: r.owner, labels: JSON.parse(r.labels), archived: !!r.archived, created: r.created, updated: r.updated,
+  blockedBy: JSON.parse(r.blocked_by), owner: r.owner, blocked: r.blocked_reason, labels: JSON.parse(r.labels), archived: !!r.archived, created: r.created, updated: r.updated,
 });
 const bad = (m: string): never => { throw new BoardError(400, m); };
 const ids = (v: unknown, what: string): number[] => {
@@ -40,7 +42,13 @@ export class BoardStore {
         priority TEXT NOT NULL DEFAULT 'medium', status TEXT NOT NULL DEFAULT 'backlog', blocked_by TEXT NOT NULL DEFAULT '[]',
         owner TEXT, labels TEXT NOT NULL DEFAULT '[]', archived INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, updated INTEGER NOT NULL
       ) STRICT;
-      CREATE INDEX IF NOT EXISTS luna_board_cards_project ON luna_board_cards(project_id);`);
+      CREATE INDEX IF NOT EXISTS luna_board_cards_project ON luna_board_cards(project_id);
+      CREATE TABLE IF NOT EXISTS luna_board_activity (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL, at INTEGER NOT NULL, by TEXT NOT NULL, text TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS luna_board_activity_card ON luna_board_activity(card_id);`);
+    const cols = db.prepare("PRAGMA table_info(luna_board_cards)").all() as { name: string }[];
+    if (!cols.some(c => c.name === "blocked_reason")) db.exec("ALTER TABLE luna_board_cards ADD COLUMN blocked_reason TEXT");
   }
   list(project: number, o: { status?: CardStatus; archived?: boolean } = {}): Card[] {
     const rows = this.db.prepare("SELECT * FROM luna_board_cards WHERE project_id=? AND archived=?").all(project, o.archived ? 1 : 0) as Row[];
@@ -56,9 +64,9 @@ export class BoardStore {
     return c;
   }
   private fields(i: CardInput, cur?: Card) {
-    const out: { subject: string; description: string; priority: CardPriority; status: CardStatus; owner: string | null; labels: string[]; archived: boolean } = {
+    const out: { subject: string; description: string; priority: CardPriority; status: CardStatus; owner: string | null; blocked: string | null; labels: string[]; archived: boolean } = {
       subject: cur?.subject ?? "", description: cur?.description ?? "", priority: cur?.priority ?? "medium", status: cur?.status ?? "backlog",
-      owner: cur?.owner ?? null, labels: cur?.labels ?? [], archived: cur?.archived ?? false,
+      owner: cur?.owner ?? null, blocked: cur?.blocked ?? null, labels: cur?.labels ?? [], archived: cur?.archived ?? false,
     };
     if (i.subject !== undefined) {
       if (typeof i.subject !== "string" || !i.subject.trim() || i.subject.trim().length > 200) bad("subject must contain 1 to 200 characters");
@@ -74,6 +82,10 @@ export class BoardStore {
     if (i.owner !== undefined) {
       if (i.owner !== null && (typeof i.owner !== "string" || i.owner.length > 100)) bad("owner must be text of at most 100 characters");
       out.owner = (i.owner as string | null)?.trim() || null;
+    }
+    if (i.blocked !== undefined) {
+      if (i.blocked !== null && (typeof i.blocked !== "string" || i.blocked.length > 500)) bad("blocked must be a reason of at most 500 characters, or empty to clear");
+      out.blocked = (i.blocked as string | null)?.trim() || null;
     }
     if (i.labels !== undefined) {
       if (!Array.isArray(i.labels) || i.labels.length > 20 || i.labels.some(l => typeof l !== "string" || !l.trim() || l.length > 40)) bad("labels must be up to 20 texts of 1 to 40 characters");
@@ -100,8 +112,21 @@ export class BoardStore {
     const now = Date.now();
     const r = this.db.prepare(`INSERT INTO luna_board_cards(project_id,subject,description,priority,status,blocked_by,owner,labels,archived,created,updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
       .run(project, f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, JSON.stringify(f.labels), Number(f.archived), now, now);
-    return this.need(project, Number(r.lastInsertRowid));
+    const made = this.need(project, Number(r.lastInsertRowid));
+    this.log(made.id, "user", `created in ${made.status}`);
+    return made;
   }
+  /** Append one line to a card's activity log. */
+  log(card: number, by: string, text: string) {
+    this.db.prepare("INSERT INTO luna_board_activity(card_id,at,by,text) VALUES (?,?,?,?)").run(card, Date.now(), by, text.slice(0, 600));
+  }
+  /** Newest first. */
+  activity(project: number, id: number, limit = 50): Activity[] {
+    this.need(project, id);
+    return (this.db.prepare("SELECT id,card_id,at,by,text FROM luna_board_activity WHERE card_id=? ORDER BY id DESC LIMIT ?").all(id, limit) as { id: number; card_id: number; at: number; by: string; text: string }[])
+      .map(r => ({ id: r.id, card: r.card_id, at: r.at, by: r.by, text: r.text }));
+  }
+  /** `actor` is the agent session ("session N"). Without it the change is a user change. */
   update(project: number, id: number, i: CardInput, actor?: string): Card {
     const cur = this.need(project, id);
     const f = this.fields(i, cur);
@@ -114,8 +139,13 @@ export class BoardStore {
     if (actor && f.status === "in_progress" && cur.status !== "in_progress" && !f.owner && i.owner === undefined) f.owner = actor;
     // Done or archived releases the owner, unless the same change sets one by hand.
     if (i.owner === undefined && ((f.status === "done" && cur.status !== "done") || (f.archived && !cur.archived))) f.owner = null;
-    this.db.prepare(`UPDATE luna_board_cards SET subject=?,description=?,priority=?,status=?,blocked_by=?,owner=?,labels=?,archived=?,updated=? WHERE id=? AND project_id=?`)
-      .run(f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, JSON.stringify(f.labels), Number(f.archived), Date.now(), id, project);
+    this.db.prepare(`UPDATE luna_board_cards SET subject=?,description=?,priority=?,status=?,blocked_by=?,owner=?,blocked_reason=?,labels=?,archived=?,updated=? WHERE id=? AND project_id=?`)
+      .run(f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, f.blocked, JSON.stringify(f.labels), Number(f.archived), Date.now(), id, project);
+    const by = actor ?? "user";
+    if (cur.status !== f.status) this.log(id, by, `moved ${cur.status} -> ${f.status}`);
+    if (cur.archived !== f.archived) this.log(id, by, f.archived ? "archived" : "restored");
+    if (cur.owner !== f.owner) this.log(id, by, `owner ${cur.owner ?? "none"} -> ${f.owner ?? "none"}`);
+    if (cur.blocked !== f.blocked) this.log(id, by, f.blocked ? `blocked: ${f.blocked}` : "unblocked");
     return this.need(project, id);
   }
   /** Drop an owner whose session no longer exists. */
@@ -129,8 +159,12 @@ export class BoardStore {
     // Other cards stop waiting on a removed card.
     for (const c of all) if (c.blockedBy.includes(id)) this.db.prepare("UPDATE luna_board_cards SET blocked_by=? WHERE id=?").run(JSON.stringify(c.blockedBy.filter(d => d !== id)), c.id);
     this.db.prepare("DELETE FROM luna_board_cards WHERE id=? AND project_id=?").run(id, project);
+    this.db.prepare("DELETE FROM luna_board_activity WHERE card_id=?").run(id);
   }
-  deleteProject(project: number) { this.db.prepare("DELETE FROM luna_board_cards WHERE project_id=?").run(project); }
+  deleteProject(project: number) {
+    this.db.prepare("DELETE FROM luna_board_activity WHERE card_id IN (SELECT id FROM luna_board_cards WHERE project_id=?)").run(project);
+    this.db.prepare("DELETE FROM luna_board_cards WHERE project_id=?").run(project);
+  }
   /** Compact text for the prompt: column counts and the cards that need attention. Never the whole board. */
   summary(project: number, name: string, cwd: string): string {
     const cards = this.list(project);
@@ -168,6 +202,7 @@ const Params = Type.Object({
   priority: Type.Optional(Type.Union(PRIORITIES.map(p => Type.Literal(p)), { description: "low, medium (default), high, or urgent" })),
   status: Type.Optional(Type.Union(STATUSES.map(s => Type.Literal(s)), { description: "Column: backlog (default), todo, in_progress, review, done. With list it filters." })),
   owner: Type.Optional(Type.String({ description: "Who works on the card. Moving a card to in_progress sets it to this session when empty." })),
+  blocked: Type.Optional(Type.String({ description: "update: you cannot continue without the user. Short reason, e.g. 'needs your decision on X'. The board shows it; the user's answer arrives as a message. Empty string clears it." })),
   labels: Type.Optional(Type.Array(Type.String(), { description: "Replace the card's labels" })),
   blockedBy: Type.Optional(Type.Array(Type.Number(), { description: "Card ids this card waits on (create)" })),
   addBlockedBy: Type.Optional(Type.Array(Type.Number(), { description: "Add dependencies (update)" })),
@@ -175,7 +210,7 @@ const Params = Type.Object({
   includeArchived: Type.Optional(Type.Boolean({ description: "list: show archived cards instead of active ones" })),
 });
 
-const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}${c.archived ? "|archived" : ""}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
+const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}${c.archived ? "|archived" : ""}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blocked ? ` BLOCKED: ${c.blocked}` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
 const detail = (c: Card) => [line(c), ...(c.description ? [`  description: ${c.description}`] : []), `  updated: ${new Date(c.updated).toISOString()}`].join("\n");
 
 export function extractMentionedCardIds(messages: readonly { role?: string; content?: unknown }[]): number[] {
@@ -222,6 +257,7 @@ export function createBoardExtension(conversations: () => Conversations | undefi
         const pid = conv?.projects.projectOf(Number(api.conversationId));
         if (!conv || pid === undefined || !conv.projects.get(pid)) return text("Error: this session is not in a project, or the project was deleted.", true);
         const board = conv.board, actor = `session ${api.conversationId}`;
+        let wakes: ReturnType<typeof wakeEvents> = [];
         try {
           const out = await api.commit(async () => {
             switch (a.action) {
@@ -234,12 +270,16 @@ export function createBoardExtension(conversations: () => Conversations | undefi
               case "update": {
                 if (a.id === undefined) bad("id required for update");
                 const { id, action, includeArchived, ...changes } = a;
+                const before = board.get(pid, id!);
                 const c = board.update(pid, id!, changes, actor); conv.touch();
+                if (before) wakes = wakeEvents(board, pid, before, c);
                 return `Updated #${c.id} [${c.status}|${c.priority}]`;
               }
               case "archive": { if (a.id === undefined) bad("id required for archive"); const c = board.update(pid, a.id!, { archived: true }); conv.touch(); return `Archived #${c.id}`; }
             }
           }, context);
+          // A finished card wakes the owners of cards that waited on it. Delivery follows the commit.
+          if (wakes.length) await deliverCardEvents({ conversation: (id: never, ctx: never) => api.conversation(id, ctx) } as never, wakes);
           return text(out);
         } catch (e) {
           if (e instanceof BoardError) return text("Error: " + e.message, true);

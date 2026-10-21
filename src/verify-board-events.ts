@@ -110,6 +110,70 @@ try {
     assert.match((await events(C)).at(-1)!, /archived by user/);
     assert.equal(rt.conversations.board.get(0, arch.id)?.owner, null);
     assert.equal(cardEvents({ ...before, owner: "m57" }, { ...before, owner: "m57", status: "done" }).length, 0, "free-text owner gets no event");
+
+    // ---- v2: blocked reason, answer -> owner, dependency wake-up, activity log ----
+    const D = await make();
+    faux.setResponses(Array(60).fill(() => fauxAssistantMessage([fauxText("ok")])));
+    // The agent blocks its own card through the board tool: reason is stored, no event, log names the session.
+    const ask = rt.conversations.board.create(0, { subject: "Needs a call", status: "in_progress", owner: `session ${D}` });
+    let blockStep = 0;
+    faux.setResponses([
+      () => (blockStep++, fauxAssistantMessage([fauxToolCall("board", { action: "update", id: ask.id, blocked: "needs your decision on X" })], { stopReason: "toolUse" })),
+      () => fauxAssistantMessage([fauxText("blocked it")]),
+      ...Array(50).fill(() => fauxAssistantMessage([fauxText("ok")])),
+    ]);
+    await (await h.conversation(D as never, context))!.submit({ type: "input", content: "block it" }, context);
+    for (let i = 0; i < 100 && !blockStep; i++) await new Promise(r => setTimeout(r, 50));
+    await idle(D);
+    assert.equal(rt.conversations.board.get(0, ask.id)?.blocked, "needs your decision on X");
+    assert.equal((await events(D)).length, 0, "agent block sends no event");
+    assert.ok((rt.conversations.board.activity(0, ask.id)).some(a => a.by === `session ${D}` && a.text === "blocked: needs your decision on X"));
+    // The user answers on the card: the answer reaches the owner and the block clears.
+    assert.equal((await call(`/v1/projects/0/cards/${ask.id}`, "PATCH", { answer: "go with Y" })).status, 200);
+    await idle(D);
+    const ans = (await events(D)).at(-1)!;
+    assert.match(ans, /answer from user \(you were blocked: needs your decision on X\): go with Y/);
+    assert.equal(rt.conversations.board.get(0, ask.id)?.blocked, null, "answer unblocks");
+    assert.equal((await call(`/v1/projects/0/cards/${ask.id}`, "PATCH", { answer: 5 })).status, 400);
+    const log = (await (await call(`/v1/projects/0/cards/${ask.id}/activity`)).json() as { activity: { by: string; text: string }[] }).activity;
+    assert.ok(log.some(a => a.by === "user" && a.text === "answer: go with Y"));
+    assert.ok(log.some(a => a.text === "unblocked"));
+    assert.equal((await call(`/v1/projects/0/cards/999999/activity`)).status, 404);
+
+    // A user marks the blocker done: the waiting card's owner hears "you can start". A card with two blockers waits for both.
+    const dep1 = rt.conversations.board.create(0, { subject: "Dep one", status: "review" });
+    const dep2 = rt.conversations.board.create(0, { subject: "Dep two", status: "review" });
+    const waiter = rt.conversations.board.create(0, { subject: "Waiter", status: "todo", owner: `session ${D}`, blockedBy: [dep1.id, dep2.id] });
+    const baseline = (await events(D)).length;
+    await call(`/v1/projects/0/cards/${dep1.id}`, "PATCH", { status: "done" });
+    await idle(D);
+    let wake = (await events(D)).slice(baseline);
+    assert.equal(wake.length, 1);
+    assert.match(wake[0]!, new RegExp(`#${dep1.id} is done, #${waiter.id} "Waiter" still waits on #${dep2.id}`));
+    // The agent finishes the second blocker through the board tool: D still hears about it.
+    let doneStep = 0;
+    faux.setResponses([
+      () => (doneStep++, fauxAssistantMessage([fauxToolCall("board", { action: "update", id: dep2.id, status: "done" })], { stopReason: "toolUse" })),
+      () => fauxAssistantMessage([fauxText("finished")]),
+      ...Array(50).fill(() => fauxAssistantMessage([fauxText("ok")])),
+    ]);
+    await (await h.conversation(A as never, context))!.submit({ type: "input", content: "finish dep" }, context);
+    for (let i = 0; i < 100 && !doneStep; i++) await new Promise(r => setTimeout(r, 50));
+    await idle(A);
+    for (let i = 0; i < 100 && (await events(D)).length < baseline + 2; i++) { await new Promise(r => setTimeout(r, 50)); await idle(D); }
+    wake = (await events(D)).slice(baseline);
+    assert.equal(wake.length, 2);
+    assert.match(wake[1]!, new RegExp(`#${dep2.id} is done, you can start #${waiter.id} "Waiter"`));
+    assert.equal((await events(A)).filter(t => t.includes("Dep two")).length, 0, "the finishing agent hears nothing");
+
+    // Activity log: who moved the card, when, in order. Direct moves by the user are logged as "user".
+    const trail = rt.conversations.board.activity(0, dep1.id);
+    assert.deepEqual(trail.map(a => a.text), ["moved review -> done", "created in review"]);
+    assert.equal(trail[0]!.by, "user");
+    assert.ok(trail[0]!.at >= trail[1]!.at);
+    assert.ok(rt.conversations.board.activity(0, dep2.id).some(a => a.by === `session ${A}` && a.text === "moved review -> done"));
+    // An empty blocked string clears the reason.
+    assert.equal((await call(`/v1/projects/0/cards/${ask.id}`, "PATCH", { blocked: "x".repeat(501) })).status, 400);
     console.log("BOARD_EVENTS_OK");
   } finally { await rt.close?.(); }
 } finally { rmSync(dir, { recursive: true, force: true }); }

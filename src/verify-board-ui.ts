@@ -127,6 +127,22 @@ try {
   page.once('dialog', (d: any) => d.accept());
   await editor.getByRole('button', { name: 'Delete', exact: true }).click(); await editor.waitFor({ state: 'hidden' });
   assert.equal(rt.conversations.board.get(a.id, created.id), undefined);
+  // Blocked reason shows on the card; the editor sends an answer and lists the activity log.
+  const asking = rt.conversations.board.create(a.id, { subject: 'Needs answer', status: 'in_progress', owner: 'session 999999' });
+  rt.conversations.board.update(a.id, asking.id, { blocked: 'needs your decision on X' }, 'session 999999');
+  await page.getByRole('button', { name: 'Refresh board' }).click();
+  await page.locator(`[data-card="${asking.id}"] .kb-asks`).waitFor();
+  assert.match(await page.locator(`[data-card="${asking.id}"] .kb-asks`).innerText(), /needs your decision on X/);
+  await page.locator(`[data-card="${asking.id}"] .kb-card-title`).click();
+  await editor.getByLabel('Answer', { exact: true }).fill('go with Y');
+  await editor.getByRole('button', { name: 'Send answer' }).click(); await editor.waitFor({ state: 'hidden' });
+  assert.equal(rt.conversations.board.get(a.id, asking.id)?.blocked, null);
+  await page.locator(`[data-card="${asking.id}"] .kb-card-title`).click();
+  await editor.getByLabel('Activity').waitFor();
+  assert.match(await editor.getByLabel('Activity').innerText(), /session 999999[\s\S]*blocked: needs your decision on X/);
+  assert.match(await editor.getByLabel('Activity').innerText(), /user[\s\S]*answer: go with Y/);
+  await editor.getByRole('button', { name: 'Close card editor' }).click(); await editor.waitFor({ state: 'hidden' });
+  console.log('BOARD_BLOCKED_ANSWER_ACTIVITY_OK');
   console.log('BOARD_ALL_CRUD_FIELDS_OK');
   // Real validation errors keep the draft available for correction.
   await page.getByRole('button', { name: 'Add card to To do', exact: true }).click();
