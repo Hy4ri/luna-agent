@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { Menu, Ellipsis, Moon, Plus, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
+import { Menu, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
@@ -14,7 +14,7 @@ import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette } from '@/stores/app';
 import { chat, newSession, openSession, clearConversation, addErr, activityVisible, contextView, usageText } from '@/stores/chat';
-import { history, cancelLimitWait, resumeLabel, sessionTitle } from '@/stores/sessions';
+import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
 import { sessionState, sessionStatusLabel } from '@/lib/session-status';
 import { useMobile } from '@/lib/dom';
@@ -172,6 +172,17 @@ function paneMessage(event: MessageEvent) {
   if (event.data?.type === 'luna:open-session' && typeof event.data.session === 'string' && /^\d+$/.test(event.data.session)) void openSession(event.data.session);
 }
 const activeSession = computed(() => history.list.find(row => String(row.id) === chat.session));
+const pinPending = ref(false);
+async function pinSession() {
+  const session = activeSession.value;
+  if (!session || pinPending.value) return;
+  pinPending.value = true;
+  const epoch = chat.epoch;
+  try {
+    const ok = await togglePinned(session);
+    if (!ok && epoch === chat.epoch) addErr(history.status || 'Failed to update session pin');
+  } finally { pinPending.value = false; }
+}
 const password = ref('');
 const blocked = computed(() => ui.login || !!ui.panel || (mobile.value && ui.drawer));
 
@@ -271,6 +282,7 @@ onUnmounted(() => {
               <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt) }}</span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
             </div>
             <StatusBar v-if="!docked" />
+            <button v-if="activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
             <button v-if="chat.session" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>

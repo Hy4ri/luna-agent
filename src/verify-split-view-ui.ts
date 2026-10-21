@@ -101,6 +101,18 @@ try {
   await drag(b); let right = await frame(b);
   assert.equal(await tileCount(), 2);
   assert.equal(await right.locator("#title").textContent(), "Second session");
+  // A tile's header pin writes to that tile, never the workspace's primary session.
+  await right.getByRole('button', { name: 'Pin session', exact: true }).click();
+  await right.getByRole('button', { name: 'Unpin session', exact: true }).waitFor();
+  await page.locator(`[data-session="${b}"] .session-pin`).waitFor();
+  assert.equal(rt.conversations.get(Number(b)).pinned, true);
+  assert.equal(rt.conversations.get(Number(a)).pinned, false);
+  assert.equal(await page.locator('#pin-session').getAttribute('aria-pressed'), 'false');
+  await page.locator(`[data-session="${b}"] .session-manage`).click();
+  await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await right.getByRole('button', { name: 'Pin session', exact: true }).waitFor();
+  assert.equal(rt.conversations.get(Number(b)).pinned, false);
   assert.equal(await right.locator("#side, #split-view, #pane-session, #new-session, #more").count(), 0, "Tiles have a title and close control, not navigation/pickers");
   await drag(c, frameElement(b)); let third = await frame(c);
   assert.equal(await tileCount(), 3, "Dropping over an iframe adds the third tile");
