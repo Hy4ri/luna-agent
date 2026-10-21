@@ -1,6 +1,6 @@
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
 import { GENERAL_PROJECT, ProjectError } from "./projects.js";
-import { BoardError } from "./board.js";
+import { BoardError, MAX_ATTACHMENT_BYTES } from "./board.js";
 import { answerEvent, cardEvents, deliverCardEvents, ownerSession, wakeEvents } from "./board-events.js";
 import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
@@ -398,6 +398,28 @@ export function createApp(opts: ServerOptions) {
   app.get("/v1/projects/:id/cards/:cardId/activity", (c) => {
     const { conv, id } = boardOf(c);
     return c.json({ activity: conv.board.activity(id, cardId(c)) });
+  });
+  // Attachments: raw body upload (`?name=`, Content-Type kept), download, remove. Stored with the card.
+  const attachmentId = (c: HonoContext) => { const n = Number(c.req.param("attachmentId")); return Number.isSafeInteger(n) && n > 0 ? n : 0; };
+  app.post("/v1/projects/:id/cards/:cardId/attachments", bodyLimit({ maxSize: MAX_ATTACHMENT_BYTES, onError: (c) => err(c, 400, `file too large (${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB max)`) }), async (c) => {
+    const { conv, id } = boardOf(c);
+    const data = new Uint8Array(await c.req.arrayBuffer());
+    const a = await write(conv, () => conv.board.attach(id, cardId(c), { name: c.req.query("name"), type: c.req.header("content-type"), data }));
+    return c.json(a, 201);
+  });
+  app.get("/v1/projects/:id/cards/:cardId/attachments/:attachmentId", (c) => {
+    const { conv, id } = boardOf(c);
+    const f = conv.board.file(id, cardId(c), attachmentId(c));
+    if (!f) throw new BoardError(404, "attachment not found");
+    return new Response(f.data, { headers: {
+      "content-type": f.type, "content-length": String(f.data.byteLength), "x-content-type-options": "nosniff",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+    } });
+  });
+  app.delete("/v1/projects/:id/cards/:cardId/attachments/:attachmentId", async (c) => {
+    const { conv, id } = boardOf(c);
+    await write(conv, () => conv.board.detach(id, cardId(c), attachmentId(c)));
+    return c.json({ ok: true });
   });
   app.delete("/v1/projects/:id/cards/:cardId", async (c) => {
     const { conv, id } = boardOf(c);

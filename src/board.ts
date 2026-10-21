@@ -14,7 +14,11 @@ export type CardPriority = (typeof PRIORITIES)[number];
 export type Card = {
   id: number; project: number; subject: string; description: string; priority: CardPriority; status: CardStatus;
   blockedBy: number[]; owner: string | null; blocked: string | null; labels: string[]; archived: boolean; created: number; updated: number;
+  attachments: Attachment[];
 };
+export type Attachment = { id: number; card: number; name: string; type: string; size: number; created: number };
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENTS = 20;
 export type Activity = { id: number; card: number; at: number; by: string; text: string };
 export type CardInput = {
   subject?: unknown; description?: unknown; priority?: unknown; status?: unknown; owner?: unknown; labels?: unknown;
@@ -27,8 +31,10 @@ const RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
 type Row = { id: number; project_id: number; subject: string; description: string; priority: string; status: string; blocked_by: string; owner: string | null; blocked_reason: string | null; labels: string; archived: number; created: number; updated: number };
 const toCard = (r: Row): Card => ({
   id: r.id, project: r.project_id, subject: r.subject, description: r.description, priority: r.priority as CardPriority, status: r.status as CardStatus,
-  blockedBy: JSON.parse(r.blocked_by), owner: r.owner, blocked: r.blocked_reason, labels: JSON.parse(r.labels), archived: !!r.archived, created: r.created, updated: r.updated,
+  blockedBy: JSON.parse(r.blocked_by), owner: r.owner, blocked: r.blocked_reason, labels: JSON.parse(r.labels), archived: !!r.archived, created: r.created, updated: r.updated, attachments: [],
 });
+type AttachmentRow = { id: number; card_id: number; name: string; type: string; size: number; created: number };
+const toAttachment = (r: AttachmentRow): Attachment => ({ id: r.id, card: r.card_id, name: r.name, type: r.type, size: r.size, created: r.created });
 const bad = (m: string): never => { throw new BoardError(400, m); };
 const ids = (v: unknown, what: string): number[] => {
   if (!Array.isArray(v) || v.some(n => !Number.isSafeInteger(n) || n < 1)) return bad(`${what} must be an array of card ids`);
@@ -46,18 +52,59 @@ export class BoardStore {
       CREATE TABLE IF NOT EXISTS luna_board_activity (
         id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL, at INTEGER NOT NULL, by TEXT NOT NULL, text TEXT NOT NULL
       ) STRICT;
-      CREATE INDEX IF NOT EXISTS luna_board_activity_card ON luna_board_activity(card_id);`);
+      CREATE INDEX IF NOT EXISTS luna_board_activity_card ON luna_board_activity(card_id);
+      CREATE TABLE IF NOT EXISTS luna_board_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, size INTEGER NOT NULL, created INTEGER NOT NULL, data BLOB NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS luna_board_attachments_card ON luna_board_attachments(card_id);`);
     const cols = db.prepare("PRAGMA table_info(luna_board_cards)").all() as { name: string }[];
     if (!cols.some(c => c.name === "blocked_reason")) db.exec("ALTER TABLE luna_board_cards ADD COLUMN blocked_reason TEXT");
   }
   list(project: number, o: { status?: CardStatus; archived?: boolean } = {}): Card[] {
     const rows = this.db.prepare("SELECT * FROM luna_board_cards WHERE project_id=? AND archived=?").all(project, o.archived ? 1 : 0) as Row[];
-    return rows.map(toCard).filter(c => !o.status || c.status === o.status)
+    const files = this.files(project);
+    return rows.map(toCard).map(c => ({ ...c, attachments: files.get(c.id) ?? [] })).filter(c => !o.status || c.status === o.status)
       .sort((a, b) => RANK[b.priority]! - RANK[a.priority]! || a.id - b.id);
   }
   get(project: number, id: number): Card | undefined {
     const r = this.db.prepare("SELECT * FROM luna_board_cards WHERE project_id=? AND id=?").get(project, id) as Row | undefined;
-    return r && toCard(r);
+    return r && { ...toCard(r), attachments: this.attachments(r.id) };
+  }
+  private files(project: number): Map<number, Attachment[]> {
+    const rows = this.db.prepare("SELECT a.id,a.card_id,a.name,a.type,a.size,a.created FROM luna_board_attachments a JOIN luna_board_cards c ON c.id=a.card_id WHERE c.project_id=? ORDER BY a.id").all(project) as AttachmentRow[];
+    const out = new Map<number, Attachment[]>();
+    for (const r of rows) out.set(r.card_id, [...(out.get(r.card_id) ?? []), toAttachment(r)]);
+    return out;
+  }
+  private attachments(card: number): Attachment[] {
+    return (this.db.prepare("SELECT id,card_id,name,type,size,created FROM luna_board_attachments WHERE card_id=? ORDER BY id").all(card) as AttachmentRow[]).map(toAttachment);
+  }
+  /** Store one file on a card. */
+  attach(project: number, id: number, file: { name: unknown; type: unknown; data: Uint8Array }, by = "user"): Attachment {
+    this.need(project, id);
+    const name = typeof file.name === "string" ? file.name.replace(/[\\/\x00-\x1f]/g, "_").trim().slice(0, 200) : "";
+    if (!name) bad("file name required");
+    if (!file.data.byteLength) bad("file is empty");
+    if (file.data.byteLength > MAX_ATTACHMENT_BYTES) bad(`file too large (${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB max)`);
+    if (this.attachments(id).length >= MAX_ATTACHMENTS) bad(`at most ${MAX_ATTACHMENTS} attachments per card`);
+    const type = typeof file.type === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(file.type.split(";")[0]!.trim()) ? file.type.split(";")[0]!.trim() : "application/octet-stream";
+    const now = Date.now();
+    const r = this.db.prepare("INSERT INTO luna_board_attachments(card_id,name,type,size,created,data) VALUES (?,?,?,?,?,?)").run(id, name, type, file.data.byteLength, now, file.data);
+    this.db.prepare("UPDATE luna_board_cards SET updated=? WHERE id=?").run(now, id);
+    this.log(id, by, `attached ${name}`);
+    return { id: Number(r.lastInsertRowid), card: id, name, type, size: file.data.byteLength, created: now };
+  }
+  file(project: number, id: number, attachment: number): { name: string; type: string; data: Uint8Array } | undefined {
+    this.need(project, id);
+    return this.db.prepare("SELECT name,type,data FROM luna_board_attachments WHERE id=? AND card_id=?").get(attachment, id) as { name: string; type: string; data: Uint8Array } | undefined;
+  }
+  detach(project: number, id: number, attachment: number, by = "user") {
+    this.need(project, id);
+    const a = this.attachments(id).find(x => x.id === attachment);
+    if (!a) throw new BoardError(404, `attachment #${attachment} not found`);
+    this.db.prepare("DELETE FROM luna_board_attachments WHERE id=?").run(attachment);
+    this.db.prepare("UPDATE luna_board_cards SET updated=? WHERE id=?").run(Date.now(), id);
+    this.log(id, by, `removed attachment ${a.name}`);
   }
   private need(project: number, id: number): Card {
     const c = this.get(project, id); if (!c) throw new BoardError(404, `card #${id} not found`);
@@ -160,8 +207,10 @@ export class BoardStore {
     for (const c of all) if (c.blockedBy.includes(id)) this.db.prepare("UPDATE luna_board_cards SET blocked_by=? WHERE id=?").run(JSON.stringify(c.blockedBy.filter(d => d !== id)), c.id);
     this.db.prepare("DELETE FROM luna_board_cards WHERE id=? AND project_id=?").run(id, project);
     this.db.prepare("DELETE FROM luna_board_activity WHERE card_id=?").run(id);
+    this.db.prepare("DELETE FROM luna_board_attachments WHERE card_id=?").run(id);
   }
   deleteProject(project: number) {
+    this.db.prepare("DELETE FROM luna_board_attachments WHERE card_id IN (SELECT id FROM luna_board_cards WHERE project_id=?)").run(project);
     this.db.prepare("DELETE FROM luna_board_activity WHERE card_id IN (SELECT id FROM luna_board_cards WHERE project_id=?)").run(project);
     this.db.prepare("DELETE FROM luna_board_cards WHERE project_id=?").run(project);
   }
@@ -211,7 +260,7 @@ const Params = Type.Object({
 });
 
 const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}${c.archived ? "|archived" : ""}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blocked ? ` BLOCKED: ${c.blocked}` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
-const detail = (c: Card) => [line(c), ...(c.description ? [`  description: ${c.description}`] : []), `  updated: ${new Date(c.updated).toISOString()}`].join("\n");
+const detail = (c: Card) => [line(c), ...(c.attachments.length ? [`  attachments: ${c.attachments.map(a => `${a.name} (${a.size} bytes)`).join(", ")}`] : []), ...(c.description ? [`  description: ${c.description}`] : []), `  updated: ${new Date(c.updated).toISOString()}`].join("\n");
 
 export function extractMentionedCardIds(messages: readonly { role?: string; content?: unknown }[]): number[] {
   const ids: number[] = [];

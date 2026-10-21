@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight } from '@lucide/vue';
-import { json, post } from '@/lib/api';
+import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight, Paperclip, Download } from '@lucide/vue';
+import { api, json, post } from '@/lib/api';
 import { history } from '@/stores/sessions';
 import { chat } from '@/stores/chat';
 import { boardChanged, openPanel, ui } from '@/stores/app';
@@ -9,7 +9,7 @@ import type { Project } from '@/lib/types';
 
 type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
-type Card = { id: number; project: number; subject: string; description: string; status: Status; priority: Priority; owner: string | null; blocked: string | null; labels: string[]; blockedBy: number[]; archived: boolean; created: number; updated: number };
+type Card = { id: number; project: number; subject: string; description: string; status: Status; priority: Priority; owner: string | null; blocked: string | null; labels: string[]; blockedBy: number[]; archived: boolean; created: number; updated: number; attachments: { id: number; name: string; type: string; size: number }[] };
 const columns: [Status, string][] = [['backlog', 'Backlog'], ['todo', 'To do'], ['in_progress', 'In progress'], ['review', 'Review'], ['done', 'Done']];
 const priorities: Priority[] = ['low', 'medium', 'high', 'urgent'];
 const cards = ref<Card[]>([]), selectedPid = ref(''), archived = ref(false);
@@ -100,6 +100,42 @@ function sendAnswer() {
   if (editingId.value === null || !answer.value.trim()) return;
   const path = `/v1/projects/${selectedPid.value}/cards/${editingId.value}`;
   void mutate(() => post(path, { answer: answer.value.trim() }, 'PATCH'), 'Answer sent.', true);
+}
+function sizeText(n: number) { return n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
+function attachPath(id: number, aid?: number) { return `/v1/projects/${selectedPid.value}/cards/${id}/attachments${aid === undefined ? '' : '/' + aid}`; }
+async function refreshEditing() {
+  const id = editingId.value; if (id === null) return;
+  const data = await json<{ cards: Card[] }>(`/v1/projects/${selectedPid.value}/board${archived.value ? '?archived=1' : ''}`);
+  if (!disposed) cards.value = data.cards;
+}
+async function attachFiles(event: Event) {
+  const input = event.target as HTMLInputElement, id = editingId.value;
+  const files = [...(input.files ?? [])]; input.value = '';
+  if (id === null || !files.length || busy.value) return;
+  busy.value = true; error.value = ''; notice.value = '';
+  try {
+    for (const f of files) {
+      const r = await api(attachPath(id) + '?name=' + encodeURIComponent(f.name), { method: 'POST', headers: { 'content-type': f.type || 'application/octet-stream' }, body: f });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    }
+    await refreshEditing(); notice.value = 'File attached.';
+  } catch (e) { if (!disposed) { error.value = message(e); void refreshEditing().catch(() => {}); } }
+  finally { busy.value = false; }
+}
+async function downloadFile(id: number, a: { id: number; name: string }) {
+  try {
+    const r = await api(attachPath(id, a.id));
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const url = URL.createObjectURL(await r.blob()), link = document.createElement('a');
+    link.href = url; link.download = a.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { error.value = message(e); }
+}
+async function removeFile(id: number, a: { id: number; name: string }) {
+  if (busy.value || !confirm(`Remove ${a.name}?`)) return;
+  busy.value = true; error.value = ''; notice.value = '';
+  try { await json(attachPath(id, a.id), { method: 'DELETE' }); await refreshEditing(); notice.value = 'Attachment removed.'; }
+  catch (e) { if (!disposed) error.value = message(e); }
+  finally { busy.value = false; }
 }
 function setArchived() {
   if (editingId.value === null) return;
@@ -256,6 +292,12 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
           <label>Owner<input v-model="form.owner" aria-label="Owner" maxlength="100" :disabled="busy" /></label>
           <label>Labels<input v-model="form.labels" aria-label="Labels" placeholder="web, runtime" :disabled="busy" /><small>Comma separated. Up to 20 labels, 40 characters each.</small></label>
           <label>Waits on card IDs<input v-model="form.blockedBy" aria-label="Dependencies" placeholder="#12, #18" :disabled="busy" /><small>Comma separated. Dependencies must belong to this project.</small></label>
+          <div v-if="editingCard" class="kb-files">
+            <span class="kb-files-title">Attachments</span>
+            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><Paperclip :size="13" /><span class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
+            <label class="kb-button kb-attach" :class="{ 'kb-attach-off': busy }"><Paperclip :size="14" />Attach file<input type="file" multiple hidden aria-label="Attach file" :disabled="busy" @change="attachFiles" /></label>
+            <small>Up to 20 files per card, 10 MB each.</small>
+          </div>
           <div v-if="editingCard?.blocked" class="kb-answer">
             <p class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Blocked</strong> · {{ editingCard.blocked }}</span></p>
             <label>Answer<textarea v-model="answer" aria-label="Answer" rows="3" maxlength="2000" :disabled="busy"></textarea><small>{{ editingCard.owner && /^session \d+$/.test(editingCard.owner) ? `Sent to ${editingCard.owner}. The card is unblocked.` : 'This card has no session owner. The card is unblocked, nobody is notified.' }}</small></label>
@@ -374,6 +416,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-editor-fields { overflow:auto; min-height:0; padding:16px; display:grid; gap:14px; scrollbar-width:thin; }.kb-editor label { display:grid; gap:6px; font-size:13px; min-width:0; }.kb-editor input,.kb-editor textarea,.kb-editor select { width:100%; background:var(--background); }.kb-editor textarea { resize:vertical; min-height:80px; font-size:15px; font-weight:450; line-height:1.55; }.kb-editor small { font-size:11px; color:var(--muted-foreground); line-height:1.5; }.kb-editor-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.kb-timestamp { font-size:11px; color:var(--muted-foreground); }
 .kb-editor-actions { display:flex; flex-wrap:wrap; gap:8px; padding:12px; border-top:1px solid var(--border); flex:none; margin-top:auto; }.kb-editor-actions>span { flex:1; }.kb .kb-danger { color:var(--destructive); }
 .kb-answer { display:grid; gap:8px; }
+.kb-files { display:grid; gap:8px; }.kb-files-title { font-size:13px; }.kb-files ul { list-style:none; margin:0; padding:0; display:grid; gap:4px; }.kb-files li { display:flex; align-items:center; gap:6px; font-size:12px; }.kb-file-name { flex:1; min-width:0; overflow-wrap:anywhere; }.kb-files .kb-icon { width:28px; min-height:28px; }.kb-attach { cursor:pointer; justify-self:start; }.kb-attach-off { opacity:.45; pointer-events:none; }
 .kb-asks { margin:0; }
 .kb-activity { list-style:none; margin:0; padding:10px 0 0; border-top:1px solid var(--border); display:grid; gap:6px; font-size:12px; color:var(--muted-foreground); max-height:180px; overflow:auto; }
 .kb-activity time { display:block; font-size:11px; color:var(--faint); }
