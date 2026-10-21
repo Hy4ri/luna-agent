@@ -1,7 +1,7 @@
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
 import { GENERAL_PROJECT, ProjectError } from "./projects.js";
 import { BoardError } from "./board.js";
-import { cardEvents, deliverCardEvents, ownerSession } from "./board-events.js";
+import { answerEvent, cardEvents, deliverCardEvents, ownerSession, wakeEvents } from "./board-events.js";
 import { ConversationError, type ConversationStore, type ConversationMeta } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
 import { Hono, type Context as HonoContext } from "hono";
@@ -327,12 +327,17 @@ export function createApp(opts: ServerOptions) {
   app.patch("/v1/projects/:id/cards/:cardId", async (c) => {
     const { conv, id } = boardOf(c);
     const b = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-    // A change through the HTTP API is a user change: the owner session gets an event (the model's board tool sends none).
+    // A change through the HTTP API is a user change: the owner session gets an event (the model's board tool sends none for its own moves).
     const cid = cardId(c);
     const before = conv.board.get(id, cid);
+    const answer = typeof b.answer === "string" && b.answer.trim() ? b.answer : undefined;
+    if (b.answer !== undefined && typeof b.answer !== "string") throw new BoardError(400, "answer must be text");
+    // Answering a blocked card unblocks it, unless the same request sets the reason.
+    if (answer && before?.blocked && b.blocked === undefined) b.blocked = null;
     const card = await write(conv, () => conv.board.update(id, cid, b));
     if (before) {
-      const events = cardEvents(before, card);
+      const events = [...cardEvents(before, card), ...wakeEvents(conv.board, id, before, card), ...(answer ? answerEvent({ ...card, blocked: before.blocked }, answer) : [])];
+      if (answer) conv.board.log(cid, "user", `answer: ${answer.trim().slice(0, 200)}`);
       const dead = await deliverCardEvents(harness, events);
       if (dead.length) {
         for (const o of new Set([before.owner, card.owner])) if (o && dead.includes(ownerSession(o) ?? -1)) conv.board.clearOwner(id, cid, o);
@@ -340,6 +345,10 @@ export function createApp(opts: ServerOptions) {
       }
     }
     return c.json(conv.board.get(id, cid) ?? card);
+  });
+  app.get("/v1/projects/:id/cards/:cardId/activity", (c) => {
+    const { conv, id } = boardOf(c);
+    return c.json({ activity: conv.board.activity(id, cardId(c)) });
   });
   app.delete("/v1/projects/:id/cards/:cardId", async (c) => {
     const { conv, id } = boardOf(c);

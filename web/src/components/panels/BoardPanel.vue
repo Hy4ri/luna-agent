@@ -9,7 +9,7 @@ import type { Project } from '@/lib/types';
 
 type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
-type Card = { id: number; project: number; subject: string; description: string; status: Status; priority: Priority; owner: string | null; labels: string[]; blockedBy: number[]; archived: boolean; created: number; updated: number };
+type Card = { id: number; project: number; subject: string; description: string; status: Status; priority: Priority; owner: string | null; blocked: string | null; labels: string[]; blockedBy: number[]; archived: boolean; created: number; updated: number };
 const columns: [Status, string][] = [['backlog', 'Backlog'], ['todo', 'To do'], ['in_progress', 'In progress'], ['review', 'Review'], ['done', 'Done']];
 const priorities: Priority[] = ['low', 'medium', 'high', 'urgent'];
 const cards = ref<Card[]>([]), selectedPid = ref(''), archived = ref(false);
@@ -17,6 +17,7 @@ const loading = ref(true), busy = ref(false), error = ref(''), notice = ref('');
 const search = ref(''), priority = ref('');
 const editing = ref(false), editingId = ref<number | null>(null), editingArchived = ref(false);
 const form = reactive({ subject: '', description: '', priority: 'medium' as Priority, status: 'backlog' as Status, owner: '', labels: '', blockedBy: '' });
+const answer = ref(''), activity = ref<{ id: number; at: number; by: string; text: string }[]>([]);
 const board = ref<HTMLElement>(), editorTitle = ref<HTMLInputElement>();
 let generation = 0, disposed = false, controller: AbortController | undefined, refreshQueued = false;
 let editorReturn: HTMLElement | null = null;
@@ -63,6 +64,8 @@ function openEditor(c?: Card, status: Status = 'backlog') {
   editorReturn = document.activeElement as HTMLElement | null;
   editingId.value = c?.id ?? null; editingArchived.value = c?.archived ?? false;
   Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: c?.labels.join(', ') || '', blockedBy: c?.blockedBy.map(id => '#' + id).join(', ') || '' });
+  answer.value = ''; activity.value = [];
+  if (c) void json<{ activity: typeof activity.value }>(`/v1/projects/${selectedPid.value}/cards/${c.id}/activity`).then(d => { if (editingId.value === c.id) activity.value = d.activity; }).catch(() => {});
   error.value = ''; editing.value = true; ui.boardEditing = true;
   void nextTick(() => editorTitle.value?.focus());
 }
@@ -92,6 +95,11 @@ function saveCard() {
   const data = { subject: form.subject.trim(), description: form.description, status: form.status, priority: form.priority, owner: form.owner.trim() || null, labels: form.labels.split(',').map(s => s.trim()).filter(Boolean), blockedBy: deps.map(s => Number(s.replace('#', ''))) };
   const path = `/v1/projects/${selectedPid.value}/cards${editingId.value === null ? '' : '/' + editingId.value}`;
   void mutate(() => post(path, data, editingId.value === null ? 'POST' : 'PATCH'), 'Card saved.', true);
+}
+function sendAnswer() {
+  if (editingId.value === null || !answer.value.trim()) return;
+  const path = `/v1/projects/${selectedPid.value}/cards/${editingId.value}`;
+  void mutate(() => post(path, { answer: answer.value.trim() }, 'PATCH'), 'Answer sent.', true);
 }
 function setArchived() {
   if (editingId.value === null) return;
@@ -214,6 +222,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
                   <p v-if="c.description" class="kb-description">{{ c.description }}</p>
                   <div v-if="c.labels.length" class="kb-labels"><span v-for="label in c.labels" :key="label" class="kb-tag">{{ label }}</span></div>
                   <p v-if="blockers(c).length" class="kb-blocked"><LockKeyhole :size="13" /><span><strong>Blocked</strong> · waits on {{ blockers(c).map(id => '#' + id).join(', ') }}</span></p>
+                  <p v-if="c.blocked" class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Needs you</strong> · {{ c.blocked }}</span></p>
                   <div class="kb-owner" :class="{ 'kb-unassigned': !c.owner }"><UserRound :size="13" /><span>{{ c.owner || 'Unassigned' }}</span></div>
                 </div>
                 <div class="kb-card-footer">
@@ -236,7 +245,13 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
           <label>Owner<input v-model="form.owner" aria-label="Owner" maxlength="100" :disabled="busy" /></label>
           <label>Labels<input v-model="form.labels" aria-label="Labels" placeholder="web, runtime" :disabled="busy" /><small>Comma separated. Up to 20 labels, 40 characters each.</small></label>
           <label>Waits on card IDs<input v-model="form.blockedBy" aria-label="Dependencies" placeholder="#12, #18" :disabled="busy" /><small>Comma separated. Dependencies must belong to this project.</small></label>
+          <div v-if="editingCard?.blocked" class="kb-answer">
+            <p class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Blocked</strong> · {{ editingCard.blocked }}</span></p>
+            <label>Answer<textarea v-model="answer" aria-label="Answer" rows="3" maxlength="2000" :disabled="busy"></textarea><small>{{ editingCard.owner && /^session \d+$/.test(editingCard.owner) ? `Sent to ${editingCard.owner}. The card is unblocked.` : 'This card has no session owner. The card is unblocked, nobody is notified.' }}</small></label>
+            <button type="button" class="kb-button" aria-label="Send answer" :disabled="busy || !answer.trim()" @click="sendAnswer">Send answer</button>
+          </div>
           <p v-if="editingCard" class="kb-timestamp">Updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
+          <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> {{ a.text }}</li></ul>
         </div>
         <div class="kb-editor-actions"><button type="submit" class="kb-button kb-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save card' }}</button><button type="button" class="kb-button" :disabled="busy" @click="closeEditor">Cancel</button><span></span><button v-if="editingId !== null" type="button" class="kb-button" :disabled="busy" @click="setArchived">{{ editingArchived ? 'Restore' : 'Archive' }}</button><button v-if="editingId !== null" type="button" class="kb-button kb-danger" :disabled="busy" @click="deleteCard">Delete</button></div>
       </form>
@@ -347,6 +362,11 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-editor-head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid var(--border); flex:none; }.kb-editor-head h3 { margin:0; font-weight:600; }
 .kb-editor-fields { overflow:auto; min-height:0; padding:16px; display:grid; gap:14px; scrollbar-width:thin; }.kb-editor label { display:grid; gap:6px; font-size:13px; min-width:0; }.kb-editor input,.kb-editor textarea,.kb-editor select { width:100%; background:var(--background); }.kb-editor textarea { resize:vertical; min-height:80px; font-size:15px; font-weight:450; line-height:1.55; }.kb-editor small { font-size:11px; color:var(--muted-foreground); line-height:1.5; }.kb-editor-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.kb-timestamp { font-size:11px; color:var(--muted-foreground); }
 .kb-editor-actions { display:flex; flex-wrap:wrap; gap:8px; padding:12px; border-top:1px solid var(--border); flex:none; margin-top:auto; }.kb-editor-actions>span { flex:1; }.kb .kb-danger { color:var(--destructive); }
+.kb-answer { display:grid; gap:8px; }
+.kb-asks { margin:0; }
+.kb-activity { list-style:none; margin:0; padding:10px 0 0; border-top:1px solid var(--border); display:grid; gap:6px; font-size:12px; color:var(--muted-foreground); max-height:180px; overflow:auto; }
+.kb-activity time { display:block; font-size:11px; color:var(--faint); }
+.kb-activity strong { color:var(--foreground); font-weight:550; }
 .kb-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 @media(max-width:1000px) { .kb-editor { position:absolute; inset:0 0 0 auto; width:min(420px,100%); z-index:2; box-shadow:var(--shadow); }.kb-content[inert] { opacity:.35; }.kb-project { flex-basis:150px; }.kb-filters { min-width:260px; } }
 @media(max-width:760px) {

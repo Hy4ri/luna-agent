@@ -804,3 +804,18 @@ Scheduled runs and delegated children do not receive the board tool.
 
 Open **Board** from the sidebar. It selects the active chat's project when opened.
 General cards also appear in the composer's `#` picker. Card references remain scoped to the selected project.
+
+## Board events
+
+A card whose owner is `session <id>` sends that session short events. Free-text owners such as `m57` get none.
+An idle session starts a new turn. A busy session queues the event. A session that no longer exists loses the owner.
+
+- A user change through `PATCH /v1/projects/:id/cards/:cardId` (status, archive, owner) sends one line to the owner.
+  Changes made with the `board` tool send nothing to the changing session.
+- `done` or archive sends a final event, then clears the owner.
+- Blocked: the `board` tool sets `blocked` to a short reason, for example `needs your decision on X`. The board shows it. An empty string clears it.
+- Answer: `PATCH` with `{ "answer": "text" }` sends the answer to the owner and clears the blocked reason.
+- Dependency wake-up: when a card reaches `done`, the owner of each card that waits on it gets one line
+  (`#40 is done, you can start #52`). If other blockers remain, the line names them.
+- Activity: `GET /v1/projects/:id/cards/:cardId/activity` lists who changed the card and when, newest first
+  (`user` or `session <id>`). The card editor shows it.
