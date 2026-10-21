@@ -385,7 +385,15 @@ export async function openSession(id: string | number) {
     },
   });
 }
-export async function newSession(project?: number | string | null): Promise<string | undefined> {
+/** Starts an empty, local-only conversation. The server session is created on the first message (see `createSession`). */
+export async function newSession(project?: number | string | null): Promise<boolean> {
+  if (!leavePages()) return false;
+  clearConversation();
+  chat.project = project ? Number(project) : null;
+  return true;
+}
+/** Creates the server session and opens it. Called when the first message is sent from an empty conversation. */
+export async function createSession(project?: number | string | null): Promise<string | undefined> {
   if (!leavePages()) return;
   const epoch = chat.epoch;
   const body = project ? { project: Number(project) } : {};
@@ -403,8 +411,7 @@ export async function stopRun() {
 }
 /** Starts a new conversation and leaves a Cron report in the composer. Never submits it. */
 export async function continueCronRun(run: any) {
-  const id = await newSession();
-  if (id === undefined || String(id) !== chat.session) throw new Error("Conversation changed. Open the report again to continue.");
+  if (!await newSession() || chat.session) throw new Error("Conversation changed. Open the report again to continue.");
   composer.text = `Discuss this Cron report.\nJob: ${run.jobName}\nRun: #${run.id}\nFinished: ${new Date(run.endedAt || run.startedAt).toISOString()}\nStatus: ${run.status}\n\n${[run.output, run.error ? "Error: " + run.error : null].filter(Boolean).join("\n\n") || "(No output)"}\n\n`;
   saveDraft(); focusInput.value++;
 }

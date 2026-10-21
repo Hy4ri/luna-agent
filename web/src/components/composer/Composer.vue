@@ -90,6 +90,7 @@ const activeProjectId = computed<number | null>(() => {
     const p = chat.project ?? history.list.find(s => String(s.id) === String(chat.session))?.project ?? null;
     return p !== null ? Number(p) : null;
   }
+  if (chat.project !== null) return Number(chat.project);
   let saved = 0;
   try { saved = Number(localStorage.getItem("luna.project") || 0); } catch {}
   if (history.projects.some(p => p.id === saved)) return saved;

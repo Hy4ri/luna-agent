@@ -53,16 +53,17 @@ try {
   const login = async (p: any) => { await p.goto(url); await p.locator("#token").fill("test"); await p.locator("#loginForm button").click(); await p.locator("#login").waitFor({ state: "hidden" }); await ready(p); };
   const row = (p: any, id: number) => p.locator(`[data-session="${id}"]`);
   const selected = (p: any): Promise<number> => p.evaluate(() => Number((globalThis as any).localStorage.getItem("luna.session")));
-  const create = async (p: any) => { const old = await selected(p); await p.locator("#new").click(); await p.waitForFunction((previous: number) => Number((globalThis as any).localStorage.getItem("luna.session")) !== previous, old); await ready(p); return selected(p); };
+  const create = async (p: any) => { const old = await selected(p); await p.locator("#new").click(); return old; };
+  const created = async (p: any, old: number) => { await p.waitForFunction((previous: number) => Number((globalThis as any).localStorage.getItem("luna.session")) !== previous, old); await ready(p); return selected(p); };
   const choose = async (p: any, id: number) => { await row(p, id).locator(".session-open").click(); await ready(p); };
   const send = async (p: any, text: string) => { await ready(p); await p.locator("#input").fill(text); await p.locator("#send").click(); };
   const idle = async (p: any) => { await p.waitForFunction(() => !(globalThis as any).document.getElementById("activity")); };
   const state = async (id: number) => (await (await app.request(`/v1/sessions/${id}?limit=500`, { headers })).json()) as any;
   const mutate = (id: number, changes: object) => app.request(`/v1/sessions/${id}/metadata`, { method: "PATCH", headers, body: JSON.stringify(changes) });
   await login(one); await login(two);
-  const a = await create(one); await send(one, "ALPHA"); await bounded(gates.get("ALPHA")!.entered.promise, "ALPHA entered");
+  const o_oa = await create(one); await send(one, "ALPHA"); const a = await created(one, o_oa); await bounded(gates.get("ALPHA")!.entered.promise, "ALPHA entered");
   await row(two, a).waitFor(); // Live list discovery, without a reload.
-  const b = await create(one); await send(one, "BETA"); await bounded(gates.get("BETA")!.entered.promise, "BETA entered");
+  const o_ob = await create(one); await send(one, "BETA"); const b = await created(one, o_ob); await bounded(gates.get("BETA")!.entered.promise, "BETA entered");
   assert.equal((await state(a)).running, true); assert.equal((await state(b)).running, true);
   const runningIcon = row(one, a).locator('[data-running][aria-label="Running"][title="Running"]');
   await runningIcon.waitFor();
@@ -107,15 +108,15 @@ try {
   console.log("OK session-local drafts/images, device-local text recovery, offline reconciliation without duplicates");
 
   // Rehydrate an in-flight partial after reload. A queued follow-up must be processed once, on that same session.
-  const resume = await create(one); await send(one, "RESUME"); await bounded(gates.get("RESUME")!.entered.promise, "RESUME entered");
+  const o_resume = await create(one); await send(one, "RESUME"); const resume = await created(one, o_resume); await bounded(gates.get("RESUME")!.entered.promise, "RESUME entered");
   await choose(two, resume); await send(two, "/queue queued from second device");
   gates.get("RESUME")!.release.resolve(); await two.locator(".assistant").filter({ hasText: "RESUME partial" }).waitFor();
   await two.reload(); await ready(two); await two.locator(".assistant").filter({ hasText: "RESUME partial" }).waitFor();
   await two.getByText("Reply to queued from second device.", { exact: true }).waitFor(); await idle(two);
   assert.equal(await two.locator(".user").count(), 2); assert.equal(await two.locator(".assistant").count(), 2);
   // Stop affects only the selected run.
-  const stopA = await create(one); await send(one, "STOP-A"); await bounded(gates.get("STOP-A")!.entered.promise, "STOP-A entered");
-  const stopB = await create(one); await send(one, "STOP-B"); await bounded(gates.get("STOP-B")!.entered.promise, "STOP-B entered");
+  const o_stopA = await create(one); await send(one, "STOP-A"); const stopA = await created(one, o_stopA); await bounded(gates.get("STOP-A")!.entered.promise, "STOP-A entered");
+  const o_stopB = await create(one); await send(one, "STOP-B"); const stopB = await created(one, o_stopB); await bounded(gates.get("STOP-B")!.entered.promise, "STOP-B entered");
   await one.locator("#stop").click(); await idle(one);
   assert.equal((await state(stopA)).running, true); assert.equal((await state(stopB)).running, false);
   gates.get("STOP-A")!.release.resolve();
@@ -147,7 +148,7 @@ try {
   console.log("OK delayed history fencing and idempotent retry after lost admission receipt");
 
   // Shared metadata and deletion from another device update an already open viewer automatically.
-  const meta = await create(one); await row(two, meta).waitFor(); await choose(two, meta);
+  const meta = await (async () => { const o = await create(one); await send(one, "META"); return created(one, o); })(); await row(two, meta).waitFor(); await choose(two, meta);
   assert.equal((await mutate(meta, { title: "Shared name", pinned: true })).status, 200);
   await row(two, meta).getByRole("button", { name: "Shared name", exact: true }).waitFor();
   assert.equal(await two.locator(".session-row").first().getAttribute("data-session"), String(meta));

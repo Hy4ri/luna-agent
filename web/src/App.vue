@@ -172,6 +172,7 @@ const activeProject = computed(() => {
     return active ? active.project ?? null : chat.project;
   }
   if (!chat.session) {
+    if (chat.project !== null) return chat.project;
     const saved = localStorage.getItem('luna.project');
     if (saved !== null && saved !== '' && !isNaN(Number(saved))) {
       const num = Number(saved);

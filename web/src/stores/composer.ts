@@ -4,7 +4,7 @@
 import { markRaw, reactive } from "vue";
 import { post } from "@/lib/api";
 import { draftsKey } from "@/lib/pane";
-import { addErr, chat, newSession, putSideJob } from "./chat";
+import { addErr, chat, createSession, putSideJob } from "./chat";
 import { loadSessions } from "./sessions";
 
 export interface Attachment { mimeType: string; data: string; url: string }
@@ -105,7 +105,7 @@ export async function send(text: string, atts: Attachment[]) {
   let sid = chat.session;
   const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map(a => ({ type: a.mimeType.startsWith("audio/") ? "audio" : "image", data: a.data, mimeType: a.mimeType }))] : text;
   for (const a of atts) URL.revokeObjectURL(a.url);
-  if (!sid) { const id = await newSession(); if (!id) return; sid = String(id); }
+  if (!sid) { const id = await createSession(chat.project); if (!id) return; sid = String(id); }
   await submitMessage(sid, { content, requestId: randomId() });
 }
 /** Form submit: takes the draft and sends it. The caller checks the send button state. */
