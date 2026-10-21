@@ -69,7 +69,7 @@ async function shrink(file: File): Promise<Blob> {
 
 // ---- submission ----
 export async function submitMessage(sid: string, body: any) {
-  if (composer.submitting.has(sid)) return;
+  if (composer.submitting.has(sid)) return false;
   composer.submitting.add(sid);
   try {
     const result = await post(`/v1/sessions/${sid}/messages?async=1`, body);
@@ -82,8 +82,10 @@ export async function submitMessage(sid: string, body: any) {
       if (lines.length) chat.busyFeedback = lines.join("\n");
     }
     composer.sendErrors.delete(sid);
+    return true;
   } catch (e) {
     if ((e as Error).message !== "unauthorized") composer.sendErrors.set(sid, { body, message: (e as Error).message });
+    return false;
   } finally {
     composer.submitting.delete(sid);
     loadSessions().catch(() => {});
