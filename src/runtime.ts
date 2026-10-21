@@ -7,11 +7,13 @@ import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
+import { createFileMentionExtension } from "./file-mentions.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
 import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
 import { createRegistry, defineExtension, section, type Extension } from "@earendil-works/pi-durable";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
@@ -174,6 +176,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // Execution workers: other machines that run a session's file and shell tools. Always available; unused without workers.
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
+  extensions.push(createFileMentionExtension({ home: (w) => w === null ? homedir() : workers.store.get(w)?.capabilities?.home }));
 
   const compaction = () => settings?.resolved().compaction ?? cfg.compaction;
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;

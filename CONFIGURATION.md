@@ -387,6 +387,14 @@ When a user message contains `@session:<id>`, the prompt gets a **Referenced ses
 It shows each session's ID, title, project, idle or busy state, and last activity (minute precision).
 Unknown IDs are left out. The agent reads a session with `session_search sessionId=<id>`.
 
+### File mentions
+
+The `@` list also has a **Files** group. It lists the working directory of the session's machine (the main host or an execution worker). Type a directory part to list another directory on that machine: `@file:~/x/`, `@file:/etc/`, `@file:../`. Selecting a directory goes into it. Selecting a file inserts `@file:<path>`.
+
+When a user message contains `@file:<path>`, the prompt gets a **Referenced files** block with the absolute path, kind, and size. The file content is not in the prompt; the agent reads it with `read`.
+
+`GET /v1/files?q=<typed path>&session=<id>` returns `{ cwd, entries }`. For a chat without a session, pass `worker`, `project`, and `cwd` instead of `session`.
+
 The `session_send { to, message }` tool sends a message to another session:
 
 - An idle target starts a new turn. A busy target queues the message as follow-up input. It never interrupts.
@@ -946,6 +954,7 @@ All ordinary endpoints below require the main API token when authentication is e
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| GET | `/v1/files` | `@file:` completion: entries of the session machine's working directory, or of the typed directory. |
 | GET | `/v1/workers` | List registered machines, capabilities, connection state, and last-seen time. No tokens. |
 | POST | `/v1/workers` | `{ "name": "desktop" }` → `{ worker, token }`. Token shown once. |
 | DELETE | `/v1/workers/:id` | Remove machine, revoke token, close its link. Existing sessions keep an unavailable target. |

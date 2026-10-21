@@ -191,7 +191,12 @@ const commandOpen = computed(() => !mentionOpen.value && !!commandMatch.value &&
 const atGroups = computed(() => {
   if (!atMatch.value) return [];
   let flatIndex = 0;
-  return searchMentions(atMatch.value.query, { session: chat.session ? String(chat.session) : null })
+  return searchMentions(atMatch.value.query, {
+    session: chat.session ? String(chat.session) : null,
+    worker: chat.draftWorker,
+    project: activeProjectId.value,
+    cwd: chat.draftCwd,
+  })
     .map(g => ({ id: g.source.id, label: g.source.label, items: g.items.map(item => ({ item, flatIndex: flatIndex++ })) }));
 });
 const atItems = computed<MentionItem[]>(() => atGroups.value.flatMap(g => g.items.map(e => e.item)));
@@ -215,7 +220,8 @@ function selectAt(item: MentionItem) {
   if (!el || !m) return;
   const before = el.value.slice(0, m.start);
   const after = el.value.slice(m.end);
-  const inserted = item.token + (after.startsWith(" ") || after.startsWith("\n") ? "" : " ");
+  // A directory keeps the caret inside the token, so the list moves on to that directory.
+  const inserted = item.token + (item.dir || after.startsWith(" ") || after.startsWith("\n") ? "" : " ");
   const nextText = before + inserted + after;
   const nextCaret = before.length + inserted.length;
   el.value = nextText;
@@ -226,6 +232,7 @@ function selectAt(item: MentionItem) {
   void nextTick(() => {
     el.focus();
     el.setSelectionRange(nextCaret, nextCaret);
+    if (item.dir) updateAtState();
   });
 }
 
