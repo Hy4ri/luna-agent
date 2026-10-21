@@ -24,9 +24,14 @@ function hideJumps() {
   if (jumpRef.value) jumpRef.value.hidden = true;
   if (jumpTopRef.value) jumpTopRef.value.hidden = true;
 }
+// Follow new content only while the user sits at the bottom. Track this from user scrolls:
+// measuring after content grows would read a tall new block as "scrolled up".
+const BOTTOM_PX = 48;
+let pinned = true;
 function scroll(force = false) {
   const log = logRef.value;
-  if (log && (force || log.scrollHeight - log.scrollTop - log.clientHeight < 200)) {
+  if (force) pinned = true;
+  if (log && pinned) {
     programmaticAt = Date.now();
     log.scrollTop = log.scrollHeight;
     programmaticTop = log.scrollTop;
@@ -45,6 +50,7 @@ function handleScroll(event?: Event) {
   const log = logRef.value;
   if (!log) return;
   if (event?.type === "scroll" && Date.now() - programmaticAt < 150 && log.scrollTop === programmaticTop) return;
+  if (event?.type === "scroll") pinned = log.scrollHeight - log.scrollTop - log.clientHeight < BOTTOM_PX;
   if (jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
   if (jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
   clearTimeout(idleTimer);
