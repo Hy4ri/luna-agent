@@ -31,6 +31,7 @@ import { TodoDoc } from "./todo.js";
 import { createAnalyticsCache, readAnalytics } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
 import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
+import { REVIEW_DEFAULT_PROMPT } from "./review.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
 import { entryMedia } from "./media-directives.js";
@@ -604,9 +605,9 @@ export function createApp(opts: ServerOptions) {
     if (body.requestId !== undefined && (typeof body.requestId !== "string" || !body.requestId.trim())) return err(c, 400, "requestId must be a nonempty string");
     if (body.whenBusy !== undefined && !["steer", "followUp", "reject", "redirect"].includes(body.whenBusy)) return err(c, 400, "invalid whenBusy");
     const commandText = typeof content === "string" ? content : content.filter(b => b.type === "text").map(b => b.type === "text" ? b.text : "").join("\n");
-    const side = /^\/(btw|bg)(?:\s+([\s\S]*))?$/.exec(commandText.trim());
+    const side = /^\/(btw|bg|review)(?:\s+([\s\S]*))?$/.exec(commandText.trim());
     if (side) {
-      const kind = side[1] as "btw" | "bg", prompt = (side[2] ?? "").trim();
+      const kind = side[1] as "btw" | "bg" | "review", prompt = (side[2] ?? "").trim() || (kind === "review" ? REVIEW_DEFAULT_PROMPT : "");
       if (!prompt) return err(c, 400, `Usage: /${kind} <${kind === "btw" ? "question" : "prompt"}>`);
       try {
         const job = await sideCommands.start(conv, kind, prompt, content as Input, body.requestId);

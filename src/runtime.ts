@@ -234,7 +234,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const sideCommands = new SideCommands({ harness, models: built.models, route: () => {
     const route = (settings?.resolved() ?? cfg).auxiliary.side_question;
     return route ? { provider: route.provider, modelId: route.model } : undefined;
-  } });
+  }, reviewRoute: () => {
+    const route = (settings?.resolved() ?? cfg).auxiliary.review;
+    return route ? { provider: route.provider, modelId: route.model } : undefined;
+  }, cwd: cfg.cwd });
 
   // Session titles use their own route, else the side-question route; never the session model.
   const titler = new SessionTitler({ harness, conversations, models: built.models, route: () => {
