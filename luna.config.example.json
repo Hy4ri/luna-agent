@@ -12,6 +12,11 @@
     "learn",
     "tool-search"
   ],
+  "video": {
+    "blocked_paths": [],
+    "blocked_hosts": [],
+    "timeout_ms": 180000
+  },
   "image_gen": {
     "openai-codex": { "model": "gpt-image-2", "quality": "low" }
   },

@@ -1,6 +1,7 @@
 import { createImageGenExtension, ImageGenManager, type ImageGenProvider } from "./image-gen.js";
 import { createOpenAICodexImageProvider } from "./plugins/image_gen/openai-codex.js";
 import { createCodexImageAuth } from "./codex-image-auth.js";
+import { createVideoExtension } from "./video.js";
 import { createVisionExtension } from "./vision.js";
 import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
@@ -106,6 +107,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   extensions.push(createImageGenExtension(imageGen, cfg.cwd));
   extensions.push(createVisionExtension({ config: () => settings?.resolved() ?? cfg, models: built.models, defaultModel: () => providers.defaultModel(),
     history: async (id, ctx) => (await (await harnessRef!.conversation(id, ctx))!.context(ctx)) }));
+  extensions.push(createVideoExtension({ config: () => settings?.resolved() ?? cfg, models: built.models,
+    defaultModel: () => providers.defaultModel(), fetch: o.fetch }));
   extensions.push(createWebToolsExtension(cfg.web, new Map([
     ["ddgs", createDdgsWebProvider(cfg.web.providers.ddgs, mcp)],
   ])));
