@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from "vue";
+import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { ChevronLeft, Plus } from "@lucide/vue";
 import { api, post } from "@/lib/api";
 import { useMobile } from "@/lib/dom";
 import { history, loadProjects, loadSessions, sessionTitle } from "@/stores/sessions";
 import { chat, newSession, openSession } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
+import { loadWorkers, workers } from "@/stores/workers";
 import type { Project, SessionMeta } from "@/lib/types";
 
 const mobile = useMobile();
@@ -35,6 +36,27 @@ const dirty = computed(() => selected.value === "new"
   ? !!name.value.trim() && !!cwd.value.trim()
   : !!current.value && (name.value !== current.value.name || cwd.value.trim() !== current.value.cwd));
 
+/** Directory per machine for the selected project. Linking a machine makes it use this project's board. */
+const machineDirs = reactive<Record<number, string>>({});
+const linkedDir = (worker: number) => current.value?.workerDirs?.find(d => d.worker === worker)?.cwd;
+function syncMachineDirs() {
+  for (const k of Object.keys(machineDirs)) delete machineDirs[Number(k)];
+  for (const w of workers.list) machineDirs[w.id] = linkedDir(w.id) ?? "";
+}
+const linkMachine = (worker: number) => run(async () => {
+  const p = current.value; if (!p) return;
+  await post(`/v1/projects/${p.id}/machines/${worker}`, { cwd: (machineDirs[worker] ?? "").trim() }, "PUT");
+  await refresh(); syncMachineDirs(); notice.value = "Saved";
+});
+/** Machines the project is on. The last one cannot be removed; deleting the project is what deletes the board. */
+const machineCount = computed(() => (current.value?.cwd ? 1 : 0) + (current.value?.workerDirs?.length ?? 0));
+const unlinkMachine = (worker: number | "main") => run(async () => {
+  const p = current.value; if (!p) return;
+  const resp = await api(`/v1/projects/${p.id}/machines/${worker}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(((await resp.json().catch(() => ({}))) as { error?: string }).error || resp.statusText);
+  await refresh(); syncMachineDirs(); notice.value = "Removed";
+});
+
 function ago(ms?: number | null) {
   if (!ms) return "";
   const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
@@ -50,6 +72,7 @@ function select(id: number | "new" | null) {
   const p = typeof id === "number" ? history.projects.find(x => x.id === id) : null;
   name.value = p?.name ?? "";
   cwd.value = p?.cwd ?? "";
+  syncMachineDirs();
   if (id !== null) showDetail.value = true;
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
 }
@@ -80,7 +103,10 @@ const save = () => run(async () => {
 
 const remove = () => run(async () => {
   const p = current.value;
-  if (!p || !confirm(`Delete project "${p.name}"? Its conversations stay.`)) return;
+  if (!p) return;
+  const cards = ((await api(`/v1/projects/${p.id}/board`).then(r => r.json()).catch(() => ({ cards: [] }))) as { cards?: unknown[] }).cards?.length ?? 0;
+  const where = machineCount.value > 1 ? ` on all ${machineCount.value} machines` : "";
+  if (!confirm(`Delete project "${p.name}"${where}? This deletes its board (${cards} card${cards === 1 ? "" : "s"}). Its conversations stay. To keep the board for other machines, remove only this machine instead.`)) return;
   const resp = await api(`/v1/projects/${p.id}`, { method: "DELETE" });
   if (!resp.ok) throw new Error(((await resp.json().catch(() => ({}))) as { error?: string }).error || resp.statusText);
   await refresh();
@@ -107,7 +133,7 @@ watch(() => history.projects, list => {
 });
 
 onMounted(async () => {
-  try { await refresh(); } catch (e) { errorMsg.value = (e as Error).message; }
+  try { await Promise.all([refresh(), loadWorkers().catch(() => [])]); } catch (e) { errorMsg.value = (e as Error).message; }
   loading.value = false;
   const active = Number(chat.project ?? localStorage.getItem("luna.project"));
   const start = history.projects.find(p => p.id === active) ?? history.projects[0];
@@ -157,6 +183,22 @@ onMounted(async () => {
           <p v-if="selected !== 'new'" class="pw-muted pw-small">Changes apply to new conversations only.</p>
         </form>
 
+        <div v-if="current && !current.general && workers.list.length" class="pw-sec" id="project-machines">
+          <h4>Machines</h4>
+          <p class="pw-muted pw-small">Every linked machine uses this project's board. Removing a machine leaves the board and the other machines unchanged.</p>
+          <div class="pw-machine pw-host">
+            <span class="pw-machine-name">This host</span>
+            <span class="pw-mono pw-muted">{{ current.cwd || "Not on this host" }}</span>
+            <button v-if="current.cwd" type="button" class="pw-btn" :disabled="busy || machineCount < 2" :title="machineCount < 2 ? 'Last machine. Delete the project instead.' : 'Remove from this host. Other machines keep the board.'" @click="unlinkMachine('main')">Remove</button>
+          </div>
+          <form v-for="w in workers.list" :key="w.id" class="pw-machine" :data-machine="w.id" @submit.prevent="linkMachine(w.id)">
+            <span class="pw-machine-name" :class="{ 'pw-muted': !w.online }">{{ w.name }}<template v-if="!w.online"> · Offline</template></span>
+            <input v-model="machineDirs[w.id]" class="pw-mono" :aria-label="'Directory on ' + w.name" placeholder="/absolute/path on this machine" autocomplete="off" spellcheck="false" />
+            <button type="submit" class="pw-btn" :disabled="busy || !(machineDirs[w.id] ?? '').trim() || (machineDirs[w.id] ?? '').trim() === linkedDir(w.id)">{{ linkedDir(w.id) ? 'Save' : 'Link' }}</button>
+            <button v-if="linkedDir(w.id)" type="button" class="pw-btn" :disabled="busy || machineCount < 2" :title="machineCount < 2 ? 'Last machine. Delete the project instead.' : 'Remove from this machine. Other machines keep the board.'" @click="unlinkMachine(w.id)">Remove</button>
+          </form>
+        </div>
+
         <div v-if="current" class="pw-sec">
           <h4>Recent conversations</h4>
           <p v-if="!recent.length" class="pw-muted">No conversations yet.</p>
@@ -168,7 +210,7 @@ onMounted(async () => {
         </div>
 
         <div v-if="current && !current.general" class="pw-danger">
-          <p>Delete this project. Its conversations stay.</p>
+          <p>Delete this project and its board on every machine. Its conversations stay.</p>
           <button class="pw-btn pw-del" :disabled="busy" @click="remove">Delete</button>
         </div>
       </template>
@@ -192,6 +234,9 @@ onMounted(async () => {
 .pw-title { margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
 .pw-sec { display: grid; gap: 10px; }
 .pw-sec h4 { margin: 0; font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); font-weight: 600; }
+.pw-machine { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
+.pw-host { grid-template-columns: 120px minmax(0, 1fr) auto; }
+.pw-machine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .pw-field { display: grid; gap: 6px; font-size: 13px; color: var(--muted-foreground); }
 input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: 7px; padding: 8px 10px; font-size: 14px; outline: none; }
 input:focus { border-color: var(--ring); }
@@ -216,6 +261,8 @@ input:focus { border-color: var(--ring); }
 .pw-back { display: inline-flex; align-items: center; gap: 4px; justify-self: start; background: transparent; border: 0; color: var(--muted-foreground); font-size: 14px; padding: 0; cursor: pointer; }
 @media (max-width: 760px) {
   .pw-list { width: 100%; border-right: 0; }
+  .pw-machine { grid-template-columns: 1fr auto auto; }
+  .pw-machine-name, .pw-machine > .pw-mono { grid-column: 1 / -1; }
   .pw-main { display: none; padding: 16px; }
   .pw-detail .pw-list { display: none; }
   .pw-detail .pw-main { display: grid; }

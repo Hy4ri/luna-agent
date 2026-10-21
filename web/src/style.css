@@ -292,6 +292,35 @@ aside#side.collapsed #history-rail {
   background: var(--sidebar-accent);
   color: var(--sidebar-foreground);
 }
+.machine-header {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+}
+.machine-header .group-toggle {
+  color: var(--sidebar-foreground);
+  font-weight: 600;
+}
+.machine-state {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.machine-header.offline .group-name,
+.session-group.offline .group-name {
+  color: var(--muted-foreground);
+}
+.session-group.in-machine {
+  padding-left: 10px;
+}
+.session-group.offline .session-title {
+  opacity: 0.6;
+}
+.group-new:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .group-body {
   padding-left: 12px;
   display: flex;

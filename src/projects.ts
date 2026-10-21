@@ -6,7 +6,9 @@ import type { DatabaseSync } from "node:sqlite";
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
-export type Project = { id: number; name: string; cwd: string; general?: boolean };
+/** A project's working directory on one execution worker. `cwd` on the project itself is the directory on the main host. */
+export type WorkerDir = { worker: number; cwd: string };
+export type Project = { id: number; name: string; cwd: string; general?: boolean; workerDirs?: WorkerDir[] };
 // ID zero is reserved; persisted project IDs start at one. No migration or session rewrites are needed.
 export const GENERAL_PROJECT: Readonly<Project> = Object.freeze({ id: 0, name: "General", cwd: "", general: true });
 
@@ -21,23 +23,72 @@ export class ProjectStore {
       ) STRICT;
       CREATE TABLE IF NOT EXISTS luna_session_projects (
         conversation_id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS luna_project_worker_dirs (
+        project_id INTEGER NOT NULL, worker_id INTEGER NOT NULL, cwd TEXT NOT NULL, PRIMARY KEY (project_id, worker_id)
       ) STRICT;`);
   }
+  /** One board serves every machine of a project, so linking machines only records a directory per worker. */
+  private dirs(): Map<number, WorkerDir[]> {
+    const out = new Map<number, WorkerDir[]>();
+    for (const r of this.db.prepare("SELECT project_id, worker_id, cwd FROM luna_project_worker_dirs ORDER BY worker_id").all() as { project_id: number; worker_id: number; cwd: string }[])
+      out.set(r.project_id, [...(out.get(r.project_id) ?? []), { worker: r.worker_id, cwd: r.cwd }]);
+    return out;
+  }
   list(): Project[] {
-    return [{ ...GENERAL_PROJECT }, ...this.db.prepare("SELECT id, name, cwd FROM luna_projects ORDER BY name COLLATE NOCASE").all() as Omit<Project, "general">[]];
+    const dirs = this.dirs();
+    const rows = this.db.prepare("SELECT id, name, cwd FROM luna_projects ORDER BY name COLLATE NOCASE").all() as Omit<Project, "general" | "workerDirs">[];
+    return [{ ...GENERAL_PROJECT }, ...rows.map(r => ({ ...r, workerDirs: dirs.get(r.id) ?? [] }))];
   }
   get(id: number): Project | undefined {
     if (id === GENERAL_PROJECT.id) return { ...GENERAL_PROJECT };
-    return this.db.prepare("SELECT id, name, cwd FROM luna_projects WHERE id=?").get(id) as Project | undefined;
+    const r = this.db.prepare("SELECT id, name, cwd FROM luna_projects WHERE id=?").get(id) as Omit<Project, "workerDirs"> | undefined;
+    return r && { ...r, workerDirs: this.dirs().get(id) ?? [] };
+  }
+  /** Directory for a new session on a machine: `null` is the main host. */
+  dirFor(id: number, worker: number | null): string | undefined {
+    const p = this.get(id); if (!p || p.general) return undefined;
+    return worker === null ? p.cwd : p.workerDirs?.find(d => d.worker === worker)?.cwd;
+  }
+  /** Link a project to a worker by recording its directory there. The path is checked by the worker when a session uses it. */
+  setWorkerDir(id: number, worker: number, cwd: unknown): Project {
+    if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
+    if (!this.get(id)) throw new ProjectError(404, "no such project");
+    if (!Number.isSafeInteger(worker) || worker < 1) throw new ProjectError(400, "invalid worker");
+    if (typeof cwd !== "string" || !isAbsolute(cwd) || cwd.length > 4096 || cwd.includes("\0")) throw new ProjectError(400, "cwd must be an absolute path");
+    this.db.prepare("INSERT OR REPLACE INTO luna_project_worker_dirs(project_id, worker_id, cwd) VALUES (?,?,?)").run(id, worker, cwd.trim());
+    return this.get(id)!;
+  }
+  removeWorkerDir(id: number, worker: number): Project {
+    const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
+    const here = cur.workerDirs?.some(d => d.worker === worker);
+    if (here && !cur.cwd && cur.workerDirs!.length === 1) throw new ProjectError(409, "This is the last machine of the project. Delete the project to remove its board.");
+    this.db.prepare("DELETE FROM luna_project_worker_dirs WHERE project_id=? AND worker_id=?").run(id, worker);
+    return this.get(id)!;
+  }
+  /** Take the project off the main host. Other machines keep it and its board. An empty `cwd` means not on this host. */
+  removeHostDir(id: number): Project {
+    if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
+    const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
+    if (!cur.cwd) return cur;
+    if (!cur.workerDirs?.length) throw new ProjectError(409, "This is the last machine of the project. Delete the project to remove its board.");
+    this.db.prepare("UPDATE luna_projects SET cwd='' WHERE id=?").run(id);
+    return this.get(id)!;
+  }
+  /** A removed worker leaves no stale links. */
+  forgetWorker(worker: number) { this.db.prepare("DELETE FROM luna_project_worker_dirs WHERE worker_id=?").run(worker); }
+  private cleanName(name: unknown): string {
+    if (typeof name !== "string" || !name.trim() || name.trim().length > 100) throw new ProjectError(400, "name must contain 1 to 100 characters");
+    return name.trim();
   }
   private clean(name: unknown, cwd: unknown): { name: string; cwd: string } {
-    if (typeof name !== "string" || !name.trim() || name.trim().length > 100) throw new ProjectError(400, "name must contain 1 to 100 characters");
+    const clean = this.cleanName(name);
     if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new ProjectError(400, "cwd must be an absolute path");
     const dir = resolve(cwd);
     let ok = false;
     try { ok = statSync(dir).isDirectory(); } catch {}
     if (!ok) throw new ProjectError(400, "cwd is not an existing directory");
-    return { name: name.trim(), cwd: dir };
+    return { name: clean, cwd: dir };
   }
   private taken(name: string, except?: number) {
     if (name.toLowerCase() === GENERAL_PROJECT.name.toLowerCase() && this.get(except ?? -1)?.name.toLowerCase() !== name.toLowerCase()) throw new ProjectError(409, "General is reserved for chats outside named projects");
@@ -47,20 +98,25 @@ export class ProjectStore {
   create(name: unknown, cwd: unknown): Project {
     const v = this.clean(name, cwd); this.taken(v.name);
     const r = this.db.prepare("INSERT INTO luna_projects(name, cwd) VALUES (?,?)").run(v.name, v.cwd);
-    return { id: Number(r.lastInsertRowid), ...v };
+    return { id: Number(r.lastInsertRowid), ...v, workerDirs: [] };
   }
   update(id: number, changes: { name?: unknown; cwd?: unknown }): Project {
     if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
     const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
-    const v = this.clean(changes.name ?? cur.name, changes.cwd ?? cur.cwd); this.taken(v.name, id);
+    const next = changes.cwd ?? cur.cwd;
+    if (next === "" && !cur.workerDirs?.length) throw new ProjectError(400, "cwd must be an absolute path");
+    // A project that is only on other machines keeps an empty host directory.
+    const v = next === "" ? { name: this.cleanName(changes.name ?? cur.name), cwd: "" } : this.clean(changes.name ?? cur.name, next);
+    this.taken(v.name, id);
     this.db.prepare("UPDATE luna_projects SET name=?, cwd=? WHERE id=?").run(v.name, v.cwd, id);
-    return { id, ...v };
+    return { id, ...v, workerDirs: cur.workerDirs ?? [] };
   }
   /** Existing sessions keep their directory and fall back to General. */
   delete(id: number) {
     if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be deleted");
     if (!this.get(id)) throw new ProjectError(404, "no such project");
     this.db.prepare("DELETE FROM luna_session_projects WHERE project_id=?").run(id);
+    this.db.prepare("DELETE FROM luna_project_worker_dirs WHERE project_id=?").run(id);
     this.db.prepare("DELETE FROM luna_projects WHERE id=?").run(id);
     this.onDelete?.(id);
   }
