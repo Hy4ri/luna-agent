@@ -108,14 +108,19 @@ try {
   assert.equal(boxes.length, 3);
   assert.ok(boxes[1].x >= boxes[0].x + boxes[0].width - 1 && boxes[2].x >= boxes[1].x + boxes[1].width - 1);
   assert.ok(Math.abs(boxes[0].width - boxes[2].width) < 2, "Desktop tiles share the workspace equally");
-  // Split controls: hidden until a 1s hover, then swap and resize.
+  // Split controls: hidden until a 0.5s hover, then swap and resize.
   const split = page.locator(".tile-split").first();
   const xs = () => page.locator("[data-session-tile]:visible").evaluateAll((els: any[]) => els.map(el => ({ id: el.dataset.tileSession || "primary", x: el.getBoundingClientRect().x, w: el.getBoundingClientRect().width })).sort((a: any, b: any) => a.x - b.x));
   const before = await xs();
   const sb = await split.boundingBox(); assert.ok(sb);
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now() + 100));
   await page.mouse.move(sb.x + 0.5, sb.y + sb.height / 2 + 120);
-  await page.waitForTimeout(300); assert.equal(await page.locator(".tile-split-actions").count(), 0, "Controls wait one second");
-  await page.waitForSelector(".tile-split-actions", { timeout: 2000 });
+  await page.clock.fastForward(499);
+  assert.equal(await page.locator(".tile-split-actions").count(), 0, "Controls stay hidden before 500ms");
+  await page.clock.fastForward(1);
+  assert.equal(await page.locator(".tile-split-actions").count(), 1, "Controls appear at 500ms");
+  await page.clock.resume();
   await page.locator('[aria-label="Swap tiles"]').click();
   const swapped = await xs();
   assert.equal(swapped[0].id, before[1].id, "Swap exchanges the two neighbouring tiles"); assert.equal(swapped[1].id, before[0].id);
