@@ -14,7 +14,7 @@ const dir = mkdtempSync(join(tmpdir(), "luna-reasoning-"));
 const models = createModels(); models.setProvider(fauxProvider({ models: [{ id: "main", reasoning: true }] }).provider);
 const model = { provider: "faux", modelId: "main" };
 const rt = await startRuntime(parseConfig({ dataDir: dir, provider: "faux" }, dir, {}), { models, model });
-const app = createApp({ harness: rt.harness, models: rt.models, agent: { model }, token: "test" });
+const app = createApp({ harness: rt.harness, models: rt.models, agent: { model, thinkingLevel: "medium" }, token: "test" });
 const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
 await new Promise<void>(resolve => server.listening ? resolve() : server.once("listening", resolve));
 let browser: any;
@@ -30,6 +30,17 @@ try {
   await page.locator('#model-picker details summary').click();
   await page.locator('#model-picker [data-model="faux/main"]').click();
   await page.locator("#model-picker").waitFor({ state: "hidden" });
+  // The empty picker no longer creates a session. Seed an existing session for persistence checks.
+  const created = await (await app.request("/v1/sessions", { method: "POST", headers: { authorization: "Bearer test", "content-type": "application/json" }, body: JSON.stringify({ model, thinkingLevel: "off" }) })).json() as { id: number };
+  await page.evaluate((id: number) => (globalThis as any).openSession(String(id)), created.id);
+  await page.waitForFunction(() => !!localStorage.getItem("luna.session"));
+  const headers = { authorization: "Bearer test", "content-type": "application/json" };
+  const readAgent = async (id: number) => (await (await app.request(`/v1/sessions/${id}`, { headers })).json() as any).agent;
+  assert.equal((await readAgent(created.id)).thinkingLevel, "off", "Explicit off overrides the server default");
+  const inherited = await (await app.request("/v1/sessions", { method: "POST", headers, body: "{}" })).json() as { id: number };
+  assert.equal((await readAgent(inherited.id)).thinkingLevel, "medium", "Omitted reasoning retains the server default");
+  const invalid = await app.request("/v1/sessions", { method: "POST", headers, body: JSON.stringify({ thinkingLevel: "invalid" }) });
+  assert.equal(invalid.status, 400);
   const sid = await page.evaluate(() => localStorage.getItem("luna.session"));
   assert.ok(sid);
   const trigger = page.locator("#think"), picker = page.locator("#reasoning-picker"), slider = page.locator("#reasoning-slider");
