@@ -55,7 +55,10 @@ onBeforeUnmount(() => clearTimeout(idleTimer));
 watch(() => chat.extras?.questions, (questions, previous) => {
   const added = questions?.find(q => !previous?.some(old => old.callId === q.callId));
   void nextTick(() => {
-    if (added) document.querySelector<HTMLElement>(`[data-ask="${CSS.escape(added.callId)}"]`)?.scrollIntoView({ block: "start" });
+    const log = logRef.value;
+    const form = added && document.querySelector<HTMLElement>(`[data-ask="${CSS.escape(added.callId)}"]`);
+    // Scroll only the log. scrollIntoView also scrolls overflow:hidden ancestors and pushes the composer up.
+    if (log && form) log.scrollTop += form.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
   });
 });
 watch(() => chat.followTick, () => nextTick(() => scroll(true)));
