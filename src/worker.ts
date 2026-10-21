@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import WebSocket from "ws";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { FileError } from "@earendil-works/pi-durable/env";
 import { CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, PROTOCOL_VERSION, decode, encodeResult,
   type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 
@@ -74,7 +75,15 @@ export function startWorker(o: WorkerOptions) {
           if (!(ENV_METHODS as readonly string[]).includes(m.method)) throw new Error(`unsupported method ${m.method}`);
           const env = envFor(m.cwd || cwd);
           const args = decode(m.args) as unknown[];
-          if (m.method === "exec") {
+          if (m.method === "readConfined") {
+            const { confinedRead, ConfinedReadError } = await import("./confined-read.js");
+            try { result = { ok: true, value: await confinedRead(args[0] as string, args[1] as never, { cwd: m.cwd || cwd, signal: controller.signal }) }; }
+            catch (error) {
+              if (controller.signal.aborted) throw error;
+              const code = error instanceof ConfinedReadError ? "permission_denied" : (error as { code?: string }).code === "ENOENT" ? "not_found" : "invalid";
+              result = { ok: false, error: new FileError(code as never, error instanceof Error ? error.message : String(error), args[0] as string) };
+            }
+          } else if (m.method === "exec") {
             const options = { ...(args[1] as object | undefined), onOutput: (text: string, _c: unknown, info: unknown) => send({ t: "output", id: m.id, text, info }) };
             result = await env.exec(args[0] as string, options, ctx);
           } else {

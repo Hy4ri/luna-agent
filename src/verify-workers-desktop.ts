@@ -1,6 +1,8 @@
 // Opt-in real desktop gate. No provider calls, installs, or persistent services.
 // LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 pnpm run verify:workers:desktop
 import assert from "node:assert/strict";
+import { materializeVideo } from "./video-source.js";
+import { confinedReader } from "./worker-protocol.js";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -79,12 +81,20 @@ try {
   assert.match(text, /machine=hyari/); assert.match(text, /x86_64/); assert.ok(text.includes(remote)); assert.match(text, /desktop-proof/);
   const viewed = await call(`/v1/sessions/${id}`);
   assert.equal(viewed.machine.id, w.worker.id); assert.ok(viewed.entries.length > 0);
+  // Protected media reads run on desktop: one open, policy checked on the opened file.
+  const remoteEnv = rt.workers.env(w.worker.id, remote);
+  const media = { signal: new AbortController().signal, cwd: remote, env: remoteEnv, dataDir: dir, blocked_hosts: [], blocked_paths: ["blocked.mp4"] };
+  await (await conv.submit({ type: "input", content: "printf VIDEO > ok.mp4; printf NO > blocked.mp4; ln -s blocked.mp4 alias.mp4; mkdir .ssh; printf KEY > .ssh/k.mp4; ln -s .ssh/k.mp4 key.mp4" }, context)).wait(context);
+  assert.equal(Buffer.from((await materializeVideo("ok.mp4", media)).data, "base64").toString(), "VIDEO");
+  for (const name of ["blocked.mp4", "alias.mp4", "key.mp4"]) await assert.rejects(materializeVideo(name, media), /Read blocked/, name);
+  const outside = await confinedReader(remoteEnv)!.readConfined("/etc/os-release", { root: remote, maxBytes: 65536 }, context);
+  assert.ok(!outside.ok && /outside the conversation working directory/.test(outside.error.message), "desktop refuses a source outside its cwd");
   // Main can view and move the same shared session, without a second agent or database on desktop.
   await call(`/v1/sessions/${id}/machine`, "PUT", { worker: null, cwd: dir });
   await (await conv.submit({ type: "input", content: "uname -m; pwd" }, context)).wait(context);
   const main = output.at(-1).content.filter((x: any) => x.type === "text").map((x: any) => x.text).join("");
   assert.match(main, /aarch64/); assert.ok(main.includes(dir));
-  console.log("WORKERS_DESKTOP_OK: desktop x86_64 execution, shared history, explicit transfer to main aarch64");
+  console.log("WORKERS_DESKTOP_OK: desktop x86_64 execution, shared history, protected media reads on desktop, explicit transfer to main aarch64");
 } finally {
   rt.workers.close();
   ssh?.kill("SIGTERM");

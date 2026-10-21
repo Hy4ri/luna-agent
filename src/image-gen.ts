@@ -5,7 +5,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type, type TSchema } from "typebox";
 import { loadVisionImage, fitVisionImage } from "./vision-images.js";
-import { isWorkerEnv } from "./worker-protocol.js";
+import { confinedReader, isWorkerEnv } from "./worker-protocol.js";
 
 export type AspectRatio = "landscape" | "square" | "portrait";
 export type CreativeControl = "creativity" | "intensity" | "complexity" | "movement";
@@ -42,27 +42,14 @@ async function source(value: unknown, cwd: string, signal: AbortSignal, env?: im
   let input = value;
   if (!/^https?:|^data:/i.test(value)) {
     if (env && isWorkerEnv(env)) {
+      // One worker-side open: confinement is checked on the opened file and the bytes come from it.
+      const reader = confinedReader(env);
+      if (!reader) throw new Error("This execution machine cannot read source images safely. Update the worker.");
       const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
-      const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
-      const absPath = await env.absolutePath(value as string, ctx);
-      if (!absPath.ok) throw new Error(`Source image error: ${absPath.error.message}`);
-      const canonical = await env.canonicalPath(absPath.value, ctx);
-      // Fail closed: confinement needs both canonical paths from the worker.
-      if (!canonical.ok) throw new Error(`Source image error: ${canonical.error.message}`);
-      const actual = canonical.value;
-      const canonicalBase = await env.canonicalPath(env.cwd || cwd, ctx);
-      if (!canonicalBase.ok) throw new Error(`Source image error: ${canonicalBase.error.message}`);
-      const root = canonicalBase.value;
-      const rel = relative(root, actual);
-      if (rel === ".." || rel.startsWith("../") || isAbsolute(rel))
-        throw new Error("Source image is outside the conversation working directory.");
-      const info = await env.fileInfo(actual, ctx);
-      if (!info.ok || info.value.kind !== "file") throw new Error("Source must be a regular image file of at most 32 MiB.");
-      if (info.value.size > 32 * 1024 * 1024) throw new Error("Source image exceeds 32 MiB.");
-      const read = await env.readBinaryFile(actual, ctx);
-      if (!read.ok) throw new Error(`Source image read failed on worker: ${read.error.message}`);
+      const read = await reader.readConfined(value, { root: env.cwd || cwd, maxBytes: 32 * 1024 * 1024 }, withAbortSignal(signal, BACKGROUND_CONTEXT));
+      if (!read.ok) throw new Error(/outside the conversation working directory/.test(read.error.message)
+        ? "Source image is outside the conversation working directory." : `Source image read failed on worker: ${read.error.message}`);
       const bytes = Buffer.from(read.value);
-      if (bytes.length > 32 * 1024 * 1024) throw new Error("Source image exceeds 32 MiB.");
       const sharp = (await import("sharp")).default;
       const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata();
       const mime = metadata.format === "jpeg" ? "image/jpeg" : `image/${metadata.format}`;

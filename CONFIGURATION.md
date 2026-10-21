@@ -826,8 +826,14 @@ An idle session starts a new turn. A busy session queues the event. A session th
 One main daemon owns sessions, history, agent execution, models, skills, memory, settings, and schedules.
 A worker runs only file and shell operations for sessions that explicitly target it.
 Opening or sending instructions to a session never changes its execution machine.
-Browser, MCP, web, image generation, vision, and video tools stay on main in this version.
-Those tools cannot use a worker-local path. Native `read` can return worker images through the execution environment.
+Browser, MCP, web, image generation, vision, and video tools run on main.
+In a worker session, they read local file paths from the worker.
+`video_analyze` applies the credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
+`image_generate` source images must be inside the worker's working directory.
+The worker opens each protected file once. It checks the opened file and reads from it, so a symlink swap cannot redirect the read.
+These protected reads need a Linux worker at the same Luna version as main. Other workers refuse them.
+A generated image is copied into the worker's working directory.
+If that copy fails, the tool reports `worker_delivery_failed` and gives the path of the copy on main. Do not regenerate the image.
 
 ### Register and connect
 

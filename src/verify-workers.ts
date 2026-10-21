@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -18,6 +18,7 @@ import { createApp } from "./server.js";
 import { CONNECT_PATH, isWorkerEnv } from "./worker-protocol.js";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { materializeVideo } from "./video-source.js";
+import { confinedRead } from "./confined-read.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "luna-workers-")));
 const mainCwd = join(dir, "main"), workerCwd = join(dir, "worker");
@@ -226,6 +227,40 @@ try {
   // Video path protections apply to worker sessions too
   const blockedVideo = join(workerCwd, "blocked.mp4");
   writeFileSync(blockedVideo, Buffer.from("fake video content"));
+  // Check/read race: the policy is checked on the opened descriptor, and the bytes come from it.
+  {
+    const raceRoot = join(workerCwd, "race"), outsideDir = join(dir, "race-outside");
+    mkdirSync(raceRoot, { recursive: true }); mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, "secret.png"), "OUTSIDE");
+    const policy = { root: raceRoot, maxBytes: 1024 };
+    // Inside at open, swapped to an outside link before the check: the read still returns the opened inside file.
+    writeFileSync(join(raceRoot, "a.png"), "INSIDE");
+    const swapOut = async () => { renameSync(join(raceRoot, "a.png"), join(raceRoot, "a-moved.png")); symlinkSync(join(outsideDir, "secret.png"), join(raceRoot, "a.png")); };
+    assert.equal(Buffer.from(await confinedRead("a.png", policy, { cwd: raceRoot, afterOpen: swapOut })).toString(), "INSIDE");
+    // Outside at open, swapped to an inside file before the check: refused, because the opened file is outside.
+    symlinkSync(join(outsideDir, "secret.png"), join(raceRoot, "b.png"));
+    const swapIn = async () => { rmSync(join(raceRoot, "b.png")); writeFileSync(join(raceRoot, "b.png"), "INSIDE"); };
+    await assert.rejects(confinedRead("b.png", policy, { cwd: raceRoot, afterOpen: swapIn }), /outside the conversation working directory/);
+    // A parent directory swapped for a link after open does not redirect the read either.
+    mkdirSync(join(raceRoot, "sub")); writeFileSync(join(raceRoot, "sub", "c.png"), "INSIDE");
+    mkdirSync(join(outsideDir, "sub")); writeFileSync(join(outsideDir, "sub", "c.png"), "OUTSIDE");
+    const swapParent = async () => { renameSync(join(raceRoot, "sub"), join(raceRoot, "sub-moved")); symlinkSync(join(outsideDir, "sub"), join(raceRoot, "sub")); };
+    assert.equal(Buffer.from(await confinedRead("sub/c.png", policy, { cwd: raceRoot, afterOpen: swapParent })).toString(), "INSIDE");
+    // Blocked paths and credential components are checked on the opened file too.
+    writeFileSync(join(raceRoot, "blocked.mp4"), "BLOCKED");
+    symlinkSync(join(raceRoot, "blocked.mp4"), join(raceRoot, "d.mp4"));
+    const swapBlocked = async () => { rmSync(join(raceRoot, "d.mp4")); writeFileSync(join(raceRoot, "d.mp4"), "OTHER"); };
+    await assert.rejects(confinedRead("d.mp4", { blocked: ["blocked.mp4"], maxBytes: 1024 }, { cwd: raceRoot, afterOpen: swapBlocked }), /Read blocked/);
+    mkdirSync(join(raceRoot, ".ssh")); writeFileSync(join(raceRoot, ".ssh", "id.mp4"), "KEY");
+    symlinkSync(join(raceRoot, ".ssh", "id.mp4"), join(raceRoot, "e.mp4"));
+    const swapCred = async () => { rmSync(join(raceRoot, "e.mp4")); writeFileSync(join(raceRoot, "e.mp4"), "OTHER"); };
+    await assert.rejects(confinedRead("e.mp4", { credentials: true, maxBytes: 1024 }, { cwd: raceRoot, afterOpen: swapCred }), /Read blocked/);
+    // A file deleted after open is refused, never read blind.
+    writeFileSync(join(raceRoot, "f.png"), "GONE");
+    await assert.rejects(confinedRead("f.png", policy, { cwd: raceRoot, afterOpen: async () => rmSync(join(raceRoot, "f.png")) }), /changed while it was opened/);
+    writeFileSync(join(raceRoot, "big.png"), "12345");
+    await assert.rejects(confinedRead("big.png", { maxBytes: 4 }, { cwd: raceRoot }), /exceeds/);
+  }
   // Local sessions must keep the local media guards: only a worker env takes the remote media branches.
   assert.equal(isWorkerEnv(new NodeExecutionEnv({ cwd: mainCwd })), false);
   assert.equal(isWorkerEnv(rt.workers.env(workerId, workerCwd)), true);

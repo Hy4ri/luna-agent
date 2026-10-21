@@ -7,7 +7,8 @@ import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import { isPublicVisionAddress } from "./vision-images.js";
-import { isWorkerEnv } from "./worker-protocol.js";
+import { confinedReader, isWorkerEnv } from "./worker-protocol.js";
+import { credentialPath, within } from "./confined-read.js";
 
 export const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 export const VIDEO_WARNING_BYTES = 20 * 1024 * 1024;
@@ -95,35 +96,20 @@ async function download(source: string, options: VideoSourceOptions): Promise<Bu
   }
   throw new Error("Video download failed.");
 }
-const within = (file: string, blocked: string) => file === blocked || file.startsWith(blocked + sep);
-const credentialPath = (path: string) => path.split(sep).some(p => /^\.env(?:\.|$)|^\.(?:ssh|aws|gnupg)$|^(?:auth|credentials|secrets)\.json$|^luna\.config(?:\.[^/]+)?\.json$/i.test(p));
 async function localBytes(source: string, options: VideoSourceOptions): Promise<Buffer> {
   if (options.env && isWorkerEnv(options.env)) {
+    // One worker-side open: the policy is checked on the opened file and the bytes come from it.
+    // Main-host paths (dataDir, configPath) do not exist on the worker; blocked_paths resolve on the worker.
+    const reader = confinedReader(options.env);
+    if (!reader) throw new Error("Invalid video source: this execution machine cannot read media safely. Update the worker.");
     const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
-    const ctx = withAbortSignal(options.signal, BACKGROUND_CONTEXT);
-    const absPath = await options.env.absolutePath(source, ctx);
-    if (!absPath.ok) throw new Error(`Video file error: ${absPath.error.message}`);
-    // Fail closed: a path the worker cannot canonicalize is not read.
-    const canonical = await options.env.canonicalPath(absPath.value, ctx);
-    if (!canonical.ok) throw new Error(`Invalid video source: ${canonical.error.message}`);
-    const path = canonical.value;
-    // Main-host paths (dataDir, configPath) do not exist on the worker. Resolve blocked_paths on the worker.
-    for (const value of options.blocked_paths) {
-      const abs = await options.env.absolutePath(value, ctx);
-      if (!abs.ok) continue;
-      const real = await options.env.canonicalPath(abs.value, ctx);
-      const blocked = real.ok ? real.value : abs.value;
-      if (within(path, blocked) || within(absPath.value, abs.value)) throw new Error("Read blocked: protected credential or video.blocked_paths.");
-    }
-    if (credentialPath(path)) throw new Error("Read blocked: credential file.");
-    const info = await options.env.fileInfo(path, ctx);
-    if (!info.ok || info.value.kind !== "file") throw new Error("Invalid video source: expected a regular local file.");
-    if (info.value.size > VIDEO_MAX_BYTES) throw new Error("Video exceeds 50 MiB transport limit; compress or trim.");
-    const read = await options.env.readBinaryFile(path, ctx);
-    if (!read.ok) throw new Error(`Invalid video source: failed to read from worker: ${read.error.message}`);
-    const bytes = Buffer.from(read.value);
-    if (bytes.length > VIDEO_MAX_BYTES) throw new Error("Video exceeds 50 MiB transport limit; compress or trim.");
-    return bytes;
+    const read = await reader.readConfined(source, { blocked: options.blocked_paths, credentials: true, maxBytes: VIDEO_MAX_BYTES },
+      withAbortSignal(options.signal, BACKGROUND_CONTEXT));
+    if (read.ok) return Buffer.from(read.value);
+    const message = read.error.message;
+    if (/^Read blocked/.test(message)) throw new Error(message);
+    if (/exceeds/.test(message)) throw new Error("Video exceeds 50 MiB transport limit; compress or trim.");
+    throw new Error(`Invalid video source: ${message}`);
   }
   const path = await realpath(resolve(options.cwd ?? process.cwd(), source));
   const protectedPaths = [join(options.dataDir, "auth.json"), join(options.dataDir, "mcp.json"),

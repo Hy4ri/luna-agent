@@ -8,6 +8,13 @@ export const WORKER_ENV_PREFIX = "luna-worker:";
 export const isWorkerEnv = (env: { id: string } | undefined): boolean => !!env && env.id.startsWith(WORKER_ENV_PREFIX);
 
 export const PROTOCOL_VERSION = 1;
+
+/** Worker-only operation: open once, check the policy on the opened file, read from it. Not an ExecutionEnv method. */
+export interface ConfinedReader {
+  readConfined(path: string, policy: import("./confined-read.js").ConfinedReadPolicy, context: import("@earendil-works/chord").Context): Promise<Result<Uint8Array, Error>>;
+}
+export const confinedReader = (env: unknown): ConfinedReader | undefined =>
+  isWorkerEnv(env as { id: string }) && typeof (env as Partial<ConfinedReader>).readConfined === "function" ? env as ConfinedReader : undefined;
 export const CONNECT_PATH = "/v1/workers/connect";
 
 /** ExecutionEnv methods a worker serves. Anything else is refused on both sides. */
@@ -15,6 +22,7 @@ export const ENV_METHODS = [
   "absolutePath", "joinPath", "readTextFile", "readTextLines", "readBinaryFile", "writeFile", "appendFile", "truncateFile",
   "flushFile", "renameFile", "fileInfo", "listDir", "listFiles", "canonicalPath", "exists", "createDir", "remove",
   "createTempDir", "createTempFile", "exec", "openBinaryReader", "openTextLineReader", "openDirReader",
+  "readConfined",
 ] as const;
 export type EnvMethod = typeof ENV_METHODS[number];
 /** Methods that return a reader object; the worker keeps it and main gets a handle. */
