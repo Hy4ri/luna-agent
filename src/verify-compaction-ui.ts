@@ -117,7 +117,8 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => (globalThis as any).document.documentElement.scrollWidth <= (globalThis as any).innerWidth), true);
   await page.locator("#new").evaluate((e: any) => e.click());
-  await page.waitForFunction(() => (globalThis as any).document.getElementById("context-text")?.textContent?.includes("≈0 /"));
+  // New chat stays local until the first message, so no context estimate exists yet.
+  await page.locator("#context-bar").waitFor({ state: "hidden" });
   await page.waitForFunction(() => !(globalThis as any).document.getElementById("activity"));
   assert.deepEqual(errors, []);
   console.log("COMPACTION_UI_OK: real settings, colors, overflow display, unknown capacity, model switch, live summary pause, idle, mobile layout");
