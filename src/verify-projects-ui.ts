@@ -40,7 +40,7 @@ try {
   assert.ok(Math.abs(rect.x + rect.width / 2 - 720) <= 2 && Math.abs(rect.y + rect.height / 2 - 500) <= 2, 'Projects window is centered, not a side drawer');
   console.log('PROJECTS_FLOATING_OK');
 
-  assert.deepEqual(await page.locator('.pw-item-name').allTextContents(), ['Alpha', 'Beta']);
+  assert.deepEqual(await page.locator('.pw-item-name').allTextContents(), ['General', 'Alpha', 'Beta']);
   assert.equal((await page.locator(`.pw-item[data-project="${alpha.id}"] .pw-count`).textContent())!.trim(), '1', 'Count reflects real conversations');
   assert.equal(await page.locator('.pw-main').isVisible(), true, 'Detail pane is visible on desktop');
   await page.locator(`.pw-item[data-project="${alpha.id}"]`).click();

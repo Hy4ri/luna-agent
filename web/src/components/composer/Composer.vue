@@ -84,16 +84,16 @@ let loadTicket = 0;
 const activeProjectId = computed<number | null>(() => {
   if (chat.session) {
     const p = chat.project ?? history.list.find(s => String(s.id) === String(chat.session))?.project ?? null;
-    return p ? Number(p) : null;
+    return p !== null ? Number(p) : null;
   }
   let saved = 0;
   try { saved = Number(localStorage.getItem("luna.project") || 0); } catch {}
-  if (saved && history.projects.some(p => p.id === saved)) return saved;
+  if (history.projects.some(p => p.id === saved)) return saved;
   return history.projects[0]?.id ?? null;
 });
 
 async function fetchMentionCards(pid: number | null, force = false) {
-  if (!pid) {
+  if (pid === null) {
     boardCards.value = [];
     loadedPid.value = null;
     return;
@@ -148,7 +148,7 @@ const mentionGroups = computed(() => {
   return groups;
 });
 
-const mentionOpen = computed(() => !!mentionMatch.value && !!activeProjectId.value && sortedMentionItems.value.length > 0);
+const mentionOpen = computed(() => !!mentionMatch.value && activeProjectId.value !== null && sortedMentionItems.value.length > 0);
 
 const sortedCommandItems = computed<SlashCommandItem[]>(() => {
   const m = commandMatch.value;
@@ -263,7 +263,7 @@ function updateMentionState() {
   const caret = el.selectionStart ?? text.length;
   const before = text.slice(0, caret);
   const m = /(?:^|[\s([{"'])#([^\s#]*)$/.exec(before);
-  if (!m || !activeProjectId.value) {
+  if (!m || activeProjectId.value === null) {
     mentionMatch.value = null;
     return;
   }
@@ -434,7 +434,7 @@ watch(activeProjectId, (pid) => {
 }, { immediate: true });
 
 watch(boardChanged, () => {
-  if (activeProjectId.value) void fetchMentionCards(activeProjectId.value, true);
+  if (activeProjectId.value !== null) void fetchMentionCards(activeProjectId.value, true);
 });
 
 watch(() => chat.session, () => {
@@ -476,7 +476,7 @@ onMounted(() => {
   document.addEventListener("paste", handlePaste);
   document.addEventListener("pointerdown", handleOutsideClick);
   if (!history.projects.length) void loadProjects();
-  if (activeProjectId.value) void fetchMentionCards(activeProjectId.value, true);
+  if (activeProjectId.value !== null) void fetchMentionCards(activeProjectId.value, true);
   restoreDraft();
   if (inputRef.value) {
     inputRef.value.value = composer.text;

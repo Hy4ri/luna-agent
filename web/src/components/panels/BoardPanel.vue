@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight } from '@lucide/vue';
 import { json, post } from '@/lib/api';
 import { history } from '@/stores/sessions';
+import { chat } from '@/stores/chat';
 import { boardChanged, openPanel, ui } from '@/stores/app';
 import type { Project } from '@/lib/types';
 
@@ -36,8 +37,9 @@ async function loadBoard(refreshProjects = false, background = false) {
       if (ticket !== generation || disposed) return;
       if (background && (busy.value || editing.value || drag.value)) { refreshQueued = true; return; }
       history.projects = data.projects;
-      let saved = selectedPid.value; try { saved ||= localStorage.getItem('luna.project') || ''; } catch {}
-      selectedPid.value = data.projects.some(p => String(p.id) === saved) ? saved : String(data.projects[0]?.id || '');
+      let saved = selectedPid.value || (chat.session ? String(chat.project ?? data.projects.find(p => p.general)?.id ?? '') : '');
+      try { saved ||= localStorage.getItem('luna.project') || ''; } catch {}
+      selectedPid.value = data.projects.some(p => String(p.id) === saved) ? saved : String(data.projects[0]?.id ?? '');
       if (selectedPid.value) rememberProject();
     }
     const pid = selectedPid.value, isArchived = archived.value;

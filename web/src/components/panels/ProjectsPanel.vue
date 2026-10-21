@@ -145,7 +145,8 @@ onMounted(async () => {
         <h3 class="pw-title">{{ selected === 'new' ? 'New project' : current!.name }}</h3>
         <p v-if="selected === 'new'" class="pw-muted">New conversations in a project start in its directory.</p>
 
-        <form class="pw-sec" @submit.prevent="save">
+        <p v-if="current?.general" class="pw-muted">General shares a board across Chats. Each conversation keeps its working directory.</p>
+        <form v-else class="pw-sec" @submit.prevent="save">
           <h4 v-if="selected !== 'new'">Settings</h4>
           <label class="pw-field">Name<input id="project-name" v-model="name" aria-label="Project name" autocomplete="off" /></label>
           <label class="pw-field">Working directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>
@@ -166,7 +167,7 @@ onMounted(async () => {
           <div><button id="project-chat" class="pw-btn" :disabled="busy" @click="startChat"><Plus :size="14" /> New chat in {{ current.name }}</button></div>
         </div>
 
-        <div v-if="current" class="pw-danger">
+        <div v-if="current && !current.general" class="pw-danger">
           <p>Delete this project. Its conversations stay.</p>
           <button class="pw-btn pw-del" :disabled="busy" @click="remove">Delete</button>
         </div>

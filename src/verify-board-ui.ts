@@ -32,6 +32,7 @@ try {
   const errors: string[] = []; page.on('pageerror', (e: Error) => errors.push(e.message));
   await page.goto(url);
   await page.locator('[data-panel="board"]').click();
+  await page.getByLabel('Project', { exact: true }).selectOption(String(a.id));
   const dialog = page.locator('#panel [role="dialog"]');
   const rect = await dialog.boundingBox();
   assert.ok(rect && rect.x >= 12 && rect.y >= 12 && rect.width >= 1440 * .9 && rect.height >= 1000 * .85, 'Board must float with margins and cover most of the viewport');
@@ -205,6 +206,7 @@ try {
   touch.setDefaultTimeout(8000);
   await touch.goto(url);
   await touch.locator('#menu').click(); await touch.locator('[data-panel="board"]').click();
+  await touch.getByLabel('Project', { exact: true }).selectOption(String(a.id));
   const cdp = await touch.context().newCDPSession(touch);
   const tg = await touch.getByRole('button', { name: `Drag card #${more.id}`, exact: true }).boundingBox();
   const x = tg!.x + tg!.width / 2, y = tg!.y + tg!.height / 2;
@@ -332,12 +334,12 @@ try {
   await input.dispatchEvent('input');
   console.log('SLASH_COMMAND_AUTOCOMPLETE_OK');
 
-  await page.route(`**/v1/projects/${a.id}/board`, (route: any) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Board read unavailable' }) }));
+  await page.route(`**/v1/projects/${mProj.id}/board`, (route: any) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Board read unavailable' }) }));
   await page.locator('[data-panel="board"]').click();
   await page.getByRole('alert').filter({ hasText: 'Board read unavailable' }).waitFor();
-  await page.unroute(`**/v1/projects/${a.id}/board`);
+  await page.unroute(`**/v1/projects/${mProj.id}/board`);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await page.locator(`[data-card="${card.id}"]`).waitFor();
+  await page.locator(`[data-card="${mTodoLow.id}"]`).waitFor();
   await page.locator('#pclose').click();
   await page.route('**/v1/projects', (route: any) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ projects: [] }) }));
   await page.locator('[data-panel="board"]').click();

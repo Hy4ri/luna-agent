@@ -70,9 +70,9 @@ export async function openLuna(opts: LunaOptions) {
     {
       models: opts.models,
       registry,
-      // The board belongs to project sessions only: they add it at creation. Everything else (cron, subagents, plain sessions) skips it.
+      // Runtime-installed extensions also apply to existing sessions. Cron removes interactive extensions explicitly.
       settings: {
-        get extensions() { return registry.snapshot().installed().filter(e => e.name !== "board"); },
+        get extensions() { return registry.snapshot().installed(); },
         get compaction() { return opts.compaction?.(); },
         steeringMode: "all",
         followUpMode: "one-at-a-time",
