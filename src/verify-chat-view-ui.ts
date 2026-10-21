@@ -350,6 +350,7 @@ try {
     });
     assert.equal(await down.isVisible(), false);
     await up.waitFor();
+    await up.waitFor({ state: 'hidden' }); // buttons hide again once scrolling stops
     await page.locator('#log > .msg').first().evaluate((el: any) => { el.style.minHeight = ''; });
   }
   await verifyJumpButtons();
