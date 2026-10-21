@@ -26,6 +26,7 @@ import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, setPalette } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
+import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 
 const mobile = useMobile();
@@ -414,6 +415,9 @@ onMounted(() => {
                   <button
                     v-else
                     class="session-open"
+                    draggable="true"
+                    @dragstart="startSessionDrag($event, s.id)"
+                    @dragend="endSessionDrag"
                     :class="{ on: String(s.id) === String(chat.session) }"
                     :aria-current="String(s.id) === String(chat.session) ? 'page' : undefined"
                     :aria-label="sessionTitle(s)"

@@ -29,20 +29,10 @@ export const ui = reactive({
   boardEditing: false,
   /** Command palette open. */
   palette: false,
-  /** Split view shown; the second pane stays mounted after it closes. */
-  split: !sessionPane && sessionStorage.getItem("luna.split.open") === "1",
-  splitMounted: false,
 });
-ui.splitMounted = ui.split;
 /** Increments when settings are saved outside the Settings page. */
 export const settingsChanged = ref(0);
 
-export function toggleSplit() {
-  if (sessionPane) return;
-  ui.split = !ui.split;
-  if (ui.split) ui.splitMounted = true;
-  sessionStorage.setItem("luna.split.open", ui.split ? "1" : "0");
-}
 export function setPalette(open: boolean) {
   if (open && (ui.login || sessionPane)) return;
   ui.palette = open;

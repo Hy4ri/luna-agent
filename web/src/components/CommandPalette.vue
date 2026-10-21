@@ -3,7 +3,7 @@
 import { computed, nextTick, ref, shallowRef, toRaw, watch } from 'vue';
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { Check, Search } from '@lucide/vue';
-import { ui, setPalette, navigate, openPanel, toggleCollapsed, toggleSplit, settingsDirty, settingsChanged } from '@/stores/app';
+import { ui, setPalette, navigate, openPanel, toggleCollapsed, settingsDirty, settingsChanged } from '@/stores/app';
 import { chat, openSession, scheduleContext } from '@/stores/chat';
 import { history, sessionTitle, projectName } from '@/stores/sessions';
 import { models, modelKey, selectedKey, chooseModel, LEVELS, levelLabel, setThinking } from '@/stores/models';
@@ -108,7 +108,6 @@ const items = computed<Item[]>(() => {
   for (const [id, panel] of Object.entries(PANELS)) add({ id: 'panel:' + id, group: 'Open', label: panel.title, hint: panel.desc, current: ui.panel === id, run: () => openPanel(id) });
 
   if (!mobile.value) add({ id: 'layout:sidebar', group: 'Layout', label: ui.collapsed ? 'Expand sidebar' : 'Collapse sidebar', keep: true, run: toggleCollapsed });
-  add({ id: 'layout:split', group: 'Layout', label: ui.split ? 'Close split view' : 'Open split view', state: ui.split ? 'On' : 'Off', keep: true, run: () => { if (ui.view !== 'chat') navigate('chat'); toggleSplit(); } });
 
   add({ id: 'session:new', group: 'Conversations', label: 'New conversation', disabled: props.newSessionDisabled ? 'Not available while disconnected' : undefined, run: () => { navigate('chat'); return props.newSession(); } });
   for (const s of history.list) {
