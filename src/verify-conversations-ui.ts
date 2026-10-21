@@ -316,10 +316,14 @@ try {
   await page.locator('#menu').click();
   // The first message starts a run; a running row stays visible. Wait for it to settle to Ready/Stopped.
   await page.waitForFunction((id: number) => { const r = (globalThis as any).document.querySelector(`[data-session="${id}"]`); return !r || !r.querySelector('.session-state'); }, created.id, { timeout: 20000 });
-  await assertProjectHidden();
+  assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await row(created.id).isVisible(), true, 'selected Ready session stays visible after its run settles');
   await projectToggle.click();
   await row(created.id).waitFor();
   assert.equal(await row(projectOlder).isVisible(), true);
+
+  await row(normalOlder).locator('.session-open').click();
+  await page.locator('#menu').click();
 
   // Collapsed projects keep pins and all states except Ready/Stopped underneath their own header.
   // Only status rendering is scripted. Metadata, pin actions, filtering, and list refresh use real routes.
@@ -379,6 +383,28 @@ try {
     await projectGroup.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `/tmp/luna-collapsed-sessions-${width}.png` });
   }
+  // Selection alone keeps Ready/Stopped rows visible; switching removes the previous exception.
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    if (width === 390) await page.locator('#menu').click();
+    for (const status of ['ready', 'stopped']) {
+      const selected = previews.find(s => s.status === status && !s.pinned)!;
+      await projectToggle.click();
+      await row(selected.id).locator('.session-open').click();
+      if (width === 390) await page.locator('#menu').click();
+      await projectToggle.click();
+      assert.equal(await row(selected.id).isVisible(), true, `${width}: selected ${status} stays visible`);
+      assert.equal(await row(selected.id).locator('.session-open').getAttribute('aria-current'), 'page');
+      assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false');
+      await page.reload();
+      if (width === 390) await page.locator('#menu').click();
+      await row(selected.id).waitFor();
+      assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false', 'selection survives reload without expanding');
+      await row(normalOlder).locator('.session-open').click();
+      if (width === 390) await page.locator('#menu').click();
+      await row(selected.id).waitFor({ state: 'hidden' });
+    }
+  }
   // Pins remain actionable while collapsed; unpinning a Ready or Stopped session hides it immediately.
   for (const preview of previews.filter(s => s.pinned)) {
     await manage(preview.id); await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
@@ -406,11 +432,16 @@ try {
   await row(background).locator('.session-open').click();
   await page.locator('#log .assistant').filter({ hasText: 'Background reply' }).waitFor();
   await page.locator('#menu').click();
+  await row(background).waitFor();
+  await row(background).locator('.session-state').waitFor({ state: 'hidden' });
+  assert.equal(await row(background).isVisible(), true, 'read response stays visible while selected');
+  await row(normalOlder).locator('.session-open').click();
+  await page.locator('#menu').click();
   await row(background).waitFor({ state: 'hidden' });
   assert.equal(await projectToggle.getAttribute('aria-expanded'), 'false', 'reading a preview does not expand its project');
 
   assert.deepEqual(errors, []);
-  console.log("CONVERSATIONS_UI_OK: collapsed pinned/status previews, ready/stopped exclusion, live background read transition, legacy running, search, order, persistence, independent groups, mobile collapse, rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups, empty-session creation fallback and pin precedence");
+  console.log("CONVERSATIONS_UI_OK: collapsed selected/pinned/status previews, selected Ready/Stopped persistence and switching, unselected ready/stopped exclusion, live background read transition, legacy running, search, order, persistence, independent groups, mobile collapse, rename, pin ordering, archive/restore, reload, failed/cancelled/confirmed deletion, active reset, mobile controls, project-first groups, last-message ordering in both groups, empty-session creation fallback and pin precedence");
 } finally {
   await browser?.close(); await new Promise<void>(resolve => server.close(() => resolve())); await rt.close(); rmSync(dir, { recursive: true, force: true });
 }
