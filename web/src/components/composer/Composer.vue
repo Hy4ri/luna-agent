@@ -56,6 +56,7 @@ const COMMAND_CATEGORY_LABEL: Record<CommandCategory, string> = {
 const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "btw", insert: "/btw ", label: "/btw", args: "<question>", description: "Ask a side question without tools or main history", category: "side" },
   { id: "bg", insert: "/bg ", label: "/bg", args: "<prompt>", description: "Run a background task with tools in a side conversation", category: "side" },
+  { id: "review", insert: "/review", label: "/review", args: "[focus]", description: "Review this session's code and request coverage with a read-only model", category: "side" },
   { id: "learn", insert: "/learn ", label: "/learn", args: "<source> [objective]", description: "Study a URL, repo, or file and record a skill", category: "side" },
   { id: "queue", insert: "/queue ", label: "/queue", args: "<message>", description: "Queue a follow-up message for the next turn", category: "busy" },
   { id: "steer", insert: "/steer ", label: "/steer", args: "<message>", description: "Steer the active turn after the current tool batch", category: "busy" },

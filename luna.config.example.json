@@ -84,6 +84,9 @@
     "model": "claude-haiku-4-5",
     "thinkingLevel": "low"
   },
+  "auxiliary": {
+    "review": { "provider": "anthropic", "model": "claude-sonnet-4-5" }
+  },
   "compaction": {
     "enabled": true,
     "triggerPercent": 75

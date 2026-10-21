@@ -470,6 +470,7 @@ They do not interrupt, steer, or queue the main turn. They also work while a mai
 | --- | --- | --- | --- |
 | `/btw question` | Snapshot of this conversation | Denied | Short text answer |
 | `/bg prompt` | Fresh conversation | Same enabled tools as the source | Full task result and media |
+| `/review [focus]` | Requirements, claims, and diff | Read-only reviewer tools | Review report. See Session review |
 
 An empty argument returns usage. `/btw` reports unreadable history, empty history, or unavailable provider credentials before starting.
 `/bg` can start from an empty chat. Include all necessary task context in its prompt.
@@ -519,6 +520,47 @@ HTTP clients use the normal message endpoint. Side commands return HTTP 202 with
 `GET /v1/sessions/:id/side-jobs` lists only that chat's jobs.
 The session event stream sends `side_jobs` on connection and `side_job` for state changes.
 Retries with the same request ID reuse the same job; conflicting reuse is rejected.
+
+## Session review (`/review`)
+
+`/review [focus]` starts a read-only reviewer for the current chat. It judges two things: whether the agent
+covered what you asked, and the quality of the code. It runs as a background job on its own model and returns a report
+beside the chat, like `/btw` and `/bg`. The report is not a main-history entry, and the main agent never sees it.
+
+```json
+"auxiliary": {
+  "review": { "provider": "openai", "model": "gpt-4.1" }
+}
+```
+
+`auxiliary.review` is required. Without it, `/review` returns an error. It never uses the session model.
+Changes apply to the next review (**Settings → Models & accounts → Session review**).
+
+What the reviewer receives:
+
+- All user messages (the requirements), capped at 30,000 characters, newest kept first.
+- The agent's text replies (its completion claims), capped at 20,000 characters. Tool calls are named, not shown.
+- Working directory, branch, `HEAD`, `git status`, the diff stat, and the diff against `HEAD`
+  (60,000 characters, with a marker when cut). Untracked files are listed by `git status`.
+- Your optional focus text.
+
+What it can do: it has four tools, and nothing else.
+
+| Tool | Limit |
+| --- | --- |
+| `read_file` | Text files under the working directory. Symlinks that leave it are refused. |
+| `search` | `grep -E` under the working directory. Skips `.git`, `node_modules`, `dist`. |
+| `git` | `status`, `diff`, `log`, `show`, `ls-files`, `rev-parse`, with an allowlist of flags. External diff and textconv programs are disabled. |
+| `session_message` | Full text of one earlier message by its `#` index. |
+
+It has no shell, no write tools, no delegation, and no way to run tests. The limits live in code, not in the prompt.
+It stops after 40 tool rounds and then must answer. Usage is recorded against the source session.
+
+The report has a verdict, request coverage, findings with file and line, and limits. If the workspace changed while
+the review ran, the report says so. Committed work is not in the diff against `HEAD`. The reviewer finds it with `git log`.
+Outside a git repository, it reviews by reading files.
+
+Like other side jobs, results last for the current daemon process.
 
 ## Session titles
 
