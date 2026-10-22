@@ -17,7 +17,7 @@ fn show_main(app: &AppHandle) {
 
 fn toggle_main(app: &AppHandle) {
     match app.get_webview_window("main") {
-        Some(w) if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) => {
+        Some(w) if w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false) => {
             let _ = w.hide();
         }
         _ => show_main(app),
