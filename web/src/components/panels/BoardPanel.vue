@@ -174,6 +174,13 @@ function endDrag(event: PointerEvent) {
   if (d.moved && target && d.card.status !== target) moveCard(d.card, target);
   else if (refreshQueued) void loadBoard(true, true);
 }
+function newCardKey(event: KeyboardEvent) {
+  if (event.key.toLowerCase() !== 'n' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.defaultPrevented) return;
+  const t = event.target as HTMLElement | null;
+  if (t?.closest('input, textarea, select, button, [contenteditable]')) return;
+  if (archived.value || editing.value || drag.value || locked.value || loading.value || busy.value || !selectedPid.value) return;
+  event.preventDefault(); openEditor();
+}
 function escapeEditor(event: KeyboardEvent) {
   if (event.key !== 'Escape') return;
   if (drag.value || editing.value) { event.preventDefault(); event.stopImmediatePropagation(); if (drag.value) cancelDrag(); else closeEditor(); }
@@ -182,8 +189,8 @@ watch(boardChanged, () => {
   if (loading.value || busy.value || editing.value || drag.value) refreshQueued = true;
   else void loadBoard(true, true);
 });
-onMounted(() => { document.addEventListener('keydown', escapeEditor, true); void loadBoard(true); });
-onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDrag(); ui.boardEditing = false; document.removeEventListener('keydown', escapeEditor, true); });
+onMounted(() => { document.addEventListener('keydown', escapeEditor, true); document.addEventListener('keydown', newCardKey); void loadBoard(true); });
+onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDrag(); ui.boardEditing = false; document.removeEventListener('keydown', escapeEditor, true); document.removeEventListener('keydown', newCardKey); });
 </script>
 
 <template>
@@ -197,7 +204,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
       <div class="kb-toolbar-end">
         <button class="kb-button" :disabled="locked || loading || !selectedPid" @click="toggleArchived"><ArrowLeft v-if="archived" :size="15" /><Archive v-else :size="15" />{{ archived ? 'Back to board' : 'Archived' }}</button>
         <button class="kb-icon" aria-label="Refresh board" title="Refresh board" :disabled="locked || loading" @click="loadBoard(true)"><RefreshCw :size="16" /></button>
-        <button v-if="!archived" class="kb-button kb-primary" :disabled="locked || loading || !selectedPid" @click="openEditor()"><Plus :size="15" />New card</button>
+        <button v-if="!archived" class="kb-button kb-primary" :disabled="locked || loading || !selectedPid" title="New card (N)" @click="openEditor()"><Plus :size="15" />New card</button>
       </div>
     </div>
     <div v-if="!loading && !history.projects.length && !error" class="kb-empty"><p>Create a project to use its board.</p><button class="kb-button" @click="openPanel('projects')">Open projects</button></div>
