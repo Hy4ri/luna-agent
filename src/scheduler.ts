@@ -26,7 +26,7 @@ export interface Job {
   deletedAt?: number | null;
   /** A slot older than this when it comes due is recorded as skipped (reason "missed") instead of run. null: always run late. */
   graceMs: number | null;
-  /** Per-run time limit. null: the global limit. */
+  /** Time limit for the whole run: all attempts and waits between them, measured from the run start. null: the global limit. */
   timeoutMs: number | null;
   /** Extra attempts after a failed run (not after stop or timeout). 0: none. */
   retries: number;
@@ -55,6 +55,8 @@ export interface Run {
   reason: string | null;
   /** Attempt in progress or last made (0 = first). */
   attempt: number;
+  /** When the next attempt is due (a retry is waiting), else null. Survives a restart. */
+  retryAt: number | null;
   conversationId: string | null;
   submissionId: string | null;
   output: string | null;
@@ -121,6 +123,7 @@ export class CronStore {
       }
       if (!runColumns.has("read_at")) this.db.exec("ALTER TABLE runs ADD COLUMN read_at INTEGER");
       if (!runColumns.has("reason")) this.db.exec("ALTER TABLE runs ADD COLUMN reason TEXT");
+      if (!runColumns.has("retry_at")) this.db.exec("ALTER TABLE runs ADD COLUMN retry_at INTEGER");
       if (!runColumns.has("attempt")) this.db.exec("ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0");
 
       this.db.exec(`
@@ -163,6 +166,7 @@ export class CronStore {
       status: r.status,
       reason: r.reason ?? null,
       attempt: r.attempt ?? 0,
+      retryAt: r.retry_at ?? null,
       conversationId: r.conversation_id,
       submissionId: r.submission_id,
       output: r.output,
@@ -363,9 +367,14 @@ export class CronStore {
     this.db.prepare("UPDATE runs SET conversation_id=? WHERE id=? AND status='running'").run(conversationId, runId);
   }
 
-  /** Start another attempt: forget the failed attempt's conversation and submission. */
-  setAttempt(runId: number, attempt: number) {
-    this.db.prepare("UPDATE runs SET attempt=?, conversation_id=NULL, submission_id=NULL WHERE id=? AND status='running'").run(attempt, runId);
+  /** A retry is waiting: record the next attempt and when it is due. The failed attempt's ids stay until it starts. */
+  setAttempt(runId: number, attempt: number, retryAt: number) {
+    this.db.prepare("UPDATE runs SET attempt=?, retry_at=? WHERE id=? AND status='running'").run(attempt, retryAt, runId);
+  }
+
+  /** An attempt starts: clear the wait and forget the previous attempt's conversation and submission. */
+  beginAttempt(runId: number) {
+    this.db.prepare("UPDATE runs SET retry_at=NULL, conversation_id=NULL, submission_id=NULL WHERE id=? AND status='running'").run(runId);
   }
 
   attach(runId: number, conversationId: string, submissionId: string) {
@@ -543,7 +552,7 @@ const MAX_TIMER = 2 ** 31 - 1;
 const STOP_WAIT_MS = 15_000;
 
 /** Live executor of one running run in this process. `abort` is set once there is something to cancel. */
-interface ActiveRun { reason?: string; code?: string; timeoutMs?: number; abort?: () => Promise<void> | void; done?: Promise<void> }
+interface ActiveRun { reason?: string; code?: string; timeoutMs?: number; deadlineAt?: number; total?: number; abort?: () => Promise<void> | void; done?: Promise<void> }
 
 export type StopOutcome =
   | "stopped"            // the run was cancelled and is now logged as error with the stop reason
@@ -653,34 +662,53 @@ export class Scheduler {
 
   private reasonCode(a: ActiveRun, fallback: string) { return a.reason ? (a.code ?? "stopped") : fallback; }
 
-  /** Arm the run's time limit. The returned timer must be cleared by the caller. */
+  /** Arm the run's time limit: the time left until the run-level deadline. The caller must clear the timer. */
   private deadline(a: ActiveRun, run: Run, abort: () => Promise<void> | void) {
-    const ms = a.timeoutMs ?? this.timeoutMs();
     return setTimeout(() => {
-      if (!a.reason) { a.reason = `timed out after ${ms / 1000}s`; a.code = "timeout"; }
+      this.expire(a);
       void Promise.resolve(abort()).catch((e) => this.o.log(`run ${run.id} timeout abort failed: ${errText(e)}`));
-    }, ms);
+    }, Math.max(0, (a.deadlineAt ?? Date.now()) - Date.now()));
+  }
+
+  private expire(a: ActiveRun) {
+    if (!a.reason) { a.reason = `timed out after ${(a.total ?? 0) / 1000}s`; a.code = "timeout"; }
   }
 
   private requestId(run: Run, attempt: number) { return `cron-${run.jobId}-${run.slot}${attempt ? `-a${attempt}` : ""}`; }
 
-  /** Run a job to completion, retrying failed attempts (never after a stop or timeout). */
-  private async execute(job: Job, run: Run, a: ActiveRun = {}) {
+  /**
+   * Run a job to completion, retrying failed attempts (never after a stop, timeout or interrupt).
+   * `first` replaces the first attempt (recovery of an attempt that was in flight); `waitUntil` delays it (a retry
+   * that was waiting). The time limit covers the whole run, waits included.
+   */
+  private async execute(job: Job, run: Run, a: ActiveRun = {}, first?: () => Promise<string | null>, waitUntil?: number) {
     const { store } = this.o;
     a.timeoutMs = job.timeoutMs ?? undefined;
-    for (let n = run.attempt; ; n++) {
+    a.total = a.timeoutMs ?? this.timeoutMs();
+    a.deadlineAt = run.startedAt + a.total;
+    let n = run.attempt;
+    for (;;) {
+      if (waitUntil !== undefined) {
+        const until = waitUntil; waitUntil = undefined;
+        await this.wait(a, Math.min(until, a.deadlineAt));
+        if (Date.now() >= a.deadlineAt) this.expire(a);
+        if (!a.reason && this.stopped) return; // stays running with retry_at set; the next start continues it
+        if (a.reason) { store.finish(run.id, "error", null, this.failText(a, ""), Date.now(), this.reasonCode(a, "stopped")); return; }
+      }
       try {
-        store.finish(run.id, "ok", await this.attempt(job, run, n, a), null);
+        const attempt = first ?? (() => this.attempt(job, run, n, a));
+        first = undefined;
+        store.finish(run.id, "ok", await attempt(), null);
         return;
       } catch (e) {
+        if (e instanceof Interrupted) { store.finish(run.id, "error", null, e.message, Date.now(), "interrupted"); return; }
         const text = this.failText(a, errText(e));
-        if (!a.reason && !this.stopped && n < job.retries) {
+        if (!a.reason && !this.stopped && n < job.retries && Date.now() < a.deadlineAt) {
           this.o.log(`job ${job.name} run ${run.id} attempt ${n + 1} failed, retrying: ${text}`);
-          store.setAttempt(run.id, n + 1);
+          waitUntil = Date.now() + Math.min(30_000 * 2 ** n, 600_000);
+          n++;
+          store.setAttempt(run.id, n, waitUntil);
           a.abort = undefined;
-          await this.backoff(a, n);
-          if (a.reason) { store.finish(run.id, "error", null, `stopped: ${a.reason}`, Date.now(), a.code ?? "stopped"); return; }
-          if (this.stopped) return; // stays running; recovery marks it interrupted on the next start
           continue;
         }
         store.finish(run.id, "error", null, text, Date.now(), this.reasonCode(a, job.execution ? "script_failed" : "agent_failed"));
@@ -690,11 +718,11 @@ export class Scheduler {
     }
   }
 
-  /** Wait before a retry: 30s, 60s, 120s ... up to 10 min. A stop request or scheduler stop wakes it. */
-  private backoff(a: ActiveRun, n: number) {
+  /** Sleep until `until`. A stop request or scheduler stop wakes it early. */
+  private wait(a: ActiveRun, until: number) {
     return new Promise<void>((resolve) => {
       const done = () => { clearTimeout(t); this.wakers.delete(done); a.abort = undefined; resolve(); };
-      const t = setTimeout(done, Math.min(30_000 * 2 ** n, 600_000));
+      const t = setTimeout(done, Math.max(0, until - Date.now()));
       this.wakers.add(done);
       a.abort = done;
     });
@@ -703,6 +731,7 @@ export class Scheduler {
   /** One attempt. Resolves with the output; throws on failure. */
   private async attempt(job: Job, run: Run, n: number, a: ActiveRun): Promise<string | null> {
     const { store, harness } = this.o;
+    store.beginAttempt(run.id);
     if (job.execution) {
       const { command, cwd } = job.execution;
       if (!command.length) throw new Error("empty script command");
@@ -733,23 +762,28 @@ export class Scheduler {
     const interrupted = (why: string) => store.finish(run.id, "error", null, why, Date.now(), "interrupted");
     try {
       const job = store.getJobAny(run.jobId);
-      a.timeoutMs = job?.timeoutMs ?? undefined;
-      if (!run.submissionId) {
-        // Crash window: the conversation was recorded, the submission may or may not have been admitted.
-        // submit() with the same requestId returns the existing submission, or admits it once.
+      if (!job) { interrupted("interrupted: job no longer exists"); return; }
+      // A retry was waiting: continue it. The failed attempt is over, so running the next one is safe.
+      if (run.retryAt !== null) { this.o.log(`recovering run ${run.id} (retry ${run.attempt + 1} was waiting)`); return await this.execute(job, run, a, undefined, run.retryAt); }
+      // An attempt was in flight: pick it up, then use the normal retry policy for its outcome.
+      const resume = async () => {
+        if (!run.submissionId) {
+          // Crash window: the conversation was recorded, the submission may or may not have been admitted.
+          // submit() with the same requestId returns the existing submission, or admits it once.
+          const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
+          if (!conv) throw new Interrupted("interrupted before the run started (no conversation recorded)");
+          const sub = await conv.submit({ type: "input", content: job.prompt, requestId: this.requestId(run, run.attempt) }, context);
+          store.attach(run.id, String(conv.id), String(sub.id));
+          this.o.log(`recovering run ${run.id} (reconciled submission)`);
+          return this.settle(run, sub, conv, a);
+        }
+        const sub = await harness.submission(run.submissionId as any, context);
+        if (!sub) throw new Interrupted("submission not found on recovery");
+        this.o.log(`recovering run ${run.id}`);
         const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
-        if (!conv || !job) { interrupted("interrupted before the run started (no conversation recorded)"); return; }
-        const sub = await conv.submit({ type: "input", content: job.prompt, requestId: this.requestId(run, run.attempt) }, context);
-        store.attach(run.id, String(conv.id), String(sub.id));
-        this.o.log(`recovering run ${run.id} (reconciled submission)`);
-        store.finish(run.id, "ok", await this.settle(run, sub, conv, a), null);
-        return;
-      }
-      const sub = await harness.submission(run.submissionId as any, context);
-      if (!sub) { interrupted("submission not found on recovery"); return; }
-      this.o.log(`recovering run ${run.id}`);
-      const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
-      store.finish(run.id, "ok", await this.settle(run, sub, conv, a), null);
+        return this.settle(run, sub, conv, a);
+      };
+      await this.execute(job, run, a, resume);
     } catch (e) { store.finish(run.id, "error", null, this.failText(a, errText(e)), Date.now(), this.reasonCode(a, "agent_failed")); }
   }
 
@@ -778,5 +812,7 @@ export class Scheduler {
     } finally { clearTimeout(timeout); }
   }
 }
+
+class Interrupted extends Error {}
 
 function errText(e: unknown) { return e instanceof Error ? e.message : String(e); }
