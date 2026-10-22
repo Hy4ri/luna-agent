@@ -1039,14 +1039,14 @@ export function createApp(opts: ServerOptions) {
     const no = cron(c); if (no) return no;
     const b = await c.req.json().catch(() => ({})) as any;
     if (!b || typeof b !== "object" || Array.isArray(b)) return err(c, 400, "invalid body");
-    const allowed = ["name", "expr", "prompt", "reportPolicy"];
+    const allowed = ["name", "expr", "prompt", "reportPolicy", "graceMs", "timeoutMs", "retries"];
     const keys = Object.keys(b);
     if (!keys.length || keys.some(k => !allowed.includes(k))) return err(c, 400, "invalid or unknown fields");
     if (!b.name || typeof b.name !== "string" || !b.name.trim() || !b.expr || typeof b.expr !== "string" || !b.prompt || typeof b.prompt !== "string" || !b.prompt.trim()) return err(c, 400, "name, expr and prompt required");
     if (b.reportPolicy !== undefined && !['always', 'changes', 'failures'].includes(b.reportPolicy)) return err(c, 400, "invalid report policy");
     if (opts.store!.listJobs().some((j) => j.name === b.name)) return err(c, 409, "a job with that name exists");
     try {
-      const job = opts.store!.addJob(b.name, b.expr, b.prompt, undefined, Date.now(), b.reportPolicy);
+      const job = opts.store!.addJob(b.name, b.expr, b.prompt, undefined, Date.now(), b.reportPolicy, { graceMs: b.graceMs, timeoutMs: b.timeoutMs, retries: b.retries });
       opts.scheduler?.rearm();
       return c.json(job, 201);
     } catch (e) { return err(c, 400, (e as Error).message); }
@@ -1059,7 +1059,7 @@ export function createApp(opts: ServerOptions) {
     if (!existing) return err(c, 404, "no such job");
     const b = await c.req.json().catch(() => ({})) as any;
     if (!b || typeof b !== "object" || Array.isArray(b)) return err(c, 400, "invalid body");
-    const allowed = ["name", "expr", "prompt", "enabled", "reportPolicy"];
+    const allowed = ["name", "expr", "prompt", "enabled", "reportPolicy", "graceMs", "timeoutMs", "retries"];
     const keys = Object.keys(b);
     if (!keys.length || keys.some(k => !allowed.includes(k))) return err(c, 400, "invalid or unknown fields");
     if ("name" in b && (typeof b.name !== "string" || !b.name.trim())) return err(c, 400, "invalid name");
@@ -1133,7 +1133,7 @@ export function createApp(opts: ServerOptions) {
     const before = c.req.query("before") !== undefined ? Number(c.req.query("before")) : undefined;
     const limit = c.req.query("limit") !== undefined ? Number(c.req.query("limit")) : 50;
     if (jobId !== undefined && (!Number.isSafeInteger(jobId) || jobId < 1)) return err(c, 400, "invalid jobId");
-    if (status !== undefined && !["running", "ok", "error"].includes(status)) return err(c, 400, "invalid status");
+    if (status !== undefined && !["running", "ok", "error", "skipped"].includes(status)) return err(c, 400, "invalid status");
     if (before !== undefined && (!Number.isSafeInteger(before) || before < 1)) return err(c, 400, "invalid before cursor");
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) return err(c, 400, "invalid limit (1..100)");
     const runs = opts.store!.queryRuns({ history, jobId, status, before, limit });

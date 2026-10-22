@@ -99,10 +99,11 @@ function durationText(run: any) {
 
 function runMarkdown(run: any) {
   if (!run) return "No output.";
-  return [run.output, run.error ? "Error: " + run.error : null].filter(Boolean).join("\n\n") || "No output.";
+  return [run.output, run.error ? (run.status === "skipped" ? run.error : "Error: " + run.error) : null].filter(Boolean).join("\n\n") || "No output.";
 }
 
 function runSnippet(run: any) {
+  if (run.status === "skipped") return run.error;
   if (run.error) return `Failed — ${run.error}`;
   if (run.output) {
     const line = String(run.output)
@@ -501,6 +502,7 @@ onUnmounted(() => {
               <option value="running">Running</option>
               <option value="ok">Success</option>
               <option value="error">Failed</option>
+              <option value="skipped">Skipped</option>
             </select>
           </label>
         </div>
@@ -617,7 +619,7 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
                   <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
                   <div class="cron-feed-tags">
                     <span class="pill" :class="run.status">
-                      {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : 'Running' }}
+                      {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : run.status === 'skipped' ? 'Skipped' : 'Running' }}
                     </span>
                     <span class="pill unread" v-if="view === 'reports' && run.readAt === null">Unread</span>
                     <span class="cron-tag-mono">#{{ run.id }} · {{ durationText(run) }}</span>
@@ -658,7 +660,7 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
                   <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
                   <div class="cron-feed-tags">
                     <span class="pill" :class="run.status">
-                      {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : 'Running' }}
+                      {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : run.status === 'skipped' ? 'Skipped' : 'Running' }}
                     </span>
                     <span class="pill unread" v-if="view === 'reports' && run.readAt === null">Unread</span>
                     <span class="cron-tag-mono">#{{ run.id }} · {{ durationText(run) }}</span>
@@ -736,7 +738,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
             <div class="cron-insp-titles">
               <div class="cron-insp-eyebrow">
                 <span class="pill" :class="activeRun.status">
-                  {{ activeRun.status === 'ok' ? 'SUCCESS' : activeRun.status === 'error' ? 'FAILED' : 'RUNNING' }}
+                  {{ activeRun.status === 'ok' ? 'SUCCESS' : activeRun.status === 'error' ? 'FAILED' : activeRun.status === 'skipped' ? 'SKIPPED' : 'RUNNING' }}
                 </span>
                 <span>RUN #{{ activeRun.id }}</span>
                 <span>·</span>

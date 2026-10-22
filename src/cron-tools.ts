@@ -3,7 +3,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { nextRun, parseCron } from "./cron-expr.js";
-import type { CronStore, Job, ReportPolicy, Run, Scheduler } from "./scheduler.js";
+import type { CronStore, Job, JobOptions, ReportPolicy, Run, Scheduler } from "./scheduler.js";
 
 const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 const when = (ms: number | null) => (ms === null ? "never" : new Date(ms).toISOString());
@@ -17,7 +17,7 @@ const PAGE = 40_000;
 
 function runDetail(r: Run, offset: number) {
   const head = [
-    `run #${r.id} job=${r.jobId} (${r.jobName}) status=${r.status}`,
+    `run #${r.id} job=${r.jobId} (${r.jobName}) status=${r.status}${r.reason ? ` reason=${r.reason}` : ""}${r.attempt ? ` attempt=${r.attempt + 1}` : ""}`,
     `started=${when(r.startedAt)} ended=${when(r.endedAt)}${r.endedAt ? ` duration=${Math.round((r.endedAt - r.startedAt) / 1000)}s` : ""}`,
     `conversation=${r.conversationId ?? "none"} submission=${r.submissionId ?? "none"} report=${r.report ? (r.readAt ? "read" : "unread") : "no"}`,
   ];
@@ -38,6 +38,7 @@ function jobDetail(store: CronStore, j: Job, active: number[]) {
     `schedule: ${j.intervalMs ? `every ${j.intervalMs}ms` : j.expr} (${j.timezone}); next run ${when(j.nextRun)}`,
     `type: ${j.execution ? `script ${JSON.stringify(j.execution.command)}${j.execution.cwd ? ` in ${j.execution.cwd}` : ""}` : "agent"}`,
     `model: ${j.model ? `${j.model.provider}/${j.model.modelId}` : "default"}; report policy: ${j.reportPolicy}`,
+    `grace: ${j.graceMs ? `${j.graceMs / 1000}s` : "none (late slots run)"}; timeout: ${j.timeoutMs ? `${j.timeoutMs / 1000}s` : "default"}; retries: ${j.retries}`,
     `active run: ${running.length ? running.map((r) => `#${r.id} since ${when(r.startedAt)}${active.includes(r.id) ? "" : " (no live executor)"}`).join(", ") : "none"}`,
     `last run: ${last ? `#${last.id} ${last.status} at ${when(last.startedAt)}` : "none"}`,
     `prompt (${j.prompt.length} chars):`,
@@ -106,18 +107,24 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
       prompt: Type.Optional(Type.String()),
       enabled: Type.Optional(Type.Boolean()),
       reportPolicy: Type.Optional(Type.Union([Type.Literal("always"), Type.Literal("changes"), Type.Literal("failures")])),
+      graceMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "Skip a slot that is later than this when it comes due (after downtime). null: always run late." })),
+      timeoutMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "Time limit for one run. null: the global limit." })),
+      retries: Type.Optional(Type.Number({ description: "Extra attempts after a failed run, 0 to 5, with backoff." })),
     }),
     replay: "safe",
-    async execute({ id, name, expr, prompt, enabled, reportPolicy }) {
+    async execute({ id, name, expr, prompt, enabled, reportPolicy, graceMs, timeoutMs, retries }) {
       const j = store.getJob(id);
       if (!j) return text(`no job ${id}`, true);
-      const patch: { name?: string; expr?: string; prompt?: string; enabled?: boolean; reportPolicy?: ReportPolicy } = {};
+      const patch: { name?: string; expr?: string; prompt?: string; enabled?: boolean; reportPolicy?: ReportPolicy } & JobOptions = {};
       if (name !== undefined) patch.name = name;
       if (expr !== undefined) patch.expr = expr;
       if (prompt !== undefined) patch.prompt = prompt;
       if (enabled !== undefined) patch.enabled = enabled;
       if (reportPolicy !== undefined) patch.reportPolicy = reportPolicy;
-      if (!Object.keys(patch).length) return text("nothing to change: pass at least one of name, expr, prompt, enabled, reportPolicy", true);
+      if (graceMs !== undefined) patch.graceMs = graceMs;
+      if (timeoutMs !== undefined) patch.timeoutMs = timeoutMs;
+      if (retries !== undefined) patch.retries = retries;
+      if (!Object.keys(patch).length) return text("nothing to change: pass at least one of name, expr, prompt, enabled, reportPolicy, graceMs, timeoutMs, retries", true);
       if (name !== undefined && name !== j.name && store.listJobs().some((o) => o.name === name)) return text(`a job named "${name}" already exists`, true);
       let u: Job;
       try { u = store.updateJob(id, patch); } catch (e) { return text((e as Error).message, true); }
