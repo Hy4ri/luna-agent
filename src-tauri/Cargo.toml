@@ -4,13 +4,21 @@ version = "0.1.0"
 edition = "2021"
 description = "Desktop shell for the luna-pi web UI"
 
+[lib]
+name = "luna_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["image-png"] }
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
+
+# Desktop only: tray and single-instance do not exist on Android.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 # Linux: the StatusNotifierItem backend delivers tray clicks; the appindicator backend never does.
 tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
 tauri-plugin-single-instance = "2"
