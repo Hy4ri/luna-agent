@@ -13,6 +13,7 @@ import CommandPalette from '@/components/CommandPalette.vue';
 import CronPage from '@/pages/CronPage.vue';
 import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
+import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette } from '@/stores/app';
 import { chat, newSession, openSession, clearConversation, addErr, activityVisible, contextView, usageText } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
@@ -185,6 +186,7 @@ async function pinSession() {
   } finally { pinPending.value = false; }
 }
 const password = ref('');
+const serverInput = ref(serverUrl.value || 'localhost:8787');
 const blocked = computed(() => ui.login || !!ui.panel || (mobile.value && ui.drawer));
 
 const activeProject = computed(() => {
@@ -327,10 +329,11 @@ onUnmounted(() => {
       <PanelHost />
       <CommandPalette v-if="!sessionPane" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
       <div v-if="ui.login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" class="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-5">
-        <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password)">
+        <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">
           <div class="flex items-center gap-3"><Moon :size="22" class="text-primary" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>
-          <p class="text-sm text-muted-foreground">Enter your server token to open your workspace.</p>
-          <label class="grid gap-2 text-xs">Server token<input id="token" v-model="password" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
+          <p class="text-sm text-muted-foreground">{{ isDesktop ? 'Enter the address of your Luna daemon (localhost or another machine) and its token.' : 'Enter your server token to open your workspace.' }}</p>
+          <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.57:8787" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
+          <label class="grid gap-2 text-xs">Server token<input id="token" v-model="password" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" :required="!isDesktop" class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
           <button class="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">Connect</button>
           <span id="loginErr" role="alert" class="text-sm text-destructive">{{ ui.loginError }}</span>
         </form>

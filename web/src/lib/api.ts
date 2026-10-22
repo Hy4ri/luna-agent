@@ -2,6 +2,18 @@
 import { ref } from "vue";
 
 export const token = ref(localStorage.getItem("luna.token") || "");
+/** Daemon origin. Empty means same origin (the browser build). The desktop shell sets it in the login form. */
+export const serverUrl = ref(localStorage.getItem("luna.server") || "");
+export const isDesktop = "__TAURI_INTERNALS__" in window;
+export function setServerUrl(value: string) {
+  // Accept "host:port" and bare hosts; default to http and the daemon port.
+  let v = value.trim().replace(/\/+$/, "");
+  if (v && !/^https?:\/\//i.test(v)) v = "http://" + v;
+  if (/^https?:\/\/[^/:]+$/i.test(v) && v.startsWith("http://")) v += ":8787";
+  serverUrl.value = v;
+  try { localStorage.setItem("luna.server", serverUrl.value); } catch {}
+}
+export const url = (path: string) => serverUrl.value + path;
 export function setToken(value: string) {
   token.value = value;
   try { localStorage.setItem("luna.token", value); } catch {}
@@ -14,7 +26,7 @@ export type HttpError = Error & { status?: number };
 export async function api(path: string, opts: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = { "content-type": "application/json", ...((opts.headers as Record<string, string>) || {}) };
   if (token.value) headers.authorization = "Bearer " + token.value;
-  const r = await fetch(path, { ...opts, headers });
+  const r = await fetch(url(path), { ...opts, headers });
   if (r.status === 401) { for (const fn of handlers) fn("token rejected"); throw new Error("unauthorized"); }
   return r;
 }

@@ -1,6 +1,6 @@
 // App shell state: auth, pages, panels, drawer, sidebar geometry. Port of vanilla shell.js + panels.js open/close.
 import { nextTick, reactive, ref } from "vue";
-import { onUnauthorized, setToken, token } from "@/lib/api";
+import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, url } from "@/lib/api";
 import { isMobile } from "@/lib/dom";
 import { sections } from "@/pages/settings/catalog";
 import { sessionPane } from "@/lib/pane";
@@ -172,7 +172,8 @@ export function showLogin(err = "") {
   void nextTick(() => document.getElementById("token")?.focus());
 }
 onUnauthorized(showLogin);
-export function login(value: string) {
+export function login(value: string, server?: string) {
+  if (server !== undefined) setServerUrl(server);
   setToken(value.trim());
   ui.login = false; ui.loginError = "";
   setDrawer(false);
@@ -188,7 +189,10 @@ export async function boot() {
   const badge = await import("@/pages/cron/badge");
   chat.chat.booting = true;
   try {
-    const hl = await (await fetch("/health")).json();
+    if (isDesktop && !serverUrl.value) return showLogin();
+    let hl;
+    try { hl = await (await fetch(url("/health"))).json(); }
+    catch (e) { if (isDesktop) return showLogin(`Cannot reach ${serverUrl.value}. Check the address and that the daemon runs.`); throw e; }
     if (hl.auth && !token.value) return showLogin();
     // Independent reads: fetch in parallel so boot costs one round trip, not three.
     await Promise.all([models.loadModels(), sessions.loadProjects(), sessions.loadSessions()]);
