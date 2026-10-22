@@ -286,7 +286,7 @@ onUnmounted(() => {
             </div>
             <MachineStatus />
             <StatusBar v-if="!docked" />
-            <button v-if="activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
+            <button v-if="activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
             <button v-if="chat.session || (chat.draftOpen && tileIds.length)" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
@@ -330,7 +330,7 @@ onUnmounted(() => {
       <CommandPalette v-if="!sessionPane" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
       <div v-if="ui.login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" class="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-5">
         <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">
-          <div class="flex items-center gap-3"><Moon :size="22" class="text-primary" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>
+          <div class="flex items-center gap-3"><Moon :size="22" class="text-primary-text" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>
           <p class="text-sm text-muted-foreground">{{ isDesktop ? 'Enter the address of your Luna daemon (localhost or another machine) and its token.' : 'Enter your server token to open your workspace.' }}</p>
           <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.57:8787" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
           <label class="grid gap-2 text-xs">Server token<input id="token" v-model="password" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" :required="!isDesktop" class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>

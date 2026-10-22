@@ -915,7 +915,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-mini-badge.running {
   background: var(--acc-soft);
-  color: var(--primary);
+  color: var(--primary-text);
   border: 1px solid rgba(169, 184, 255, 0.3);
 }
 
@@ -1009,7 +1009,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  background: #101317;
+  background: #161616;
 }
 
 .cron-master-filters {
@@ -1077,7 +1077,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   font-size: 16px;
   font-weight: 600;
   margin: 0;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .cron-Editor-card input,
@@ -1146,7 +1146,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-job:hover,
 .cron-run:hover {
-  background: #161b21;
+  background: #1c1c1c;
 }
 
 .cron-job.is-selected,
@@ -1307,7 +1307,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .pill.running {
   background: var(--acc-soft);
-  color: var(--primary);
+  color: var(--primary-text);
   border-color: rgba(169, 184, 255, 0.3);
 }
 
@@ -1358,7 +1358,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   font-size: 13.5px;
   font-weight: 600;
   color: var(--muted-foreground);
-  background: #0e1114;
+  background: #101010;
 }
 
 /* Right Detail Inspector */
@@ -1417,7 +1417,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   border-bottom: 1px solid var(--border);
-  background: #111519;
+  background: #161616;
   flex-shrink: 0;
 }
 
@@ -1499,7 +1499,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-markdown-surface h3 {
   font-size: 15.5px;
   margin: 0 0 10px;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .cron-inspector-pre {

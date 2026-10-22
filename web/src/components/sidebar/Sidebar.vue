@@ -306,7 +306,7 @@ onMounted(() => {
     <!-- Header -->
     <header class="side-head">
       <div class="brand">
-        <Moon :size="20" class="text-primary" aria-hidden="true" />
+        <Moon :size="20" class="text-primary-text" aria-hidden="true" />
         <h1 v-if="!collapsed">Luna</h1>
       </div>
       <button

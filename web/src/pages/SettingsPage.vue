@@ -294,7 +294,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .settings-tabs { display: flex; flex-direction: column; gap: 4px; }
 .settings-tabs button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border-radius: 6px; text-align: left; color: var(--muted-foreground); cursor: pointer; flex-shrink: 0; }
 .settings-tabs button:hover { background: var(--accent); color: var(--foreground); }
-.settings-tabs button[aria-selected="true"] { background: var(--acc-soft); color: var(--primary); font-weight: 600; }
+.settings-tabs button[aria-selected="true"] { background: var(--acc-soft); color: var(--primary-text); font-weight: 600; }
 .settings-tabs svg { flex-shrink: 0; }
 .settings-scroll { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
 .settings-content { padding: 28px 32px 40px; min-width: 0; }
@@ -332,7 +332,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .settings-subtabs { display: flex; gap: 20px; margin: -8px 0 24px; border-bottom: 1px solid var(--border); overflow-x: auto; min-width: 0; }
 .settings-subtabs button { min-height: 44px; padding: 10px 2px; flex-shrink: 0; border-bottom: 2px solid transparent; font-size: 15px; color: var(--muted-foreground); cursor: pointer; white-space: nowrap; }
 .settings-subtabs button:hover { color: var(--foreground); }
-.settings-subtabs button[aria-selected="true"] { color: var(--primary); border-color: var(--primary); font-weight: 600; }
+.settings-subtabs button[aria-selected="true"] { color: var(--primary-text); border-color: var(--primary); font-weight: 600; }
 .settings-management { min-width: 0; }
 .manager-description { color: var(--muted-foreground); font-size: 15px; line-height: 1.6; margin-bottom: 16px; }
 .manager-notice { border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: var(--muted-foreground); }

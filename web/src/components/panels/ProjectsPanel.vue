@@ -226,7 +226,7 @@ onMounted(async () => {
 .pw-items { flex: 1; overflow: auto; padding: 0 6px; display: grid; align-content: start; gap: 2px; }
 .pw-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 7px; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; min-width: 0; }
 .pw-item:hover { background: var(--sidebar-accent); }
-.pw-item[aria-current] { background: var(--acc-soft); color: var(--primary); }
+.pw-item[aria-current] { background: var(--acc-soft); color: var(--primary-text); }
 .pw-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-count { font-size: 12.5px; color: var(--muted-foreground); background: var(--muted); border-radius: 999px; padding: 1px 8px; }
 .pw-foot { padding: 10px; border-top: 1px solid var(--border); }

@@ -89,12 +89,12 @@ details[open] > summary {
   transition: transform 0.15s, color 0.15s;
 }
 details[open] > summary .group-chevron {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .group-status {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
-  color: var(--primary);
+  color: var(--primary-text);
   overflow-wrap: anywhere;
 }
 .group-timing {
@@ -121,7 +121,7 @@ details[open] > summary .group-chevron {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .detail-title {
   font-size: 18px;
