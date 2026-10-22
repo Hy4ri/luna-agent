@@ -42,12 +42,12 @@ function readTiles(): string[] {
   } catch { return []; }
 }
 watch(tileIds, ids => { if (!sessionPane) sessionStorage.setItem('luna.tiles', JSON.stringify(ids)); }, { deep: true });
-const showPrimary = computed(() => sessionPane || !!chat.session || tileIds.value.length === 0);
-const tileCount = computed(() => (chat.session ? 1 : 0) + tileIds.value.length);
+const showPrimary = computed(() => sessionPane || !!chat.session || chat.draftOpen || tileIds.value.length === 0);
+const tileCount = computed(() => (chat.session || chat.draftOpen ? 1 : 0) + tileIds.value.length);
 const tiled = computed(() => !sessionPane && tileCount.value > 1);
 // A lone surviving iframe tile becomes the normal single view.
-watch([() => chat.session, () => tileIds.value.length], () => {
-  if (sessionPane || chat.session || tileIds.value.length !== 1) return;
+watch([() => chat.session, () => chat.draftOpen, () => tileIds.value.length], () => {
+  if (sessionPane || chat.session || chat.draftOpen || tileIds.value.length !== 1) return;
   const [id] = tileIds.value; tileIds.value = []; void openSession(id);
 });
 // Focused tile gets a thin outline. Frames take focus away from this window, so check activeElement on blur.
@@ -287,7 +287,7 @@ onUnmounted(() => {
             <button v-if="activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
-            <button v-if="chat.session" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
+            <button v-if="chat.session || (chat.draftOpen && tileIds.length)" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
           </header>
           <div class="chat-body">
             <div class="chat-column">
