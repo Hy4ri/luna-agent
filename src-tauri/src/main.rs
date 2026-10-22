@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, WindowEvent,
 };
@@ -9,8 +9,8 @@ use tauri_plugin_notification::NotificationExt;
 
 /// Tray label for the toggle item. Linux tray menus have no click events, so the menu is the toggle.
 fn set_toggle_label(app: &AppHandle, visible: bool) {
-    if let Some(item) = app.try_state::<MenuItem<tauri::Wry>>() {
-        let _ = item.set_text(if visible { "Hide Luna" } else { "Show Luna" });
+    if let Some(item) = app.try_state::<CheckMenuItem<tauri::Wry>>() {
+        let _ = item.set_checked(visible);
     }
 }
 
@@ -49,7 +49,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![notify])
         .setup(|app| {
-            let show = MenuItem::with_id(app, "toggle", "Hide Luna", true, None::<&str>)?;
+            let show = CheckMenuItem::with_id(app, "toggle", "Desktop", true, true, None::<&str>)?;
             app.manage(show.clone());
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
