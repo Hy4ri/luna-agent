@@ -33,6 +33,8 @@ export function textBlocks(content: unknown): string {
 
 export const chat = reactive({
   session: savedSession(),
+  // True while an empty new conversation occupies the primary tile (no server session yet).
+  draftOpen: false,
   title: "New conversation",
   project: null as number | null,
   machine: null as Machine | null,
@@ -257,6 +259,7 @@ function detachView() {
 }
 function setSession(id: string | null) {
   chat.session = id;
+  chat.draftOpen = false;
   rememberSession(id);
 }
 export function clearConversation() {
@@ -402,6 +405,7 @@ export async function newSession(project?: number | string | null): Promise<bool
   if (!leavePages()) return false;
   clearConversation();
   chat.project = project !== undefined && project !== null ? Number(project) : null;
+  chat.draftOpen = true;
   return true;
 }
 /** Creates the server session and opens it. Called when the first message is sent from an empty conversation. */
