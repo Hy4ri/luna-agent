@@ -90,6 +90,14 @@ export async function readTurnFailure(tx: Tx, id: ConversationId): Promise<{ bou
   return undefined;
 }
 
+/** True while a foreground task of the conversation is pending, running, waiting or completing. */
+export async function isRunning(tx: Tx, id: ConversationId) {
+  for (const status of ["pending", "running", "waiting", "completing"] as const) {
+    if ((await tx.scanTasks({ conversationId: id, status, background: false }, 1)).items.length) return true;
+  }
+  return false;
+}
+
 export async function readSessionStatus(tx: Tx, id: ConversationId, running: boolean): Promise<SessionState> {
   const ask = await tx.doc(AskDoc, id);
   // An accepted answer is no longer actionable, even before the waiting tool consumes it.

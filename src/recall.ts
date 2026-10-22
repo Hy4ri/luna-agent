@@ -5,9 +5,13 @@
 // Pi-specific and not ported.
 import { DatabaseSync } from "node:sqlite";
 import { Type } from "typebox";
-import { defineExtension, defineTool, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
+import { defineExtension, defineTool, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
+import { isRunning, readSessionStatus, type SessionState, type SessionStatus } from "./session-status.js";
 
 const HEAD = 6000, TAIL = 2000, PAGE = 200;
+const STATUSES = ["ready", "running", "finished", "needs_approval", "needs_input", "limit_reached", "failed", "stopped"] as const;
+/** A status filter checks the newest conversations only: each check reads tasks and entries. */
+const STATUS_SCAN = 300, STATUS_LIMIT = 50;
 
 type Msg = { role?: string; content?: unknown; timestamp?: number; toolName?: string };
 
@@ -106,8 +110,9 @@ export class RecallIndex {
   }
 
   /** BM25 discovery; at most 2 hits per conversation. Terms shorter than 3 characters fall back to LIKE. */
-  search(query: string, opts: { exclude?: number; limit?: number } = {}) {
+  search(query: string, opts: { exclude?: number; limit?: number; only?: Set<number> } = {}) {
     const limit = Math.min(Math.max(opts.limit ?? 5, 1), 10);
+    const sqlLimit = opts.only ? 1000 : limit;
     const terms = query.match(/"[^"]+"|\S+/g) ?? [];
     const operators = /^(AND|OR|NOT|NEAR)$/;
     const short = terms.some((t) => !operators.test(t) && t.replace(/"/g, "").length < 3);
@@ -122,21 +127,25 @@ export class RecallIndex {
           WHERE recall_fts MATCH ? AND (? IS NULL OR msg.conv <> ?)),
         r AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY conv ORDER BY score) rn FROM m)
         SELECT r.conv, r.entry, r.role, r.ts, r.snip, c.title FROM r LEFT JOIN convs c ON c.id = r.conv
-        WHERE rn <= 2 ORDER BY score LIMIT ?`).all(fts, opts.exclude ?? null, opts.exclude ?? null, limit) as Row[];
+        WHERE rn <= 2 ORDER BY score LIMIT ?`).all(fts, opts.exclude ?? null, opts.exclude ?? null, sqlLimit) as Row[];
     } else {
       const words = terms.map((t) => t.replace(/"/g, "")).filter((t) => !operators.test(t));
       const where = words.map(() => "(lower(head) LIKE ? OR lower(tail) LIKE ?)").join(" AND ");
       const args = words.flatMap((w) => [`%${w.toLowerCase()}%`, `%${w.toLowerCase()}%`]);
       rows = (this.db.prepare(`SELECT m.conv, m.entry, m.role, m.ts, m.head AS snip, c.title FROM messages m LEFT JOIN convs c ON c.id = m.conv
-        WHERE ${where || "1"} AND (? IS NULL OR m.conv <> ?) ORDER BY m.entry DESC LIMIT ?`).all(...args, opts.exclude ?? null, opts.exclude ?? null, limit) as Row[])
+        WHERE ${where || "1"} AND (? IS NULL OR m.conv <> ?) ORDER BY m.entry DESC LIMIT ?`).all(...args, opts.exclude ?? null, opts.exclude ?? null, sqlLimit) as Row[])
         .map((r) => { const i = r.snip.toLowerCase().indexOf(words[0]!.toLowerCase()); return { ...r, snip: (i > 60 ? "…" : "") + r.snip.slice(Math.max(0, i - 60), Math.max(0, i - 60) + 160) + "…" }; });
     }
-    return rows.map((r) => ({ ...r, title: this.title(r.conv, r.title) }));
+    if (opts.only) rows = rows.filter((r) => opts.only!.has(r.conv));
+    return rows.slice(0, limit).map((r) => ({ ...r, title: this.title(r.conv, r.title) }));
   }
 
-  browse(limit = 5, exclude?: number) {
+  /** Newest conversations first. `only` keeps the listed ids; `max` replaces the default 10-row cap. */
+  browse(limit = 5, exclude?: number, only?: Set<number>, max = 10) {
+    const cap = Math.min(Math.max(limit, 1), max);
     return (this.db.prepare("SELECT id, title, started FROM convs WHERE title IS NOT NULL AND (? IS NULL OR id <> ?) ORDER BY id DESC LIMIT ?")
-      .all(exclude ?? null, exclude ?? null, Math.min(Math.max(limit, 1), 10)) as { id: number; title: string; started: number | null }[])
+      .all(exclude ?? null, exclude ?? null, only ? STATUS_SCAN * 2 : cap) as { id: number; title: string; started: number | null }[])
+      .filter((c) => !only || only.has(c.id)).slice(0, cap)
       .map((c) => ({ ...c, title: this.title(c.id, c.title)! }));
   }
 
@@ -151,6 +160,35 @@ export class RecallIndex {
   }
 }
 
+/** Live status of the given conversations. Unknown ids are left out. */
+async function statusesOf(tx: Tx, ids: number[]): Promise<Map<number, SessionState>> {
+  const out = new Map<number, SessionState>();
+  for (const id of ids) {
+    try { out.set(id, await readSessionStatus(tx, id as ConversationId, await isRunning(tx, id as ConversationId))); } catch { /* deleted while listing */ }
+  }
+  return out;
+}
+
+/** Statuses of the newest conversations (excluding `exclude`) that match `wanted`. */
+async function scanStatuses(tx: Tx, wanted: Set<SessionStatus>, exclude: number): Promise<Map<number, SessionState>> {
+  const out = new Map<number, SessionState>();
+  const ids: number[] = [];
+  let cur;
+  do {
+    const page = await tx.scanConversations({ order: "descending" }, Math.min(PAGE, STATUS_SCAN - ids.length), cur);
+    for (const c of page.items) if ((c.id as number) !== exclude) ids.push(c.id as number);
+    cur = ids.length >= STATUS_SCAN ? undefined : page.next;
+  } while (cur);
+  for (const [id, st] of await statusesOf(tx, ids)) if (wanted.has(st.status)) out.set(id, st);
+  return out;
+}
+
+const REASON_STATUSES = new Set<SessionStatus>(["failed", "limit_reached", "needs_approval", "needs_input", "stopped"]);
+const statusText = (st: SessionState | undefined, cap = 300) => {
+  if (!st) return "";
+  const reason = st.statusReason && REASON_STATUSES.has(st.status) ? ` (${st.statusReason.replace(/\s+/g, " ").slice(0, cap)})` : "";
+  return ` · ${st.status}${reason}`;
+};
 const when = (ts: number | null | undefined) => (ts ? new Date(ts).toISOString().slice(0, 16).replace("T", " ") : "?");
 const MAX_OUT = 50_000;
 
@@ -158,6 +196,7 @@ const DESCRIPTION = [
   "Search past Luna conversations with a local full-text index; returns snippets and message ids.",
   "- `query`: discover matches (BM25). Prefer distinctive identifiers or uncommon terms; multi-word queries are AND. Use OR/NOT for Boolean queries and quotes for exact phrases.",
   "- `sessionId` + `aroundMessageId`: scroll ±`window` messages around a hit. `sessionId` alone: read the conversation (head 20 + tail 10). No arguments: browse recent conversations.",
+  "- `status`: keep only sessions with this live status (or any of a list): ready, running, finished, needs_approval, needs_input, limit_reached, failed, stopped. Combine with `query`, or use it alone. Each result shows its status; failed and limit_reached results include the error text. Checks the newest 300 sessions; limit up to 50.",
   "Use it only when the user asks about past conversations, earlier decisions, or repeated work not in the current conversation; not for the current conversation or ordinary file inspection.",
 ].join("\n");
 
@@ -173,33 +212,44 @@ export function createRecallExtension(index: RecallIndex) {
           sessionId: Type.Optional(Type.Number({ description: "Conversation id to read or scroll." })),
           aroundMessageId: Type.Optional(Type.Number({ description: "Message id from a discovery hit to scroll around." })),
           window: Type.Optional(Type.Number({ description: "Messages each side when scrolling (1-20, default 5)." })),
-          limit: Type.Optional(Type.Number({ description: "Results for discovery/browse (1-10, default 5)." })),
+          limit: Type.Optional(Type.Number({ description: "Results for discovery/browse (1-10, default 5; up to 50 when status is set)." })),
+          status: Type.Optional(Type.Union([Type.Union(STATUSES.map((v) => Type.Literal(v))), Type.Array(Type.Union(STATUSES.map((v) => Type.Literal(v))), { minItems: 1 })], { description: "Only sessions with this live status, or any status in the list." })),
         }),
         replay: "safe",
         execute: async (args, api, context) => {
           await api.commit((tx) => index.sync(tx), context);
           const me = api.conversationId as number;
           const text = (t: string) => ({ output: [{ type: "text" as const, text: t.length > MAX_OUT ? t.slice(0, MAX_OUT) + "\n[truncated]" : t }] });
+          const wanted = args.status === undefined ? undefined : new Set<SessionStatus>(Array.isArray(args.status) ? args.status : [args.status]);
+          const matched = wanted ? await api.commit((tx) => scanStatuses(tx, wanted, me).then((m) => [...m]), context) : undefined;
+          const known = matched ? new Map(matched) : undefined;
+          const only = known ? new Set(known.keys()) : undefined;
+          const cap = wanted ? Math.min(Math.max(args.limit ?? 20, 1), STATUS_LIMIT) : args.limit;
+          const statusFor = async (ids: number[]) => known ?? new Map(await api.commit((tx) => statusesOf(tx, ids).then((m) => [...m]), context));
           if (args.query?.trim()) {
             let rows;
-            try { rows = index.search(args.query.trim(), { exclude: me, limit: args.limit }); }
+            try { rows = index.search(args.query.trim(), { exclude: me, limit: cap, only }); }
             catch (e) { return { ...text(`Invalid query: ${(e as Error).message}. Quote terms or simplify the query.`), isError: true }; }
-            if (!rows.length) return text(`No matches for ${JSON.stringify(args.query)}.`);
-            return text(rows.map((r) => `session ${r.conv} · message ${r.entry} · ${r.role} · ${when(r.ts)}${r.title ? ` · "${r.title}"` : ""}\n  ${r.snip.replace(/\s+/g, " ")}`).join("\n")
+            if (!rows.length) return text(`No matches for ${JSON.stringify(args.query)}${wanted ? ` with status ${[...wanted].join("/")}` : ""}.`);
+            const st = await statusFor([...new Set(rows.map((r) => r.conv))]);
+            return text(rows.map((r) => `session ${r.conv} · message ${r.entry} · ${r.role} · ${when(r.ts)}${statusText(st.get(r.conv))}${r.title ? ` · "${r.title}"` : ""}\n  ${r.snip.replace(/\s+/g, " ")}`).join("\n")
               + "\n\nScroll with {sessionId, aroundMessageId}.");
           }
           if (args.sessionId !== undefined) {
             const r = index.messages(args.sessionId, args.aroundMessageId, args.window);
             if (!r.rows.length) return { ...text(args.aroundMessageId !== undefined ? `Message ${args.aroundMessageId} not found in session ${args.sessionId}.` : `Session ${args.sessionId} has no indexed messages.`), isError: true };
+            const st = (await statusFor([args.sessionId])).get(args.sessionId);
             const body = r.rows.map((m, i) => {
               const gap = r.omitted && i === 20 ? `… ${r.omitted} messages omitted …\n` : "";
               const content = m.tail ? `${m.head}\n…[middle omitted]…\n${m.tail}` : m.head;
               return `${gap}[${m.entry}] ${m.role} ${when(m.ts)}${m.entry === args.aroundMessageId ? " ◀" : ""}\n${content.length > 4000 ? content.slice(0, 4000) + "…" : content}`;
             }).join("\n\n");
-            return text(`session ${args.sessionId} (${r.total} messages)\n\n${body}`);
+            return text(`session ${args.sessionId}${statusText(st, 500)} (${r.total} messages)\n\n${body}`);
           }
-          const list = index.browse(args.limit, me);
-          return text(list.length ? list.map((c) => `session ${c.id} · ${when(c.started)} · ${c.title}`).join("\n") : "No past conversations indexed.");
+          const list = index.browse(cap, me, only, wanted ? STATUS_LIMIT : 10);
+          if (!list.length) return text(wanted ? `No sessions with status ${[...wanted].join("/")} among the newest ${STATUS_SCAN}.` : "No past conversations indexed.");
+          const st = await statusFor(list.map((c) => c.id));
+          return text(list.map((c) => `session ${c.id} · ${when(c.started)}${statusText(st.get(c.id))} · ${c.title}`).join("\n"));
         },
       }),
     ],

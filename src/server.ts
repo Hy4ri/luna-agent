@@ -18,7 +18,7 @@ import { configure, LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { AskDoc, checkAnswer } from "./ask.js";
-import { readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
+import { isRunning, readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
 import { Children } from "./delegate.js";
 import { GoalDoc } from "./goal.js";
 import { LEARN_USAGE, learnPrompt, parseLearn } from "./learn-command.js";
@@ -105,13 +105,6 @@ const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 };
-
-async function isRunning(tx: Tx, id: ConversationId) {
-  for (const status of ["pending", "running", "waiting", "completing"] as const) {
-    if ((await tx.scanTasks({ conversationId: id, status, background: false }, 1)).items.length) return true;
-  }
-  return false;
-}
 
 export function createApp(opts: ServerOptions) {
   const { harness } = opts;
