@@ -34,10 +34,26 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+      - name: Prepare Debian package cache
+        id: apt-cache
+        run: |
+          . /etc/os-release
+          echo "release=$ID-$VERSION_ID" >> "$GITHUB_OUTPUT"
+          echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/apt-archives"
+      - name: Cache Debian package downloads
+        uses: actions/cache@v6.1.0
+        with:
+          # Cache only completed downloads, not apt locks or partial files.
+          path: ${{ runner.temp }}/apt-archives/*.deb
+          key: debs-${{ steps.apt-cache.outputs.release }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ steps.apt-cache.outputs.week }}
+          restore-keys: |
+            debs-${{ steps.apt-cache.outputs.release }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml') }}-
       - name: Install Tauri system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
+          # A dedicated directory avoids runner cleanup hooks for /var/cache/apt/archives.
+          sudo apt-get -o Dir::Cache::archives="$RUNNER_TEMP/apt-archives" -o APT::Keep-Downloaded-Packages=true install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
