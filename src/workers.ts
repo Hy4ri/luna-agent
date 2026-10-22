@@ -2,6 +2,7 @@
 // The main daemon keeps the agent loop, store, and every other tool. A worker dials in over WebSocket with its own token.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
+import { hostname } from "node:os";
 import type { Duplex } from "node:stream";
 import { DatabaseSync } from "node:sqlite";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -273,17 +274,23 @@ class RemoteExecutionEnv {
 }
 export type { RemoteExecutionEnv };
 
-/** Tells the model which machine its file and shell tools touch. Rendered only for worker sessions. */
+/** Shows every model the same machine and effective cwd used by its file and shell tools. */
 export function createWorkersExtension(hub: () => WorkerHub | undefined): Extension {
-  return defineExtension({ name: "workers", sections: [section("machine", async ({ conversationId, read }, ctx) => {
-    const target = await read.snapshot(ExecTarget, conversationId as ConversationId, ctx).catch(() => undefined);
-    if (!target?.worker) return undefined;
+  return defineExtension({ name: "workers", sections: [section("machine", async ({ conversationId, read, env }, ctx) => {
+    const target = await read.snapshot(ExecTarget, conversationId as ConversationId, ctx);
+    const directory = env?.cwd;
+    const workingDirectory = directory
+      ? ` Current working directory for this session: ${JSON.stringify(directory)}. Relative file paths and shell commands start here.`
+      : " The session's working directory is unavailable; do not assume a directory on another machine.";
+    const authority = " This is the authoritative execution location for Luna tools, not any provider or Claude CLI transport directory.";
+    if (!target?.worker) return `bash, read, write, edit, and process tools run on the main Luna host (hostname ${hostname()}).${workingDirectory}${authority}`;
     // Stable text: last known capabilities only, never online state, so the prompt cache survives reconnects.
     const w = hub()?.store.get(target.worker);
     if (!w) return `This session targets execution machine ${target.worker}, which no longer exists. bash, read, write, edit, and process tools fail until the session moves to another machine.`;
     const c = w.capabilities;
     return `bash, read, write, edit, and process tools run on execution machine "${w.name}"` +
       (c ? ` (hostname ${c.hostname}, ${c.platform}/${c.arch}, user ${c.user}, default directory ${c.cwd}).` : ".") +
+      workingDirectory + authority +
       " All paths in those tools are paths on that machine. Web, browser, MCP, image, vision, memory, skills, and board tools run on the main Luna host and cannot see that machine's files.";
   })] });
 }

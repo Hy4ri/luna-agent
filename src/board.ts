@@ -341,7 +341,8 @@ export function createBoardExtension(conversations: () => Conversations | undefi
       const pid = conv?.projects.projectOf(Number(input.conversationId));
       const p = pid === undefined ? undefined : conv!.projects.get(pid);
       if (!p) return undefined;
-      const base = conv!.board.summary(p.id, p.name, p.cwd);
+      // The project stores a host path, but this session can run on another machine or keep an older cwd.
+      const base = conv!.board.summary(p.id, p.name, input.env?.cwd ?? "");
       const runtime = input.read as { context?: (id: typeof input.conversationId, ctx: typeof context) => Promise<{ messages: readonly { role?: string; content?: unknown }[] }> };
       const view = typeof runtime.context === "function" ? await runtime.context(input.conversationId, context).catch(() => undefined) : undefined;
       const mentioned = view ? conv!.board.mentioned(p.id, extractMentionedCardIds(view.messages)) : "";
