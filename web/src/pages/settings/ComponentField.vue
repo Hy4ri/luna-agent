@@ -140,10 +140,10 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
 .field-stack { display: grid; gap: 16px; min-width: 0; }
 .field-label { display: grid; gap: 6px; min-width: 0; font-size: 14px; font-weight: 500; }
 .field-label small, .boolean-field small, .field-help { display: block; font-size: 13px; color: var(--muted-foreground); line-height: 1.6; font-weight: 400; }
-.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 14px; }
+.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 14px; }
 .input:not(button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .readonly-value { color: var(--muted-foreground); background: var(--muted); cursor: text; }
-.field-group { min-width: 0; border: 1px solid var(--border); border-radius: 6px; }
+.field-group { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); }
 .field-group > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 12px; cursor: pointer; font-size: 14px; list-style: none; }
 summary::-webkit-details-marker { display: none; }
 summary svg { flex-shrink: 0; color: var(--muted-foreground); }
@@ -153,7 +153,7 @@ summary small { font-size: 12px; color: var(--muted-foreground); overflow-wrap: 
 .group-body { padding: 16px; border-top: 1px solid var(--border); }
 .subtle-group { border: 0; border-top: 1px solid var(--border); border-radius: 0; }
 .field-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-.field-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; cursor: pointer; }
+.field-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; cursor: pointer; }
 .field-button:hover { background: var(--accent); }
 .danger { color: var(--destructive); }
 .field-actions { display: flex; justify-content: flex-end; }

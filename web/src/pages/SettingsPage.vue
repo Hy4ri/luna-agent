@@ -292,7 +292,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .settings-layout { display: flex; min-height: 0; flex: 1; }
 .settings-nav { flex: 0 0 208px; padding: 20px 12px; border-right: 1px solid var(--border); overflow-y: auto; }
 .settings-tabs { display: flex; flex-direction: column; gap: 4px; }
-.settings-tabs button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border-radius: 6px; text-align: left; color: var(--muted-foreground); cursor: pointer; flex-shrink: 0; }
+.settings-tabs button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border-radius: var(--radius); text-align: left; color: var(--muted-foreground); cursor: pointer; flex-shrink: 0; }
 .settings-tabs button:hover { background: var(--accent); color: var(--foreground); }
 .settings-tabs button[aria-selected="true"] { background: var(--acc-soft); color: var(--primary-text); font-weight: 600; }
 .settings-tabs svg { flex-shrink: 0; }
@@ -322,7 +322,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
     min-height: 220px;
     padding: 32px;
     border: 1px dashed var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius);
     color: var(--muted-foreground);
     font-size: 14px;
     text-align: center;
@@ -335,14 +335,14 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .settings-subtabs button[aria-selected="true"] { color: var(--primary-text); border-color: var(--primary); font-weight: 600; }
 .settings-management { min-width: 0; }
 .manager-description { color: var(--muted-foreground); font-size: 15px; line-height: 1.6; margin-bottom: 16px; }
-.manager-notice { border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: var(--muted-foreground); }
+.manager-notice { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: var(--muted-foreground); }
 .settings-manager { border: 0; padding: 0; margin: 0; min-width: 0; }
 .settings-manager :deep(button:not(.icon-button)) { min-height: 44px; }
 .settings-manager :deep(.card:not(details)) { padding: 16px; }
 .settings-manager :deep(input:not([type=checkbox])), .settings-manager :deep(select), .settings-manager :deep(textarea) { min-height: 44px; }
 .settings-manager :deep(pre) { margin-top: 12px; }
 .manager-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 12px; margin-bottom: 24px; }
-.manager-link { display: flex; align-items: flex-start; gap: 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 8px; text-align: left; cursor: pointer; min-width: 0; }
+.manager-link { display: flex; align-items: flex-start; gap: 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius); text-align: left; cursor: pointer; min-width: 0; }
 .manager-link:hover { background: var(--accent); border-color: var(--muted-foreground); }
 .manager-link strong { font-size: 15px; font-weight: 550; }
 .manager-link p { font-size: 14px; color: var(--muted-foreground); line-height: 1.55; margin-top: 4px; }
@@ -350,7 +350,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .manager-link svg { flex-shrink: 0; color: var(--muted-foreground); margin-top: 2px; }
 .field-label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 500; min-width: 0; }
 .field-label small { font-size: 14px; line-height: 1.55; color: var(--muted-foreground); font-weight: 400; }
-.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); }
+.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); }
 .advanced-fields { border-top: 1px solid var(--border); padding-top: 8px; }
 .advanced-fields summary { cursor: pointer; color: var(--muted-foreground); font-size: 14px; padding-block: 8px; }
 .advanced-fields[open] summary { margin-bottom: 12px; }
@@ -361,7 +361,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .save-state p { font-size: 13px; line-height: 1.5; color: var(--muted-foreground); margin-top: 4px; overflow-wrap: anywhere; }
 .save-state p.save-error { color: var(--destructive); }
 .save-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.settings-button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.settings-button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
 .settings-button:hover { background: var(--accent); }
 .settings-button.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 .settings-button.primary:hover { filter: brightness(1.08); }

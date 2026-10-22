@@ -129,7 +129,7 @@ onUnmounted(() => {
   font-family: var(--mono);
   font-size: 12px;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 .widget-action-btn:hover {

@@ -370,7 +370,7 @@ onUnmounted(() => {
 .tile-split-actions {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; gap: 4px; padding: 3px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--background);
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--background);
 }
 .tile-split-actions .icon-button { width: 28px; height: 28px; }
 .tile-resize { cursor: col-resize; touch-action: none; }

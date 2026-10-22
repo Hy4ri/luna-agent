@@ -82,10 +82,9 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 - **UI Font:** System sans-serif stack (`system-ui, -apple-system, ...`) at `14px` base size.
 - **Monospace Font (`--mono`):** `ui-monospace, monospace` for tool names, diffs, terminal output, code blocks, slash commands, and card IDs. Use `font-variant-numeric: tabular-nums` on timestamps and usage percentages.
 - **Corner Radii:**
-  - `--radius`: `0.5rem` (`8px`)
-  - `--r-sm`: `6px` (buttons, inputs, code inline badges, menu items)
-  - `--r`: `10px` (popovers, floating menus)
-  - `--r-lg`: `14px` (composer box `#composer`, user bubbles `.msg.user`, welcome badge)
+  - All UI surface and control corners use `--radius: 1px`, including Tailwind radius utilities and legacy `--r` aliases.
+  - Circular status indicators, spinners, switch thumbs, and scrollbar thumbs stay circular. Flush nested content keeps zero radius.
+  - Active session rows keep their text/status colors and use a subtle red-tinted background across the whole row.
 - **Control Sizing:**
   - Standard control height (`--control`): `36px` (`#send`, `#stop`, `#think`, `.side-item`).
   - Icon button (`.icon-button`): `32px × 32px` (`28px × 28px` inside dense message footers or activity rows; `32px × 32px` on mobile footers).
@@ -119,12 +118,12 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - Empty conversations display `#welcome` centered in the transcript.
   - Floating scroll jump buttons (`.transcript-jumps`) anchor at `right: 24px; bottom: 190px` when scrolled away from the bottom.
 - **Message Presentation:**
-  - **User messages (`.msg.user`):** Right-aligned (`align-self: flex-end`), `max-width: 85%` (`92%` on mobile), `background: var(--secondary)`, `border: 1px solid var(--border)`, `border-radius: 14px 14px 4px 14px`, `white-space: pre-wrap`.
+  - **User messages (`.msg.user`):** Right-aligned (`align-self: flex-end`), `max-width: 85%` (`92%` on mobile), `background: var(--secondary)`, `border: 1px solid var(--border)`, `border-radius: var(--radius)`, `white-space: pre-wrap`.
   - **Assistant messages (`.msg.assistant`):** Full-bleed prose rendered directly on `--background` (never wrapped in a filled card), prefixed by the `Luna` label (`::before`), using `.md` Markdown styles and copyable code blocks (`.codewrap` + `pre.code`).
   - **In-place Media (`MEDIA:` directives & attachments):** Images (`.att`), audio, video (`.att-video`), and downloadable file cards (`.att-file`) render inline within the message flow where written, never stripped or grouped only at the end. Missing files render `.att-missing` with a destructive border tint.
   - **Thinking & Background Reports (`.thinking`, `.background-report`):** Collapsible `<details>` cards above assistant prose with `max-height: 300px` scrollable preformatted content.
 - **Tool Call Rows (`ToolCall.vue`, `.tool`):**
-  - Collapsible `<details>` cards (`background: var(--card)`, `border: 1px solid var(--border)`, `border-radius: 8px`).
+  - Collapsible `<details>` cards (`background: var(--card)`, `border: 1px solid var(--border)`, `border-radius: var(--radius)`).
   - `<summary>` (`min-height: 40px`) displays the status icon, monospace `.tool-name`, truncated `.tool-summary` (or `.tool-counts` / `.tool-exit`), and right-aligned `.tool-state`.
   - Failed tools (`data-state="failed"`) tint the border and background with `--destructive` (`color-mix(in srgb, var(--destructive) 4%, var(--card))`).
   - **Specialized Tool Renderers (`tool/`):**
@@ -140,7 +139,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 
 - **Composer Container (`#compose` & `#composer`):**
   - Centered dock (`max-width: 824px`, `padding: 10px 32px`, `8px 12px` on mobile, respecting `env(safe-area-inset-bottom)`).
-  - `#composer` uses `background: var(--card)`, `border: 1px solid var(--input)`, `border-radius: 14px`, shifting border to `color-mix(in srgb, var(--primary) 55%, var(--border))` on `:focus-within`.
+  - `#composer` uses `background: var(--card)`, `border: 1px solid var(--input)`, `border-radius: var(--radius)`, shifting border to `color-mix(in srgb, var(--primary) 55%, var(--border))` on `:focus-within`.
   - **Attachment strip (`#atts`):** Thumbnail previews (`height: 54px`) with circular remove buttons above the textarea.
   - **Auto-sizing input (`#input`):** `min-height: 38px`, `max-height: 22dvh`, transparent background.
 - **Bottom Action Bar (`.compose-bar`):**

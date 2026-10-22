@@ -42,7 +42,7 @@ function onSummaryClick(event: MouseEvent) {
   min-width: 0;
   align-self: start;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--card);
   overflow: clip;
 }
@@ -54,7 +54,7 @@ summary {
   cursor: pointer;
   list-style: none;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--card);
   transition: border-color 0.12s, background 0.12s;
   user-select: none;
@@ -106,7 +106,7 @@ details[open] > summary .group-chevron {
   gap: 20px;
   padding: 24px 28px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--card);
   min-width: 0;
 }

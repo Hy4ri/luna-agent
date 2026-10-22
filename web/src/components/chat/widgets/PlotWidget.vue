@@ -342,7 +342,7 @@ function handleMouseLeave() {
   background: var(--popover);
   border: 1px solid var(--border);
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   font-family: var(--mono);
   font-size: 11px;
   color: var(--foreground);
