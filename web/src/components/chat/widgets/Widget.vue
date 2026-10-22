@@ -19,7 +19,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 
 const parseResult = computed(() => {
   if (!props.closed) return { ok: false as const, error: "" };
-  if (props.excess) return { ok: false as const, error: `more than ${MAX_WIDGETS} widgets in one message` };
+  if (props.excess) return { ok: false as const, error: `more than ${MAX_WIDGETS} ui/html previews in one message` };
   return parseWidget(props.json);
 });
 
