@@ -604,6 +604,10 @@ The session's own model is never used, so a large session model does not change 
 - **Generate title** in the session menu replaces the current title on request, using the opening message and current
   details of its board references. It is unavailable without a route.
 - `session_search` shows stored titles (renames and generated titles) instead of the first message.
+- `session_search` shows each session's live status. Its `status` parameter (one value or a list: `ready`, `running`, `finished`,
+  `needs_approval`, `needs_input`, `limit_reached`, `failed`, `stopped`) keeps only matching sessions, alone or with `query`.
+  `failed`, `limit_reached`, `needs_*` and `stopped` results include the reason (the error text for failures). A status filter
+  checks the newest 300 sessions and returns up to 50 results.
 
 ## Web frontend development
 
