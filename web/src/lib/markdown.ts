@@ -1,6 +1,7 @@
 // Markdown builds DOM nodes only (never innerHTML). Links are limited to http(s)/mailto.
 import { h } from "./dom";
 import { copyToClipboard } from "./message";
+import { openFence, closesFence, fenceLang, findFenceEnd } from "./fences";
 
 function inline(text: string): (Node | string)[] {
   const out: (Node | string)[] = [];
@@ -145,16 +146,14 @@ export function markdown(src: string): DocumentFragment {
     const l = lines[i];
     let m: RegExpExecArray | null;
 
-    // Fenced code block (``` or ~~~) with optional language
-    if ((m = /^\s*(```|~~~)([\w#+-]*)/.exec(l))) {
+    // Fenced code block: length-aware open/close rules shared with segments.ts
+    const fence = openFence(l);
+    if (fence) {
       flush();
-      const fence = m[1], lang = m[2] || "", body: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].trimStart().startsWith(fence)) {
-        body.push(lines[i++]);
-      }
-      if (i < lines.length) i++;
-      frag.append(codeBlock(body.join("\n"), lang));
+      const end = findFenceEnd(lines, i + 1, fence);
+      const stop = end === -1 ? lines.length : end;
+      frag.append(codeBlock(lines.slice(i + 1, stop).join("\n"), fenceLang(fence)));
+      i = end === -1 ? lines.length : end + 1;
       continue;
     }
 
@@ -179,7 +178,7 @@ export function markdown(src: string): DocumentFragment {
     if (/^\s*>/.test(l)) {
       flush();
       const q: string[] = [];
-      while (i < lines.length && (/^\s*>/.test(lines[i]) || (q.length > 0 && lines[i].trim() !== "" && !/^\s*(```|~~~|#{1,6}|[-*+]|\d+[.)]|\|)/.test(lines[i])))) {
+      while (i < lines.length && (/^\s*>/.test(lines[i]) || (q.length > 0 && lines[i].trim() !== "" && !/^\s*(?:`{3,}|~{3,}|#{1,6}|[-*+]|\d+[.)]|\|)/.test(lines[i])))) {
         if (/^\s*>/.test(lines[i])) {
           q.push(lines[i++].replace(/^\s*>\s?/, ""));
         } else {
@@ -304,14 +303,13 @@ export function splitBlocks(src: string): string[] {
   const lines = String(src).replace(/\r\n/g, "\n").split("\n");
   const blocks: string[][] = [];
   let cur: string[] = [];
-  let fence = "";
+  let fence: ReturnType<typeof openFence> = null;
   let blankRun = false;
   for (const l of lines) {
     if (fence) {
-      if (l.trimStart().startsWith(fence)) fence = "";
+      if (closesFence(l, fence)) fence = null;
     } else {
-      const m = /^\s*(```|~~~)/.exec(l);
-      if (m) fence = m[1];
+      fence = openFence(l);
     }
     const blank = !fence && !l.trim();
     if (blankRun && !blank && cur.length && !/^\s{2,}\S/.test(l)) {

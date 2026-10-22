@@ -175,7 +175,7 @@ function backgroundReport(entry: any, message: any): boolean {
     </div>
     <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message">
       <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre>{{ chat.liveThinking }}</pre></details>
-      <Markdown v-if="chat.liveText" :content="chat.liveText" />
+      <AssistantText v-if="chat.liveText" :text="chat.liveText" />
     </div>
     <div v-for="notice in chat.notices" :key="notice.id" :data-notice="notice.id" :class="['msg', 'chat-notice', notice.kind === 'err' ? 'err' : 'muted']">
       <span>{{ notice.text }}</span>

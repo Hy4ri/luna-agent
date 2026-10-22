@@ -174,6 +174,18 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 
 ---
 
+## Chat Widgets (```ui blocks)
+
+An assistant reply can contain a fenced block with the language `ui` and one JSON object. `web/src/lib/segments.ts` splits it out of the text. `web/src/lib/widgets/schema.ts` validates it. `web/src/components/chat/widgets/` renders it. The model never sends code: only the supported widget types (`chart`, `plot`) render.
+
+- **Valid:** a `--card` surface with a title, a `{ }` toggle for the raw JSON, and a copy button.
+- **Invalid:** the raw JSON in a code block, plus one `--err` line: `widget invalid: <reason>`. Never fail silently.
+- **Streaming (fence not closed):** a fixed-height `building widget…` card. Partial JSON is never parsed.
+- **Colors:** series use `--chart-1` to `--chart-6`. No raw hex in widget templates.
+- **Interaction:** legend items are `<button aria-pressed>`. Sliders are native `input[type=range]`. A slider recomputes in the browser and makes no request.
+- **Data:** a widget shows only data the model got from the user or a tool. No decorative or placeholder charts.
+- **Fences:** `web/src/lib/fences.ts` is the single fence scanner (CommonMark open and close rules). Do not add another.
+
 ## Do's and Don'ts
 
 ### Do's

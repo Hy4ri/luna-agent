@@ -10,6 +10,7 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
 import { SessionStatusExtension } from "./session-status.js";
+import { GenUiExtension } from "./genui.js";
 import { ExecTarget } from "./workers.js";
 
 export const context = BACKGROUND_CONTEXT;
@@ -67,6 +68,7 @@ export async function openLuna(opts: LunaOptions) {
   });
   if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); }
   registry.install(SessionStatusExtension);
+  registry.install(GenUiExtension);
   for (const e of opts.extensions ?? []) registry.install(e);
   if (opts.skillDirs?.length) registry.install(createSkillsExtension({ dirs: opts.skillDirs, disabled: opts.disabledSkills }));
   if (opts.memory !== false) {
