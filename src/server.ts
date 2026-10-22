@@ -1211,7 +1211,8 @@ export function createApp(opts: ServerOptions) {
   // ---- skills (read-only; the model edits them through skill_manage / skill_propose) ----
   app.get("/v1/skills", (c) => {
     if (!opts.skillDirs) return err(c, 404, "skills disabled");
-    return c.json({ skills: scanSkills(opts.skillDirs).map((s) => ({ name: s.name, description: s.description, tools: s.tools, path: s.path })) });
+    const off = opts.settings?.read().disabledSkills ?? [];
+    return c.json({ skills: scanSkills(opts.skillDirs).map((s) => ({ name: s.name, description: s.description, tools: s.tools, path: s.path, disabled: off.includes(s.name) })) });
   });
   app.get("/v1/skills/:name", (c) => {
     if (!opts.skillDirs) return err(c, 404, "skills disabled");

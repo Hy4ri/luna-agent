@@ -18,7 +18,8 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type Mutabl
 import { createRegistry, defineExtension, section, type Extension } from "@earendil-works/pi-durable";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import { SettingsStore } from "./settings.js";
-import type { LunaConfig } from "./config.js";
+import { BUILTIN_EXTENSIONS, BUILTIN_REGISTRY_NAMES, type LunaConfig } from "./config.js";
+import { createToggleExtension } from "./toggles.js";
 import { createAskExtension } from "./ask.js";
 import { createCronExtension, deliverRun } from "./cron-tools.js";
 import { createDelegateExtension } from "./delegate.js";
@@ -108,6 +109,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       auth: createCodexImageAuth({ config: () => imageGenConfig()["openai-codex"] }),
       outputDir: join(cfg.dataDir, "generated-images"), fetch: o.fetch })],
   ]) });
+  extensions.push(createToggleExtension(() => live().disabledTools));
   extensions.push(createImageGenExtension(imageGen, cfg.cwd));
   extensions.push(createVisionExtension({ config: () => settings?.resolved() ?? cfg, models: built.models, defaultModel: () => providers.defaultModel(),
     history: async (id, ctx) => (await (await harnessRef!.conversation(id, ctx))!.context(ctx)) }));
@@ -208,7 +210,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       if (!response.ok) throw new Error(`notification HTTP ${response.status}`);
     },
     memory,
-    ...(on("skills") ? { skillDirs: cfg.allSkillDirs } : {}),
+    ...(on("skills") ? { skillDirs: cfg.allSkillDirs, disabledSkills: () => live().disabledSkills } : {}),
+    // A built-in missing from the live list is hidden from sessions. Its store and scheduler keep running.
+    hiddenExtensions: () => new Set(BUILTIN_EXTENSIONS.filter(e => !live().extensions.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e])),
     extensions,
   });
   const conversations = new ConversationStore(harness, recall);

@@ -30,6 +30,10 @@ export interface LunaOptions {
   memory?: MemoryStore | string | false;
   /** Directories scanned for SKILL.md skills; omit to disable the skills extension. */
   skillDirs?: string[];
+  /** Registry extension names hidden from every session, read on every call. */
+  hiddenExtensions?: () => ReadonlySet<string>;
+  /** Skill names hidden from the skills extension, read on every call. */
+  disabledSkills?: () => readonly string[];
   /** Extra extensions (e.g. tools a skill mounts on demand). */
   extensions?: Extension[];
   /** Install bash/read/write/edit. Default true. */
@@ -64,7 +68,7 @@ export async function openLuna(opts: LunaOptions) {
   if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); }
   registry.install(SessionStatusExtension);
   for (const e of opts.extensions ?? []) registry.install(e);
-  if (opts.skillDirs?.length) registry.install(createSkillsExtension({ dirs: opts.skillDirs }));
+  if (opts.skillDirs?.length) registry.install(createSkillsExtension({ dirs: opts.skillDirs, disabled: opts.disabledSkills }));
   if (opts.memory !== false) {
     const memory = opts.memory instanceof MemoryStore ? opts.memory : new MemoryStore(opts.memory ?? "memory.db");
     registry.install(createMemoryExtension(memory));
@@ -87,7 +91,10 @@ export async function openLuna(opts: LunaOptions) {
       },
       // Runtime-installed extensions also apply to existing sessions. Cron removes interactive extensions explicitly.
       settings: {
-        get extensions() { return registry.snapshot().installed(); },
+        get extensions() {
+          const hidden = opts.hiddenExtensions?.(), all = registry.snapshot().installed();
+          return hidden?.size ? all.filter(e => !hidden.has(e.name)) : all;
+        },
         get afterFailedRun() { return opts.afterFailedRun?.(); },
         steeringMode: "all",
         followUpMode: "one-at-a-time",

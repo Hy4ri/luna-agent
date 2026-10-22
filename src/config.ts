@@ -10,6 +10,12 @@ import { parseCron } from "./cron-expr.js";
 
 export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
+/** Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live. */
+export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
+  coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate"],
+  cron: ["cron"], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
+  recall: ["recall"], goal: ["goal"], learn: ["learn"],
+};
 
 const name = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/, "1-40 letters, digits, _ or -");
 const common = { name, enabled: z.boolean().optional(), defer: z.boolean().optional(), timeoutMs: z.number().int().positive().optional() };
@@ -121,6 +127,10 @@ export const ConfigSchema = z
       thinkingLevel: thinking.optional(), cwd: z.string().optional(),
     }).prefault({}),
     extensions: z.array(z.enum(BUILTIN_EXTENSIONS)).default([...BUILTIN_EXTENSIONS]),
+    /** Tool names hidden from the model and refused when called. Applies to the next model request. */
+    disabledTools: z.array(z.string().min(1)).default([]),
+    /** Skill names hidden from the catalog and from skill_view. Applies at once. */
+    disabledSkills: z.array(z.string().min(1)).default([]),
     /** Extra skill dirs, scanned after <dataDir>/skills. */
     skillDirs: z.array(z.string()).default([]),
     mcpServers: z.array(McpServerSchema).default([]),

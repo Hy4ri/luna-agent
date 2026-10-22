@@ -119,6 +119,8 @@ export function linkedFiles(skill: Skill, limit = 200): string[] {
 export interface SkillsOptions {
   /** Directories scanned (recursively) for SKILL.md. Rescanned on every use, so edits apply live. */
   dirs: readonly string[];
+  /** Skill names to hide, read on every use. */
+  disabled?: () => readonly string[];
   /** Max bytes of a linked file returned. Default 100k. */
   maxFileBytes?: number;
 }
@@ -132,6 +134,7 @@ const catalog = (skills: Skill[]) =>
 
 export function createSkillsExtension(opts: SkillsOptions) {
   const max = opts.maxFileBytes ?? 100_000;
+  const active = () => { const off = new Set(opts.disabled?.() ?? []); return scanSkills(opts.dirs).filter((s) => !off.has(s.name)); };
   const skillView = defineTool({
     name: "skill_view",
     description:
@@ -143,7 +146,7 @@ export function createSkillsExtension(opts: SkillsOptions) {
     }),
     replay: "safe",
     async execute({ name, file_path }) {
-      const skills = scanSkills(opts.dirs);
+      const skills = active();
       const skill = skills.find((s) => s.name === name);
       if (!skill) {
         return {
@@ -179,6 +182,6 @@ export function createSkillsExtension(opts: SkillsOptions) {
   return defineExtension({
     name: "skills",
     tools: [skillView],
-    sections: [section("skills", () => catalog(scanSkills(opts.dirs)))],
+    sections: [section("skills", () => catalog(active()))],
   });
 }
