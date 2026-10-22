@@ -9,6 +9,7 @@ export interface SessionState { status: SessionStatus; statusReason: string | nu
 
 /** Tracks when the user last opened (read) this session. */
 export const SessionReadDoc = defineDoc<{ at: number | null }>({
+  checkpointWhen: () => false,
   kind: "luna.session-read", version: 1, scope: "conversation", history: "latest", fork: "initial",
   initial: () => ({ at: null }),
 });
@@ -20,6 +21,7 @@ export async function markSessionRead(tx: Tx, id: ConversationId): Promise<void>
 }
 type Handoff = { status: "needs_approval" | "needs_input"; reason: string; boundary: number };
 export const SessionHandoffDoc = defineDoc<{ handoff: Handoff | null }>({
+  checkpointWhen: () => false,
   kind: "luna.session-handoff", version: 1, scope: "conversation", history: "latest", fork: "initial",
   initial: () => ({ handoff: null }),
 });

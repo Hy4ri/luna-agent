@@ -7,6 +7,7 @@ export type BusyAction = "started" | "queued" | "steered" | "redirected";
 export interface BusyPolicy { mode: BusyMode; acknowledgements: boolean }
 export const DEFAULT_BUSY_INPUT: BusyPolicy = { mode: "interrupt", acknowledgements: true };
 export const BusyFeedback = defineDoc<{ lastAck: number; tips: string[] }>({
+  checkpointWhen: () => false,
   kind: "luna.busy.feedback", version: 1, scope: "conversation", history: "latest", fork: "initial",
   initial: () => ({ lastAck: 0, tips: [] }),
 });

@@ -34,6 +34,7 @@ export type Goal = {
 };
 
 export const GoalDoc = defineDoc<{ goal: Goal | null; seq: number }>({
+  checkpointWhen: () => false,
   kind: "luna.goal",
   version: 1,
   scope: "conversation",

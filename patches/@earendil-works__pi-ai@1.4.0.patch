@@ -1,8 +1,8 @@
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 42aac9d5f61edf7254c975d47abb42eca59bdad8..4de8bf3e1f1d97a0be0dc6d4a5f70ed7d7c7b42a 100644
+index 45bcd08b85b478f0f96006881d489820f1264d2c..301b00925640c41d67e7a10a9cc7afec717335b7 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
-@@ -547,7 +547,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+@@ -553,7 +553,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
              continue;
          if (type === "error") {
              const { code, message } = extractCodexEventError(event);
@@ -12,7 +12,7 @@ index 42aac9d5f61edf7254c975d47abb42eca59bdad8..4de8bf3e1f1d97a0be0dc6d4a5f70ed7
                  code,
                  payload: event,
              });
-@@ -556,7 +557,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+@@ -562,7 +563,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
              const response = event.response;
              const code = response?.error?.code;
              const message = response?.error?.message;
@@ -22,7 +22,7 @@ index 42aac9d5f61edf7254c975d47abb42eca59bdad8..4de8bf3e1f1d97a0be0dc6d4a5f70ed7
          }
          if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
              const response = event.response;
-@@ -1256,6 +1258,11 @@ async function parseErrorResponse(response) {
+@@ -1262,6 +1264,11 @@ async function parseErrorResponse(response) {
                  friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
              }
              message = err.message || friendlyMessage || message;

@@ -1,7 +1,7 @@
 import { defineDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
 
 // Missing timestamps in older databases stay unknown. Never use first-read time as creation time.
-export const SessionCreated = defineDoc({ kind: "luna.session-created", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ at: null as number | null }) });
+export const SessionCreated = defineDoc({ checkpointWhen: () => false, kind: "luna.session-created", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ at: null as number | null }) });
 
 /** Find the newest message, not the largest timestamp in the conversation's entire history. */
 export async function newestMessageTime(tx: Pick<Tx, "scanEntries">, id: ConversationId): Promise<number | null> {

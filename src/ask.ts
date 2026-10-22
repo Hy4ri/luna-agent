@@ -37,6 +37,7 @@ export type PendingAsk = { purpose?: "input" | "approval"; callId: string; quest
 
 /** Open questionnaires and their answers, per conversation. Answers are removed once the tool reads them. */
 export const AskDoc = defineDoc<{ pending: PendingAsk[]; answers: Record<string, AskResult> }>({
+  checkpointWhen: () => false,
   kind: "luna.ask",
   version: 1,
   scope: "conversation",
