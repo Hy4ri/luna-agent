@@ -181,7 +181,8 @@ An assistant reply can contain a fenced block with the language `ui` and one JSO
 - **Valid:** a `--card` surface with a title, a `{ }` toggle for the raw JSON, and a copy button.
 - **Invalid:** the raw JSON in a code block, plus one `--err` line: `widget invalid: <reason>`. Never fail silently.
 - **Streaming (fence not closed):** a fixed-height `building widget…` card. Partial JSON is never parsed.
-- **Colors:** series use `--chart-1` to `--chart-6`. No raw hex in widget templates.
+- **Colors:** series use `--chart-1` to `--chart-6`. No raw hex in widget templates. A series keeps its color when another series is hidden.
+- **Limits:** at most 4 widgets per message. Extra blocks show `widget invalid: more than 4 widgets in one message`. A plot says so when a slider position pushes part of the curve outside the fixed axis range.
 - **Interaction:** legend items are `<button aria-pressed>`. Sliders are native `input[type=range]`. A slider recomputes in the browser and makes no request.
 - **Data:** a widget shows only data the model got from the user or a tool. No decorative or placeholder charts.
 - **Fences:** `web/src/lib/fences.ts` is the single fence scanner (CommonMark open and close rules). Do not add another.

@@ -38,6 +38,11 @@ const allValues = computed(() => {
   return vals;
 });
 
+// Color follows the series position in the original list, so hiding a series never recolors the others.
+function colorIndex(ser: ChartWidget["series"][number]): number {
+  return (props.widget.series.indexOf(ser) % 6) + 1;
+}
+
 const yMinMax = computed(() => {
   const vals = allValues.value;
   if (!vals.length) return { min: 0, max: 10 };
@@ -46,6 +51,13 @@ const yMinMax = computed(() => {
   if (min === max) {
     min = min - 1;
     max = max + 1;
+  }
+  if (props.widget.kind === "bar") {
+    // Bars start at zero, so the range must contain zero. Pad only the sides that have data.
+    const lo = Math.min(min, 0);
+    const hi = Math.max(max, 0);
+    const barPad = (hi - lo) * 0.1;
+    return { min: lo < 0 ? lo - barPad : 0, max: hi > 0 ? hi + barPad : 0 };
   }
   const pad = (max - min) * 0.1 || 1;
   // If all values are >= 0, start y at 0
@@ -175,7 +187,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
         <!-- Bar chart rendering -->
         <g v-if="widget.kind === 'bar'" class="bars">
           <template v-for="(ser, sIdx) in activeSeries" :key="ser.name">
-            <g :fill="`var(--chart-${(sIdx % 6) + 1})`">
+            <g :fill="`var(--chart-${colorIndex(ser)})`">
               <template v-for="(val, xIdx) in ser.data" :key="xIdx">
                 <rect
                   v-if="Number.isFinite(val)"
@@ -211,7 +223,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
                   .join(' ')
               "
               fill="none"
-              :stroke="`var(--chart-${(sIdx % 6) + 1})`"
+              :stroke="`var(--chart-${colorIndex(ser)})`"
               stroke-width="2.5"
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -224,7 +236,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
                 :cx="scaleX(xIdx)"
                 :cy="scaleY(val)"
                 r="3"
-                :fill="`var(--chart-${(sIdx % 6) + 1})`"
+                :fill="`var(--chart-${colorIndex(ser)})`"
                 class="chart-dot"
               />
             </template>
@@ -249,7 +261,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
               :cy="scaleY(ser.data[hoveredIndex]!)"
               r="4.5"
               :fill="`var(--card)`"
-              :stroke="`var(--chart-${(sIdx % 6) + 1})`"
+              :stroke="`var(--chart-${colorIndex(ser)})`"
               stroke-width="2.5"
             />
           </template>
@@ -266,7 +278,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
             v-for="(ser, sIdx) in activeSeries"
             :key="ser.name"
             class="readout-item"
-            :style="{ color: `var(--chart-${(sIdx % 6) + 1})` }"
+            :style="{ color: `var(--chart-${colorIndex(ser)})` }"
           >
             <strong>{{ ser.name }}:</strong>
             {{ Number.isFinite(ser.data[hoveredIndex]) ? ser.data[hoveredIndex] : "N/A" }}{{ unitSuffix }}

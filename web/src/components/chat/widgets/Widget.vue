@@ -5,10 +5,12 @@ import { compileExpr } from "@/lib/widgets/expr";
 import ChartWidget from "./ChartWidget.vue";
 import PlotWidget from "./PlotWidget.vue";
 import { copyToClipboard } from "@/lib/message";
+import { MAX_WIDGETS } from "@/lib/segments";
 
 const props = defineProps<{
   json: string;
   closed: boolean;
+  excess?: boolean;
 }>();
 
 const showRaw = ref(false);
@@ -17,6 +19,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 
 const parseResult = computed(() => {
   if (!props.closed) return { ok: false as const, error: "" };
+  if (props.excess) return { ok: false as const, error: `more than ${MAX_WIDGETS} widgets in one message` };
   return parseWidget(props.json);
 });
 

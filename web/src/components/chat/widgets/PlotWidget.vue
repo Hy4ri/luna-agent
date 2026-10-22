@@ -40,7 +40,7 @@ const points = computed(() => {
   return pts;
 });
 
-// Y range is fixed for the widget: it covers the curve at every corner of the slider ranges.
+// Y range is fixed for the widget: it covers the curve with every slider at min, middle and max (3^n combinations, at most 729).
 // A moving slider then visibly moves the curve instead of rescaling the axis. The 0.5% tails
 // are cut so a pole (for example 1/x) does not flatten everything else.
 const yRange = computed<[number, number]>(() => {
@@ -49,9 +49,15 @@ const yRange = computed<[number, number]>(() => {
   const [xMin, xMax] = props.widget.x;
   const names = Object.keys(props.widget.params || {});
   const ys: number[] = [];
-  for (let mask = 0; mask < 1 << names.length; mask++) {
+  const combos = 3 ** names.length;
+  for (let k = 0; k < combos; k++) {
     const p: Record<string, number> = {};
-    names.forEach((n, i) => { const d = props.widget.params[n]; p[n] = mask & (1 << i) ? d.max : d.min; });
+    let rest = k;
+    for (const n of names) {
+      const d = props.widget.params[n];
+      p[n] = [d.min, (d.min + d.max) / 2, d.max][rest % 3];
+      rest = Math.floor(rest / 3);
+    }
     for (let i = 0; i < SAMPLE_COUNT; i++) {
       let y = NaN;
       try { y = fn(xMin + (i * (xMax - xMin)) / (SAMPLE_COUNT - 1), p); } catch { y = NaN; }
@@ -108,6 +114,12 @@ const pathSegments = computed(() => {
   }
   if (cur) segs.push(cur);
   return segs;
+});
+
+// True when a slider position puts part of the curve outside the fixed axis range. The path is then cut at the edge.
+const clipped = computed(() => {
+  const [lo, hi] = yRange.value;
+  return points.value.some(p => p.valid && (p.y < lo || p.y > hi));
 });
 
 const hoverX = ref<number | null>(null);
@@ -275,6 +287,8 @@ function handleMouseLeave() {
         </div>
       </div>
 
+      <div v-if="clipped" class="plot-clipped" role="status">Part of the curve is outside the axis range.</div>
+
       <!-- Param Sliders -->
       <div v-if="widget.params && Object.keys(widget.params).length > 0" class="params-grid">
         <div v-for="(p, name) in widget.params" :key="name" class="param-row">
@@ -316,6 +330,10 @@ function handleMouseLeave() {
   height: auto;
   display: block;
   shape-rendering: geometricPrecision;
+}
+.plot-clipped {
+  font-size: 12px;
+  color: var(--warn);
 }
 .hover-readout {
   position: absolute;

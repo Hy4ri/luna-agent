@@ -5,7 +5,10 @@ import { mediaDirectives } from "./media";
 export type Segment =
   | { kind: "md"; text: string }
   | { kind: "media"; url: string; name: string; type: string }
-  | { kind: "ui"; json: string; closed: boolean };
+  | { kind: "ui"; json: string; closed: boolean; excess?: boolean };
+
+// The prompt tells the model to use at most this many widgets per message. Extra blocks render as invalid.
+export const MAX_WIDGETS = 4;
 
 interface UiRange { start: number; end: number; json: string; closed: boolean }
 
@@ -54,5 +57,7 @@ export function segments(text: string, media?: { base: string; offset: number })
     cursor = it.end;
   }
   if (cursor < text.length) out.push({ kind: "md", text: text.slice(cursor) });
+  let widgets = 0;
+  for (const seg of out) if (seg.kind === "ui" && ++widgets > MAX_WIDGETS) seg.excess = true;
   return out;
 }
