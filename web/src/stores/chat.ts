@@ -7,7 +7,7 @@ import { api, json, post } from "@/lib/api";
 import { watchFeed, type Feed } from "@/lib/sync";
 import { savedSession, rememberSession, routeSession, sessionPane, notifySessionPanes } from "@/lib/pane";
 import { focusInput, leavePages } from "./app";
-import { composer, restoreDraft, saveDraft } from "./composer";
+import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, retirePendingEntries, refreshPending } from "./composer";
 import { models, setSelectedModel } from "./models";
 import { history, loadSessions, resetHistoryView } from "./sessions";
 
@@ -85,7 +85,8 @@ export function dismissNotice(id: number) { chat.notices = chat.notices.filter(n
 function clearRunNotices() { chat.notices = chat.notices.filter(notice => notice.scope !== "run"); }
 
 // ---- run controls / status ----
-export const sending = computed(() => !!chat.session && composer.submitting.has(chat.session));
+export const sending = computed(() => chat.session ? composer.submitting.has(chat.session) :
+  [...pendingMessages.values()].some(p => p.session === null && p.epoch === chat.epoch && p.status === "Sending…"));
 export const busy = computed(() => chat.runActive || chat.generationActive || chat.activeTools.size > 0 || chat.queuedCount > 0 || chat.contextCompacting || chat.compactions.size > 0);
 export const sendDisabled = computed(() => sending.value || (!!chat.session && !chat.connected));
 export const stopDisabled = computed(() => !busy.value || !chat.connected);
@@ -281,7 +282,8 @@ function queueLive(epoch: number) {
   if (liveFrame !== null) return;
   liveFrame = requestAnimationFrame(() => { liveFrame = null; if (epoch === chat.epoch) syncLive(); });
 }
-function putEntry(entry: any) { entries.set(entry.id, markRaw(entry)); chat.rev++; }
+function retirePending() { if (chat.session && pendingMessages.size) retirePendingEntries(chat.session, new Set(entries.keys())); }
+function putEntry(entry: any) { entries.set(entry.id, markRaw(entry)); chat.rev++; retirePending(); }
 
 function onSessionEvent(type: string, e: any, epoch: number) {
   if (epoch !== chat.epoch) return;
@@ -291,6 +293,9 @@ function onSessionEvent(type: string, e: any, epoch: number) {
     chat.connected = true;
     for (const entry of e.entries || []) entries.set(entry.id, markRaw(entry));
     chat.rev++;
+    const sid = chat.session;
+    if (sid) void refreshPending(sid).then(() => { if (chat.session === sid && chat.epoch === epoch) retirePending(); });
+    retirePending();
     chat.runActive = !!e.run; chat.generationActive = !!e.generation; chat.queuedCount = e.inbox?.length || 0;
     chat.compactions = new Set((e.compactions || []).map((c: any) => c.taskId));
     chat.contextCompacting = chat.compactions.size > 0; scheduleContext();
@@ -323,6 +328,7 @@ function onSessionEvent(type: string, e: any, epoch: number) {
     }
     queueLive(epoch);
   } else if (type === "message_end" || type === "entry_appended") {
+    for (const record of e.submissions || []) reconcileSubmission(record);
     if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(); }
     putEntry(e.entry); scheduleExtras(); scheduleContext();
   } else if (type === "run_start") { clearRunNotices(); chat.runActive = true; }
@@ -367,6 +373,7 @@ function onSessionEvent(type: string, e: any, epoch: number) {
     } else addErr(e.message, "err", "run");
   }
   else if (type === "submission") {
+    reconcileSubmission(e.record); retirePending();
     if (e.record.status === "unanswered") addErr(e.record.reason + (e.record.detail ? ": " + (typeof e.record.detail === "string" ? e.record.detail : JSON.stringify(e.record.detail)) : ""), "err", "run");
     scheduleExtras();
   }

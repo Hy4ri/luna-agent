@@ -967,6 +967,14 @@ The old `pnpm run chat --session ID message` interface remains available.
 
 ### HTTP API
 
+The session event stream (`GET /v1/sessions/:id/events`) includes a `submissions` array on
+`entry_appended` events. Each record identifies a submission placed in that entry, including
+its `requestId` and `entry` ID. The streaming messages endpoint includes the same metadata.
+Clients can replace local pending messages atomically without comparing message text.
+The usual standalone `submission` events remain unchanged. Reconnecting clients can read
+`GET /v1/submissions/:id` because snapshots do not replay these lifecycle events.
+
+
 All ordinary endpoints below require the main API token when authentication is enabled.
 
 | Method | Path | Purpose |

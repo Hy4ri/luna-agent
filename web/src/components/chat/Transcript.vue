@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, watch, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
+import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
 import AssistantText from "./AssistantText.vue";
@@ -12,6 +13,9 @@ import SideJobCard from "./SideJobCard.vue";
 import Welcome from "./Welcome.vue";
 import Questions from "./Questions.vue";
 
+const pending = computed(() => [...pendingMessages.values()].filter(p =>
+  p.session === chat.session && (p.session !== null || p.epoch === chat.epoch) &&
+  !entryList.value.some(e => e.id === p.entryId)));
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
 const jumpTopRef = ref<HTMLElement | null>(null);
@@ -67,6 +71,7 @@ watch(() => chat.extras?.questions, (questions, previous) => {
     if (log && form) log.scrollTop += form.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
   });
 });
+watch(() => pending.value.length, (length, previous) => { if (length > previous) void nextTick(() => scroll(true)); });
 watch(() => chat.followTick, () => nextTick(() => scroll(true)));
 watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, chat.notices.length, activityLabel.value], () => nextTick(() => scroll()));
 // Merge side reports at their start time, rather than pinning them after every later turn.
@@ -124,7 +129,7 @@ function backgroundReport(entry: any, message: any): boolean {
 
 <template>
   <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll" @wheel.passive="handleScroll" @touchmove.passive="handleScroll">
-    <Welcome v-if="!entryList.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
+    <Welcome v-if="!entryList.length && !pending.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
     <template v-for="row in timeline" :key="row.key">
       <SideJobCard v-if="row.job" :job="row.job" />
       <template v-else v-for="entry in [row.entry]" :key="entry.id">
@@ -164,6 +169,10 @@ function backgroundReport(entry: any, message: any): boolean {
     <template v-for="(tool, id) in chat.toolStarts" :key="id">
       <ToolCall v-if="!calls.has(id) && !durableResults.has(id)" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
     </template>
+    <div v-for="message in pending" :key="message.requestId" class="msg user" :data-pending="message.requestId">
+      <div class="user-content"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
+      <div class="message-footer" role="status">{{ message.status }}</div>
+    </div>
     <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message">
       <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre>{{ chat.liveThinking }}</pre></details>
       <Markdown v-if="chat.liveText" :content="chat.liveText" />

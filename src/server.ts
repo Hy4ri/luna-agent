@@ -14,7 +14,7 @@ import { createWebApp } from "./web-assets.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
-import { configure, LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput } from "@earendil-works/pi-durable";
+import { configure, LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput, type AgentEvent } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
@@ -42,6 +42,15 @@ import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
 import { entryMedia } from "./media-directives.js";
 import { activeContextTokens } from "./context-usage.js";
+
+// Carry placement identity with its entry so viewers can replace local pending input atomically.
+// One entry can contain several steering submissions combined by the harness.
+function withSubmissions(events: readonly AgentEvent[]) {
+  const placements = events.filter(event => event.type === "submission" && event.record.entry !== undefined);
+  return events.map(event => event.type === "entry_appended"
+    ? { ...event, submissions: placements.flatMap(p => p.type === "submission" && p.record.entry === event.entry.id ? [p.record] : []) }
+    : event);
+}
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -864,7 +873,7 @@ export function createApp(opts: ServerOptions) {
       await stream.writeSSE({ event: "snapshot", data: JSON.stringify(ev.snapshot) });
       ev.start(async (events) => {
         if (closed) return;
-        for (const e of events) await stream.writeSSE({ event: (e as { type: string }).type, data: JSON.stringify(e) });
+        for (const e of withSubmissions(events)) await stream.writeSSE({ event: (e as { type: string }).type, data: JSON.stringify(e) });
       });
       try {
         const { sub, ...receipt } = await submit();
@@ -910,7 +919,7 @@ export function createApp(opts: ServerOptions) {
         await stream.writeSSE({ event: "side_jobs", data: JSON.stringify({ jobs: sideCommands.list(String(conv.id)).map(jobView) }) });
         await stream.writeSSE({ event: "snapshot", data: JSON.stringify(ev.snapshot) });
         ev.start(async events => {
-          try { for (const event of events) await stream.writeSSE({ event: event.type, data: JSON.stringify(event) }); }
+          try { for (const event of withSubmissions(events)) await stream.writeSSE({ event: event.type, data: JSON.stringify(event) }); }
           catch { finish(); }
         });
         await Promise.race([done, ev.closed, harness.closed]);

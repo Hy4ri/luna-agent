@@ -2,13 +2,56 @@
 // Port of vanilla composer.js.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { markRaw, reactive } from "vue";
-import { post } from "@/lib/api";
+import { json, post } from "@/lib/api";
 import { draftsKey } from "@/lib/pane";
-import { addErr, chat, createSession, putSideJob } from "./chat";
+import { addErr, chat, createSession, entryList, putSideJob } from "./chat";
 import { loadSessions } from "./sessions";
 
 export interface Attachment { mimeType: string; data: string; url: string }
 interface Draft { text: string; attachments: Attachment[] }
+interface PendingMessage {
+  requestId: string; session: string | null; epoch: number; content: any;
+  status: "Sending…" | "Queued" | "Sent" | "Send not confirmed" | "Not delivered";
+  submissionId?: string; entryId?: number;
+}
+// Local transport state only. Never add an unconfirmed message to durable history.
+export const pendingMessages = reactive(new Map<string, PendingMessage>());
+function pendingMessage(sid: string | null, body: any) {
+  // Commands can change or omit the model-visible input; only echo ordinary messages.
+  const text = typeof body.content === "string" ? body.content : (body.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+  if (!body.requestId || text.trimStart().startsWith("/")) return;
+  let pending = pendingMessages.get(body.requestId);
+  if (!pending) {
+    pendingMessages.set(body.requestId, { requestId: body.requestId, session: sid, epoch: chat.epoch, content: body.content, status: "Sending…" });
+    pending = pendingMessages.get(body.requestId)!;
+  }
+  pending.session = sid; pending.status = "Sending…";
+  return pending;
+}
+/** Reconcile by the durable request/entry IDs, never by message text. */
+export function reconcileSubmission(record: any) {
+  const pending = record.requestId && pendingMessages.get(record.requestId);
+  if (!pending || String(record.conversationId) !== pending.session) return;
+  pending.submissionId = String(record.id);
+  // A receipt read can finish after a newer feed event.
+  if (record.entry === undefined && (pending.entryId !== undefined || pending.status === "Not delivered")) return;
+  if (record.entry !== undefined) pending.entryId = record.entry;
+  pending.status = record.entry !== undefined ? "Sent" : record.status === "queued" ? "Queued" : record.status === "unanswered" ? "Not delivered" : pending.status;
+  if (composer.sendErrors.get(pending.session!)?.body.requestId === record.requestId) composer.sendErrors.delete(pending.session!);
+}
+export function retirePendingEntries(sid: string, ids: Set<number>) {
+  for (const [key, pending] of pendingMessages) {
+    if (pending.session === sid && pending.entryId !== undefined && ids.has(pending.entryId)) pendingMessages.delete(key);
+  }
+}
+/** A reconnect snapshot does not replay submission events. Read any outstanding receipts. */
+export async function refreshPending(sid: string) {
+  await Promise.all([...pendingMessages.values()].filter(p => p.session === sid && p.submissionId).map(async p => {
+    const record = await json(`/v1/submissions/${encodeURIComponent(p.submissionId!)}`).catch(() => null);
+    if (record && pendingMessages.get(p.requestId) === p) reconcileSubmission(record);
+  }));
+  if (chat.session === sid) retirePendingEntries(sid, new Set(entryList.value.map(e => e.id)));
+}
 
 const drafts = new Map<string | null, Draft>();
 try {
@@ -71,8 +114,17 @@ async function shrink(file: File): Promise<Blob> {
 export async function submitMessage(sid: string, body: any) {
   if (composer.submitting.has(sid)) return false;
   composer.submitting.add(sid);
+  const pending = pendingMessage(sid, body);
   try {
     const result = await post(`/v1/sessions/${sid}/messages?async=1`, body);
+    if (pending && pendingMessages.get(body.requestId) === pending) {
+      if (result.command) pendingMessages.delete(body.requestId);
+      else if (result.submissionId !== undefined) {
+        pending.submissionId = String(result.submissionId);
+        if (pending.status === "Sending…") pending.status = result.action === "queued" ? "Queued" : "Sent";
+        void refreshPending(sid);
+      }
+    }
     if (chat.session === sid && result) {
       if (result.job) {
         const old = chat.sideJobs.get(result.job.id);
@@ -84,6 +136,9 @@ export async function submitMessage(sid: string, body: any) {
     composer.sendErrors.delete(sid);
     return true;
   } catch (e) {
+    // The feed can confirm a send even when its HTTP response is lost.
+    if (pending?.submissionId) { composer.sendErrors.delete(sid); return true; }
+    if (pending && pendingMessages.get(body.requestId) === pending && pending.status === "Sending…") pending.status = "Send not confirmed";
     if ((e as Error).message !== "unauthorized") composer.sendErrors.set(sid, { body, message: (e as Error).message });
     return false;
   } finally {
@@ -105,10 +160,23 @@ function randomId(): string {
 }
 export async function send(text: string, atts: Attachment[]) {
   let sid = chat.session;
+  if (sid && composer.submitting.has(sid)) return;
   const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map(a => ({ type: a.mimeType.startsWith("audio/") ? "audio" : "image", data: a.data, mimeType: a.mimeType }))] : text;
   for (const a of atts) URL.revokeObjectURL(a.url);
-  if (!sid) { const id = await createSession(chat.project); if (!id) return; sid = String(id); }
-  await submitMessage(sid, { content, requestId: randomId() });
+  const body = { content, requestId: randomId() };
+  const pending = pendingMessage(sid, body);
+  try {
+    if (!sid) {
+      const id = await createSession(chat.project);
+      if (!id) { pendingMessages.delete(body.requestId); return; }
+      sid = String(id);
+      if (pending) pending.session = sid;
+    }
+    await submitMessage(sid, body);
+  } catch (error) {
+    pendingMessages.delete(body.requestId);
+    throw error;
+  }
 }
 /** Form submit: takes the draft and sends it. The caller checks the send button state. */
 export function submitDraft() {
