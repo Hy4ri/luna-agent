@@ -185,6 +185,10 @@ function escapeEditor(event: KeyboardEvent) {
   if (event.key !== 'Escape') return;
   if (drag.value || editing.value) { event.preventDefault(); event.stopImmediatePropagation(); if (drag.value) cancelDrag(); else closeEditor(); }
 }
+watch(() => chat.project, project => {
+  if (project === null || String(project) === selectedPid.value || !history.projects.some(p => p.id === project)) return;
+  selectedPid.value = String(project); changeProject();
+});
 watch(boardChanged, () => {
   if (loading.value || busy.value || editing.value || drag.value) refreshQueued = true;
   else void loadBoard(true, true);
