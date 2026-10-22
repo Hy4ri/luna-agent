@@ -877,6 +877,18 @@ An idle session starts a new turn. A busy session queues the event. A session th
 - Activity: `GET /v1/projects/:id/cards/:cardId/activity` lists who changed the card and when, newest first
   (`user` or `session <id>`). The card editor shows it.
 
+## Card attachments
+
+A card can hold files, stored in the daemon database with the card. Limits: 10 MB per file, 20 files per card.
+Cards in `GET /v1/projects/:id/board` list their `attachments` (`id`, `name`, `type`, `size`, `created`).
+The `board` tool shows attachment names in `get`. Deleting a card or project deletes its files.
+
+- `POST /v1/projects/:id/cards/:cardId/attachments?name=<file>`: the request body is the raw file. `Content-Type` is kept.
+- `GET /v1/projects/:id/cards/:cardId/attachments/:attachmentId`: downloads the file as an attachment.
+- `DELETE /v1/projects/:id/cards/:cardId/attachments/:attachmentId`: removes it.
+
+The card editor has an **Attachments** list with attach, download, and remove.
+
 ## Execution machines (first version)
 
 One main daemon owns sessions, history, agent execution, models, skills, memory, settings, and schedules.
