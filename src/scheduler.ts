@@ -1,5 +1,6 @@
 // Durable cron scheduler: jobs + run log live in SQLite (cron.db); each fire runs an isolated
-// ownerless pi-durable conversation. Exactly-once-ish via deterministic requestId per (job, slot).
+// ownerless pi-durable conversation. Unique claim per (job, slot); start is at-most-once. A crash before the conversation is recorded fails the run;
+// after that, recovery re-submits with the deterministic requestId, which dedupes.
 import { DatabaseSync } from "node:sqlite";
 import { execFile } from "node:child_process";
 import { context } from "./luna.js";
@@ -314,6 +315,11 @@ export class CronStore {
     }
   }
 
+  /** Record the run's conversation before its prompt is submitted, so recovery can find work admitted before a crash. */
+  attachConversation(runId: number, conversationId: string) {
+    this.db.prepare("UPDATE runs SET conversation_id=? WHERE id=? AND status='running'").run(conversationId, runId);
+  }
+
   attach(runId: number, conversationId: string, submissionId: string) {
     this.db.prepare("UPDATE runs SET conversation_id=?, submission_id=? WHERE id=?").run(conversationId, submissionId, runId);
   }
@@ -618,6 +624,7 @@ export class Scheduler {
       const d = this.o.defaultModel;
       const model = job.model ?? (typeof d === "function" ? d() : d);
       const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) } }, context);
+      store.attachConversation(run.id, String(conv.id));
       if (a.reason) throw new Error("stop requested before the prompt was submitted");
       const sub = await conv.submit({ type: "input", content: job.prompt, requestId: `cron-${job.id}-${run.slot}` }, context);
       store.attach(run.id, String(conv.id), String(sub.id));
@@ -631,7 +638,18 @@ export class Scheduler {
   private async recover(run: Run, a: ActiveRun) {
     const { store, harness } = this.o;
     try {
-      if (!run.submissionId) { store.finish(run.id, "error", null, "interrupted before submission was admitted"); return; }
+      if (!run.submissionId) {
+        // Crash window: the conversation was recorded, the submission may or may not have been admitted.
+        // submit() with the same requestId returns the existing submission, or admits it once.
+        const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
+        const job = store.getJobAny(run.jobId);
+        if (!conv || !job) { store.finish(run.id, "error", null, "interrupted before the run started (no conversation recorded)"); return; }
+        const sub = await conv.submit({ type: "input", content: job.prompt, requestId: `cron-${run.jobId}-${run.slot}` }, context);
+        store.attach(run.id, String(conv.id), String(sub.id));
+        this.o.log(`recovering run ${run.id} (reconciled submission)`);
+        await this.settle(run, sub, conv, a);
+        return;
+      }
       const sub = await harness.submission(run.submissionId as any, context);
       if (!sub) { store.finish(run.id, "error", null, "submission not found on recovery"); return; }
       this.o.log(`recovering run ${run.id}`);
