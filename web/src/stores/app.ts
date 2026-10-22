@@ -190,7 +190,9 @@ export async function boot() {
   chat.chat.booting = true;
   try {
     if (isDesktop && !serverUrl.value) return showLogin();
-    const hl = await (await fetch(url("/health"))).json();
+    let hl;
+    try { hl = await (await fetch(url("/health"))).json(); }
+    catch (e) { if (isDesktop) return showLogin(`Cannot reach ${serverUrl.value}. Check the address and that the daemon runs.`); throw e; }
     if (hl.auth && !token.value) return showLogin();
     // Independent reads: fetch in parallel so boot costs one round trip, not three.
     await Promise.all([models.loadModels(), sessions.loadProjects(), sessions.loadSessions()]);

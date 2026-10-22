@@ -6,7 +6,11 @@ export const token = ref(localStorage.getItem("luna.token") || "");
 export const serverUrl = ref(localStorage.getItem("luna.server") || "");
 export const isDesktop = "__TAURI_INTERNALS__" in window;
 export function setServerUrl(value: string) {
-  serverUrl.value = value.trim().replace(/\/+$/, "");
+  // Accept "host:port" and bare hosts; default to http and the daemon port.
+  let v = value.trim().replace(/\/+$/, "");
+  if (v && !/^https?:\/\//i.test(v)) v = "http://" + v;
+  if (/^https?:\/\/[^/:]+$/i.test(v) && v.startsWith("http://")) v += ":8787";
+  serverUrl.value = v;
   try { localStorage.setItem("luna.server", serverUrl.value); } catch {}
 }
 export const url = (path: string) => serverUrl.value + path;
