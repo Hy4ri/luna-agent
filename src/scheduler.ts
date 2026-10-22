@@ -57,6 +57,8 @@ export interface Run {
   attempt: number;
   /** When the next attempt is due (a retry is waiting), else null. Survives a restart. */
   retryAt: number | null;
+  /** Run-level deadline, fixed when the run first executes. Later job edits do not move it. */
+  deadlineAt: number | null;
   conversationId: string | null;
   submissionId: string | null;
   output: string | null;
@@ -123,6 +125,7 @@ export class CronStore {
       }
       if (!runColumns.has("read_at")) this.db.exec("ALTER TABLE runs ADD COLUMN read_at INTEGER");
       if (!runColumns.has("reason")) this.db.exec("ALTER TABLE runs ADD COLUMN reason TEXT");
+      if (!runColumns.has("deadline_at")) this.db.exec("ALTER TABLE runs ADD COLUMN deadline_at INTEGER");
       if (!runColumns.has("retry_at")) this.db.exec("ALTER TABLE runs ADD COLUMN retry_at INTEGER");
       if (!runColumns.has("attempt")) this.db.exec("ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0");
 
@@ -167,6 +170,7 @@ export class CronStore {
       reason: r.reason ?? null,
       attempt: r.attempt ?? 0,
       retryAt: r.retry_at ?? null,
+      deadlineAt: r.deadline_at ?? null,
       conversationId: r.conversation_id,
       submissionId: r.submission_id,
       output: r.output,
@@ -365,6 +369,12 @@ export class CronStore {
   /** Record the run's conversation before its prompt is submitted, so recovery can find work admitted before a crash. */
   attachConversation(runId: number, conversationId: string) {
     this.db.prepare("UPDATE runs SET conversation_id=? WHERE id=? AND status='running'").run(conversationId, runId);
+  }
+
+  /** Fix the run's deadline once. Returns the stored value (the first one wins). */
+  fixDeadline(runId: number, at: number): number {
+    this.db.prepare("UPDATE runs SET deadline_at=? WHERE id=? AND deadline_at IS NULL").run(at, runId);
+    return (this.db.prepare("SELECT deadline_at d FROM runs WHERE id=?").get(runId) as any).d;
   }
 
   /** A retry is waiting: record the next attempt and when it is due. The failed attempt's ids stay until it starts. */
@@ -674,6 +684,12 @@ export class Scheduler {
     if (!a.reason) { a.reason = `timed out after ${(a.total ?? 0) / 1000}s`; a.code = "timeout"; }
   }
 
+  /** Throw if the run deadline has passed. Called before each step that admits work. */
+  private guard(a: ActiveRun) {
+    if (Date.now() >= (a.deadlineAt ?? Infinity)) this.expire(a);
+    if (a.reason) throw new Error(this.failText(a, ""));
+  }
+
   private requestId(run: Run, attempt: number) { return `cron-${run.jobId}-${run.slot}${attempt ? `-a${attempt}` : ""}`; }
 
   /**
@@ -684,8 +700,8 @@ export class Scheduler {
   private async execute(job: Job, run: Run, a: ActiveRun = {}, first?: () => Promise<string | null>, waitUntil?: number) {
     const { store } = this.o;
     a.timeoutMs = job.timeoutMs ?? undefined;
-    a.total = a.timeoutMs ?? this.timeoutMs();
-    a.deadlineAt = run.startedAt + a.total;
+    a.deadlineAt = store.fixDeadline(run.id, run.deadlineAt ?? run.startedAt + (a.timeoutMs ?? this.timeoutMs()));
+    a.total = a.deadlineAt - run.startedAt;
     let n = run.attempt;
     for (;;) {
       if (waitUntil !== undefined) {
@@ -747,11 +763,12 @@ export class Scheduler {
         });
       } finally { clearTimeout(timeout); }
     }
+    this.guard(a);
     const d = this.o.defaultModel;
     const model = job.model ?? (typeof d === "function" ? d() : d);
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) } }, context);
     store.attachConversation(run.id, String(conv.id));
-    if (a.reason) throw new Error("stop requested before the prompt was submitted");
+    this.guard(a);
     const sub = await conv.submit({ type: "input", content: job.prompt, requestId: this.requestId(run, n) }, context);
     store.attach(run.id, String(conv.id), String(sub.id));
     return this.settle(run, sub, conv, a);
@@ -772,6 +789,7 @@ export class Scheduler {
           // submit() with the same requestId returns the existing submission, or admits it once.
           const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
           if (!conv) throw new Interrupted("interrupted before the run started (no conversation recorded)");
+          this.guard(a);
           const sub = await conv.submit({ type: "input", content: job.prompt, requestId: this.requestId(run, run.attempt) }, context);
           store.attach(run.id, String(conv.id), String(sub.id));
           this.o.log(`recovering run ${run.id} (reconciled submission)`);
