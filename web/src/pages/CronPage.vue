@@ -517,7 +517,7 @@ onUnmounted(() => {
               </div>
               <label class="field-label">
                 <span>Job name</span>
-                <input aria-label="Job name" v-model="editorState.name" required />
+                <input dir="auto" aria-label="Job name" v-model="editorState.name" required />
               </label>
               <p class="muted" v-if="editorState.job?.intervalMs">
                 Interval: {{ editorState.job.intervalMs / 60000 }} minutes. The imported interval is preserved.
@@ -542,7 +542,7 @@ onUnmounted(() => {
               </p>
               <label class="field-label">
                 <span>Prompt</span>
-                <textarea aria-label="Prompt" v-model="editorState.prompt" rows="5" :required="!editorState.job?.execution"></textarea>
+                <textarea dir="auto" aria-label="Prompt" v-model="editorState.prompt" rows="5" :required="!editorState.job?.execution"></textarea>
               </label>
               <label class="field-label">
                 <span>Reporting</span>
@@ -570,7 +570,7 @@ onUnmounted(() => {
                 @click="activeJobId = job.id"
               >
                 <div class="cron-row-top">
-                  <b class="cron-job-title">{{ job.name }}</b>
+                  <b dir="auto" class="cron-job-title">{{ job.name }}</b>
                   <span class="pill" :class="job.lastRun?.status === 'running' ? 'running' : job.enabled ? 'ok' : ''">
                     {{ job.enabled ? "Enabled" : "Paused" }}
                   </span>
@@ -612,11 +612,11 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
                   <div class="cron-row-top">
                     <span class="cron-job-title">
                       <span v-if="view === 'reports' && run.readAt === null" class="cron-unread-pip" aria-hidden="true"></span>
-                      <b>{{ run.jobName }}</b>
+                      <b dir="auto">{{ run.jobName }}</b>
                     </span>
                     <span class="muted cron-time-stamp">{{ date(run.endedAt || run.startedAt) }}</span>
                   </div>
-                  <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
+                  <div dir="auto" class="cron-feed-snippet">{{ runSnippet(run) }}</div>
                   <div class="cron-feed-tags">
                     <span class="pill" :class="run.status">
                       {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : run.status === 'skipped' ? 'Skipped' : 'Running' }}
@@ -653,11 +653,11 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
                   <div class="cron-row-top">
                     <span class="cron-job-title">
                       <span v-if="view === 'reports' && run.readAt === null" class="cron-unread-pip" aria-hidden="true"></span>
-                      <b>{{ run.jobName }}</b>
+                      <b dir="auto">{{ run.jobName }}</b>
                     </span>
                     <span class="muted cron-time-stamp">{{ date(run.endedAt || run.startedAt) }}</span>
                   </div>
-                  <div class="cron-feed-snippet">{{ runSnippet(run) }}</div>
+                  <div dir="auto" class="cron-feed-snippet">{{ runSnippet(run) }}</div>
                   <div class="cron-feed-tags">
                     <span class="pill" :class="run.status">
                       {{ run.status === 'ok' ? 'Success' : run.status === 'error' ? 'Failed' : run.status === 'skipped' ? 'Skipped' : 'Running' }}
@@ -690,7 +690,7 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
                 <span>·</span>
                 <span>{{ scheduleDesc(activeJob) }}</span>
               </div>
-              <h2 class="cron-insp-heading">{{ activeJob.name }}</h2>
+              <h2 dir="auto" class="cron-insp-heading">{{ activeJob.name }}</h2>
             </div>
             <div class="cron-insp-actions">
               <button type="button" class="cron-btn" @click="showEditor(activeJob)">Edit job</button>
@@ -728,7 +728,7 @@ Directory: {{ job.execution.cwd || "Server default" }}</pre>
               <h3>{{ activeJob.execution ? 'Imported Script Execution' : 'Configured Prompt' }}</h3>
               <pre v-if="activeJob.execution" class="cron-inspector-pre">Command: {{ activeJob.execution.command.join(" ") }}
 Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
-              <pre v-else class="cron-inspector-pre">{{ activeJob.prompt }}</pre>
+              <pre dir="auto" v-else class="cron-inspector-pre">{{ activeJob.prompt }}</pre>
             </div>
           </div>
         </template>
@@ -744,7 +744,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
                 <span>·</span>
                 <span>JOB #{{ activeRun.jobId }}</span>
               </div>
-              <h2 class="cron-insp-heading">{{ activeRun.jobName }}</h2>
+              <h2 dir="auto" class="cron-insp-heading">{{ activeRun.jobName }}</h2>
             </div>
             <div class="cron-insp-actions">
               <button v-if="view === 'reports'" type="button" class="cron-btn" @click="toggleRead(activeRun)">
@@ -785,7 +785,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
           <div class="cron-inspector-body">
             <details v-if="inspectedJobForRun" class="cron-prompt-disclosure">
               <summary>Job Prompt &amp; Reporting Policy ({{ policies[inspectedJobForRun.reportPolicy] }})</summary>
-              <pre>{{ inspectedJobForRun.execution ? inspectedJobForRun.execution.command.join(' ') : inspectedJobForRun.prompt }}</pre>
+              <pre :dir="inspectedJobForRun.execution ? 'ltr' : 'auto'">{{ inspectedJobForRun.execution ? inspectedJobForRun.execution.command.join(' ') : inspectedJobForRun.prompt }}</pre>
             </details>
 
             <article class="cron-markdown-surface">

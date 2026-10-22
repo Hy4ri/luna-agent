@@ -399,7 +399,7 @@ onMounted(() => {
       </div>
 
       <div id="search-bar" :hidden="!history.searchOpen" v-if="!collapsed">
-        <input
+        <input dir="auto"
           id="search"
           ref="searchInputRef"
           v-model="history.query"
@@ -430,7 +430,7 @@ onMounted(() => {
             <button class="group-toggle" :aria-expanded="!machineCollapsed(g.machine) ? 'true' : 'false'" @click="toggleGroup('m:' + g.machine.key)">
               <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !machineCollapsed(g.machine) }" />
               <Monitor :size="14" />
-              <span class="group-name">{{ g.machine.name }}</span>
+              <span dir="auto" class="group-name">{{ g.machine.name }}</span>
               <span v-if="!g.machine.online" class="machine-state">Offline</span>
             </button>
           </div>
@@ -444,7 +444,7 @@ onMounted(() => {
               >
                 <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !isGroupCollapsed(g.key) }" />
                 <FolderKanban :size="14" />
-                <span class="group-name">{{ g.name }}</span>
+                <span dir="auto" class="group-name">{{ g.name }}</span>
               </button>
               <button
                 class="group-new"
@@ -461,7 +461,7 @@ onMounted(() => {
               <template v-for="s in g.sessions" :key="s.id">
                 <div v-show="!isGroupCollapsed(g.key) || String(chat.session) === String(s.id) || s.pinned || !['ready', 'stopped'].includes(sessionState(s))" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
                   <!-- Inline rename input -->
-                  <input
+                  <input dir="auto"
                     v-if="renamingId === s.id"
                     ref="renameInputRef"
                     v-model="renameValue"
@@ -490,7 +490,7 @@ onMounted(() => {
                       <Pin :size="12" />
                     </span>
                     <span class="session-copy">
-                      <span class="session-title">{{ sessionTitle(s) }}</span>
+                      <span dir="auto" class="session-title">{{ sessionTitle(s) }}</span>
                       <span v-if="sessionState(s) !== 'ready'" class="session-status session-state" :data-status="sessionState(s)" :title="s.statusReason || (sessionState(s) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(s))">{{ sessionStatusLabel(s) }}</span>
                     </span>
                   </button>

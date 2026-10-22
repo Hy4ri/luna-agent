@@ -564,17 +564,17 @@ aside#side.collapsed #history-rail {
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: .65em 0; }
-.md ul, .md ol { margin: .5em 0; padding-left: 1.5em; }
+.md ul, .md ol { margin: .5em 0; padding-inline-start: 1.5em; }
 .md li { margin: .25em 0; }
 .md li > p { margin: .25em 0; }
-.md ul li.task-list-item, .md ol li.task-list-item { list-style: none; margin-left: -1.2em; display: flex; align-items: baseline; gap: 8px; }
+.md ul li.task-list-item, .md ol li.task-list-item { list-style: none; margin-inline-start: -1.2em; display: flex; align-items: baseline; gap: 8px; }
 .md input.task-checkbox { margin: 0; accent-color: var(--primary); cursor: default; }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 1.2em 0 .4em; line-height: 1.35; letter-spacing: -.02em; font-weight: 620; color: var(--foreground); }
 .md h1 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
 .md h2 { font-size: 1.28em; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); padding-bottom: .2em; }
 .md h3 { font-size: 1.15em; }
 .md h4, .md h5, .md h6 { font-size: 1.02em; }
-.md blockquote { margin: .8em 0; padding: 8px 14px; border-left: 3px solid var(--primary); background: color-mix(in srgb, var(--secondary) 40%, transparent); border-radius: var(--radius); color: var(--muted-foreground); }
+.md blockquote { margin: .8em 0; padding: 8px 14px; border-inline-start: 3px solid var(--primary); background: color-mix(in srgb, var(--secondary) 40%, transparent); border-radius: var(--radius); color: var(--muted-foreground); }
 .md code { background: var(--secondary); padding: 2px 6px; border-radius: var(--radius); font: 460 .9em var(--mono); overflow-wrap: break-word; word-break: normal; }
 .table-wrap { margin: .9em 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 .table-wrap table, .md table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14.5px; overflow-wrap: break-word; word-break: normal; }
@@ -1078,3 +1078,17 @@ aside#side.collapsed .side-kbd { display:none; }
 .chat-notice { display: flex; align-items: flex-start; gap: 12px; }
 .chat-notice > span { flex: 1; min-width: 0; }
 .chat-notice > button { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; color: inherit; }
+
+/* Direction belongs to content, not the navigation or control layout. */
+[dir="auto"] { text-align: start; }
+.rtl-plaintext,
+textarea[dir="auto"],
+pre[dir="auto"],
+.kb-description[dir="auto"] { unicode-bidi: plaintext; }
+/* Keep code punctuation, paths and commands isolated from surrounding prose. */
+.md code { direction: ltr; unicode-bidi: isolate; }
+.codewrap { direction: ltr; text-align: left; unicode-bidi: isolate; }
+/* dir=auto skips descendants with their own dir. Follow the first content block
+   for list indentation and quote borders, while each item keeps its direction. */
+.md :is(ul, ol):has(> li:first-child:dir(rtl)),
+.md blockquote:has(> :first-child:dir(rtl)) { direction: rtl; }

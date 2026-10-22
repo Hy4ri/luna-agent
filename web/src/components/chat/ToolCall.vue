@@ -112,26 +112,26 @@ const hasBody = computed(() => {
             <pre v-else>{{ body }}</pre>
           </template>
           <template v-else-if="view === 'todo'">
-            <p v-if="body" class="tool-line">{{ body }}</p>
+            <p v-if="body" class="tool-line" dir="auto">{{ body }}</p>
             <ul v-if="tasks.length" class="tool-tasks">
               <li v-for="t in tasks" :key="t.id" :data-status="t.status">
                 <Check v-if="t.status === 'completed'" :size="13" aria-hidden="true" />
                 <CircleDot v-else-if="t.status === 'in_progress'" :size="13" aria-hidden="true" />
                 <Circle v-else :size="13" aria-hidden="true" />
                 <span class="tool-task-id">#{{ t.id }}</span>
-                <span>{{ t.status === 'in_progress' && t.activeForm ? t.activeForm : t.subject }}</span>
+                <span dir="auto">{{ t.status === 'in_progress' && t.activeForm ? t.activeForm : t.subject }}</span>
               </li>
             </ul>
           </template>
           <ul v-else-if="view === 'web_search' && hits.length" class="tool-hits">
-            <li v-for="(h, i) in hits" :key="i"><a :href="h.url" target="_blank" rel="noopener noreferrer">{{ h.title }}</a><span class="tool-host">{{ h.host }}</span><p v-if="h.snippet">{{ h.snippet }}</p></li>
+            <li v-for="(h, i) in hits" :key="i"><a :href="h.url" target="_blank" rel="noopener noreferrer" dir="auto">{{ h.title }}</a><span class="tool-host">{{ h.host }}</span><p v-if="h.snippet" dir="auto">{{ h.snippet }}</p></li>
           </ul>
           <template v-else-if="view === 'web_extract' && page">
             <a class="tool-line tool-link" :href="page.url" target="_blank" rel="noopener noreferrer">{{ page.url }}</a>
-            <pre class="tool-prose">{{ page.content }}</pre>
+            <pre class="tool-prose" dir="auto">{{ page.content }}</pre>
           </template>
           <dl v-else-if="view === 'answers' && answers.length" class="tool-answers">
-            <template v-for="(q, i) in answers" :key="i"><dt>{{ q.question }}</dt><dd>{{ q.answer }}</dd></template>
+            <template v-for="(q, i) in answers" :key="i"><dt dir="auto">{{ q.question }}</dt><dd dir="auto">{{ q.answer }}</dd></template>
           </dl>
           <template v-else-if="view === 'skill'">
             <template v-if="name === 'skill_propose'">

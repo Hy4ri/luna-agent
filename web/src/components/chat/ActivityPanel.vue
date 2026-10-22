@@ -88,7 +88,7 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
           <Check v-if="t.status === 'completed'" :size="14" aria-label="Complete" />
           <LoaderCircle v-else-if="t.status === 'in_progress'" :size="14" class="spin" aria-label="In progress" />
           <Circle v-else :size="14" aria-label="Pending" />
-          <div><span>{{ t.subject }}</span><small v-if="t.blockedBy?.length">Blocked by {{ t.blockedBy.map((i: number) => '#' + i).join(', ') }}</small></div>
+          <div><span dir="auto">{{ t.subject }}</span><small v-if="t.blockedBy?.length">Blocked by {{ t.blockedBy.map((i: number) => '#' + i).join(', ') }}</small></div>
         </div>
       </section>
 
@@ -121,7 +121,7 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
             <CircleAlert v-else-if="bad(c.status)" :size="14" class="bad" :aria-label="c.status" />
             <Check v-else :size="14" aria-label="Done" />
             <div class="activity-main static" :title="c.statusReason || c.task">
-              <span>{{ c.task.split('\n')[0] }}</span>
+              <span dir="auto">{{ c.task.split('\n')[0] }}</span>
               <small>#{{ c.id }} · {{ childMeta(c) }}</small>
             </div>
             <button v-if="childLive(c)" type="button" class="icon-button" aria-label="Stop subagent" title="Stop" @click="stopChild(c.id)"><Square :size="13" /></button>

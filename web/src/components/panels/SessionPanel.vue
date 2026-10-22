@@ -137,7 +137,7 @@ watch(() => chat.session, fetchData);
     <template v-else-if="sessionData">
       <div class="card grid">
         <b>Instructions</b>
-        <textarea rows="5" placeholder="Extra instructions for this session (system prompt addition)" v-model="instructions"></textarea>
+        <textarea dir="auto" rows="5" placeholder="Extra instructions for this session (system prompt addition)" v-model="instructions"></textarea>
         <div class="row">
           <button @click="saveInstructions">Save</button>
         </div>

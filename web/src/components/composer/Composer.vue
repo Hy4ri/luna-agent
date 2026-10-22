@@ -628,7 +628,7 @@ onUnmounted(() => {
             aria-hidden="true"
           ></span>
           <span class="mention-id">#{{ entry.card.id }}</span>
-          <span class="mention-subject">{{ entry.card.subject }}</span>
+          <span dir="auto" class="mention-subject">{{ entry.card.subject }}</span>
           <span class="mention-priority-label" :data-priority="entry.card.priority">{{ entry.card.priority }}</span>
         </button>
       </div>
@@ -688,8 +688,8 @@ onUnmounted(() => {
           @mousedown.prevent="selectAt(entry.item)"
           @mouseenter="activeAtIndex = entry.flatIndex"
         >
-          <span class="mention-subject">{{ entry.item.label }}</span>
-          <span v-if="entry.item.detail" class="at-detail">{{ entry.item.detail }}</span>
+          <span dir="auto" class="mention-subject">{{ entry.item.label }}</span>
+          <span dir="auto" v-if="entry.item.detail" class="at-detail">{{ entry.item.detail }}</span>
           <span v-if="entry.item.meta" class="at-meta">{{ entry.item.meta }}</span>
         </button>
       </div>
@@ -728,6 +728,7 @@ onUnmounted(() => {
     <form id="form" @submit="handleSubmit" @drop="handleDrop" @dragover.prevent>
       <textarea
         id="input"
+        dir="auto"
         ref="inputRef"
         rows="1"
         placeholder="Message Luna…"

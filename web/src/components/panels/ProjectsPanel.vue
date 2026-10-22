@@ -145,7 +145,7 @@ onMounted(async () => {
 <template>
   <div class="pw" :class="{ 'pw-detail': showDetail }">
     <aside class="pw-list" aria-label="Projects">
-      <div class="pw-filter"><input v-model="filter" aria-label="Filter projects" placeholder="Filter projects" /></div>
+      <div class="pw-filter"><input dir="auto" v-model="filter" aria-label="Filter projects" placeholder="Filter projects" /></div>
       <div class="pw-items" role="list">
         <p v-if="loading" class="pw-muted" role="status">Loading…</p>
         <p v-else-if="errorMsg" class="pw-err">{{ errorMsg }}</p>
@@ -155,7 +155,7 @@ onMounted(async () => {
           v-for="p in filtered" :key="p.id" role="listitem" class="pw-item" :data-project="p.id"
           :aria-current="selected === p.id ? 'true' : undefined" @click="select(p.id)"
         >
-          <span class="pw-item-name">{{ p.name }}</span>
+          <span dir="auto" class="pw-item-name">{{ p.name }}</span>
           <span class="pw-count" :title="`${count(p.id)} conversations`">{{ count(p.id) }}</span>
         </button>
       </div>
@@ -168,13 +168,13 @@ onMounted(async () => {
       <button v-if="mobile" class="pw-back" aria-label="Back to projects" @click="showDetail = false"><ChevronLeft :size="16" /> Projects</button>
 
       <template v-if="selected === 'new' || current">
-        <h3 class="pw-title">{{ selected === 'new' ? 'New project' : current!.name }}</h3>
+        <h3 dir="auto" class="pw-title">{{ selected === 'new' ? 'New project' : current!.name }}</h3>
         <p v-if="selected === 'new'" class="pw-muted">New conversations in a project start in its directory.</p>
 
         <p v-if="current?.general" class="pw-muted">General shares a board across Chats. Each conversation keeps its working directory.</p>
         <form v-else class="pw-sec" @submit.prevent="save">
           <h4 v-if="selected !== 'new'">Settings</h4>
-          <label class="pw-field">Name<input id="project-name" v-model="name" aria-label="Project name" autocomplete="off" /></label>
+          <label class="pw-field">Name<input dir="auto" id="project-name" v-model="name" aria-label="Project name" autocomplete="off" /></label>
           <label class="pw-field">Working directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>
           <div class="pw-row">
             <button type="submit" class="pw-btn pw-primary" :disabled="!dirty || busy">{{ selected === 'new' ? 'Add project' : 'Save' }}</button>
@@ -203,7 +203,7 @@ onMounted(async () => {
           <h4>Recent conversations</h4>
           <p v-if="!recent.length" class="pw-muted">No conversations yet.</p>
           <button v-for="s in recent" :key="s.id" class="pw-conv" @click="openChat(s)">
-            <span class="pw-conv-title">{{ sessionTitle(s) }}</span>
+            <span dir="auto" class="pw-conv-title">{{ sessionTitle(s) }}</span>
             <span class="pw-muted">{{ ago(s.lastActivity ?? s.createdAt) }}</span>
           </button>
           <div><button id="project-chat" class="pw-btn" :disabled="busy" @click="startChat"><Plus :size="14" /> New chat in {{ current.name }}</button></div>

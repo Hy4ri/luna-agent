@@ -195,7 +195,7 @@ const optionId = (index: number) => 'palette-option-' + index;
         <DialogDescription id="palette-desc" class="sr-only">Type to filter commands. Use the arrow keys to move and Enter to run.</DialogDescription>
         <div class="palette-search">
           <Search :size="16" aria-hidden="true" />
-          <input id="palette-input" v-model="query" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" :aria-activedescendant="results.length ? optionId(active) : undefined" placeholder="Type a command, page, conversation, or setting" autocomplete="off" spellcheck="false" @keydown="onKeydown" />
+          <input id="palette-input" dir="auto" v-model="query" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" :aria-activedescendant="results.length ? optionId(active) : undefined" placeholder="Type a command, page, conversation, or setting" autocomplete="off" spellcheck="false" @keydown="onKeydown" />
           <kbd class="palette-kbd">Esc</kbd>
         </div>
         <div id="palette-list" ref="listEl" class="palette-list" role="listbox" aria-label="Commands">
@@ -203,7 +203,7 @@ const optionId = (index: number) => 'palette-option-' + index;
             <div class="palette-group-name" aria-hidden="true">{{ group.name }}</div>
             <div v-for="{ item, index } in group.items" :id="optionId(index)" :key="item.id" class="palette-item" role="option" :data-command="item.id" :data-index="index" :aria-selected="index === active" :aria-disabled="item.disabled ? 'true' : undefined" :aria-current="item.current ? 'true' : undefined" @pointermove="active = index" @click="runItem(item)">
               <span class="palette-check" aria-hidden="true"><Check v-if="item.current" :size="14" /></span>
-              <span class="palette-label">{{ item.label }}</span>
+              <span class="palette-label" dir="auto">{{ item.label }}</span>
               <span v-if="item.disabled || item.hint" class="palette-hint">{{ item.disabled || item.hint }}</span>
               <span v-if="item.state" class="palette-state" :data-state="item.state">{{ item.state }}</span>
             </div>

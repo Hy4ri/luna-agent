@@ -138,16 +138,16 @@ function backgroundReport(entry: any, message: any): boolean {
         <template v-else v-for="(message, mi) in (entry.model || [])" :key="mi">
           <details v-if="message.role === 'user' && backgroundReport(entry, message)" class="background-report" :data-entry="entry.id">
             <summary>Background report</summary>
-            <pre>{{ messageText(message.content) }}</pre>
+            <pre dir="auto">{{ messageText(message.content) }}</pre>
             <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" />
           </details>
           <div v-else-if="message.role === 'user' && peerMessage(entry, message)" class="msg user peer" :data-entry="entry.id">
             <button type="button" class="peer-chip" :data-peer="peerMessage(entry, message)!.from" :title="'Open session #' + peerMessage(entry, message)!.from" @click="openSession(peerMessage(entry, message)!.from)">From #{{ peerMessage(entry, message)!.from }} {{ peerMessage(entry, message)!.title }}</button>
-            <div class="user-content">{{ peerMessage(entry, message)!.body }}</div>
+            <div dir="auto" class="user-content rtl-plaintext">{{ peerMessage(entry, message)!.body }}</div>
             <MessageFooter :text="peerMessage(entry, message)!.body" :timestamp="message.timestamp" />
           </div>
           <div v-else-if="message.role === 'user'" class="msg user" :data-entry="entry.id">
-            <div class="user-content"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
+            <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
             <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" />
           </div>
           <div v-else-if="message.role === 'assistant'" class="msg assistant" :data-entry="entry.id">
@@ -155,11 +155,11 @@ function backgroundReport(entry: any, message: any): boolean {
               <AssistantText v-if="block.type === 'text' && block.text" :text="block.text" :base="mediaBase(entry)" :offset="mediaOffsets.get(`${entry.id}:${mi}:${bi}`) ?? 0" />
               <details v-else-if="block.type === 'thinking' && block.thinking" class="thinking">
                 <summary>Thinking</summary>
-                <pre>{{ block.thinking }}</pre>
+                <pre dir="auto">{{ block.thinking }}</pre>
               </details>
               <ToolCall v-else-if="block.type === 'toolCall'" :id="block.id" :name="block.name" :args="block.arguments" :result="results.get(block.id)" :timestamp="message.timestamp" />
             </template>
-            <div v-if="message.stopReason === 'error' && message.errorMessage" class="msg err">{{ message.errorMessage }}</div>
+            <div dir="auto" v-if="message.stopReason === 'error' && message.errorMessage" class="msg err">{{ message.errorMessage }}</div>
             <MessageFooter v-if="messageText(message.content)" :text="messageText(message.content)" :timestamp="message.timestamp" />
           </div>
           <ToolCall v-else-if="message.role === 'toolResult' && !calls.has(message.toolCallId)" :id="message.toolCallId" :name="message.toolName || 'tool'" :args="chat.toolStarts[message.toolCallId]?.args" :result="message" />
@@ -170,15 +170,15 @@ function backgroundReport(entry: any, message: any): boolean {
       <ToolCall v-if="!calls.has(id) && !durableResults.has(id)" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
     </template>
     <div v-for="message in pending" :key="message.requestId" class="msg user" :data-pending="message.requestId">
-      <div class="user-content"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
+      <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
       <div class="message-footer" role="status">{{ message.status }}</div>
     </div>
     <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message">
-      <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre>{{ chat.liveThinking }}</pre></details>
+      <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre dir="auto">{{ chat.liveThinking }}</pre></details>
       <AssistantText v-if="chat.liveText" :text="chat.liveText" />
     </div>
     <div v-for="notice in chat.notices" :key="notice.id" :data-notice="notice.id" :class="['msg', 'chat-notice', notice.kind === 'err' ? 'err' : 'muted']">
-      <span>{{ notice.text }}</span>
+      <span dir="auto">{{ notice.text }}</span>
       <button type="button" aria-label="Dismiss notice" title="Dismiss notice" @click="dismissNotice(notice.id)"><X :size="16" aria-hidden="true" /></button>
     </div>
     <div v-if="activityLabel" id="activity" role="status" aria-live="polite">{{ activityLabel }}</div>
