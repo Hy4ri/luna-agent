@@ -231,7 +231,7 @@ const optionId = (index: number) => 'palette-option-' + index;
 .palette-item { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; color: var(--foreground); }
 .palette-item[aria-selected="true"] { background: var(--acc-soft); }
 .palette-item[aria-disabled="true"] { color: var(--faint); cursor: default; }
-.palette-check { display: inline-flex; width: 14px; flex: none; color: var(--primary); }
+.palette-check { display: inline-flex; width: 14px; flex: none; color: var(--primary-text); }
 .palette-label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted-foreground); }
 .palette-state { margin-left: auto; flex: none; font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: var(--r-sm); border: 1px solid var(--border); color: var(--muted-foreground); }

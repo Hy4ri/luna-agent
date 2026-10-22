@@ -28,30 +28,31 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 
 | Token | Value | Alias | Role |
 | --- | --- | --- | --- |
-| `--background` | `#0d0f11` | `--bg` | Main canvas and full-bleed chat transcript background |
-| `--foreground` | `#f1f3f5` | `--fg` | Primary body and heading text |
-| `--sidebar` | `#111418` | `--side` | Left navigation rail and code block (`pre.code`) background |
-| `--sidebar-foreground` | `#c9cdd2` | — | Default sidebar text |
-| `--sidebar-accent` | `#1a1f26` | — | Sidebar item hover/active surface |
-| `--sidebar-border` | `#1e232a` | — | Sidebar structural dividers |
-| `--card` | `#14181c` | `--surface` | Cards, composer box, tool call rows, settings groups |
-| `--popover` | `#14181c` | — | Floating menus (`#model-picker`, `#mention-menu`, `#command-menu`, `#statusbar` popover) |
-| `--secondary` | `#1a1f26` | `--raised` | User message bubble fill, inline `<code>`, secondary buttons |
-| `--accent` | `#1a1f26` | `--hover` | Interactive hover surface |
-| `--muted-foreground` | `#9ba1a6` | `--dim` | Secondary labels, summaries, metadata |
-| `--faint` | `#737c86` | — | Timestamps, line numbers, subtle section headers |
-| `--border` | `#23282f` | `--line` | Default `1px` structural and card borders |
-| `--input` | `#23282f` | `--line-strong` | Form control and composer borders |
+| `--background` | `#121212` | `--bg` | Main canvas and full-bleed chat transcript background |
+| `--foreground` | `#ececec` | `--fg` | Primary body and heading text |
+| `--sidebar` | `#171717` | `--side` | Left navigation rail and code block (`pre.code`) background |
+| `--sidebar-foreground` | `#cfcfcf` | — | Default sidebar text |
+| `--sidebar-accent` | `#242424` | — | Sidebar item hover/active surface |
+| `--sidebar-border` | `#262626` | — | Sidebar structural dividers |
+| `--card` | `#1c1c1c` | `--surface` | Cards, composer box, tool call rows, settings groups |
+| `--popover` | `#1c1c1c` | — | Floating menus (`#model-picker`, `#mention-menu`, `#command-menu`, `#statusbar` popover) |
+| `--secondary` | `#242424` | `--raised` | User message bubble fill, inline `<code>`, secondary buttons |
+| `--accent` | `#242424` | `--hover` | Interactive hover surface |
+| `--muted-foreground` | `#a0a0a0` | `--dim` | Secondary labels, summaries, metadata |
+| `--faint` | `#808080` | — | Timestamps, line numbers, subtle section headers |
+| `--border` | `#2c2c2c` | `--line` | Default `1px` structural and card borders |
+| `--input` | `#333333` | `--line-strong` | Form control and composer borders |
 
 ### Accent & Semantic Status Tokens
 
 | Token / Selector | Value | Role |
 | --- | --- | --- |
-| `--primary` (`--acc`) | `#a9b8ff` | Primary interactive accent, active links, active nav/session items, send button |
-| `--primary-foreground` (`--acc-ink`) | `#0d0f11` | Text/icon color on solid `--primary` controls |
-| `--acc-strong` | `#c3ceff` | Primary button hover state |
-| `--acc-soft` | `rgb(169 184 255 / 0.12)` | Soft tint fill for selected rows, active nav items, and checked options |
-| `--ring` | `#a9b8ff` | Keyboard `:focus-visible` outline (`2px solid var(--ring)`) |
+| `--primary` (`--acc`) | `#990000` | Accent fill: send button, solid primary controls, checked inputs. Too dark for text on `--background` (2.1:1); use `--primary-text` |
+| `--primary-text` | `#e86060` | Accent as text/icon on dark surfaces (links, active nav/session items, pins); 5:1 on `--background` |
+| `--primary-foreground` (`--acc-ink`) | `#ffffff` | Text/icon color on solid `--primary` controls |
+| `--acc-strong` | `#b30000` | Primary button hover state |
+| `--acc-soft` | `rgb(153 0 0 / 0.2)` | Soft tint fill for selected rows, active nav items, and checked options |
+| `--ring` | `#e86060` | Keyboard `:focus-visible` outline (`2px solid var(--ring)`) |
 | `--ok` | `#8fd3a5` | Diff additions, healthy context meter, completed task icons |
 | `--warn` | `#e6c27a` | Amber context meter (`data-level="amber"`), warning indicators |
 | `--destructive` (`--err`) | `#f87171` | Errors, failed tool calls, diff deletions, danger menu items |

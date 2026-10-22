@@ -249,7 +249,7 @@
                 <tbody>
                   <tr v-for="m in snapshot.models" :key="m.key" class="border-b border-border last:border-0">
                     <td class="p-3 text-left">
-                      <button type="button" class="p-0 min-h-[32px] border-0 text-primary bg-transparent text-[14px] text-left hover:underline cursor-pointer" @click="selected = m.key">
+                      <button type="button" class="p-0 min-h-[32px] border-0 text-primary-text bg-transparent text-[14px] text-left hover:underline cursor-pointer" @click="selected = m.key">
                         {{ m.model }}
                       </button>
                       <small class="text-muted-foreground block">{{ m.provider }}</small>
