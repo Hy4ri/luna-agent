@@ -9,7 +9,8 @@
     "worker": "tsx src/worker.ts",
     "build:web": "vite build -c web/vite.config.ts",
     "dev:web": "vite -c web/vite.config.ts",
-    "typecheck:web": "node web/typecheck.cjs -p web/tsconfig.json"
+    "typecheck:web": "node web/typecheck.cjs -p web/tsconfig.json",
+    "desktop": "pnpm build:web && cd src-tauri && cargo build --features custom-protocol && ./target/debug/luna-desktop"
   },
   "keywords": [],
   "author": "",
