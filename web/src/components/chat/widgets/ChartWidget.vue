@@ -336,7 +336,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
   width: 100%;
   position: relative;
   background-color: rgba(0, 0, 0, 0.15);
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -372,7 +372,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
   font-size: 0.8125rem;
   color: var(--muted-foreground);
   background-color: rgba(255, 255, 255, 0.02);
-  border-radius: 4px;
+  border-radius: var(--radius);
   opacity: 0;
   transition: opacity 0.15s ease;
 }
@@ -413,7 +413,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
   color: var(--card-foreground);
   background-color: var(--secondary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }

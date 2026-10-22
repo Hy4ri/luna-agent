@@ -88,7 +88,7 @@ onUnmounted(() => window.removeEventListener("resize", position));
 #think { flex: none; width: 36px; height: 36px; border: 1px solid transparent; background: transparent; }
 #think:hover, #think[aria-expanded="true"] { background: var(--accent); border-color: var(--border); }
 #think svg { width: 25px; height: 25px; }
-#reasoning-picker { position: fixed; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow); }
+#reasoning-picker { position: fixed; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); box-shadow: var(--shadow); }
 .reasoning-heading, .reasoning-endpoints { display: flex; align-items: center; justify-content: space-between; }
 .reasoning-heading { font-size: 13px; margin-bottom: 14px; gap: 16px; }
 .reasoning-heading output { color: var(--reasoning-color); font-weight: 600; }

@@ -26,7 +26,7 @@ function choose(value: string) {
 </template>
 <style scoped>
 .choice-field { display: grid; gap: 8px; min-width: 0; }
-.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 14px; }
+.input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 14px; }
 .input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 @media (max-width: 760px) { .input { min-height: 44px; font-size: 16.5px; } }
 </style>

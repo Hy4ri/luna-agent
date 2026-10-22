@@ -23,14 +23,14 @@ const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
 
 <style scoped>
 .panel-backdrop.wide { align-items: center; justify-content: center; padding: 24px; }
-.float-window { width: 100%; max-width: none; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 90px #0009; }
+.float-window { width: 100%; max-width: none; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px #0009; }
 .float-window > header { padding: 16px 20px; }
 .board-window { height: 94dvh; max-height: calc(100dvh - 48px); }
 .projects-window { max-width: 900px; height: min(600px, calc(100dvh - 48px)); }
 .window-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 @media (max-width: 760px) {
   .panel-backdrop.wide { padding: 8px; }
-  .float-window { height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); border-radius: 9px; }
+  .float-window { height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); border-radius: var(--radius); }
   .float-window > header { padding: 12px; }
   .board-window:has(.kb-editing) #pdesc { display: none; }
 }

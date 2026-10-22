@@ -857,7 +857,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   font-size: 12px;
   color: var(--muted-foreground);
   padding: 2px 7px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: var(--secondary);
   border: 1px solid var(--border);
   white-space: nowrap;
@@ -866,7 +866,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-tabs {
   display: inline-flex;
   padding: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--card);
   border: 1px solid var(--border);
   gap: 2px;
@@ -874,7 +874,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-seg-tab {
   padding: 5px 13px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: none;
   background: transparent;
   color: var(--muted-foreground);
@@ -904,7 +904,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   font-size: 12px;
   font-weight: 600;
   padding: 2px 8px;
-  border-radius: 99px;
+  border-radius: var(--radius);
   font-variant-numeric: tabular-nums;
 }
 
@@ -933,7 +933,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   height: 34px;
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--card);
   color: var(--foreground);
   font-size: 13.5px;
@@ -1036,7 +1036,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   min-width: 0;
   height: 32px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--input);
   background: var(--card);
   color: var(--foreground);
@@ -1059,7 +1059,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-editor-card {
   border: 1px solid var(--primary);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 16px;
   background: var(--card);
   display: grid;
@@ -1087,7 +1087,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   width: 100%;
   min-width: 0;
   border: 1px solid var(--input);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--background);
   color: var(--foreground);
   padding: 7px 10px;
@@ -1108,7 +1108,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-preset-chip {
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--secondary);
   font-family: var(--mono);
@@ -1212,7 +1212,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   font-family: var(--mono);
   font-size: 12px;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: var(--secondary);
   border: 1px solid var(--border);
 }
@@ -1226,7 +1226,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-prompt-details pre {
   margin: 4px 0 0;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--background);
   border: 1px solid var(--border);
   font-family: var(--mono);
@@ -1285,7 +1285,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   font-size: 11.5px;
   font-weight: 600;
   padding: 1px 7px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   font-family: var(--mono);
   text-transform: uppercase;
   background: var(--secondary);
@@ -1463,7 +1463,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-prompt-disclosure {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--card);
   padding: 10px 14px;
   font-size: 13.5px;
@@ -1478,7 +1478,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-prompt-disclosure pre {
   margin: 10px 0 0;
   padding: 10px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--background);
   font-family: var(--mono);
   font-size: 13.5px;
@@ -1489,7 +1489,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 
 .cron-markdown-surface {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--card);
   padding: 20px 24px;
   line-height: 1.65;
@@ -1505,7 +1505,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
 .cron-inspector-pre {
   margin: 0;
   padding: 12px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--background);
   border: 1px solid var(--border);
   font-family: var(--mono);
@@ -1528,7 +1528,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   text-align: center;
   padding: 24px;
   border: 1px dashed var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--card);
 }
 

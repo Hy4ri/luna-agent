@@ -101,7 +101,7 @@
                 </svg>
                 <div class="flex gap-[15px] flex-wrap text-xs text-muted-foreground mt-[16px] a-legend">
                   <span v-for="([_, label], i) in fields" :key="i" class="inline-flex gap-[7px] items-center">
-                    <i class="w-[8px] h-[8px] inline-block rounded-[2px] shrink-0 a-dot" :style="`background:${colors[i]}`" aria-hidden="true"></i>
+                    <i class="w-[8px] h-[8px] inline-block rounded-[1px] shrink-0 a-dot" :style="`background:${colors[i]}`" aria-hidden="true"></i>
                     {{ label }}
                   </span>
                 </div>
@@ -135,7 +135,7 @@
               <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Token composition</h2>
               <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Input excludes cache reads and writes. Subsets are not counted twice.</p>
 
-              <div class="h-4 rounded-[4px] overflow-hidden flex bg-secondary my-[22px] a-split" role="img" :aria-label="fields.map(([key, label]) => `${label}: ${full(activeUsage[key] as number)}`).join(', ')">
+              <div class="h-4 rounded-[1px] overflow-hidden flex bg-secondary my-[22px] a-split" role="img" :aria-label="fields.map(([key, label]) => `${label}: ${full(activeUsage[key] as number)}`).join(', ')">
                 <span
                   v-for="([key, label], i) in fields"
                   :key="key"
@@ -162,7 +162,7 @@
 
               <div class="flex gap-[15px] flex-wrap text-xs text-muted-foreground mt-[16px] a-legend">
                 <span v-for="([_, label], i) in fields" :key="i" class="inline-flex gap-[7px] items-center">
-                  <i class="w-[8px] h-[8px] inline-block rounded-[2px] shrink-0 a-dot" :style="`background:${colors[i]}`" aria-hidden="true"></i>
+                  <i class="w-[8px] h-[8px] inline-block rounded-[1px] shrink-0 a-dot" :style="`background:${colors[i]}`" aria-hidden="true"></i>
                   {{ label }}
                 </span>
               </div>
@@ -198,7 +198,7 @@
                       <span>{{ m.model }} <span class="text-muted-foreground">· {{ m.provider }}</span></span>
                       <span>{{ comparisonMetric === 'cost' ? usd(comparisonValue(m)) : compact(comparisonValue(m)) }}</span>
                     </div>
-                    <div class="bg-secondary rounded-[3px] h-[7px] overflow-hidden a-bar-track" role="img" :aria-label="`${m.key}: ${comparisonMetric === 'cost' ? usd(comparisonValue(m)) : full(comparisonValue(m))}`">
+                    <div class="bg-secondary rounded-[1px] h-[7px] overflow-hidden a-bar-track" role="img" :aria-label="`${m.key}: ${comparisonMetric === 'cost' ? usd(comparisonValue(m)) : full(comparisonValue(m))}`">
                       <div class="h-full bg-primary a-bar-fill" :style="`width:${comparisonMax ? comparisonValue(m) / comparisonMax * 100 : 0}%`"></div>
                     </div>
                   </div>
