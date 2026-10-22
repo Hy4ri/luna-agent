@@ -1493,7 +1493,7 @@ Working directory: {{ activeJob.execution.cwd || "Server default" }}</pre>
   background: var(--card);
   padding: 20px 24px;
   line-height: 1.65;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .cron-markdown-surface h3 {
