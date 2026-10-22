@@ -18,7 +18,11 @@ export const ProcessOwner = defineDoc({ checkpointWhen: () => false, kind: "luna
 
 export interface LunaOptions {
   /** Live harness compaction policy; read again at each execution boundary. */
-  compaction?: () => Partial<CompactionPolicy>;
+  compaction?: () => Partial<CompactionPolicy> & { modelOverrides?: Record<string, Partial<CompactionPolicy>> };
+  /** Live policy for queued inputs behind a failed run. Default keep. */
+  afterFailedRun?: () => "keep" | "continue" | "withdraw";
+  /** Push an operator alert (parked task, failed session). Errors are logged, never thrown. */
+  alert?: (title: string, body: string) => Promise<void>;
   /** SQLite file; defaults to ./luna.db */
   dbPath?: string;
   /** Model catalog with providers already set. */
@@ -75,12 +79,19 @@ export async function openLuna(opts: LunaOptions) {
       registry,
       onReport: (error, info) => {
         const text = error instanceof Error ? error.message : String(error);
-        opts.log?.(`pi-durable ${info.type}: ${text}`);
+        const task = "task" in info ? info.task : undefined, ext = "extension" in info ? info.extension : undefined;
+        const where = [task && `task ${task.id} ${task.kind} (session ${task.conversationId})`, ext && `extension ${ext}`].filter(Boolean).join(", ");
+        opts.log?.(`pi-durable ${info.type}${where ? ` [${where}]` : ""}: ${text}`);
+        if (info.type === "task_parked" || info.type === "session_failed") {
+          void opts.alert?.(`Luna: ${info.type}`, `${where ? where + "\n" : ""}${text}`.slice(0, 1000))
+            .catch(e => opts.log?.(`alert failed: ${e instanceof Error ? e.message : String(e)}`));
+        }
       },
       // Runtime-installed extensions also apply to existing sessions. Cron removes interactive extensions explicitly.
       settings: {
         get extensions() { return registry.snapshot().installed(); },
         get compaction() { return opts.compaction?.(); },
+        get afterFailedRun() { return opts.afterFailedRun?.(); },
         steeringMode: "all",
         followUpMode: "one-at-a-time",
       },

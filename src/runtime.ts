@@ -184,7 +184,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     registry,
     compaction: () => {
       const policy = compaction();
-      return { enabled: true, autoEnabled: policy.enabled, triggerPercent: policy.triggerPercent, backgroundTokens: 0 };
+      return {
+        enabled: true, autoEnabled: policy.enabled, triggerPercent: policy.triggerPercent, backgroundTokens: 0,
+        modelOverrides: Object.fromEntries(Object.entries(policy.modelOverrides ?? {}).map(([k, v]) => [k, { triggerPercent: v.triggerPercent }])),
+      };
+    },
+    afterFailedRun: () => (settings?.resolved() ?? cfg).afterFailedRun,
+    alert: async (title, body) => {
+      const url = notifyUrl();
+      if (!url) return;
+      const r = await (o.fetch ?? fetch)(url, { method: "POST", signal: AbortSignal.timeout(5000), headers: { Title: title, "Content-Type": "text/plain; charset=utf-8" }, body });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
     },
     dbPath: join(cfg.dataDir, "luna.db"),
     models: built.models,

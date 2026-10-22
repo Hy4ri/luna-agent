@@ -33,6 +33,12 @@ The Providers and MCP panels also write this file, not separate settings files.
   Running tool calls finish first. The next model request waits for compaction, then resumes.
   A final answer can compact before the run settles, without starting another turn.
   Disabling automatic compaction leaves emergency context-overflow recovery enabled.
+  `modelOverrides` sets `triggerPercent` per model, keyed by exact `provider/modelId`, for example `{"openai/gpt-5": {"triggerPercent": 60}}`.
+- `afterFailedRun`: what happens to messages queued behind a response that failed. `keep` (default) leaves them queued until the next input,
+  `continue` starts the next response with them, `withdraw` drops them. It applies to all sessions and live.
+- Operator alerts: when `cron.notifyUrl` is set, a parked task (`task_parked`) or a failed daemon session (`session_failed`) is also posted there.
+  A task is parked after it is cut off by a crash five times in a row. `GET /v1/tasks/parked` lists parked tasks;
+  `POST /v1/tasks/:id/retry` runs one again.
 - `autoContinue`: continue a turn automatically after a rate or usage limit resets. `enabled` defaults to `false`.
   Edit it under **Settings → Automation**. Changes apply live.
   When a top-level turn stops on a limit error, Luna reads the reset time from the error and waits until one minute after it.
