@@ -175,6 +175,7 @@ onUnauthorized(showLogin);
 export function login(value: string, server?: string) {
   if (server !== undefined) setServerUrl(server);
   setToken(value.trim());
+  void import("./sessions").then(m => m.resetNotifications());
   ui.login = false; ui.loginError = "";
   setDrawer(false);
   void boot();
