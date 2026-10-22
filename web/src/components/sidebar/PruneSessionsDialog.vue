@@ -51,7 +51,7 @@ function close() { if (!busy.value) emit("close"); }
 
 <template>
   <Dialog :open="true" @update:open="value => { if (!value) close(); }">
-    <DialogContent style="width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto" :show-close-button="false" @escape-key-down="event => { if (busy) event.preventDefault(); }" @interact-outside="event => { if (busy) event.preventDefault(); }">
+    <DialogContent style="width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem - 2 * env(safe-area-inset-top)); overflow-y: auto" :show-close-button="false" @escape-key-down="event => { if (busy) event.preventDefault(); }" @interact-outside="event => { if (busy) event.preventDefault(); }">
       <DialogHeader>
         <DialogTitle>Prune sessions</DialogTitle>
         <DialogDescription>Delete sessions with no message activity for the selected number of days, across all projects.</DialogDescription>

@@ -240,5 +240,5 @@ const optionId = (index: number) => 'palette-option-' + index;
 .palette-status { margin: 0; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }
 .palette-status:empty { display: none; }
 .palette-status[data-error] { color: var(--destructive); }
-@media (max-width: 760px) { .palette { top: 8px; max-height: calc(var(--viewport-height, 100dvh) - 16px); } .palette-label { max-width: 75%; } }
+@media (max-width: 760px) { .palette { top: calc(8px + env(safe-area-inset-top)); max-height: calc(var(--viewport-height, 100dvh) - 16px - env(safe-area-inset-top)); } .palette-label { max-width: 75%; } }
 </style>
