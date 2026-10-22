@@ -32,8 +32,11 @@
             pkgs.gtk3
             pkgs.librsvg
             pkgs.openssl
+            pkgs.libayatana-appindicator
           ];
           shellHook = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            # The tray library loads appindicator with dlopen at run time.
+            export LD_LIBRARY_PATH="${pkgs.libayatana-appindicator}/lib:$LD_LIBRARY_PATH"
             export XDG_DATA_DIRS="${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS"
           '';
         };

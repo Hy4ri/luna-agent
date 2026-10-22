@@ -8,7 +8,9 @@ description = "Desktop shell for the luna-pi web UI"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
 
 [features]
 # Set by `cargo tauri build`; also lets a plain `cargo build --features custom-protocol` embed dist/web.
