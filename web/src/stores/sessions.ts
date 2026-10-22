@@ -39,14 +39,10 @@ export async function loadProjects() {
 }
 
 // Desktop notifications: a session that was running and now needs attention or has stopped.
-const NOTIFY_ON: Partial<Record<SessionStatus, string>> = {
-  finished: "finished",
-  needs_input: "needs your input",
-  needs_approval: "needs your approval",
-  failed: "failed",
-  limit_reached: "reached a limit",
-};
+const NOTIFY_ON = new Set<SessionStatus>(["finished", "needs_input", "needs_approval", "failed", "limit_reached"]);
 let seenStatus: Map<string, SessionStatus> | undefined;
+/** Forget the last snapshot (new daemon or login) so ids from another server never notify. */
+export function resetNotifications() { seenStatus = undefined; }
 function notifyChanges(list: SessionMeta[]) {
   const next = new Map(list.map(s => [String(s.id), sessionState(s)]));
   const prev = seenStatus;
@@ -54,8 +50,7 @@ function notifyChanges(list: SessionMeta[]) {
   if (!prev || document.hasFocus()) return; // First load, or the user is looking at the app.
   for (const s of list) {
     const was = prev.get(String(s.id)), now = next.get(String(s.id))!;
-    const what = NOTIFY_ON[now];
-    if (was === "running" && what) notify(sessionTitle(s), `${SESSION_STATUS_LABELS[now]}: this session ${what}.`);
+    if (was === "running" && NOTIFY_ON.has(now)) notify(sessionTitle(s), SESSION_STATUS_LABELS[now]);
   }
 }
 
@@ -66,7 +61,7 @@ export async function loadSessions() {
   const r = await json<{ sessions: SessionMeta[] }>("/v1/sessions");
   if (request !== historyRequest) return;
   history.list = r.sessions;
-  if (!history.archived) notifyChanges(r.sessions);
+  notifyChanges(r.sessions);
   const active = history.list.find(s => String(s.id) === String(chat.session));
   if (active?.title) chat.title = active.title;
   if (chat.session && !active) {

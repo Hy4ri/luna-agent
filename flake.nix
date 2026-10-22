@@ -25,6 +25,8 @@
             # Tauri desktop shell (src-tauri). Host cargo is too old, so Rust comes from here.
             pkgs.cargo
             pkgs.rustc
+            pkgs.rustfmt
+            pkgs.clippy
             pkgs.pkg-config
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.webkitgtk_4_1
