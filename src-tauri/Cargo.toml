@@ -11,6 +11,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
+# Linux: the StatusNotifierItem backend delivers tray clicks; the appindicator backend never does.
+tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
 tauri-plugin-single-instance = "2"
 
 [features]
