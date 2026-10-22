@@ -22,7 +22,20 @@
             pkgs.nodejs_26
             pkgs.pnpm
             pkgs.sqlite
+            # Tauri desktop shell (src-tauri). Host cargo is too old, so Rust comes from here.
+            pkgs.cargo
+            pkgs.rustc
+            pkgs.pkg-config
+          ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+            pkgs.webkitgtk_4_1
+            pkgs.libsoup_3
+            pkgs.gtk3
+            pkgs.librsvg
+            pkgs.openssl
           ];
+          shellHook = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            export XDG_DATA_DIRS="${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS"
+          '';
         };
       });
     };

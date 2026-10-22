@@ -17,6 +17,7 @@ import type { Extension } from "@earendil-works/pi-durable";
 import { configure, LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
+import { cors } from "hono/cors";
 import { AskDoc, checkAnswer } from "./ask.js";
 import { isRunning, readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
 import { Children } from "./delegate.js";
@@ -148,6 +149,11 @@ export function createApp(opts: ServerOptions) {
 
   // Session pages and catalogs are 100-400 KB of JSON; gzip cuts them ~5x on Wi-Fi and phones. SSE is never compressed.
   app.use("*", compress({ contentTypeFilter: /^(?:application\/json|text\/javascript|text\/css)/ }));
+
+  // The desktop shell (Tauri) loads the UI from its own origin and calls this daemon cross-origin. Bearer auth, no cookies.
+  const desktopOrigins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
+  app.use("/health", cors({ origin: desktopOrigins }));
+  app.use("/v1/*", cors({ origin: desktopOrigins, allowHeaders: ["authorization", "content-type"], allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }));
 
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
   const webApp = createWebApp(new URL("../dist/web/", import.meta.url));
