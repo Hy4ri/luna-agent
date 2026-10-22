@@ -1,7 +1,9 @@
 // Conversation history list + projects for the sidebar. Port of vanilla sidebar.js data logic.
 import { reactive } from "vue";
 import { api, json, post } from "@/lib/api";
-import type { Project, SessionMeta } from "@/lib/types";
+import { notify } from "@/lib/platform";
+import { sessionState, SESSION_STATUS_LABELS } from "@/lib/session-status";
+import type { Project, SessionMeta, SessionStatus } from "@/lib/types";
 
 const GROUPS_KEY = "luna.side.groups";
 function readGroups(): Record<string, boolean> {
@@ -36,6 +38,27 @@ export async function loadProjects() {
   }
 }
 
+// Desktop notifications: a session that was running and now needs attention or has stopped.
+const NOTIFY_ON: Partial<Record<SessionStatus, string>> = {
+  finished: "finished",
+  needs_input: "needs your input",
+  needs_approval: "needs your approval",
+  failed: "failed",
+  limit_reached: "reached a limit",
+};
+let seenStatus: Map<string, SessionStatus> | undefined;
+function notifyChanges(list: SessionMeta[]) {
+  const next = new Map(list.map(s => [String(s.id), sessionState(s)]));
+  const prev = seenStatus;
+  seenStatus = next;
+  if (!prev || document.hasFocus()) return; // First load, or the user is looking at the app.
+  for (const s of list) {
+    const was = prev.get(String(s.id)), now = next.get(String(s.id))!;
+    const what = NOTIFY_ON[now];
+    if (was === "running" && what) notify(sessionTitle(s), `${SESSION_STATUS_LABELS[now]}: this session ${what}.`);
+  }
+}
+
 let historyRequest = 0;
 export async function loadSessions() {
   const { chat, clearConversation } = await import("./chat");
@@ -43,6 +66,7 @@ export async function loadSessions() {
   const r = await json<{ sessions: SessionMeta[] }>("/v1/sessions");
   if (request !== historyRequest) return;
   history.list = r.sessions;
+  if (!history.archived) notifyChanges(r.sessions);
   const active = history.list.find(s => String(s.id) === String(chat.session));
   if (active?.title) chat.title = active.title;
   if (chat.session && !active) {
