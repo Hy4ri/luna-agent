@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [{ "title": "Luna", "width": 1200, "height": 800, "minWidth": 480, "minHeight": 480 }],
-    "security": { "csp": null }
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' blob: http: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http: https:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" }
   },
   "bundle": {
     "active": true,
