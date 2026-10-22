@@ -1,11 +1,12 @@
 // /review: a read-only reviewer for the current session. It never gets pi-durable's coding tools. It has four
 // tools implemented here, so the limits are enforced by code and not by instructions: file reads inside the working
 // directory, a grep, an allowlisted git, and lookup of earlier session messages. No tool writes, runs tests or uses a shell.
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { Type, type AssistantMessage, type Message, type Model, type Models, type Tool, type Usage } from "@earendil-works/pi-ai";
+import { type ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 
 export const REVIEW_DEFAULT_PROMPT = "Review this session";
 const MAX_ROUNDS = 40;
@@ -66,25 +67,40 @@ export function checkGitArgs(args: readonly string[]): string | undefined {
   return undefined;
 }
 
-function run(file: string, args: string[], cwd: string, signal: AbortSignal | undefined): Promise<{ out: string; code: number }> {
-  return new Promise(res => {
-    const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, LANG: "C.UTF-8", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" };
-    execFile(file, args, { cwd, env, timeout: 20_000, maxBuffer: 4 * 1024 * 1024, signal, encoding: "utf8" }, (error, stdout, stderr) => {
-      const code = error ? (typeof (error as { code?: unknown }).code === "number" ? (error as unknown as { code: number }).code : -1) : 0;
-      res({ out: (stdout || "") + (code !== 0 && stderr ? stderr : ""), code });
-    });
-  });
+async function runCommand(env: ExecutionEnv, command: readonly string[], cwd: string, signal: AbortSignal | undefined): Promise<{ out: string; code: number }> {
+  let out = "";
+  const ctx = signal ? withAbortSignal(signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
+  const res = await env.exec(command, {
+    cwd,
+    timeout: 20_000,
+    env: { LANG: "C.UTF-8", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
+    onOutput: (chunk) => {
+      if (out.length < 4 * 1024 * 1024) out += chunk;
+    },
+  }, ctx);
+  if (!res.ok) {
+    if (signal?.aborted) throw new Error("aborted");
+    return { out: out || res.error.message, code: -1 };
+  }
+  return { out, code: res.value.exitCode };
 }
 const cap = (text: string, limit = TOOL_OUTPUT) => text.length > limit ? `${text.slice(0, limit)}\n[truncated: ${text.length - limit} more characters]` : text;
-const git = (args: string[], cwd: string, signal?: AbortSignal) =>
-  run("git", ["--no-pager", "-c", "core.fsmonitor=false", "-c", "diff.external=", ...args], cwd, signal);
+const git = (env: ExecutionEnv, args: string[], cwd: string, signal?: AbortSignal) =>
+  runCommand(env, ["git", "--no-pager", "-c", "core.fsmonitor=false", "-c", "diff.external=", ...args], cwd, signal);
 
 /** A path under the real working directory, or an error string. */
-function inside(cwd: string, path: string): { path: string } | { error: string } {
+async function inside(env: ExecutionEnv, path: string, ctx = BACKGROUND_CONTEXT): Promise<{ path: string } | { error: string }> {
   try {
-    const root = realpathSync(cwd), real = realpathSync(resolve(root, path));
+    const rootRes = await env.canonicalPath(".", ctx);
+    if (!rootRes.ok) return { error: rootRes.error.message };
+    const root = rootRes.value;
+    const realRes = await env.canonicalPath(path, ctx);
+    if (!realRes.ok) return { error: realRes.error.message };
+    const real = realRes.value;
     const rel = relative(root, real);
-    if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return { error: `path is outside the working directory: ${path}` };
+    if (rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel)) {
+      return { error: `path is outside the working directory: ${path}` };
+    }
     return { path: real };
   } catch (error) { return { error: (error as Error).message }; }
 }
@@ -122,18 +138,22 @@ export function renderReviewHistory(messages: readonly Message[]): string {
   ].join("\n\n");
 }
 
-async function workspace(cwd: string, signal?: AbortSignal) {
+async function workspace(env: ExecutionEnv, cwd: string, signal?: AbortSignal) {
   const [head, branch, status, diff, stat] = await Promise.all([
-    git(["rev-parse", "HEAD"], cwd, signal), git(["rev-parse", "--abbrev-ref", "HEAD"], cwd, signal), git(["status", "--porcelain", "--untracked-files=all"], cwd, signal),
-    git(["diff", "HEAD", "--no-ext-diff", "--no-textconv"], cwd, signal), git(["diff", "HEAD", "--stat", "--no-ext-diff", "--no-textconv"], cwd, signal),
+    git(env, ["rev-parse", "HEAD"], cwd, signal), git(env, ["rev-parse", "--abbrev-ref", "HEAD"], cwd, signal), git(env, ["status", "--porcelain", "--untracked-files=all"], cwd, signal),
+    git(env, ["diff", "HEAD", "--no-ext-diff", "--no-textconv"], cwd, signal), git(env, ["diff", "HEAD", "--stat", "--no-ext-diff", "--no-textconv"], cwd, signal),
   ]);
+  if (head.code === -1 && !head.out.includes("not a git repository")) {
+    throw new Error(head.out || "failed to inspect workspace");
+  }
   const ok = head.code === 0;
   const fingerprint = createHash("sha256").update([head.out, status.out, diff.out].join("\0")).digest("hex");
   return { ok, fingerprint, head: head.out.trim(), branch: branch.out.trim(), status: status.out, diff: diff.out, stat: stat.out };
 }
 
-export async function buildReviewBrief(messages: readonly Message[], cwd: string, focus: string, signal?: AbortSignal) {
-  const ws = await workspace(cwd, signal);
+export async function buildReviewBrief(messages: readonly Message[], cwd: string, focus: string, signal?: AbortSignal, env?: ExecutionEnv) {
+  const targetEnv = env ?? new NodeExecutionEnv({ cwd });
+  const ws = await workspace(targetEnv, cwd, signal);
   const parts = [
     focus && focus !== REVIEW_DEFAULT_PROMPT ? `## Focus requested by the user\n${focus}` : "",
     renderReviewHistory(messages),
@@ -144,27 +164,35 @@ export async function buildReviewBrief(messages: readonly Message[], cwd: string
   return { text: parts.join("\n\n"), fingerprint: ws.fingerprint };
 }
 
-async function callTool(name: string, args: Record<string, unknown>, cwd: string, messages: readonly Message[], signal?: AbortSignal): Promise<string> {
+async function callTool(env: ExecutionEnv, name: string, args: Record<string, unknown>, cwd: string, messages: readonly Message[], signal?: AbortSignal): Promise<string> {
+  const ctx = signal ? withAbortSignal(signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
   if (name === "read_file") {
     if (typeof args.path !== "string") throw new Error("path (string) required");
-    const target = inside(cwd, args.path);
+    const target = await inside(env, args.path, ctx);
     if ("error" in target) throw new Error(target.error);
-    const info = statSync(target.path);
-    if (!info.isFile()) throw new Error("not a regular file");
-    if (info.size > 2 * 1024 * 1024) throw new Error("file is larger than 2 MB; use search");
-    const lines = readFileSync(target.path, "utf8").split("\n");
+    const info = await env.fileInfo(target.path, ctx);
+    if (!info.ok) throw new Error(info.error.message);
+    if (info.value.kind !== "file") throw new Error("not a regular file");
+    if (info.value.size > 2 * 1024 * 1024) throw new Error("file is larger than 2 MB; use search");
+    const read = await env.readTextFile(target.path, ctx);
+    if (!read.ok) throw new Error(read.error.message);
+    const lines = read.value.split("\n");
     const from = Math.max(1, Math.floor(Number(args.offset) || 1)), count = Math.max(1, Math.floor(Number(args.limit) || 400));
     const slice = lines.slice(from - 1, from - 1 + count).map((l, i) => `${from + i}\t${l}`).join("\n");
     return cap(slice + (from - 1 + count < lines.length ? `\n[more lines: continue at offset ${from + count}]` : ""));
   }
   if (name === "search") {
     if (typeof args.pattern !== "string" || !args.pattern) throw new Error("pattern (string) required");
-    const target = inside(cwd, typeof args.path === "string" && args.path ? args.path : ".");
+    const target = await inside(env, typeof args.path === "string" && args.path ? args.path : ".", ctx);
     if ("error" in target) throw new Error(target.error);
-    const r = await run("grep", ["-rnIE", "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=dist", "-m", "50", "-e", args.pattern, "--", target.path], cwd, signal);
+    const r = await runCommand(env, ["grep", "-rnIE", "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=dist", "-m", "50", "-e", args.pattern, "--", target.path], cwd, signal);
     if (r.code === 1) return "no matches";
     if (r.code !== 0 && !r.out) throw new Error("search failed");
-    return cap(r.out.split(cwd + sep).join(""));
+    let text = r.out;
+    const rootRes = await env.canonicalPath(".", ctx);
+    const root = rootRes.ok ? rootRes.value : cwd;
+    text = text.split(root + sep).join("").split(root + "/").join("").split(cwd + sep).join("").split(cwd + "/").join("");
+    return cap(text);
   }
   if (name === "git") {
     if (!Array.isArray(args.args) || args.args.some(a => typeof a !== "string")) throw new Error("args (string array) required");
@@ -172,7 +200,7 @@ async function callTool(name: string, args: Record<string, unknown>, cwd: string
     if (refused) throw new Error(refused);
     // Repo config can name external diff and textconv programs; never let a read run one.
     const argv = args.args as string[], sub = argv[0]!;
-    const r = await git(DIFFING.has(sub) ? [sub, "--no-ext-diff", "--no-textconv", ...argv.slice(1)] : argv, cwd, signal);
+    const r = await git(env, DIFFING.has(sub) ? [sub, "--no-ext-diff", "--no-textconv", ...argv.slice(1)] : argv, cwd, signal);
     return cap(r.out || (r.code === 0 ? "(no output)" : `git exited with ${r.code}`));
   }
   if (name === "session_message") {
@@ -186,9 +214,11 @@ async function callTool(name: string, args: Record<string, unknown>, cwd: string
 export interface ReviewOptions {
   models: Models; model: Model<any>; thinking?: string; messages: readonly Message[]; cwd: string; focus: string;
   signal: AbortSignal; usage: (usage: Usage) => Promise<void>; sessionId?: string;
+  env?: ExecutionEnv;
 }
 export async function runReview(o: ReviewOptions): Promise<string> {
-  const brief = await buildReviewBrief(o.messages, o.cwd, o.focus, o.signal);
+  const env = o.env ?? new NodeExecutionEnv({ cwd: o.cwd });
+  const brief = await buildReviewBrief(o.messages, o.cwd, o.focus, o.signal, env);
   const convo: Message[] = [{ role: "user", content: brief.text, timestamp: Date.now() }];
   let report = "";
   for (let round = 0; round <= MAX_ROUNDS; round++) {
@@ -202,13 +232,13 @@ export async function runReview(o: ReviewOptions): Promise<string> {
     convo.push(response);
     for (const call of calls) {
       let text: string, isError = false;
-      try { text = await callTool(call.name, (call.arguments ?? {}) as Record<string, unknown>, o.cwd, o.messages, o.signal); }
+      try { text = await callTool(env, call.name, (call.arguments ?? {}) as Record<string, unknown>, o.cwd, o.messages, o.signal); }
       catch (error) { text = (error as Error).message; isError = true; }
       convo.push({ role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text }], isError, timestamp: Date.now() });
     }
   }
   if (!report) throw new Error("review produced no report");
-  const after = await workspace(o.cwd, o.signal);
+  const after = await workspace(env, o.cwd, o.signal);
   const notes = [];
   if (after.fingerprint !== brief.fingerprint) notes.push("Note: the workspace changed while this review ran. Findings may be outdated.");
   notes.push("No tests were run. This review used read-only access.");

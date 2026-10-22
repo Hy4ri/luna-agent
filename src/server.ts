@@ -117,7 +117,12 @@ const safeEq = (a: string, b: string) => {
 
 export function createApp(opts: ServerOptions) {
   const { harness } = opts;
-  const sideCommands = opts.sideCommands ?? new SideCommands({ harness, models: opts.models });
+  const sideCommands = opts.sideCommands ?? new SideCommands({
+    harness,
+    models: opts.models,
+    remoteEnv: opts.workers ? (worker, cwd) => opts.workers!.env(worker, cwd) : undefined,
+    cwd: opts.cwd,
+  });
   /** Epoch ms of the scheduled continuation, only while the setting is on and nothing runs. */
   const resumeAt = async (tx: Tx, id: ConversationId, running: boolean) =>
     !running && opts.limitContinuer?.enabled() ? (await readLimitWait(tx, id))?.resumeAt ?? null : null;
