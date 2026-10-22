@@ -1034,7 +1034,7 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
   background: var(--hover);
 }
 
-:root { --bg:var(--background); --side:var(--sidebar); --surface:var(--card); --raised:var(--secondary); --hover:var(--accent); --line:var(--border); --line-strong:var(--input); --fg:var(--foreground); --dim:var(--muted-foreground); --faint:#808080; --acc:var(--primary); --acc-strong:#b30000; --acc-ink:var(--primary-foreground); --ok:#8fd3a5; --warn:#e6c27a; --err:var(--destructive); --err-soft:rgb(255 155 149 / .1); --r-sm:6px; --r:10px; --r-lg:14px; --control:36px; --mono:ui-monospace,monospace; --shadow:0 12px 40px rgb(0 0 0 / .45); color-scheme:dark; }
+:root { --bg:var(--background); --side:var(--sidebar); --surface:var(--card); --raised:var(--secondary); --hover:var(--accent); --line:var(--border); --line-strong:var(--input); --fg:var(--foreground); --dim:var(--muted-foreground); --faint:#808080; --acc:var(--primary); --acc-strong:#b30000; --acc-ink:var(--primary-foreground); --ok:#8fd3a5; --warn:#e6c27a; --err:var(--destructive); --err-soft:rgb(255 155 149 / .1); --chart-1:#a9b8ff; --chart-2:#8fd3a5; --chart-3:#e6c27a; --chart-4:#f0a6ca; --chart-5:#7fd1e8; --chart-6:#c4a7f0; --r-sm:6px; --r:10px; --r-lg:14px; --control:36px; --mono:ui-monospace,monospace; --shadow:0 12px 40px rgb(0 0 0 / .45); color-scheme:dark; }
 :is(#pbody, .settings-manager) .card { border:1px solid var(--border); border-radius:var(--radius); padding:16px; background:var(--card); min-width:0; }
 :is(#pbody, .settings-manager) .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 :is(#pbody, .settings-manager) .grid { gap:12px; min-width:0; }
