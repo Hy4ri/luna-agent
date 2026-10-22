@@ -251,7 +251,7 @@ function handleMouseLeave() {
               :key="idx"
               :d="d"
               fill="none"
-              stroke="var(--primary)"
+              stroke="var(--chart-1)"
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -274,7 +274,7 @@ function handleMouseLeave() {
               :cx="hoverX"
               :cy="hoverY"
               r="4"
-              fill="var(--primary)"
+              fill="var(--chart-1)"
               stroke="var(--background)"
               stroke-width="1.5"
             />
@@ -378,7 +378,7 @@ function handleMouseLeave() {
 }
 .param-slider {
   width: 100%;
-  accent-color: var(--primary);
+  accent-color: var(--chart-1);
   cursor: pointer;
 }
 </style>
