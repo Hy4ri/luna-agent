@@ -11,7 +11,11 @@ const HIDDEN = "<secret: unchanged>";
 export class SettingsStore {
   private applied: Settings;
   private listeners: ((old: Settings, next: Settings) => Promise<string[]>)[] = [];
-  get restartRequired() { return structural(this.read()) !== structural(this.applied); }
+  get restartRequired() {
+    const next = this.read();
+    // Turning an extension off applies live. Turning one on needs a restart only if it did not start at boot.
+    return structural(next) !== structural(this.applied) || next.extensions.some(e => !this.applied.extensions.includes(e));
+  }
   constructor(readonly path: string, dataDir: string) {
     const raw = this.readRaw();
     let changed = !existsSync(path) || raw.providers === undefined;
@@ -106,6 +110,6 @@ function restoreMap(map: Record<string,string> | undefined, old: Record<string,s
 
 function structural(s: Settings) {
   // Only these fields are read once at startup. Everything else applies live.
-  const { dataDir, cwd, extensions, skillDirs, processes, server } = s;
-  return JSON.stringify({ dataDir, cwd, extensions, skillDirs, processes, server });
+  const { dataDir, cwd, skillDirs, processes, server } = s;
+  return JSON.stringify({ dataDir, cwd, skillDirs, processes, server });
 }

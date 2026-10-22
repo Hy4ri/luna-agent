@@ -49,6 +49,8 @@ The Providers and MCP panels also write this file, not separate settings files.
   Normal and forked children use these defaults. Children cannot delegate further.
 - `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
+- `disabledTools`: tool names hidden from the model and refused if called. Applies to the next model request, including existing sessions.
+- `disabledSkills`: skill names hidden from the skills catalog and `skill_view`. Applies at once.
 - `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `learn`, `server`: runtime settings.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
@@ -232,7 +234,8 @@ Model, thinking, instruction, and subagent defaults apply to new sessions or chi
 Existing sessions retain their selected model and settings.
 **Save settings** applies every change to the running daemon, including providers, MCP connections, web and browser routes, `cron`, `improve`, `learn`, `video` and `vision`.
 Saving connects, reconnects or disconnects changed MCP servers. A server that fails to connect is reported after the save.
-Only these startup settings need a Luna restart: `dataDir`, `cwd`, `extensions`, `skillDirs`, `processes` and `server`.
+Removing a built-in from `extensions` applies live: sessions stop seeing its tools, sections and hooks on the next call. Its store and scheduler keep running. Adding one that did not start at boot needs a restart.
+These startup settings need a Luna restart: `dataDir`, `cwd`, `skillDirs`, `processes` and `server`.
 The UI shows a restart notice after you save one of them.
 
 Environment variables still override the file: `LUNA_DATA`, `LUNA_CWD`, `LUNA_PROVIDER`,
