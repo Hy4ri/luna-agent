@@ -9,3 +9,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+
+[features]
+# Set by `cargo tauri build`; also lets a plain `cargo build --features custom-protocol` embed dist/web.
+custom-protocol = ["tauri/custom-protocol"]
