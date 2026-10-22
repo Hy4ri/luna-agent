@@ -1,9 +1,20 @@
+import { HTML_PREVIEW_CSP, HTML_PREVIEW_SHELL } from "./html-preview.js";
 import { Hono } from "hono";
 import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 
 export function createWebApp(root: URL): Hono {
   const app = new Hono();
+
+  // No auth or stored content: this shell receives only the displayed HTML from its parent.
+  // The response sandbox also protects direct visits, independently of iframe attributes.
+  app.get("/html-preview", c => c.html(HTML_PREVIEW_SHELL, 200, {
+    "content-security-policy": HTML_PREVIEW_CSP,
+    "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "permissions-policy": "camera=(), microphone=(), geolocation=(), clipboard-read=(), clipboard-write=()",
+  }));
 
   const loadBuild = () => {
     try {

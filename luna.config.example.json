@@ -2,6 +2,7 @@
   "dataDir": "~/.luna",
   "provider": "anthropic",
   "model": "claude-sonnet-4-5",
+  "instructions": "Keep interactive HTML replies self-contained. Do not request external resources from previews.",
   "extensions": [
     "coding",
     "memory",

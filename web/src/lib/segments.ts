@@ -1,35 +1,38 @@
-// Splits assistant text into markdown, MEDIA: attachments, and ```ui widget blocks, in order.
+// Splits assistant text into markdown, MEDIA: attachments, and ```ui / ```html blocks, in order.
 import { openFence, fenceLang, findFenceEnd } from "./fences";
 import { mediaDirectives } from "./media";
 
 export type Segment =
   | { kind: "md"; text: string }
   | { kind: "media"; url: string; name: string; type: string }
+  | { kind: "html"; html: string; closed: boolean; excess?: boolean }
   | { kind: "ui"; json: string; closed: boolean; excess?: boolean };
 
-// The prompt tells the model to use at most this many widgets per message. Extra blocks render as invalid.
+// The prompt tells the model to use at most this many ui/html previews per message. Extra blocks do not execute.
 export const MAX_WIDGETS = 4;
 
-interface UiRange { start: number; end: number; json: string; closed: boolean }
+interface PreviewRange { start: number; end: number; kind: "ui" | "html"; content: string; closed: boolean }
 
-// Character ranges of every top-level `ui` fence. Other fences are skipped whole, so a ui
+// Character ranges of every top-level `ui` or `html` fence. Other fences are skipped whole, so a preview
 // example inside a longer or different fence stays plain text.
-function uiRanges(text: string): UiRange[] {
+function previewRanges(text: string): PreviewRange[] {
   const lines = text.split("\n");
   const starts: number[] = [];
   let at = 0;
   for (const l of lines) { starts.push(at); at += l.length + 1; }
-  const out: UiRange[] = [];
+  const out: PreviewRange[] = [];
   for (let i = 0; i < lines.length; ) {
     const fence = openFence(lines[i]);
     if (!fence) { i++; continue; }
     const close = findFenceEnd(lines, i + 1, fence);
     const last = close === -1 ? lines.length - 1 : close;
-    if (fenceLang(fence).toLowerCase() === "ui") {
+    const kind = fenceLang(fence).toLowerCase();
+    if (kind === "ui" || kind === "html") {
       out.push({
         start: starts[i],
         end: Math.min(text.length, starts[last] + lines[last].length + 1),
-        json: lines.slice(i + 1, close === -1 ? lines.length : close).join("\n"),
+        kind,
+        content: lines.slice(i + 1, close === -1 ? lines.length : close).join("\n"),
         closed: close !== -1,
       });
     }
@@ -39,8 +42,8 @@ function uiRanges(text: string): UiRange[] {
 }
 
 export function segments(text: string, media?: { base: string; offset: number }): Segment[] {
-  const ranges = uiRanges(text);
-  const items: { start: number; end: number; seg: Segment }[] = ranges.map(r => ({ start: r.start, end: r.end, seg: { kind: "ui", json: r.json, closed: r.closed } }));
+  const ranges = previewRanges(text);
+  const items: { start: number; end: number; seg: Segment }[] = ranges.map(r => ({ start: r.start, end: r.end, seg: r.kind === "ui" ? { kind: "ui", json: r.content, closed: r.closed } : { kind: "html", html: r.content, closed: r.closed } }));
   // Without a media base (live text) the directives stay in the markdown.
   if (media) {
     mediaDirectives(text).forEach((d, i) => {
@@ -58,6 +61,6 @@ export function segments(text: string, media?: { base: string; offset: number })
   }
   if (cursor < text.length) out.push({ kind: "md", text: text.slice(cursor) });
   let widgets = 0;
-  for (const seg of out) if (seg.kind === "ui" && ++widgets > MAX_WIDGETS) seg.excess = true;
+  for (const seg of out) if ((seg.kind === "ui" || seg.kind === "html") && ++widgets > MAX_WIDGETS) seg.excess = true;
   return out;
 }

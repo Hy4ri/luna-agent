@@ -55,6 +55,33 @@ The Providers and MCP panels also write this file, not separate settings files.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
 
+## Interactive replies
+
+Assistant replies can include `ui` fences for charts and plots, or `html` fences for custom interactive visuals.
+The Web UI renders these blocks in message order, alongside text and `MEDIA:` attachments.
+There is a combined limit of four previews per message. Extra blocks show their source without execution.
+HTML runs only after the closing fence arrives. Use a `text` fence to show HTML as code without a preview.
+
+HTML previews support self-contained markup, inline CSS, inline JavaScript, inline SVG, and data images.
+**Source**, **Reload**, and **copy** controls operate on the displayed block. Source view preserves the running preview.
+The preview area can be resized vertically. Reload and session reopen reset JavaScript state; generated HTML remains in the transcript.
+
+`GET /html-preview` serves a public, stateless bootstrap document. It contains no transcript, token, or user HTML.
+The shell signals readiness. The parent then sends only the block's HTML to that iframe, once per fresh shell. HTML is not stored or placed in a URL. An unresponsive shell shows a connection warning after ten seconds.
+The endpoint is available without a built frontend. Vite proxies it to the daemon during development.
+No configuration field is required. The example config includes an optional `instructions` reminder for self-contained HTML.
+
+Both the iframe and the response CSP apply `sandbox allow-scripts`, without `allow-same-origin`.
+This gives the document an opaque origin, including on direct visits to the endpoint.
+Generated code cannot read the parent DOM, browser storage, or Luna's bearer token.
+CSP blocks API fetches, external scripts/styles/images, workers, nested frames, objects, forms, and base URL changes.
+The sandbox blocks popups, downloads, and top-level navigation. It does not prevent the iframe from navigating itself.
+This is browser isolation, not a network firewall or a CPU/memory limit. Do not include secrets in generated HTML.
+Existing workspace message handlers reject the preview's opaque origin.
+
+The desktop CSP allows HTTP(S) frames for the configured daemon, but keeps the parent `script-src 'self'` policy.
+A daemon document has its own CSP; `srcdoc` would inherit the parent's policy and block inline scripts.
+
 ## Native web tools
 
 The agent calls `web_search` and `web_extract`. Their names and parameters do not depend on the provider.

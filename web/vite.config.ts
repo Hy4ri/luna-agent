@@ -25,5 +25,5 @@ export default defineConfig({
   plugins: [vue(), tailwindcss(), serviceWorker()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: { outDir: fileURLToPath(new URL("../dist/web", import.meta.url)), emptyOutDir: true, assetsDir: "assets", sourcemap: false },
-  server: { proxy: { "/v1": "http://127.0.0.1:8787", "/health": "http://127.0.0.1:8787" } },
+  server: { proxy: { "/html-preview": "http://127.0.0.1:8787", "/v1": "http://127.0.0.1:8787", "/health": "http://127.0.0.1:8787" } },
 });

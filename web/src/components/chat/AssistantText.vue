@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { segments } from "@/lib/segments";
 import Markdown from "./Markdown.vue";
 import Attachment from "./Attachment.vue";
+import HtmlPreview from "./widgets/HtmlPreview.vue";
 import Widget from "./widgets/Widget.vue";
 
 const props = defineProps<{ text: string; base?: string; offset?: number }>();
@@ -19,6 +20,7 @@ const parsedSegments = computed(() => {
   <template v-for="(seg, i) in parsedSegments" :key="i">
     <Markdown v-if="seg.kind === 'md' && seg.text.trim()" :content="seg.text" />
     <Attachment v-else-if="seg.kind === 'media'" :url="seg.url" :name="seg.name" :type="seg.type as any" />
+    <HtmlPreview v-else-if="seg.kind === 'html'" :html="seg.html" :closed="seg.closed" :excess="seg.excess" />
     <Widget v-else-if="seg.kind === 'ui'" :json="seg.json" :closed="seg.closed" :excess="seg.excess" />
   </template>
 </template>
