@@ -101,7 +101,7 @@ export class CronStore {
           'unknown'
         ) WHERE job_name = '' OR job_name IS NULL;
       `);
-      this.db.exec("CREATE INDEX IF NOT EXISTS runs_job_status ON runs(job_id,status,id); CREATE INDEX IF NOT EXISTS runs_reports ON runs(report,id); COMMIT");
+      this.db.exec("CREATE INDEX IF NOT EXISTS runs_job_status ON runs(job_id,status,id); CREATE INDEX IF NOT EXISTS runs_reports ON runs(report,id); UPDATE runs SET report=0 WHERE report=1 AND status='ok' AND TRIM(COALESCE(output,''))=''; COMMIT");
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 
@@ -337,6 +337,8 @@ export class CronStore {
       let shouldReport = false;
       if (status === "error") {
         shouldReport = true;
+      } else if (!(output || "").trim()) {
+        shouldReport = false; // no output: nothing to show in reports
       } else {
         if (policy === "always") {
           shouldReport = true;
