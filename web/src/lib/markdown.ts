@@ -28,7 +28,7 @@ function inline(text: string): (Node | string)[] {
     }
     if (m[1]) {
       // Inline code
-      out.push(h("code", {}, m[2]));
+      out.push(h("code", { dir: "ltr" }, m[2]));
     } else if (m[4]) {
       // Image: ![alt](url "title")
       out.push(safeImage(m[4], m[3] || "", m[5]));
@@ -67,7 +67,7 @@ function inline(text: string): (Node | string)[] {
 function safeLink(href: string, kids: (Node | string)[], title?: string) {
   const clean = href.trim();
   if (!/^(https?:|mailto:)/i.test(clean)) return h("span", {}, ...kids);
-  const props: Record<string, unknown> = { href: clean, target: "_blank", rel: "noopener noreferrer" };
+  const props: Record<string, unknown> = { href: clean, target: "_blank", rel: "noopener noreferrer", dir: "auto" };
   if (title) props.title = title;
   return h("a", props, ...kids);
 }
@@ -82,7 +82,7 @@ function safeImage(src: string, alt: string, title?: string) {
 
 function codeBlock(code: string, lang = ""): HTMLElement {
   const cleanLang = (lang || "").trim().toLowerCase();
-  const wrap = h("div", { class: "codewrap", ...(cleanLang ? { "data-lang": cleanLang } : {}) });
+  const wrap = h("div", { dir: "ltr", class: "codewrap", ...(cleanLang ? { "data-lang": cleanLang } : {}) });
   const header = h("div", { class: "code-header" });
   const langLabel = h("span", { class: "code-lang" }, cleanLang || "text");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -103,7 +103,7 @@ function codeBlock(code: string, lang = ""): HTMLElement {
   }, "copy") as HTMLButtonElement;
   header.append(langLabel, btn);
 
-  const codeEl = h("code", {}, code);
+  const codeEl = h("code", { dir: "ltr" }, code);
   const pre = h("pre", { class: "code" }, codeEl);
   wrap.append(header, pre);
   return wrap;
@@ -116,7 +116,7 @@ function splitCells(s: string): string[] {
   return clean.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
 }
 
-function parseAlignments(sepLine: string): ("left" | "center" | "right")[] {
+function parseAlignments(sepLine: string): ("start" | "left" | "center" | "right")[] {
   const cells = splitCells(sepLine);
   return cells.map((cell) => {
     const t = cell.trim();
@@ -124,7 +124,7 @@ function parseAlignments(sepLine: string): ("left" | "center" | "right")[] {
     const r = t.endsWith(":");
     if (l && r) return "center";
     if (r) return "right";
-    return "left";
+    return l ? "left" : "start";
   });
 }
 
@@ -137,7 +137,7 @@ export function markdown(src: string): DocumentFragment {
 
   const flush = () => {
     if (para.length) {
-      frag.append(h("p", {}, ...inline(para.map(p => p.trimEnd()).join("\n"))));
+      frag.append(h("p", { dir: "auto" }, ...inline(para.map(p => p.trimEnd()).join("\n"))));
       para = [];
     }
   };
@@ -161,7 +161,7 @@ export function markdown(src: string): DocumentFragment {
     if ((m = /^(#{1,6})\s+(.*)$/.exec(l))) {
       flush();
       const level = Math.min(Math.max(m[1].length, 1), 6);
-      frag.append(h("h" + level, {}, ...inline(m[2])));
+      frag.append(h("h" + level, { dir: "auto" }, ...inline(m[2])));
       i++;
       continue;
     }
@@ -185,7 +185,7 @@ export function markdown(src: string): DocumentFragment {
           q.push(lines[i++]);
         }
       }
-      const bq = h("blockquote");
+      const bq = h("blockquote", { dir: "auto" });
       bq.append(markdown(q.join("\n")));
       frag.append(bq);
       continue;
@@ -200,8 +200,8 @@ export function markdown(src: string): DocumentFragment {
       const thead = h("thead");
       const headTr = h("tr");
       headers.forEach((hText, idx) => {
-        const align = aligns[idx] || "left";
-        const th = h("th", { style: `text-align: ${align};` }, ...inline(hText));
+        const align = aligns[idx] || "start";
+        const th = h("th", { dir: "auto", style: `text-align: ${align};` }, ...inline(hText));
         headTr.append(th);
       });
       thead.append(headTr);
@@ -213,9 +213,9 @@ export function markdown(src: string): DocumentFragment {
         const rowCells = splitCells(lines[i++]);
         const tr = h("tr");
         for (let c = 0; c < headers.length; c++) {
-          const align = aligns[c] || "left";
+          const align = aligns[c] || "start";
           const cellText = rowCells[c] !== undefined ? rowCells[c] : "";
-          const td = h("td", { style: `text-align: ${align};` }, ...inline(cellText));
+          const td = h("td", { dir: "auto", style: `text-align: ${align};` }, ...inline(cellText));
           tr.append(td);
         }
         tbody.append(tr);
@@ -232,7 +232,7 @@ export function markdown(src: string): DocumentFragment {
       const listMatch = /^\s*(\d+)[.)]\s+/.exec(l);
       const isOrdered = Boolean(listMatch);
       const startNum = listMatch ? parseInt(listMatch[1], 10) : 1;
-      const listProps: Record<string, unknown> = {};
+      const listProps: Record<string, unknown> = { dir: "auto" };
       if (isOrdered && startNum !== 1) listProps.start = startNum;
       const list = h(isOrdered ? "ol" : "ul", listProps);
 
@@ -253,7 +253,7 @@ export function markdown(src: string): DocumentFragment {
           subLines.push(lines[i++]);
         }
 
-        const li = h("li");
+        const li = h("li", { dir: "auto" });
         const taskMatch = /^\[([ xX])\](?:\s+(.*))?$/.exec(itemText);
         if (taskMatch) {
           li.className = "task-list-item";

@@ -238,7 +238,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
     <div class="kb-toolbar">
       <label class="kb-project"><span class="kb-sr">Project</span><select v-model="selectedPid" aria-label="Project" :disabled="locked || loading" @change="changeProject"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select></label>
       <div v-if="selectedPid" class="kb-filters">
-        <label class="kb-search"><Search :size="15" /><input v-model="search" aria-label="Search cards" placeholder="Search cards…" /></label>
+        <label class="kb-search"><Search :size="15" /><input dir="auto" v-model="search" aria-label="Search cards" placeholder="Search cards…" /></label>
         <select v-model="priority" aria-label="Filter priority"><option value="">All priorities</option><option v-for="p in priorities" :key="p" :value="p">{{ p }}</option></select>
       </div>
       <div class="kb-toolbar-end">
@@ -252,7 +252,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
       <div :inert="editing" class="kb-content">
         <div v-if="archived" class="kb-archive">
           <p v-if="!visible.length && !loading" class="kb-empty">{{ cards.length ? 'No cards match these filters.' : 'No archived cards.' }}</p>
-          <button v-for="c in visible" :key="c.id" class="kb-archive-card" :data-card="c.id" :disabled="busy || loading" @click="openEditor(c)"><span>#{{ c.id }}</span><strong>{{ c.subject }}</strong><span class="kb-priority" :class="c.priority">{{ c.priority }}</span><span>{{ c.status.replace('_', ' ') }}</span></button>
+          <button v-for="c in visible" :key="c.id" class="kb-archive-card" :data-card="c.id" :disabled="busy || loading" @click="openEditor(c)"><span>#{{ c.id }}</span><strong dir="auto">{{ c.subject }}</strong><span class="kb-priority" :class="c.priority">{{ c.priority }}</span><span>{{ c.status.replace('_', ' ') }}</span></button>
         </div>
         <div v-else ref="board" class="kb-board" aria-label="Kanban columns" tabindex="0" :aria-busy="busy || loading" @pointermove="updateDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag">
           <section v-for="[status, title] in columns" :key="status" class="kb-column" :class="{ 'kb-drop': drag?.moved && drag.target === status && drag.card.status !== status }" :data-column="status" :aria-label="title">
@@ -265,16 +265,16 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
                     <span class="kb-priority" :class="c.priority"><ChevronsUp v-if="c.priority === 'urgent'" :size="12" /><ArrowUp v-else-if="c.priority === 'high'" :size="12" /><ArrowDown v-else-if="c.priority === 'low'" :size="12" /><Minus v-else :size="12" />{{ c.priority }}</span>
                     <button class="kb-grip" :aria-label="`Drag card #${c.id}`" :disabled="busy || loading" title="Drag between columns"><GripVertical :size="16" /></button>
                   </div>
-                  <button class="kb-card-title" :disabled="busy || loading" @click="openEditor(c)">{{ c.subject }}</button>
-                  <p v-if="c.description" class="kb-description">{{ c.description }}</p>
-                  <div v-if="c.labels.length" class="kb-labels"><span v-for="label in c.labels" :key="label" class="kb-tag">{{ label }}</span></div>
+                  <button dir="auto" class="kb-card-title" :disabled="busy || loading" @click="openEditor(c)">{{ c.subject }}</button>
+                  <p dir="auto" v-if="c.description" class="kb-description">{{ c.description }}</p>
+                  <div v-if="c.labels.length" class="kb-labels"><span dir="auto" v-for="label in c.labels" :key="label" class="kb-tag">{{ label }}</span></div>
                   <p v-if="blockers(c).length" class="kb-blocked"><LockKeyhole :size="13" /><span><strong>Blocked</strong> · waits on {{ blockers(c).map(id => '#' + id).join(', ') }}</span></p>
-                  <p v-if="c.blocked" class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Needs you</strong> · {{ c.blocked }}</span></p>
-                  <div class="kb-owner" :class="{ 'kb-unassigned': !c.owner }"><UserRound :size="13" /><span>{{ c.owner || 'Unassigned' }}</span></div>
+                  <p v-if="c.blocked" class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Needs you</strong> · <bdi>{{ c.blocked }}</bdi></span></p>
+                  <div class="kb-owner" :class="{ 'kb-unassigned': !c.owner }"><UserRound :size="13" /><span dir="auto">{{ c.owner || 'Unassigned' }}</span></div>
                 </div>
                 <div class="kb-card-footer">
                   <span class="kb-state-dot" aria-hidden="true"><Check v-if="c.status === 'done'" :size="12" /></span>
-                  <select class="kb-move" :aria-label="`Move card #${c.id}`" :value="c.status" :disabled="busy || loading" @change="moveCard(c, ($event.target as HTMLSelectElement).value as Status)"><option v-for="[st, label] in columns" :key="st" :value="st">{{ label }}</option></select>
+                  <select class="kb-move" :aria-label="`Move card #${c.id}`" :value="c.status" :disabled="busy || loading" @change="moveCard(c, ($event.target as HTMLSelectElement).value as Status)"><option dir="auto" v-for="[st, label] in columns" :key="st" :value="st">{{ label }}</option></select>
                 </div>
               </article>
               <p v-if="!cardLists[status].length && !loading" class="kb-column-empty">{{ cards.some(c => c.status === status) ? 'No matches' : 'No cards' }}</p>
@@ -286,25 +286,25 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
       <form v-if="editing" class="kb-editor" aria-label="Card editor" @submit.prevent="saveCard">
         <div class="kb-editor-head"><h3>{{ editingId === null ? 'New card' : 'Card #' + editingId }}</h3><button type="button" class="kb-icon" aria-label="Close card editor" :disabled="busy" @click="closeEditor"><X :size="17" /></button></div>
         <div class="kb-editor-fields">
-          <label>Title<input ref="editorTitle" v-model="form.subject" aria-label="Card title" maxlength="200" required :disabled="busy" /></label>
-          <label>Description<textarea v-model="form.description" aria-label="Description" rows="4" maxlength="8000" :disabled="busy"></textarea></label>
+          <label>Title<input dir="auto" ref="editorTitle" v-model="form.subject" aria-label="Card title" maxlength="200" required :disabled="busy" /></label>
+          <label>Description<textarea dir="auto" v-model="form.description" aria-label="Description" rows="4" maxlength="8000" :disabled="busy"></textarea></label>
           <div class="kb-editor-pair"><label>Priority<select v-model="form.priority" aria-label="Priority" :disabled="busy"><option v-for="p in priorities" :key="p" :value="p">{{ p }}</option></select></label><label>Column<select v-model="form.status" aria-label="Column" :disabled="busy"><option v-for="[s, title] in columns" :key="s" :value="s">{{ title }}</option></select></label></div>
-          <label>Owner<input v-model="form.owner" aria-label="Owner" maxlength="100" :disabled="busy" /></label>
-          <label>Labels<input v-model="form.labels" aria-label="Labels" placeholder="web, runtime" :disabled="busy" /><small>Comma separated. Up to 20 labels, 40 characters each.</small></label>
+          <label>Owner<input dir="auto" v-model="form.owner" aria-label="Owner" maxlength="100" :disabled="busy" /></label>
+          <label>Labels<input dir="auto" v-model="form.labels" aria-label="Labels" placeholder="web, runtime" :disabled="busy" /><small>Comma separated. Up to 20 labels, 40 characters each.</small></label>
           <label>Waits on card IDs<input v-model="form.blockedBy" aria-label="Dependencies" placeholder="#12, #18" :disabled="busy" /><small>Comma separated. Dependencies must belong to this project.</small></label>
           <div v-if="editingCard" class="kb-files">
             <span class="kb-files-title">Attachments</span>
-            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><Paperclip :size="13" /><span class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
+            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><Paperclip :size="13" /><span dir="auto" class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
             <label class="kb-button kb-attach" :class="{ 'kb-attach-off': busy }"><Paperclip :size="14" />Attach file<input type="file" multiple hidden aria-label="Attach file" :disabled="busy" @change="attachFiles" /></label>
             <small>Up to 20 files per card, 10 MB each.</small>
           </div>
           <div v-if="editingCard?.blocked" class="kb-answer">
-            <p class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Blocked</strong> · {{ editingCard.blocked }}</span></p>
-            <label>Answer<textarea v-model="answer" aria-label="Answer" rows="3" maxlength="2000" :disabled="busy"></textarea><small>{{ editingCard.owner && /^session \d+$/.test(editingCard.owner) ? `Sent to ${editingCard.owner}. The card is unblocked.` : 'This card has no session owner. The card is unblocked, nobody is notified.' }}</small></label>
+            <p class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Blocked</strong> · <bdi>{{ editingCard.blocked }}</bdi></span></p>
+            <label>Answer<textarea dir="auto" v-model="answer" aria-label="Answer" rows="3" maxlength="2000" :disabled="busy"></textarea><small>{{ editingCard.owner && /^session \d+$/.test(editingCard.owner) ? `Sent to ${editingCard.owner}. The card is unblocked.` : 'This card has no session owner. The card is unblocked, nobody is notified.' }}</small></label>
             <button type="button" class="kb-button" aria-label="Send answer" :disabled="busy || !answer.trim()" @click="sendAnswer">Send answer</button>
           </div>
           <p v-if="editingCard" class="kb-timestamp">Updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
-          <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> {{ a.text }}</li></ul>
+          <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> <bdi>{{ a.text }}</bdi></li></ul>
         </div>
         <div class="kb-editor-actions"><button type="submit" class="kb-button kb-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save card' }}</button><button type="button" class="kb-button" :disabled="busy" @click="closeEditor">Cancel</button><span></span><button v-if="editingId !== null" type="button" class="kb-button" :disabled="busy" @click="setArchived">{{ editingArchived ? 'Restore' : 'Archive' }}</button><button v-if="editingId !== null" type="button" class="kb-button kb-danger" :disabled="busy" @click="deleteCard">Delete</button></div>
       </form>
@@ -317,7 +317,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
       </div>
       <span v-if="selectedPid" class="kb-status-count">{{ visible.length }}{{ visible.length !== cards.length ? ' / ' + cards.length : '' }} cards</span>
     </footer>
-    <Teleport to="body"><div v-if="drag?.moved" class="kb-ghost" :style="{ left: drag.x + 12 + 'px', top: drag.y + 12 + 'px' }" aria-hidden="true"><small>#{{ drag.card.id }}</small><strong>{{ drag.card.subject }}</strong></div></Teleport>
+    <Teleport to="body"><div v-if="drag?.moved" class="kb-ghost" :style="{ left: drag.x + 12 + 'px', top: drag.y + 12 + 'px' }" aria-hidden="true"><small>#{{ drag.card.id }}</small><strong dir="auto">{{ drag.card.subject }}</strong></div></Teleport>
   </section>
 </template>
 
@@ -380,7 +380,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-card-id { margin-right:auto; color:#a0a0a0; font:12px var(--mono); }
 .kb-grip { touch-action:none; user-select:none; cursor:grab!important; display:grid; place-items:center; width:26px; height:28px; flex:none; background:transparent; border:0; border-radius: var(--radius); color:var(--muted-foreground); }
 .kb-card-top:hover .kb-grip { color:var(--primary-text); background:var(--secondary); }
-.kb-card-title { display:block; width:100%; text-align:left; font-weight:600!important; font-size:14.5px!important; line-height:1.55; letter-spacing:.005em; padding:7px 0 10px; background:transparent; border:0; overflow-wrap:anywhere; }
+.kb-card-title { display:block; width:100%; text-align:start; font-weight:600!important; font-size:14.5px!important; line-height:1.55; letter-spacing:.005em; padding:7px 0 10px; background:transparent; border:0; overflow-wrap:anywhere; }
 .kb-card-title:hover { color:var(--primary-text); }
 .kb-description { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; color:var(--muted-foreground); font-size:12.5px; font-weight:440; line-height:1.6; margin:0 0 10px; white-space:pre-wrap; }
 .kb-priority { display:inline-flex; align-items:center; gap:3px; border-radius: var(--radius); padding:3px 5px; font-size:11px; line-height:1; text-transform:capitalize; color:#bdbdbd; background:#2a2a2a; white-space:nowrap; }

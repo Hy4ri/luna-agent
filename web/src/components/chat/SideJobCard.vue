@@ -24,7 +24,7 @@ async function sendReview() {
 <template>
   <div role="group" :aria-label="`${job.kind} report`" class="msg assistant side-job" :data-side-job="job.id">
     <p class="muted">/{{ job.kind }} · {{ job.status === 'running' ? 'Started' : job.status === 'complete' ? 'Complete' : 'Failed' }} · {{ job.id }} · Not in main history</p>
-    <p>{{ job.prompt }}</p><SideContent :job="job" />
+    <p dir="auto">{{ job.prompt }}</p><SideContent :job="job" />
     <button
       v-if="job.kind === 'review' && job.status === 'complete' && job.text"
       type="button"

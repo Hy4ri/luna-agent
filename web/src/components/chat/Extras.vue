@@ -19,8 +19,8 @@ const goal = computed(() => chat.extras?.goal || null);
         <button v-if="goal.status !== 'complete' && goal.status !== 'active'" @click="goalAction('resume')">Resume</button>
         <button @click="goalAction('clear')">Clear</button>
       </div>
-      <span class="muted">{{ goal.objective.length > 200 ? goal.objective.slice(0, 200) + '…' : goal.objective }}</span>
-      <span v-if="goal.statusReason" class="muted">{{ goal.statusReason }}</span>
+      <span dir="auto" class="muted">{{ goal.objective.length > 200 ? goal.objective.slice(0, 200) + '…' : goal.objective }}</span>
+      <span dir="auto" v-if="goal.statusReason" class="muted">{{ goal.statusReason }}</span>
     </div>
 
     <!-- Tasks, background processes, subagents -->

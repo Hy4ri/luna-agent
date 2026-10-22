@@ -49,7 +49,7 @@ onMounted(() => {
     </p>
 
     <details v-for="s in skillsList" :key="s.name" class="card" :data-skill="s.name" @toggle="toggleSkill(s.name, ($event.target as HTMLDetailsElement).open)"><summary class="row"><ChevronRight :size="16" /><b class="grow">{{ s.name }}</b></summary><div class="grid manager-body">
-      <div class="muted">{{ s.description }}</div>
+      <div dir="auto" class="muted">{{ s.description }}</div>
       <div v-if="s.tools && s.tools.length" class="muted">tools: {{ s.tools.join(", ") }}</div>
       <p v-if="skillErrors[s.name]" class="msg err" role="alert">{{ skillErrors[s.name] }}</p>
       <pre v-if="expandedSkills[s.name]">{{ skillDetails[s.name]?.body || '' }}{{ skillDetails[s.name]?.files?.length ? '\n\nfiles: ' + skillDetails[s.name].files.join(', ') : '' }}</pre>

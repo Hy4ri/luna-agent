@@ -44,20 +44,20 @@ async function handleAnswer(q: any, cancelled = false) {
     <form v-for="q in questions" :key="q.callId" class="card grid" :data-ask="q.callId" @submit.prevent="handleAnswer(q)">
       <div v-for="(questionDef, qi) in q.questions" :key="qi" class="grid">
         <div class="row">
-          <span class="pill">{{ questionDef.header }}</span>
-          <b class="grow">{{ questionDef.question }}</b>
+          <span dir="auto" class="pill">{{ questionDef.header }}</span>
+          <b dir="auto" class="grow">{{ questionDef.question }}</b>
         </div>
         <label v-for="(opt, oi) in questionDef.options" :key="oi" class="opt">
           <input :type="questionDef.multiSelect ? 'checkbox' : 'radio'" :name="`q${q.callId}-${qi}`" :value="opt.label" />
           <span>
-            <b>{{ opt.label }}</b>
-            <div class="muted">{{ opt.description }}</div>
-            <pre v-if="opt.preview" class="code">{{ opt.preview }}</pre>
+            <b dir="auto">{{ opt.label }}</b>
+            <div dir="auto" class="muted">{{ opt.description }}</div>
+            <pre dir="auto" v-if="opt.preview" class="code">{{ opt.preview }}</pre>
           </span>
         </label>
-        <input v-model="customAnswers[`${q.callId}-${qi}`]" placeholder="Or type your own answer" />
+        <input dir="auto" v-model="customAnswers[`${q.callId}-${qi}`]" placeholder="Or type your own answer" />
       </div>
-      <input v-model="notes[q.callId]" placeholder="Note for Luna (optional)" />
+      <input dir="auto" v-model="notes[q.callId]" placeholder="Note for Luna (optional)" />
       <div class="row">
         <button type="submit">Answer</button>
         <button type="button" @click="handleAnswer(q, true)">Decline</button>

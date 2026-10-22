@@ -99,7 +99,7 @@ onMounted(() => {
       </label>
       <label class="field-label">
         <span>fact or note</span>
-        <textarea rows="2" placeholder="fact or note" v-model="contentInput"></textarea>
+        <textarea dir="auto" rows="2" placeholder="fact or note" v-model="contentInput"></textarea>
       </label>
       <div class="row">
         <button @click="saveMemory">Save</button>
@@ -109,7 +109,7 @@ onMounted(() => {
     <!-- Search Input -->
     <label class="field-label">
       <span>search</span>
-      <input placeholder="search" v-model="searchQuery" @input="handleSearchInput" />
+      <input dir="auto" placeholder="search" v-model="searchQuery" @input="handleSearchInput" />
     </label>
 
     <!-- Loading -->
@@ -123,7 +123,7 @@ onMounted(() => {
           <b class="grow">{{ m.key || "#" + m.id }}</b>
           <span class="muted">{{ new Date(m.updated).toLocaleDateString() }}</span>
         </summary><div class="grid manager-body">
-        <pre>{{ m.content }}</pre><div><button @click="forgetMemory(m.id)">Forget</button></div>
+        <pre dir="auto">{{ m.content }}</pre><div><button @click="forgetMemory(m.id)">Forget</button></div>
       </div></details>
     </div>
   </div>

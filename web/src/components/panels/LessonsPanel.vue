@@ -99,12 +99,12 @@ onMounted(load);
     <section v-for="g in groups" v-show="g.items.length" :key="g.id" class="grid" :data-group="g.id">
       <div>
         <b>{{ g.title }}</b> <span class="muted">({{ g.items.length }})</span>
-        <div v-if="g.hint" class="muted text-xs">{{ g.hint }}</div>
+        <div dir="auto" v-if="g.hint" class="muted text-xs">{{ g.hint }}</div>
       </div>
       <div v-for="l in g.items" :key="l.id" class="card grid" :data-lesson="l.id">
         <div class="row">
           <span class="pill">{{ l.status }}</span>
-          <b class="grow">{{ l.claim }}</b>
+          <b dir="auto" class="grow">{{ l.claim }}</b>
         </div>
         <div class="muted text-xs">
           {{ l.scope === "memory" ? "memory" : l.skill ? `skill ${l.skill}` : "no target yet" }}
@@ -139,8 +139,8 @@ onMounted(load);
     <section v-if="history.length" class="grid">
       <button class="link-button" @click="showHistory = !showHistory">{{ showHistory ? "Hide" : "Show" }} rejected and retired ({{ history.length }})</button>
       <div v-for="l in showHistory ? history : []" :key="l.id" class="card" :data-lesson="l.id">
-        <div class="row"><span class="pill">{{ l.status }}</span><span class="grow">{{ l.claim }}</span></div>
-        <div v-if="l.note" class="muted text-xs">{{ l.note }}</div>
+        <div class="row"><span class="pill">{{ l.status }}</span><span dir="auto" class="grow">{{ l.claim }}</span></div>
+        <div dir="auto" v-if="l.note" class="muted text-xs">{{ l.note }}</div>
       </div>
     </section>
   </div>
