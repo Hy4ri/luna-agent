@@ -9,16 +9,32 @@ export interface FeedOptions {
   onEvent: (type: string, data: any) => unknown;
   onDisconnect?: (error: HttpError) => boolean | void;
 }
-export interface Feed { stop(): void; reconnect(): void }
+export interface Feed { stop(): void; reconnect(onlyIfStale?: boolean): void }
+
+// The server emits a heartbeat every 15 seconds. Allow two intervals for an idle stream.
+const CONNECT_TIMEOUT = 10000, IDLE_TIMEOUT = 30000, FRESH_FOR = 15000;
 
 export function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }: FeedOptions): Feed {
   let stopped = false, generation = 0, delay = 500;
   let controller: AbortController | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  let connecting = false, lastEventAt = 0;
   async function connect() {
     const own = ++generation;
     controller?.abort(); clearTimeout(timer);
     const abort = controller = new AbortController();
+    connecting = true;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined, timedOut = false;
+    const arm = (ms: number) => {
+      clearTimeout(deadline);
+      deadline = setTimeout(() => {
+        if (stopped || own !== generation) return;
+        timedOut = true;
+        abort.abort();
+      }, ms);
+    };
+    // Covers history hydration, response headers, and the first complete event.
+    arm(CONNECT_TIMEOUT);
     try {
       await beforeConnect?.(abort.signal);
       if (stopped || own !== generation) return;
@@ -38,20 +54,30 @@ export function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }: F
           const type = frame.match(/^event:\s*(.*)$/m)?.[1];
           const data = frame.split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).replace(/^ /, "")).join("\n");
           if (!type || !data || stopped || own !== generation) continue;
-          delay = 500;
-          await onEvent(type, JSON.parse(data));
+          const event = JSON.parse(data);
+          connecting = false; lastEventAt = Date.now();
+          arm(IDLE_TIMEOUT); delay = 500;
+          await onEvent(type, event);
         }
       }
     } catch (err) {
-      const error = err as HttpError;
-      if (stopped || own !== generation || abort.signal.aborted) return;
+      if (stopped || own !== generation || (abort.signal.aborted && !timedOut)) return;
+      connecting = false; lastEventAt = 0;
+      const error = timedOut ? new Error("Connection timed out") : err as HttpError;
       if (onDisconnect?.(error) === false || error.message === "unauthorized") { stopped = true; return; }
       timer = setTimeout(connect, delay); delay = Math.min(delay * 2, 5000);
-    } finally { await reader?.cancel().catch(() => {}); }
+    } finally {
+      clearTimeout(deadline);
+      await reader?.cancel().catch(() => {});
+    }
   }
   void connect();
   return {
     stop() { stopped = true; generation++; clearTimeout(timer); controller?.abort(); },
-    reconnect() { if (!stopped) void connect(); },
+    reconnect(onlyIfStale = false) {
+      if (stopped || (onlyIfStale && (connecting || Date.now() - lastEventAt < FRESH_FOR))) return;
+      delay = 500;
+      void connect();
+    },
   };
 }

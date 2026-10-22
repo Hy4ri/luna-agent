@@ -469,7 +469,10 @@ window.addEventListener("message", async event => {
   if (event.data.event === "board_changed") { const { boardChanged } = await import("./app"); boardChanged.value++; }
 });
 function reconnectFeeds() { activeFeed?.reconnect(); listFeed?.reconnect(); }
+// Focus and visibility can arrive together. Keep a fresh or connecting feed instead of restarting it twice.
+function resumeFeeds() { activeFeed?.reconnect(true); listFeed?.reconnect(true); }
 window.addEventListener("online", reconnectFeeds);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) reconnectFeeds(); });
+window.addEventListener("focus", resumeFeeds);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) resumeFeeds(); });
 window.addEventListener("pagehide", () => { saveDraft(); activeFeed?.stop(); listFeed?.stop(); cancelExtras(); if (liveFrame !== null) cancelAnimationFrame(liveFrame); });
 window.addEventListener("pageshow", e => { if (e.persisted) { startListFeed(); if (chat.session) void openSession(chat.session); } });
