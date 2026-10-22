@@ -1,6 +1,6 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
 export const sections = [
-  { id: 'general', title: 'Chat', description: 'Choose how Luna handles new messages and usage limits.', keys: ['busyInput', 'autoContinue', 'sessionTalk'] },
+  { id: 'general', title: 'Chat', description: 'Choose how Luna handles new messages and usage limits.', keys: ['busyInput', 'autoContinue', 'afterFailedRun', 'sessionTalk'] },
   { id: 'models', title: 'Models & accounts', description: 'Connect providers and choose models for each kind of work.', keys: ['provider', 'model', 'thinkingLevel', 'subagents', 'auxiliary', 'providers'] },
   { id: 'context', title: 'Memory & skills', description: 'Manage instructions, conversation context, and reusable knowledge.', keys: ['instructions', 'compaction', 'skillDirs'] },
   { id: 'images', title: 'Images', description: 'Choose how Luna reads and creates images.', keys: ['vision', 'image_gen', 'video'] },
@@ -17,7 +17,7 @@ export const fieldTitles: Record<string, string> = {
   auxiliary: 'Task-specific models', side_question: 'Side questions', session_title: 'Session titles', review: 'Session review',
   providers: 'Custom provider definitions', id: 'ID', name: 'Display name', api: 'API format', baseUrl: 'Base URL', models: 'Models',
   contextWindow: 'Context window (tokens)', maxTokens: 'Maximum output (tokens)', reasoning: 'Supports reasoning',
-  instructions: 'Default instructions', compaction: 'Automatic context summarization', triggerPercent: 'Context trigger (%)', skillDirs: 'Extra skill directories',
+  instructions: 'Default instructions', compaction: 'Automatic context summarization', triggerPercent: 'Context trigger (%)', modelOverrides: 'Per-model context trigger', afterFailedRun: 'Queued messages after a failed response', skillDirs: 'Extra skill directories',
   video: 'Video analysis', vision: 'Image analysis', image_mode: 'Image analysis route', history_budget_bytes: 'History image budget (bytes)',
   long_edge: 'Maximum long edge (pixels)', hard_bytes: 'Image size limit (bytes)', max_calls_per_image: 'Main-agent calls per image',
   subagent_max_calls_per_image: 'Subagent calls per image', profiles: 'Vision profiles', tool_result_images: 'Allow tool-result images',
@@ -118,7 +118,7 @@ export function helpFor(path: (string | number)[]): string {
 }
 
 export const timing: Record<string, string> = {
-  busyInput: 'Applies live', autoContinue: 'Applies live', sessionTalk: 'Applies live', compaction: 'Applies live',
+  busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', sessionTalk: 'Applies live', compaction: 'Applies live',
   dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Restart required', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
