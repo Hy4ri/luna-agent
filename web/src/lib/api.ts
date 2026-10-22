@@ -10,7 +10,6 @@ export function setServerUrl(value: string) {
   let v = value.trim().replace(/\/+$/, "");
   if (v && !/^https?:\/\//i.test(v)) v = "http://" + v;
   if (/^https?:\/\/[^/:]+$/i.test(v) && v.startsWith("http://")) v += ":8787";
-  if (v !== serverUrl.value) void import("@/stores/sessions").then(m => m.resetNotifications());
   serverUrl.value = v;
   try { localStorage.setItem("luna.server", serverUrl.value); } catch {}
 }

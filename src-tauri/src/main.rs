@@ -1,16 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem},
+    menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, WindowEvent,
 };
 use tauri_plugin_notification::NotificationExt;
 
-/// Tray label for the toggle item. Linux tray menus have no click events, so the menu is the toggle.
-fn set_toggle_label(app: &AppHandle, visible: bool) {
-    if let Some(item) = app.try_state::<CheckMenuItem<tauri::Wry>>() {
-        let _ = item.set_checked(visible);
+/// Keep the tray menu item in step with the window: "Hide Luna" while visible, "Show Luna" otherwise.
+fn sync_tray_label(app: &AppHandle, visible: bool) {
+    if let Some(item) = app.try_state::<MenuItem<tauri::Wry>>() {
+        let _ = item.set_text(if visible { "Hide Luna" } else { "Show Luna" });
     }
 }
 
@@ -19,7 +19,7 @@ fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
-        set_toggle_label(app, true);
+        sync_tray_label(app, true);
     }
 }
 
@@ -27,7 +27,7 @@ fn toggle_main(app: &AppHandle) {
     match app.get_webview_window("main") {
         Some(w) if w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false) => {
             let _ = w.hide();
-            set_toggle_label(app, false);
+            sync_tray_label(app, false);
         }
         _ => show_main(app),
     }
@@ -49,7 +49,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![notify])
         .setup(|app| {
-            let show = CheckMenuItem::with_id(app, "toggle", "Desktop", true, true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "toggle", "Hide Luna", true, None::<&str>)?;
             app.manage(show.clone());
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -83,7 +83,7 @@ fn main() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
-                set_toggle_label(window.app_handle(), false);
+                sync_tray_label(window.app_handle(), false);
             }
         })
         .run(tauri::generate_context!())
