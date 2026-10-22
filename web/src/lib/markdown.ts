@@ -295,3 +295,50 @@ export function markdown(src: string): DocumentFragment {
   flush();
   return frag;
 }
+
+// Splits source into blocks at blank lines outside code fences. Rendering the blocks
+// one by one gives the same DOM as rendering the whole source, because blank lines
+// end every top-level construct. An indented line after a blank line can continue a
+// list item, so such a block stays attached to the previous one.
+export function splitBlocks(src: string): string[] {
+  const lines = String(src).replace(/\r\n/g, "\n").split("\n");
+  const blocks: string[][] = [];
+  let cur: string[] = [];
+  let fence = "";
+  let blankRun = false;
+  for (const l of lines) {
+    if (fence) {
+      if (l.trimStart().startsWith(fence)) fence = "";
+    } else {
+      const m = /^\s*(```|~~~)/.exec(l);
+      if (m) fence = m[1];
+    }
+    const blank = !fence && !l.trim();
+    if (blankRun && !blank && cur.length && !/^\s{2,}\S/.test(l)) {
+      blocks.push(cur);
+      cur = [];
+    }
+    blankRun = blank;
+    cur.push(l);
+  }
+  if (cur.length) blocks.push(cur);
+  return blocks.map((b) => b.join("\n"));
+}
+
+// Keeps the DOM of finished blocks and re-renders only the first changed block and the ones after it.
+export class IncrementalMarkdown {
+  private blocks: { src: string; nodes: Node[] }[] = [];
+  constructor(private container: HTMLElement) {}
+
+  update(src: string) {
+    const next = splitBlocks(src);
+    let k = 0;
+    while (k < next.length && k < this.blocks.length && next[k] === this.blocks[k].src) k++;
+    for (const b of this.blocks.splice(k)) for (const n of b.nodes) this.container.removeChild(n);
+    for (; k < next.length; k++) {
+      const frag = markdown(next[k]);
+      this.blocks.push({ src: next[k], nodes: Array.from(frag.childNodes) });
+      this.container.append(frag);
+    }
+  }
+}
