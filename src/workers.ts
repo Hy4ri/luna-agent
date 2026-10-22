@@ -14,6 +14,7 @@ import { CONNECT_PATH, PROTOCOL_VERSION, decodeResult, encode,
 
 /** Where a session's file and shell tools run. `worker: null` is the main host. Forks keep their source's machine. */
 export const ExecTarget = defineDoc<{ worker: number | null }>({
+  checkpointWhen: () => false,
   kind: "luna.exec-target", version: 1, scope: "conversation", history: "latest", fork: "current",
   initial: () => ({ worker: null }),
 });

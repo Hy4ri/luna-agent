@@ -20,6 +20,7 @@ export type Task = {
 export type TaskState = { tasks: Task[]; nextId: number };
 
 export const TodoDoc = defineDoc<{ tasks: Task[]; nextId: number }>({
+  checkpointWhen: () => false,
   kind: "luna.todo",
   version: 1,
   scope: "conversation",

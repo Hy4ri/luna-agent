@@ -198,7 +198,7 @@ async function retireDocument(tx: Tx, record: DocumentRecord) {
     ? { scope: "conversation" as const, history: record.history!, fork: record.fork! }
     : { scope: "task" as const };
   // Retirement uses address/semantics only; it neither loads nor migrates the value.
-  const definition = { kind: record.kind, version: 1, ...semantics, initial: () => ({}) };
+  const definition = { kind: record.kind, version: 1, ...semantics, initial: () => ({}), checkpointWhen: () => false };
   const owner = record.scope.kind === "conversation" ? record.scope.conversationId : record.scope.taskId;
   if (record.key !== undefined) {
     const token = defineDocFamily({ ...definition, family: true } as never);

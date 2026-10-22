@@ -9,6 +9,7 @@ import type { LunaConfig } from "./config.js";
 import { fitVisionImage, loadVisionImage } from "./vision-images.js";
 
 export const VisionState = defineDoc<{ turn: string; counts: Record<string, number>; seen: string[] }>({
+  checkpointWhen: () => false,
   kind: "luna.vision", version: 1, scope: "conversation", history: "latest", fork: "initial",
   initial: () => ({ turn: "", counts: {}, seen: [] }),
 });

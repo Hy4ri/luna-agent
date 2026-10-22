@@ -14,7 +14,7 @@ import { ExecTarget } from "./workers.js";
 
 export const context = BACKGROUND_CONTEXT;
 // New incarnations of a deleted root must not inherit old process handles or deliveries.
-export const ProcessOwner = defineDoc({ kind: "luna.process-owner", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ token: "legacy" }) });
+export const ProcessOwner = defineDoc({ checkpointWhen: () => false, kind: "luna.process-owner", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ token: "legacy" }) });
 
 export interface LunaOptions {
   /** Live harness compaction policy; read again at each execution boundary. */
@@ -73,6 +73,10 @@ export async function openLuna(opts: LunaOptions) {
     {
       models: opts.models,
       registry,
+      onReport: (error, info) => {
+        const text = error instanceof Error ? error.message : String(error);
+        opts.log?.(`pi-durable ${info.type}: ${text}`);
+      },
       // Runtime-installed extensions also apply to existing sessions. Cron removes interactive extensions explicitly.
       settings: {
         get extensions() { return registry.snapshot().installed(); },

@@ -13,6 +13,7 @@ export type AutoContinuePolicy = { enabled: boolean; maxWaitHours: number; maxAt
 export type LimitWait = { boundary: number; resumeAt: number; attempt: number; reason: string; exact: boolean };
 
 export const LimitWaitsDoc = defineDoc<{ waits: Record<string, LimitWait> }>({
+  checkpointWhen: () => false,
   kind: "luna.limit-waits", version: 1, scope: "session", initial: () => ({ waits: {} }),
 });
 
