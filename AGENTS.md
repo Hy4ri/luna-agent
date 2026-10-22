@@ -128,7 +128,7 @@ A capability is complete only when all three layers are verified:
 
 ### 3. Settings Synchronization (`src/settings.ts`)
 - Runtime configuration edits go through `SettingsStore`, which validates against `ConfigSchema` and writes atomically to `luna.config.json`.
-- Web UI panels (Settings, Model Providers, MCP Servers) must read and update this shared store so live runtime policy (`compaction`, `busyInput`, `autoContinue`, `subagents`, `auxiliary`, etc.) stays consistent without requiring separate config files.
+- Web UI panels (Settings, Model Providers, MCP Servers) must read and update this shared store so live runtime policy (`busyInput`, `autoContinue`, `subagents`, `auxiliary`, etc.) stays consistent without requiring separate config files.
 
 ### 4. Data Directory Isolation (`dataDir`)
 - All persistent runtime state (`luna.db`, `memory.db`, `cron.db`, `learn.db`, `recall.db`, `auth.json`, `mcp.json`, `skills/`, `processes/`, `generated-images/`) must live under `cfg.dataDir` (default `~/.luna`).
@@ -140,7 +140,7 @@ A capability is complete only when all three layers are verified:
 - **Keep system sections deterministic:** Never inject per-turn timestamps, random IDs, or unstable sort orders into always-on system sections (`identity`, `memory`, `skills`, `board`).
 - **Enforce strict character caps:** Always-on prompt sections (`SOUL.md`, `USER.md`, `MEMORY.md` at 4000 chars each in `src/runtime.ts`; memory digest at 3000 chars in `src/memory.ts`; skill descriptions at <=300 chars in `src/skills.ts`) must truncate excess text and append a clear `[truncated: ...]` marker pointing to the full source.
 - **Defer MCP schemas:** MCP tools default to `defer: true` (`src/mcp.ts`) and are discovered on demand via `tool_search`. Keep this default so every model call does not carry every MCP tool schema.
-- **Compaction ownership:** Context compaction is executed by `pi-durable` (`reserveTokens`, `triggerPercent`), configured through `src/runtime.ts`. Check whether a context behavior lives in `pi-durable` or `luna-pi` before modifying code.
+- **Compaction ownership:** Context compaction is executed by `pi-durable` with stock defaults; Luna sets no compaction policy. Check whether a context behavior lives in `pi-durable` or `luna-pi` before modifying code.
 
 ### 6. Security & Process Isolation
 - **Network binding:** Binding `server.host` to any non-loopback address (`0.0.0.0`, LAN IP) requires `LUNA_TOKEN` in the environment. `src/daemon.ts` refuses to start otherwise.

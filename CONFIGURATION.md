@@ -9,7 +9,7 @@ The page has six tabs:
 
 - **General:** data directory, working directory, HTTP server, and busy chat input.
 - **Models:** main model, subagent defaults, custom model providers, and auxiliary models.
-- **Context:** default instructions and automatic compaction.
+- **Context:** default instructions and extra skill directories.
 - **Tools:** web and browser providers, background processes, MCP connections, extensions, and extra skill directories.
 - **Automation:** scheduled runs, self-improvement, and session learning.
 - **Workspace:** Subagents, Analytics, Memory, Skills, Model providers, and MCP servers.
@@ -26,14 +26,6 @@ The Providers and MCP panels also write this file, not separate settings files.
 
 - `provider`, `model`: default model for new sessions and cron runs.
 - `thinkingLevel`, `instructions`: defaults for new chat sessions.
-- `compaction`: automatic context compaction. `enabled` defaults to `true`.
-  `triggerPercent` is an integer from 1 through 99; the default is `75`.
-  Both controls are under **Settings → Context → Automatic compaction** and apply live to existing sessions.
-  The trigger uses the selected model's context window, not lifetime token usage.
-  Running tool calls finish first. The next model request waits for compaction, then resumes.
-  A final answer can compact before the run settles, without starting another turn.
-  Disabling automatic compaction leaves emergency context-overflow recovery enabled.
-  `modelOverrides` sets `triggerPercent` per model, keyed by exact `provider/modelId`, for example `{"openai/gpt-5": {"triggerPercent": 60}}`.
 - `afterFailedRun`: what happens to messages queued behind a response that failed. `keep` (default) leaves them queued until the next input,
   `continue` starts the next response with them, `withdraw` drops them. It applies to all sessions and live.
 - Operator alerts: when `cron.notifyUrl` is set, a parked task (`task_parked`) or a failed daemon session (`session_failed`) is also posted there.
@@ -327,13 +319,11 @@ The separate token totals remain cumulative usage.
 
 ## Runtime compaction policy
 
-The pinned `pi-durable` dependency has a local pnpm patch in `patches/`.
-It adds blocking percentage thresholds, separate automatic and overflow switches, and a durable
-final-answer checkpoint. `pnpm install --frozen-lockfile` applies this patch on a clean install.
-Keep the patch when updating the dependency until the equivalent behavior exists upstream.
-In percentage mode, recent history retention is capped at half the trigger budget (maximum 20,000 tokens).
-This keeps compaction useful for small model windows. No running tool is interrupted.
-
+Luna has no compaction settings. It uses the `pi-durable` defaults: reserve 16384 tokens, keep the most recent 20000 tokens,
+and start a background compaction 32768 tokens before the blocking limit. A turn does not wait for a background compaction.
+Emergency context-overflow recovery also compacts.
+The pinned `pi-durable` dependency has a local pnpm patch in `patches/`. It adds redirect and steer handling only.
+A `compaction` key in `luna.config.json` is an unknown key and the daemon refuses to start. Remove it.
 
 ## Messages sent during a turn
 

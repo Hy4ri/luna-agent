@@ -178,17 +178,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   extensions.push(createWorkersExtension(() => workers));
   extensions.push(createFileMentionExtension({ home: (w) => w === null ? homedir() : workers.store.get(w)?.capabilities?.home }));
 
-  const compaction = () => settings?.resolved().compaction ?? cfg.compaction;
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
   const harness = await openLuna({
     registry,
-    compaction: () => {
-      const policy = compaction();
-      return {
-        enabled: true, autoEnabled: policy.enabled, triggerPercent: policy.triggerPercent, backgroundTokens: 0,
-        modelOverrides: Object.fromEntries(Object.entries(policy.modelOverrides ?? {}).map(([k, v]) => [k, { triggerPercent: v.triggerPercent }])),
-      };
-    },
     afterFailedRun: () => (settings?.resolved() ?? cfg).afterFailedRun,
     alert: async (title, body) => {
       const url = notifyUrl();
@@ -296,7 +288,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     limitContinuer,
     config: cfg,
     settings,
-    compaction,
     busyInput,
     harness,
     conversations,

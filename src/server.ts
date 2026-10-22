@@ -55,7 +55,6 @@ export interface ServerOptions {
   limitContinuer?: LimitContinuer;
   settings?: SettingsStore;
   /** Policy for a runtime without a file-backed settings store. */
-  compaction?: () => { enabled: boolean; triggerPercent: number };
   busyInput?: () => BusyPolicy;
   conversations?: ConversationStore;
   /** Extensions added to sessions created in a project (the board). */
@@ -473,10 +472,9 @@ export function createApp(opts: ServerOptions) {
     const view = await conv.context(context);
     const usedTokens = activeContextTokens(view);
     const live = await harness.snapshot(LiveDoc, conv.id, context);
-    const policy = opts.settings?.read().compaction ?? opts.compaction?.() ?? { enabled: true, triggerPercent: 75 };
     return {
       usedTokens, contextWindow: capacity, percent: capacity === null ? null : usedTokens / capacity * 100,
-      estimated: true as const, triggerPercent: policy.triggerPercent, autoCompactionEnabled: policy.enabled,
+      estimated: true as const,
       compacting: (live?.compactions?.length ?? 0) > 0,
     };
   };
