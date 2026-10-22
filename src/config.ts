@@ -60,12 +60,6 @@ export const ConfigSchema = z
       /** Messages allowed in one exchange between two sessions before session_send refuses. */
       maxHops: z.number().int().min(1).max(20).default(3),
     }).prefault({}),
-    compaction: z.strictObject({
-      enabled: z.boolean().default(true),
-      triggerPercent: z.number().int().min(1).max(99).default(75),
-      /** Per-model trigger, keyed by exact "provider/modelId". Overrides triggerPercent for that model. */
-      modelOverrides: z.record(z.string().regex(/^[^/\s]+\/\S+$/, "provider/modelId"), z.strictObject({ triggerPercent: z.number().int().min(1).max(99) })).default({}),
-    }).prefault({}),
     /** What a failed run does with inputs queued behind it: keep them, run them next, or withdraw them. */
     afterFailedRun: z.enum(["keep", "continue", "withdraw"]).default("keep"),
     video: z.strictObject({

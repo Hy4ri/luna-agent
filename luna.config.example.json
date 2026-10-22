@@ -87,10 +87,6 @@
   "auxiliary": {
     "review": { "provider": "anthropic", "model": "claude-sonnet-4-5" }
   },
-  "compaction": {
-    "enabled": true,
-    "triggerPercent": 75
-  },
   "autoContinue": {
     "enabled": false,
     "maxWaitHours": 168,

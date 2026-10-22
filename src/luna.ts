@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Models } from "@earendil-works/pi-ai";
-import { createRegistry, defineDoc, Harness, ROOT_CONVERSATION_ID, type CompactionPolicy, type Extension, type Registry } from "@earendil-works/pi-durable";
+import { createRegistry, defineDoc, Harness, ROOT_CONVERSATION_ID, type Extension, type Registry } from "@earendil-works/pi-durable";
 import { openConversationStorage, registerConversationStorage } from "./conversation-storage.js";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
@@ -17,8 +17,6 @@ export const context = BACKGROUND_CONTEXT;
 export const ProcessOwner = defineDoc({ checkpointWhen: () => false, kind: "luna.process-owner", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ token: "legacy" }) });
 
 export interface LunaOptions {
-  /** Live harness compaction policy; read again at each execution boundary. */
-  compaction?: () => Partial<CompactionPolicy> & { modelOverrides?: Record<string, Partial<CompactionPolicy>> };
   /** Live policy for queued inputs behind a failed run. Default keep. */
   afterFailedRun?: () => "keep" | "continue" | "withdraw";
   /** Push an operator alert (parked task, failed session). Errors are logged, never thrown. */
@@ -90,7 +88,6 @@ export async function openLuna(opts: LunaOptions) {
       // Runtime-installed extensions also apply to existing sessions. Cron removes interactive extensions explicitly.
       settings: {
         get extensions() { return registry.snapshot().installed(); },
-        get compaction() { return opts.compaction?.(); },
         get afterFailedRun() { return opts.afterFailedRun?.(); },
         steeringMode: "all",
         followUpMode: "one-at-a-time",

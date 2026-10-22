@@ -15,8 +15,8 @@ export interface Notice { id: number; text: string; kind: "err" | "muted"; scope
 export interface SideMedia { directive: string; name: string; url: string; type: string }
 export interface SideJob { id: string; kind: string; status: string; prompt: string; text?: string; media?: SideMedia[]; createdAt: number }
 export interface ContextValue {
-  contextWindow?: number; percent?: number; usedTokens: number; triggerPercent?: number;
-  autoCompactionEnabled?: boolean; compacting?: boolean;
+  contextWindow?: number; percent?: number; usedTokens: number;
+  compacting?: boolean;
 }
 export interface ProcessRow { id: string; running: boolean; status: string; command: string; createdAt: number; finishedAt?: number; exitCode: number | null; error?: string }
 export interface ChildRow { id: number; task: string; status: string; statusReason?: string | null }
@@ -132,14 +132,14 @@ export const contextView = computed(() => {
   if (value === null) return { level: "unknown", known: false, percent: 0, text: "Context usage unavailable", title: "", valueText: "", unavailable: true };
   const known = Number.isFinite(value.contextWindow) && value.contextWindow! > 0 && Number.isFinite(value.percent);
   const percent = known ? value.percent! : 0;
-  const level = known ? (percent >= (value.triggerPercent ?? Infinity) ? "red" : percent >= 50 ? "amber" : "green") : "unknown";
+  const level = known ? (percent >= 80 ? "red" : percent >= 50 ? "amber" : "green") : "unknown";
   const tokens = Math.round(value.usedTokens).toLocaleString();
   const clamped = Math.max(0, Math.min(100, percent));
   return {
     level, known, percent: clamped, unavailable: false,
     text: known ? `Context ≈${tokens} / ${value.contextWindow!.toLocaleString()} · ${percent.toFixed(1)}%` : `Context ≈${tokens} tokens · capacity unavailable`,
     valueText: known ? percent.toFixed(1) + "% of model context, estimated" : "",
-    title: `Estimated active context. Automatic compaction ${value.autoCompactionEnabled ? "at " + value.triggerPercent + "%" : "disabled"}.`,
+    title: "Estimated active context. Older context is summarized automatically.",
   };
 });
 let contextTimer: ReturnType<typeof setTimeout> | undefined, contextRevision = 0;
