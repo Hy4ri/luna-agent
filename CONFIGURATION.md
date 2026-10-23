@@ -5,22 +5,38 @@ An explicit path must exist. Without an explicit path, startup creates the defau
 Use `luna.config.example.json` as an example.
 
 Open **Settings** in the Web UI to edit the same file on a full page.
-The page has six tabs:
+The page has eight task-based categories:
 
-- **General:** data directory, working directory, HTTP server, and busy chat input.
-- **Models:** main model, subagent defaults, custom model providers, and auxiliary models.
-- **Context:** default instructions and extra skill directories.
-- **Tools:** web and browser providers, background processes, MCP connections, extensions, and extra skill directories.
-- **Automation:** scheduled runs, self-improvement, and session learning.
-- **Workspace:** Subagents, Analytics, Memory, Skills, Model providers, and MCP servers.
+- **Chat:** default instructions, messages during a response, usage-limit recovery, failed-response queues, and session messaging.
+- **Models:** main model, subagent defaults, task-specific models, and model catalog refresh.
+- **Accounts & connections:** provider accounts, custom providers, MCP connections, and execution machines.
+- **Tools:** web access, browser control, background commands, built-in tool groups, and disabled tools.
+- **Memory & skills:** extra skill directories, disabled skills, conversation learning, and links to saved memory, skills, and lessons.
+- **Media:** image analysis, image generation, and video analysis.
+- **Automation:** scheduled-run defaults, skill improvement, and a link to Cron jobs and reports.
+- **System:** data directory, working directory, HTTP server, and configuration-file information.
 
-Every config field has a form control. All tabs share one unsaved draft.
-Leaving with unsaved changes requires confirmation. Direct links such as `/#settings/tools` open a specific tab.
+Desktop uses a category sidebar. Mobile uses a vertical category index and an **All settings** back action.
+Primary groups are visible. Advanced options expand within their relevant group.
+Search matches labels, descriptions, keywords, and configuration paths across all categories.
+Each result shows its location, state, and application timing. Selecting a result reveals and focuses the field.
+Direct field links include `/#settings/chat/usage-limits/enabled` and `/#settings/models/task-models/video/model`.
+Legacy category links (`general`, `context`, `images`, and `workspace`) redirect to their current destinations.
+
+Preference categories share one unsaved draft. **Save settings** writes all draft changes.
+**Discard changes** reloads saved values after confirmation. Leaving with unsaved changes requires confirmation.
+Account and connection actions apply immediately through their own buttons; they do not use **Save settings**.
+Save or discard the preference draft before changing accounts or connections.
+Provider definitions and MCP definitions have structured **Edit definition** forms with explicit **Save definition** actions.
+These forms retain all schema-supported options, revision protection, and secret markers.
+Saved memory, skills, lessons, current subagents, execution machines, and Cron open their management panels.
+Opening a related manager preserves the Settings draft. Analytics remains a separate main-navigation page.
+
 Main and subagent thinking selectors are independent. Subagents can inherit the parent thinking level.
-Provider models, MCP arguments, environment variables, headers, and skill directories have add/remove controls.
+Disabled tools and skills use searchable pickers. Saved disabled items remain available to re-enable even when absent from the current catalog.
+Field help shows defaults and readable units. Environment override names appear beside affected fields.
+The legacy `learn.schedule` field is preserved but not editable. The fixed image-generation model is not an editable setting.
 No JSON editing is required.
-Click **Save settings** to write changes. **Reload** discards unsaved edits and reads the file again.
-The Providers and MCP panels also write this file, not separate settings files.
 
 ## Fields
 
@@ -32,7 +48,7 @@ The Providers and MCP panels also write this file, not separate settings files.
   A task is parked after it is cut off by a crash five times in a row. `GET /v1/tasks/parked` lists parked tasks;
   `POST /v1/tasks/:id/retry` runs one again.
 - `autoContinue`: continue a turn automatically after a rate or usage limit resets. `enabled` defaults to `false`.
-  Edit it under **Settings → Automation**. Changes apply live.
+  Edit it under **Settings → Chat → Continue after usage limits**. Changes apply live.
   When a top-level turn stops on a limit error, Luna uses structured provider quota data when available.
   Claude native preserves rejected SDK quota windows and upstream quota headers. Codex preserves HTTP quota headers,
   streamed `codex.rate_limits` windows (including metered model buckets), and the refusal's `resets_at` field.

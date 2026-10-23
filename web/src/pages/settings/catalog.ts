@@ -1,13 +1,38 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
 export const sections = [
-  { id: 'general', title: 'Chat', description: 'Choose how Luna handles new messages and usage limits.', keys: ['busyInput', 'autoContinue', 'afterFailedRun', 'sessionTalk'] },
-  { id: 'models', title: 'Models & accounts', description: 'Connect providers and choose models for each kind of work.', keys: ['provider', 'model', 'thinkingLevel', 'subagents', 'auxiliary', 'providers'] },
-  { id: 'context', title: 'Memory & skills', description: 'Manage instructions, conversation context, and reusable knowledge.', keys: ['instructions', 'skillDirs'] },
-  { id: 'images', title: 'Images', description: 'Choose how Luna reads and creates images.', keys: ['vision', 'image_gen', 'video'] },
-  { id: 'tools', title: 'Tools & connections', description: 'Set up web access, browser control, commands, and external tools.', keys: ['web', 'browser', 'processes', 'mcpServers', 'extensions'] },
-  { id: 'automation', title: 'Automation', description: 'Configure scheduled work and review what Luna learns.', keys: ['cron', 'learn', 'improve'] },
-  { id: 'system', title: 'System', description: 'Set storage paths and server access. Inspect recorded usage.', keys: ['dataDir', 'cwd', 'server'] },
+  { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'busyInput', 'autoContinue', 'afterFailedRun', 'sessionTalk'] },
+  { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'subagents', 'auxiliary'] },
+  { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
+  { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'extensions', 'disabledTools'] },
+  { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge and learning from conversations.', keys: ['skillDirs', 'disabledSkills', 'learn'] },
+  { id: 'media', title: 'Media', description: 'Configure image analysis, image generation, and video analysis.', keys: ['vision', 'image_gen', 'video'] },
+  { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill improvement behavior.', keys: ['cron', 'improve'] },
+  { id: 'system', title: 'System', description: 'Set storage paths, the working directory, and server access.', keys: ['dataDir', 'cwd', 'server'] },
 ] as const
+
+export const aliases: Record<string, string> = { general: 'chat', context: 'memory', images: 'media', workspace: 'memory' }
+export function resolveSettingsRoute(route = 'chat') {
+  const [raw = 'chat', ...rest] = route.split('/').filter(Boolean)
+  const candidate = aliases[raw] || raw
+  const category = sections.some(s => s.id === candidate) ? candidate : 'chat'
+  return { category, target: category === candidate ? rest.map(part => { try { return decodeURIComponent(part) } catch { return part } }).join('.') : '' }
+}
+export const groupIds: Record<string, string> = { provider: 'main-model', model: 'main-model', thinkingLevel: 'main-model', subagents: 'subagents', auxiliary: 'task-models', providers: 'providers', mcpServers: 'mcp', autoContinue: 'usage-limits', disabledTools: 'disabled-tools', disabledSkills: 'disabled-skills' }
+export function groupFor(key: string) { return groupIds[key] || key }
+export function settingRoute(path: (string | number)[]): string {
+  const key = String(path[0])
+  const section = sections.find(s => (s.keys as readonly string[]).includes(key))
+  return [section?.id || 'chat', groupFor(key), ...(['provider', 'model', 'thinkingLevel'].includes(key) ? [key] : path.slice(1))].map(part => encodeURIComponent(String(part))).join('/')
+}
+export function isVisibleSetting(path: (string | number)[]) {
+  return !['learn.schedule', 'image_gen.openai-codex.model'].includes(path.join('.'))
+}
+export function assertCatalogCoverage(schema: any) {
+  const mapped = sections.flatMap(section => [...section.keys]) as string[]
+  const missing = Object.keys(schema.properties || {}).filter(key => !mapped.includes(key))
+  const duplicate = mapped.filter((key, index) => mapped.indexOf(key) !== index)
+  if (missing.length || duplicate.length) throw new Error(`Settings catalog: missing ${missing.join(', ') || 'none'}; duplicate ${duplicate.join(', ') || 'none'}`)
+}
 
 export const fieldTitles: Record<string, string> = {
   busyInput: 'Messages during a response', mode: 'Message handling', acknowledgements: 'Show message acknowledgements',
@@ -15,17 +40,17 @@ export const fieldTitles: Record<string, string> = {
   autoContinue: 'Continue after usage limits', maxWaitHours: 'Maximum reset wait (hours)', maxAttempts: 'Consecutive retry limit',
   provider: 'Provider ID', model: 'Model ID', thinkingLevel: 'Thinking level', subagents: 'Subagent defaults',
   auxiliary: 'Task-specific models', side_question: 'Side questions', session_title: 'Session titles', review: 'Session review',
-  providers: 'Custom provider definitions', id: 'ID', name: 'Display name', api: 'API format', baseUrl: 'Base URL', models: 'Models',
+  providers: 'Provider accounts', id: 'ID', name: 'Display name', api: 'API format', baseUrl: 'Base URL', models: 'Models',
   contextWindow: 'Context window (tokens)', maxTokens: 'Maximum output (tokens)', reasoning: 'Supports reasoning',
   instructions: 'Default instructions', afterFailedRun: 'Queued messages after a failed response', skillDirs: 'Extra skill directories',
-  video: 'Video analysis', vision: 'Image analysis', image_mode: 'Image analysis route', history_budget_bytes: 'History image budget (bytes)',
+  video: 'Video analysis', blocked_paths: 'Blocked local paths', blocked_hosts: 'Blocked URL hosts', timeout_ms: 'Video timeout (milliseconds)', vision: 'Image analysis', image_mode: 'Image analysis route', history_budget_bytes: 'History image budget (bytes)',
   long_edge: 'Maximum long edge (pixels)', hard_bytes: 'Image size limit (bytes)', max_calls_per_image: 'Main-agent calls per image',
   subagent_max_calls_per_image: 'Subagent calls per image', profiles: 'Vision profiles', tool_result_images: 'Allow tool-result images',
   image_gen: 'Image generation', 'openai-codex': 'OpenAI Codex options', quality: 'Image quality', codexHome: 'Codex home directory', codexCommand: 'Codex command',
   web: 'Web search & page extraction', searchProvider: 'Search provider', extractProvider: 'Page extraction provider',
   ddgs: 'DDGS search options', mcpServer: 'MCP connection name', backend: 'Search backend', region: 'Search region', safesearch: 'Safe search',
   browser: 'Browser control', camofox: 'Camofox options', processes: 'Background commands', retentionHours: 'Completed output retention (hours)',
-  maxOutputBytes: 'Retained output per command (bytes)', mcpServers: 'Saved MCP definitions', extensions: 'Built-in tools',
+  maxOutputBytes: 'Retained output per command (bytes)', mcpServers: 'Saved MCP definitions', extensions: 'Built-in tool groups', disabledTools: 'Disabled tools', disabledSkills: 'Disabled skills',
   transport: 'Transport', enabled: 'Enabled', defer: 'Load tools on demand', timeoutMs: 'Tool timeout (milliseconds)',
   command: 'Command', args: 'Arguments', env: 'Environment variables', url: 'URL', headers: 'Headers',
   cron: 'Scheduled runs', notifyUrl: 'Notification URL', runTimeoutMinutes: 'Run timeout (minutes)',
@@ -42,6 +67,8 @@ export function labelFor(path: (string | number)[]): string {
   if (full === 'thinkingLevel') return 'Main thinking level'
   if (full === 'subagents.thinkingLevel') return 'Subagent thinking level'
   if (full === 'providers' || /providers\.\d+\.models\.\d+\.vision$/.test(full)) return full === 'providers' ? fieldTitles.providers! : 'Supports images'
+  if (full === 'auxiliary.video') return 'Video analysis model'
+  if (full === 'auxiliary.video.model') return 'Video analysis model ID'
   if (full === 'auxiliary.vision') return 'Auxiliary image analysis'
   if (full === 'web.providers' || full === 'browser.providers') return 'Provider options'
   if (full === 'browser.provider') return 'Browser provider'
@@ -61,17 +88,19 @@ const fieldHelp: Record<string, string> = {
   'sessionTalk.enabled': 'Sessions can send messages to other sessions with session_send. A message waits for a busy session and never interrupts it.',
   'sessionTalk.maxHops': 'Messages two sessions can exchange before session_send refuses. A new message from you starts a new exchange.',
   'autoContinue.maxAttempts': 'Stop after this many consecutive continuations hit another usage limit.',
-  'provider': 'Provider ID from the catalog or a custom definition below.',
-  'model': 'Exact model ID. Keep any slashes that are part of the ID. New defaults must be available in the catalog or defined below.',
+  'provider': 'Provider ID from the catalog or a custom definition in Accounts & connections.',
+  'model': 'Exact model ID. Keep any slashes that are part of the ID. New defaults must be available in the catalog or defined in Accounts & connections.',
   'thinkingLevel': 'Applies to new sessions. The selected model can restrict the supported levels.',
   'subagents.cwd': 'Leave blank to use the parent conversation’s working directory.',
   'auxiliary.side_question': 'Override the model used for /btw side questions. Leave unset to use the normal default.',
   'auxiliary.review': 'Model used by /review. Required: /review does not fall back to the session model. It reads code and cannot run tests.',
   'auxiliary.session_title': 'Override the model used to name new conversations.',
-  'auxiliary.vision': 'Image-capable model for auxiliary analysis. Select the analysis route in Images.',
+  'auxiliary.vision': 'Image-capable model for auxiliary analysis. Select the analysis route in Media.',
   'instructions': 'Default instructions for new conversations. This does not rewrite instructions in existing conversations.',
+  'disabledTools': 'Hidden from the model and refused if called. Changes apply on the next model request after saving.',
+  'disabledSkills': 'Hidden from the skills catalog and skill_view immediately after saving.',
   'skillDirs': 'Extra directories scanned after the skills folder inside your data directory.',
-  'vision.image_mode': 'Native sends images to the active model. Auxiliary asks the image-analysis model configured in Models & accounts and returns text.',
+  'vision.image_mode': 'Native sends images to the active model. Auxiliary asks the image-analysis model configured in Models and returns text.',
   'vision.history_budget_bytes': 'Target byte budget for an image retained in conversation history. Smaller images reduce later request sizes.',
   'vision.long_edge': 'Resize larger images to this long-edge limit before sending them to a model.',
   'vision.hard_bytes': 'Hard byte limit for prepared image output.',
@@ -118,8 +147,8 @@ export function helpFor(path: (string | number)[]): string {
 }
 
 export const timing: Record<string, string> = {
-  busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', sessionTalk: 'Applies live',
-  dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Restart required', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required',
+  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', sessionTalk: 'Applies live',
+  dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Disable live; enable may need restart', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
 export const summaries: Record<string, string> = {
@@ -136,26 +165,30 @@ export const summaries: Record<string, string> = {
   browser: 'Connect browser tools to a named Camofox MCP server.',
   processes: 'Allow long-running shell commands and choose how much output to retain.',
   mcpServers: 'Edit saved external-tool connections, including commands and protected credentials.',
-  extensions: 'Choose the built-in capabilities available after Luna restarts.',
+  extensions: 'Disabling applies on the next call. Enabling a group that did not start at boot needs a restart.',
+  disabledTools: 'Choose individual tools that Luna must not use.', disabledSkills: 'Choose skills to hide from Luna.',
   skillDirs: 'Add local sources of reusable instructions.',
   cron: 'Set the limits and notifications used by scheduled prompts.',
-  learn: 'Collect lesson signals from idle conversations. The daily pass applies routine fixes and holds critical ones for you.',
+  learn: 'Collect lesson signals from idle conversations. Review proposed changes and their evidence before applying them.',
   improve: 'Schedule skill checks and control access to command benchmarks.',
   dataDir: 'Choose where Luna stores its persistent data.', cwd: 'Choose the default directory for tool commands.', server: 'Choose where the HTTP server listens.',
 }
 
-export const managers: Record<string, { id: string; title: string; description: string }[]> = {
-  models: [
-    { id: 'providers', title: 'Provider accounts', description: 'Sign in, save API keys, disconnect accounts, or add a live custom provider.' },
-    { id: 'agents', title: 'Current subagents', description: 'Inspect delegated work in this conversation. Open or stop a child session.' },
+export interface RelatedDestination { id: string; title: string; description: string }
+export const managers: Record<string, RelatedDestination[]> = {
+  models: [{ id: 'agents', title: 'Current subagents', description: 'Inspect delegated work in this conversation.' }],
+  connections: [{ id: 'workers', title: 'Execution machines', description: 'Register machines for file and command execution.' }],
+  memory: [
+    { id: 'memory', title: 'Saved memory', description: 'Search, save, and remove facts and notes.' },
+    { id: 'skills', title: 'Skill library', description: 'Browse skills and read their instructions.' },
+    { id: 'lessons', title: 'Review lessons', description: 'Review proposed changes and their evidence.' },
   ],
-  context: [
-    { id: 'memory', title: 'Saved memory', description: 'Search facts and notes, save a memory, or forget an existing item.' },
-    { id: 'skills', title: 'Skill library', description: 'Browse skills, read their instructions, and inspect linked files.' },
-  ],
-  tools: [{ id: 'mcp', title: 'Live MCP connections', description: 'Connect external tools, inspect status, enable, disable, or remove a managed server.' }, { id: 'workers', title: 'Execution machines', description: 'Connect machines for file and command execution.' }],
-  automation: [
-    { id: 'lessons', title: 'Review lessons', description: 'Review proposed changes, inspect contextual evidence, verify outcomes, and roll back unchanged targets.' },
-  ],
-  system: [{ id: 'analytics', title: 'Usage analytics', description: 'Filter model usage, compare tokens and recorded costs, and inspect reported tool usage.' }],
+  automation: [{ id: 'cron', title: 'Cron jobs & reports', description: 'Manage scheduled work and read reports.' }],
+}
+export const searchKeywords: Record<string, string> = {
+  instructions: 'prompt system instructions default chat', autoContinue: 'rate limit quota retry recovery resume',
+  providers: 'API key OAuth login account custom provider endpoint subscription', mcpServers: 'MCP external server connection',
+  skillDirs: 'skill folder directory source', disabledTools: 'tool availability permissions disable enable',
+  disabledSkills: 'skill availability disable enable', auxiliary: 'task specific model',
+  cron: 'scheduled job notification timeout reports', image_gen: 'image generation codex pictures',
 }

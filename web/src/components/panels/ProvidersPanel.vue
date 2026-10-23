@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
+import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
 import { json, api, post } from "@/lib/api";
-import { models, loadModels, modelKey } from "@/stores/models";
+import { loadModels } from "@/stores/models";
 
 import { useSettingsMutation } from "./useSettingsMutation";
 const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();
@@ -27,9 +28,6 @@ const addingCustom = ref(false);
 // API key inputs for builtin providers
 const apiKeys = ref<Record<string, string>>({});
 
-// Default model selection
-const selectedDefault = ref("");
-
 function toast(text: string) {
   toasts.value.push(text);
   setTimeout(() => {
@@ -44,28 +42,13 @@ async function fetchData() {
   try {
     const r = await json("/v1/providers");
     providerData.value = r;
-    if (r.default) {
-      selectedDefault.value = r.default.provider + "/" + r.default.modelId;
-    }
+
   } catch (e: any) {
     if (e.message !== "unauthorized") {
       errorMsg.value = e.message;
     }
   } finally {
     loading.value = false;
-  }
-}
-
-async function saveDefaultModel() {
-  if (!selectedDefault.value) return;
-  const [provider, ...rest] = selectedDefault.value.split("/");
-  const modelId = rest.join("/");
-  try {
-    await post("/v1/models/default", { provider, modelId }, "PUT");
-    await loadModels();
-    toast("default saved");
-  } catch (e: any) {
-    toast(e.message);
   }
 }
 
@@ -198,6 +181,7 @@ onUnmounted(() => {
 
 <template>
   <fieldset class="grid manager-form" :disabled="pending">
+    <p class="muted">Account actions apply immediately. Choose the default model in Settings → Models.</p>
     <!-- Toasts -->
     <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
       <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
@@ -208,24 +192,6 @@ onUnmounted(() => {
     <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
 
     <template v-if="providerData">
-      <!-- Default Model Card -->
-      <details class="card" data-manager-form="provider-default"><summary class="row"><ChevronRight :size="16" /><b class="grow">Default model</b><span class="muted">{{ selectedDefault }}</span></summary><div class="grid manager-body">
-        <div class="row">
-          <label class="field-label">
-            <span>Model</span>
-            <select v-model="selectedDefault" aria-label="Model">
-              <option v-for="m in models.list" :key="modelKey(m)" :value="modelKey(m)">
-                {{ m.provider }} · {{ m.name || m.id }}
-              </option>
-              <option v-if="selectedDefault && !models.list.some(m => modelKey(m) === selectedDefault)" :value="selectedDefault">
-                {{ selectedDefault }}
-              </option>
-            </select>
-          </label>
-          <button @click="run(saveDefaultModel)">Save</button>
-        </div>
-      </div></details>
-
       <!-- Interactive Login Box if active -->
       <div v-if="activeLogin" class="card grid">
         <div class="row">
@@ -327,6 +293,9 @@ onUnmounted(() => {
           <span class="muted">{{ p.models }} models</span>
         </summary><div class="grid manager-body">
         <div class="muted">{{ p.def.baseUrl }} · {{ p.def.models.map((m: any) => m.id).join(', ') }}</div>
+        <div v-if="p.apiKey" class="row"><label class="field-label flex-1"><span>API key</span><input v-model="apiKeys[p.id]" type="password" autocomplete="new-password" :aria-label="p.name + ' API key'" /></label><button type="button" @click="run(() => saveApiKey(p.id))">Save key</button></div>
+        <button v-if="p.connected && p.source && /stored|OAuth/i.test(p.source)" type="button" @click="run(() => disconnectProvider(p.id, p.name))">Disconnect</button>
+        <ConnectionDefinitionEditor collection="providers" :name="p.id" @busy="emit('busy', $event)" @changed="run(fetchData)" />
         <div><button style="color:var(--err)" @click="run(() => removeCustomProvider(p.id))">Remove</button></div>
       </div></details>
 

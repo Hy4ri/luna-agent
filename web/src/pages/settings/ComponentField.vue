@@ -3,6 +3,8 @@ import { computed, inject, nextTick, ref } from 'vue'
 import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu'
 import ChoiceField from './ChoiceField.vue'
+import DisabledItemsField from './DisabledItemsField.vue'
+import { isVisibleSetting } from './catalog'
 
 const props = defineProps<{
   schema: any; path: (string | number)[]; required: boolean
@@ -18,15 +20,30 @@ const key = computed(() => String(props.path.at(-1)))
 const full = computed(() => props.path.join('.'))
 const value = computed(() => props.get(props.path))
 const text = computed(() => props.labelFor(props.path))
-const helpText = computed(() => props.helpFor?.(props.path))
+const helpText = computed(() => {
+  const help = props.helpFor?.(props.path) || ''
+  const fallback = safeSchema.value.default
+  if (fallback === undefined || typeof fallback === 'object') return help
+  let readable = String(fallback)
+  if (typeof fallback === 'number' && /bytes/i.test(full.value)) readable = `${(fallback / 1024).toLocaleString()} KiB (${fallback.toLocaleString()} bytes)`
+  else if (typeof fallback === 'number' && /timeout_?ms/i.test(full.value)) readable = `${fallback / 1000} seconds (${fallback.toLocaleString()} milliseconds)`
+  return `${help}${help ? ' ' : ''}Default: ${readable}.`
+})
+const advancedNames: Record<string, string[]> = { vision: ['history_budget_bytes', 'long_edge', 'hard_bytes', 'max_calls_per_image', 'subagent_max_calls_per_image', 'profiles'], processes: ['retentionHours', 'maxOutputBytes'], 'image_gen.openai-codex': ['codexHome', 'codexCommand'], learn: ['files'] }
+const childFields = computed(() => Object.entries(safeSchema.value.properties || {}).filter(([name]) => isVisibleSetting([...props.path, name])))
+const primaryFields = computed(() => childFields.value.filter(([name]) => !advancedNames[full.value]?.includes(name)))
+const advancedFields = computed(() => childFields.value.filter(([name]) => advancedNames[full.value]?.includes(name)))
 const descriptionId = computed(() => helpText.value ? 'help-' + encodeURIComponent(JSON.stringify(props.path)) : undefined)
-const attrs = computed(() => ({ 'data-setting': full.value, 'aria-label': text.value, 'aria-describedby': descriptionId.value }))
+const overrides = inject('settingsOverrides', computed<string[]>(() => []))
+const overrideNames: Record<string, string> = { dataDir: 'LUNA_DATA', cwd: 'LUNA_CWD', provider: 'LUNA_PROVIDER', model: 'LUNA_MODEL', 'server.host': 'LUNA_HOST', 'server.port': 'LUNA_PORT' }
+const override = computed(() => overrides.value.includes(overrideNames[full.value] || '') ? overrideNames[full.value] : undefined)
+const attrs = computed(() => ({ 'data-setting': full.value, 'aria-label': text.value, 'aria-describedby': descriptionId.value, required: props.required && safeSchema.value.type !== 'boolean', 'data-env-override': override.value }))
 const recursive = computed(() => ({ get: props.get, set: props.set, seed: props.seed, labelFor: props.labelFor, helpFor: props.helpFor }))
 const isConst = computed(() => safeSchema.value.const !== undefined || safeSchema.value.enum?.length === 1)
 const isModelOverride = computed(() => !props.required && safeSchema.value.type === 'object' && safeSchema.value.properties?.provider && safeSchema.value.properties?.model)
 const variants = computed<any[]>(() => safeSchema.value.anyOf || safeSchema.value.oneOf || [])
 const selectedVariant = computed(() => variants.value.find(item => item.properties.transport.const === (value.value?.transport || variants.value[0]?.properties.transport.const)))
-const nestedObject = computed(() => props.path.length > 1 && !['web.providers', 'browser.providers'].includes(full.value) && !(props.path[0] === 'vision' && props.path[1] === 'profiles' && props.path.length === 3))
+const nestedObject = computed(() => props.path.length > 1 && !(props.path.length === 2 && props.path[0] === 'providers') && !['web.providers', 'browser.providers'].includes(full.value) && !(props.path[0] === 'vision' && props.path[1] === 'profiles' && props.path.length === 3))
 const isProfiles = computed(() => full.value === 'vision.profiles')
 const itemName = computed(() => ({ mcpServers: 'MCP server', providers: 'provider', models: 'model', skillDirs: 'skill directory', args: 'argument' }[key.value] || 'item'))
 const optionLabels: Record<string, string> = { disabled: 'Disabled', ddgs: 'DDGS', camofox: 'Camofox', interrupt: 'Interrupt', queue: 'Queue', steer: 'Steer', native: 'Active model', auxiliary: 'Auxiliary model', on: 'On', moderate: 'Moderate', off: 'Off', low: 'Low', medium: 'Medium', high: 'High', 'openai-completions': 'OpenAI-compatible chat completions', 'openai-responses': 'OpenAI Responses', 'anthropic-messages': 'Anthropic-compatible messages' }
@@ -80,7 +97,11 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
 </script>
 
 <template>
-  <label v-if="isConst" class="field-label"><span>{{ text }}</span><input class="input readonly-value" :value="safeSchema.const ?? safeSchema.enum[0]" readonly v-bind="attrs" /><small v-if="helpText" :id="descriptionId">{{ helpText }}</small></label>
+  <div v-if="isVisibleSetting(path)" class="field-root">
+  <p v-if="override" class="field-help override-notice">{{ override }} overrides this saved value. Change the environment variable to change the effective value.</p>
+  <DisabledItemsField v-if="full === 'disabledTools' || full === 'disabledSkills'" :kind="full === 'disabledTools' ? 'tools' : 'skills'" :value="value || []" :disabled="disabled" @change="set(path, $event)" />
+  <label v-else-if="full === 'auxiliary.video'" class="field-label"><span>Video analysis model</span><input class="input" type="text" :value="value?.model || ''" data-setting="auxiliary.video.model" aria-label="Video analysis model" placeholder="Use image-analysis model or provider default" @input="set(path, ($event.target as HTMLInputElement).value.trim() ? { model: ($event.target as HTMLInputElement).value.trim() } : undefined)" /><small>Optional exact video model ID. Leave blank to use the image-analysis model or provider default.</small></label>
+  <label v-else-if="isConst" class="field-label"><span>{{ text }}</span><input class="input readonly-value" :value="safeSchema.const ?? safeSchema.enum[0]" readonly v-bind="attrs" /><small v-if="helpText" :id="descriptionId">{{ helpText }}</small></label>
   <div v-else-if="variants.length" class="field-stack">
     <label class="field-label"><span>Transport</span><select class="input" :value="value?.transport || variants[0].properties.transport.const" :data-setting="full + '.transport'" :aria-label="text + ' Transport'" @change="chooseTransport(($event.target as HTMLSelectElement).value)"><option v-for="variant in variants" :key="variant.properties.transport.const" :value="variant.properties.transport.const">{{ variant.properties.transport.const }}</option></select></label>
     <template v-for="(schema, name) in selectedVariant.properties" :key="name"><ComponentField v-if="name !== 'transport'" :schema="schema" :path="[...path, name]" :required="(selectedVariant.required || []).includes(name)" v-bind="recursive" /></template>
@@ -98,7 +119,7 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
   </details>
   <component :is="nestedObject ? 'details' : 'div'" v-else-if="safeSchema.type === 'object' && safeSchema.properties" :class="nestedObject ? 'field-group' : 'field-stack'" :data-field-group="full">
     <summary v-if="nestedObject"><ChevronRight :size="15" /><span>{{ text }}</span></summary>
-    <div :class="['field-stack', { 'group-body': nestedObject }]"><p v-if="helpText && path.length > 1" :id="descriptionId" class="field-help">{{ helpText }}</p><ComponentField v-for="(schema, name) in safeSchema.properties" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /></div>
+    <div :class="['field-stack', { 'group-body': nestedObject }]"><p v-if="helpText && path.length > 1" :id="descriptionId" class="field-help">{{ helpText }}</p><ComponentField v-for="[name, schema] in primaryFields" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /><details v-if="advancedFields.length" class="field-group subtle-group"><summary><ChevronRight :size="15" /><span>Advanced options</span></summary><div class="field-stack group-body"><ComponentField v-for="[name, schema] in advancedFields" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /></div></details></div>
   </component>
   <component :is="path.length > 1 ? 'details' : 'div'" v-else-if="safeSchema.type === 'object'" :class="path.length > 1 ? 'field-group' : 'field-stack'" :data-field-group="full">
     <summary v-if="path.length > 1"><ChevronRight :size="15" /><span>{{ text }}</span><small>{{ Object.keys(value || {}).length }} entries</small></summary>
@@ -117,10 +138,10 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
     </div>
   </component>
   <div v-else-if="safeSchema.type === 'array' && safeSchema.items?.enum" class="field-stack">
-    <DropdownMenu><DropdownMenuTrigger as-child><button class="input choice-trigger" type="button" aria-label="Choose built-in tools" v-bind="{ 'data-setting': full }" :disabled="disabled"><span>{{ (value || []).length }} enabled</span><ChevronDown :size="16" /></button></DropdownMenuTrigger>
+    <DropdownMenu><DropdownMenuTrigger as-child><button class="input choice-trigger" type="button" aria-label="Choose built-in tool groups" v-bind="{ 'data-setting': full }" :disabled="disabled"><span>{{ (value || []).length }} enabled</span><ChevronDown :size="16" /></button></DropdownMenuTrigger>
       <DropdownMenuContent align="start" class="w-72 max-w-[calc(100vw-32px)]" :aria-label="text"><DropdownMenuCheckboxItem v-for="option in safeSchema.items.enum" :key="option" :aria-label="titleCase(option)" :model-value="(value || []).includes(option)" :disabled="disabled" class="min-h-10" @select.prevent @update:model-value="setExtension(option, $event)">{{ titleCase(option) }}</DropdownMenuCheckboxItem></DropdownMenuContent>
     </DropdownMenu>
-    <p class="field-help">Choose the tools Luna can use. Changes need a Luna restart.</p>
+    <p class="field-help">Disabling applies on the next call. Enabling a group that did not start at boot needs a restart.</p>
   </div>
   <div v-else-if="safeSchema.type === 'array'" class="field-stack">
     <div class="field-toolbar"><span class="field-help">{{ value?.length || 0 }} configured</span><button class="field-button" type="button" @click="addItem"><Plus :size="14" />Add {{ itemName }}</button></div>
@@ -134,9 +155,12 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
   <label v-else-if="safeSchema.type === 'boolean'" class="boolean-field"><span><span class="boolean-title">{{ text }}</span><small v-if="helpText" :id="descriptionId">{{ helpText }}</small></span><input type="checkbox" v-bind="attrs" :checked="value ?? safeSchema.default ?? false" @change="set(path, ($event.target as HTMLInputElement).checked)" /></label>
   <label v-else-if="choiceOptions" class="field-label"><span>{{ text }}</span><ChoiceField :value="value" :options="choiceOptions" :empty-label="required ? (safeSchema.default !== undefined ? 'Use default (' + safeSchema.default + ')' : 'Select a value') : 'Not selected'" custom v-bind="attrs" @change="set(path, $event)" /><small v-if="helpText" :id="descriptionId">{{ helpText }}</small></label>
   <label v-else class="field-label"><span>{{ text }}</span><component :is="key === 'instructions' ? 'textarea' : 'input'" v-bind="attrs" class="input" :type="['number', 'integer'].includes(safeSchema.type) ? 'number' : 'text'" :rows="key === 'instructions' ? 4 : undefined" :step="safeSchema.type === 'integer' ? '1' : safeSchema.type === 'number' ? 'any' : undefined" :min="safeSchema.minimum" :max="safeSchema.maximum" :value="value ?? ''" autocomplete="off" placeholder="Not set" @input="set(path, ($event.target as HTMLInputElement).value === '' && !required ? undefined : ['number', 'integer'].includes(safeSchema.type) ? Number(($event.target as HTMLInputElement).value) : ($event.target as HTMLInputElement).value)" /><small v-if="helpText" :id="descriptionId">{{ helpText }}</small></label>
+  </div>
 </template>
 
 <style scoped>
+.field-root { min-width: 0; }
+.override-notice { margin-bottom: 10px; padding: 10px; border: 1px solid var(--border); }
 .field-stack { display: grid; gap: 16px; min-width: 0; }
 .field-label { display: grid; gap: 6px; min-width: 0; font-size: 14px; font-weight: 500; }
 .field-label small, .boolean-field small, .field-help { display: block; font-size: 13px; color: var(--muted-foreground); line-height: 1.6; font-weight: 400; }
