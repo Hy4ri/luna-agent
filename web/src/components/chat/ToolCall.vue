@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Check, CircleAlert, LoaderCircle, ChevronRight, Circle, CircleDot } from '@lucide/vue';
+import { Check, X, LoaderCircle, ChevronRight, Circle, CircleDot } from '@lucide/vue';
 import { chat, openSession, toolArgsText } from '@/stores/chat';
 import { formatTime, formatDateIso } from '@/lib/message';
 import { toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits } from '@/lib/tool-view';
@@ -78,8 +78,8 @@ const hasBody = computed(() => {
   <div class="tool" :data-call="id" :data-state="state" :data-tool="view !== 'generic' ? name : undefined">
     <details :open="expanded" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
       <summary>
-        <CircleAlert v-if="state === 'failed'" :size="14" class="tool-status-icon" aria-hidden="true" />
-        <Check v-else-if="state === 'complete'" :size="14" aria-hidden="true" />
+        <X v-if="state === 'failed'" :size="14" class="tool-status-icon" role="img" aria-label="Failed" />
+        <Check v-else-if="state === 'complete'" :size="14" role="img" aria-label="Complete" />
         <LoaderCircle v-else :size="14" aria-hidden="true" />
         <span class="tool-name">{{ name }}</span>
         <span v-if="summary" class="tool-summary" :title="summary">{{ view === 'bash' ? '$ ' + summary : summary }}</span>
@@ -87,7 +87,7 @@ const hasBody = computed(() => {
         <span v-if="writeLines && state === 'complete'" class="tool-counts">{{ writeLines }} line{{ writeLines === 1 ? '' : 's' }}</span>
         <span v-if="proc && proc.running" class="tool-counts">running</span>
         <span v-if="exitCode !== undefined && exitCode !== null && exitCode !== 0" class="tool-exit">exit {{ exitCode }}</span>
-        <span class="tool-state">{{ state === 'failed' ? 'Failed' : state === 'complete' ? 'Complete' : state === 'running' ? 'Running' : 'No result' }}</span>
+        <span v-if="state === 'running' || state === 'pending'" class="tool-state">{{ state === 'running' ? 'Running' : 'No result' }}</span>
         <a v-if="child" href="#" @click.prevent.stop="openSession(child)">Child {{ child }}</a>
         <ChevronRight :size="13" class="disclosure-chevron" aria-hidden="true" />
       </summary>
