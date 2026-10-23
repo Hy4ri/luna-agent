@@ -1,6 +1,6 @@
 <template>
-  <div id="analytics-screen" class="flex-1 min-w-0 min-h-0 overflow-auto p-[30px] [padding-inline:max(24px,calc((100%-1180px)/2))] [overflow-wrap:anywhere]" :aria-busy="busy ? 'true' : 'false'">
-    <header class="flex items-center gap-3 flex-wrap mb-[26px] max-w-[1180px] mx-auto">
+  <div id="analytics-screen" class="flex-1 min-w-0 min-h-0 overflow-auto p-[30px] [padding-inline:max(24px,calc((100%-1475px)/2))] [overflow-wrap:anywhere]" :aria-busy="busy ? 'true' : 'false'">
+    <header class="flex items-center gap-3 flex-wrap mb-[26px] max-w-[1475px] mx-auto">
       <Button id="analytics-menu" type="button" variant="ghost" size="icon" class="hidden max-[760px]:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground" aria-label="Open navigation" aria-controls="side" @click="setDrawer(true)">
         <Menu :size="18" />
       </Button>
@@ -12,7 +12,7 @@
       <button type="button" class="icon-button" aria-label="Close analytics" @click="navigate('chat')"><X :size="18" /></button>
     </header>
 
-    <div class="flex items-end gap-3 flex-wrap pb-5 max-w-[1180px] mx-auto">
+    <div class="flex items-end gap-3 flex-wrap pb-5 max-w-[1475px] mx-auto">
       <label class="grid gap-[5px] text-xs text-muted-foreground">
         Model
         <select
@@ -30,9 +30,9 @@
       <span class="text-muted-foreground text-xs ml-auto self-center a-updated">{{ updatedText }}</span>
     </div>
 
-    <p class="a-status max-w-[1180px] mx-auto mb-4 text-[14px]" :class="{ 'error': statusIsError }" role="status" aria-live="polite">{{ statusText }}</p>
+    <p class="a-status max-w-[1475px] mx-auto mb-4 text-[14px]" :class="{ 'error': statusIsError }" role="status" aria-live="polite">{{ statusText }}</p>
 
-    <div data-analytics-content class="max-w-[1180px] mx-auto">
+    <div data-analytics-content class="max-w-[1475px] mx-auto">
       <template v-if="snapshot">
         <!-- KPIs -->
         <div class="grid grid-cols-4 max-[1100px]:grid-cols-2 gap-3 my-[12px] mb-[22px]">
