@@ -150,6 +150,25 @@ export function retrySend() {
   const sid = chat.session, error = sid ? composer.sendErrors.get(sid) : undefined;
   if (sid && error) void submitMessage(sid, error.body);
 }
+export function canRecoverPending(message: PendingMessage): boolean {
+  return message.status === "Send not confirmed" || message.status === "Not delivered";
+}
+/** Remove only the local echo. An unconfirmed request may still reach the server. */
+export function dismissPending(requestId: string) {
+  const pending = pendingMessages.get(requestId);
+  if (!pending?.session || !canRecoverPending(pending) || composer.submitting.has(pending.session)) return;
+  pendingMessages.delete(requestId);
+  if (composer.sendErrors.get(pending.session)?.body.requestId === requestId) composer.sendErrors.delete(pending.session);
+}
+export function retryPending(requestId: string) {
+  const pending = pendingMessages.get(requestId);
+  if (!pending?.session || !canRecoverPending(pending) || composer.submitting.has(pending.session)) return;
+  const sid = pending.session;
+  // Unknown delivery must reuse its ID. A terminal unanswered receipt needs a new request.
+  const body = { content: pending.content, requestId: pending.status === "Not delivered" ? randomId() : requestId };
+  if (body.requestId !== requestId) dismissPending(requestId);
+  void submitMessage(sid, body);
+}
 function randomId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {

@@ -2,7 +2,7 @@
 import { ref, computed, nextTick, watch, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
-import { pendingMessages } from "@/stores/composer";
+import { composer, pendingMessages, canRecoverPending, retryPending, dismissPending } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
 import AssistantText from "./AssistantText.vue";
@@ -171,7 +171,13 @@ function backgroundReport(entry: any, message: any): boolean {
     </template>
     <div v-for="message in pending" :key="message.requestId" class="msg user" :data-pending="message.requestId">
       <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
-      <div class="message-footer" role="status">{{ message.status }}</div>
+      <div class="message-footer">
+        <span role="status">{{ message.status }}</span>
+        <template v-if="canRecoverPending(message)">
+          <button type="button" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="retryPending(message.requestId)">Retry send</button>
+          <button type="button" :disabled="!!message.session && composer.submitting.has(message.session)" title="Remove local message; this does not cancel delivery" @click="dismissPending(message.requestId)">Dismiss</button>
+        </template>
+      </div>
     </div>
     <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message">
       <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre dir="auto">{{ chat.liveThinking }}</pre></details>
