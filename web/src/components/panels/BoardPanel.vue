@@ -271,7 +271,10 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
                     <span class="kb-priority" :class="c.priority"><ChevronsUp v-if="c.priority === 'urgent'" :size="12" /><ArrowUp v-else-if="c.priority === 'high'" :size="12" /><ArrowDown v-else-if="c.priority === 'low'" :size="12" /><Minus v-else :size="12" />{{ c.priority }}</span>
                     <button class="kb-grip" :aria-label="`Drag card #${c.id}`" :disabled="busy || loading" title="Drag between columns"><GripVertical :size="16" /></button>
                   </div>
-                  <button dir="auto" class="kb-card-title" :disabled="busy || loading" @click="openEditor(c)">{{ c.subject }}</button>
+                  <div class="kb-card-heading">
+                    <button dir="auto" class="kb-card-title" :disabled="busy || loading" @click="openEditor(c)">{{ c.subject }}</button>
+                    <button type="button" class="kb-icon kb-card-attach" :aria-label="`Attach files to card #${c.id}`" :title="c.attachments.length ? `${c.attachments.length} attachments · Add files` : 'Attach files'" :disabled="busy || loading" @click="chooseFiles(c)"><Paperclip :size="14" /><span v-if="c.attachments.length">{{ c.attachments.length }}</span></button>
+                  </div>
                   <p dir="auto" v-if="c.description" class="kb-description">{{ c.description }}</p>
                   <div v-if="c.labels.length" class="kb-labels"><span dir="auto" v-for="label in c.labels" :key="label" class="kb-tag">{{ label }}</span></div>
                   <p v-if="blockers(c).length" class="kb-blocked"><LockKeyhole :size="13" /><span><strong>Blocked</strong> · waits on {{ blockers(c).map(id => '#' + id).join(', ') }}</span></p>
@@ -280,7 +283,6 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
                 </div>
                 <div class="kb-card-footer">
                   <span class="kb-state-dot" aria-hidden="true"><Check v-if="c.status === 'done'" :size="12" /></span>
-                  <button type="button" class="kb-icon kb-card-attach" :aria-label="`Attach files to card #${c.id}`" :title="c.attachments.length ? `${c.attachments.length} attachments · Add files` : 'Attach files'" :disabled="busy || loading" @click="chooseFiles(c)"><Paperclip :size="14" /><span v-if="c.attachments.length">{{ c.attachments.length }}</span></button>
                   <select class="kb-move" :aria-label="`Move card #${c.id}`" :value="c.status" :disabled="busy || loading" @change="moveCard(c, ($event.target as HTMLSelectElement).value as Status)"><option dir="auto" v-for="[st, label] in columns" :key="st" :value="st">{{ label }}</option></select>
                 </div>
               </article>
@@ -291,21 +293,24 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
         </div>
       </div>
       <form v-if="editing" class="kb-editor" aria-label="Card editor" @submit.prevent="saveCard">
-        <div class="kb-editor-head"><h3>{{ editingId === null ? 'New card' : 'Card #' + editingId }}</h3><button type="button" class="kb-icon" aria-label="Close card editor" :disabled="busy" @click="closeEditor"><X :size="17" /></button></div>
+        <div class="kb-editor-head">
+          <h3>{{ editingId === null ? 'New card' : 'Card #' + editingId }}</h3>
+          <button v-if="editingCard" type="button" class="kb-button kb-attach" :disabled="busy" @click="chooseFiles()"><Paperclip :size="14" />Attach files</button>
+          <button type="button" class="kb-icon" aria-label="Close card editor" :disabled="busy" @click="closeEditor"><X :size="17" /></button>
+        </div>
         <div class="kb-editor-fields">
+          <div v-if="editingCard" class="kb-files">
+            <span class="kb-files-title">Attachments</span>
+            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><BoardImage v-if="/^image\/(png|jpeg|gif|webp|avif|bmp)$/i.test(a.type)" :path="attachPath(editingCard.id, a.id)" :name="a.name" /><Paperclip v-else :size="13" /><span dir="auto" class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
+            <input ref="fileInput" type="file" multiple hidden aria-label="Attach files" :disabled="busy" @change="attachFiles" />
+            <small>Up to 20 files per card, 10 MB each.</small>
+          </div>
           <label>Title<input dir="auto" ref="editorTitle" v-model="form.subject" aria-label="Card title" maxlength="200" required :disabled="busy" /></label>
           <label>Description<textarea dir="auto" v-model="form.description" aria-label="Description" rows="4" maxlength="8000" :disabled="busy"></textarea></label>
           <div class="kb-editor-pair"><label>Priority<select v-model="form.priority" aria-label="Priority" :disabled="busy"><option v-for="p in priorities" :key="p" :value="p">{{ p }}</option></select></label><label>Column<select v-model="form.status" aria-label="Column" :disabled="busy"><option v-for="[s, title] in columns" :key="s" :value="s">{{ title }}</option></select></label></div>
           <label>Owner<input dir="auto" v-model="form.owner" aria-label="Owner" maxlength="100" :disabled="busy" /></label>
           <label>Labels<input dir="auto" v-model="form.labels" aria-label="Labels" placeholder="web, runtime" :disabled="busy" /><small>Comma separated. Up to 20 labels, 40 characters each.</small></label>
           <label>Waits on card IDs<input v-model="form.blockedBy" aria-label="Dependencies" placeholder="#12, #18" :disabled="busy" /><small>Comma separated. Dependencies must belong to this project.</small></label>
-          <div v-if="editingCard" class="kb-files">
-            <span class="kb-files-title">Attachments</span>
-            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><BoardImage v-if="/^image\/(png|jpeg|gif|webp|avif|bmp)$/i.test(a.type)" :path="attachPath(editingCard.id, a.id)" :name="a.name" /><Paperclip v-else :size="13" /><span dir="auto" class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
-            <button type="button" class="kb-button kb-attach" :disabled="busy" @click="chooseFiles()"><Paperclip :size="14" />Attach files</button>
-            <input ref="fileInput" type="file" multiple hidden aria-label="Attach files" :disabled="busy" @change="attachFiles" />
-            <small>Up to 20 files per card, 10 MB each.</small>
-          </div>
           <div v-if="editingCard?.blocked" class="kb-answer">
             <p class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Blocked</strong> · <bdi>{{ editingCard.blocked }}</bdi></span></p>
             <label>Answer<textarea dir="auto" v-model="answer" aria-label="Answer" rows="3" maxlength="2000" :disabled="busy"></textarea><small>{{ editingCard.owner && /^session \d+$/.test(editingCard.owner) ? `Sent to ${editingCard.owner}. The card is unblocked.` : 'This card has no session owner. The card is unblocked, nobody is notified.' }}</small></label>
@@ -388,7 +393,9 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-card-id { margin-right:auto; color:#a0a0a0; font:12px var(--mono); }
 .kb-grip { touch-action:none; user-select:none; cursor:grab!important; display:grid; place-items:center; width:26px; height:28px; flex:none; background:transparent; border:0; border-radius: var(--radius); color:var(--muted-foreground); }
 .kb-card-top:hover .kb-grip { color:var(--primary-text); background:var(--secondary); }
-.kb-card-title { display:block; width:100%; text-align:start; font-weight:600!important; font-size:14.5px!important; line-height:1.55; letter-spacing:.005em; padding:7px 0 10px; background:transparent; border:0; overflow-wrap:anywhere; }
+.kb-card-heading { display:flex; align-items:flex-start; gap:8px; }
+.kb-card-heading .kb-card-attach { flex:none; margin-top:5px; }
+.kb-card-title { display:block; flex:1; min-width:0; text-align:start; font-weight:600!important; font-size:14.5px!important; line-height:1.55; letter-spacing:.005em; padding:7px 0 10px; background:transparent; border:0; overflow-wrap:anywhere; }
 .kb-card-title:hover { color:var(--primary-text); }
 .kb-description { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; color:var(--muted-foreground); font-size:12.5px; font-weight:440; line-height:1.6; margin:0 0 10px; white-space:pre-wrap; }
 .kb-priority { display:inline-flex; align-items:center; gap:3px; border-radius: var(--radius); padding:3px 5px; font-size:11px; line-height:1; text-transform:capitalize; color:#bdbdbd; background:#2a2a2a; white-space:nowrap; }
@@ -421,7 +428,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-empty { margin:auto; padding:24px; text-align:center; color:var(--muted-foreground); }.kb-empty p { margin-bottom:14px; }
 .kb-archive { flex:1; min-width:0; overflow:auto; }.kb-archive-card { display:flex; gap:16px; align-items:center; text-align:left; width:100%; border:1px solid var(--border); border-radius: var(--radius); background:var(--card); padding:12px; margin-bottom:8px; overflow-wrap:anywhere; }.kb-archive-card strong { flex:1; min-width:0; font-weight:500; }.kb-archive-card>span { color:var(--muted-foreground); font-size:12px; }
 .kb-editor { display:flex; flex-direction:column; flex:0 0 360px; width:360px; min-width:0; min-height:0; border:1px solid var(--border); border-radius: var(--radius); background:var(--card); }
-.kb-editor-head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid var(--border); flex:none; }.kb-editor-head h3 { margin:0; font-weight:600; }
+.kb-editor-head { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--border); flex:none; }.kb-editor-head h3 { margin:0; font-weight:600; flex:1; min-width:0; }
 .kb-editor-fields { overflow:auto; min-height:0; padding:16px; display:grid; gap:14px; scrollbar-width:thin; }.kb-editor label { display:grid; gap:6px; font-size:13px; min-width:0; }.kb-editor input,.kb-editor textarea,.kb-editor select { width:100%; background:var(--background); }.kb-editor textarea { resize:vertical; min-height:80px; font-size:15px; font-weight:450; line-height:1.55; }.kb-editor small { font-size:11px; color:var(--muted-foreground); line-height:1.5; }.kb-editor-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.kb-timestamp { font-size:11px; color:var(--muted-foreground); }
 .kb-editor-actions { display:flex; flex-wrap:wrap; gap:8px; padding:12px; border-top:1px solid var(--border); flex:none; margin-top:auto; }.kb-editor-actions>span { flex:1; }.kb .kb-danger { color:var(--destructive); }
 .kb-answer { display:grid; gap:8px; }
