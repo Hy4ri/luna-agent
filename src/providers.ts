@@ -18,7 +18,7 @@ import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-co
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { groqProvider } from "@earendil-works/pi-ai/providers/groq";
 import { mistralProvider } from "@earendil-works/pi-ai/providers/mistral";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { openaiProvider } from "./openai-context.js";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import type { ModelRef } from "./scheduler.js";
@@ -27,7 +27,7 @@ import { claudeCliProvider } from "./claude-cli.js";
 import { opencodeCliProvider } from "./opencode-cli.js";
 
 /** Built-in providers offered in the UI. Each brings its own catalog, API-key auth and (where supported) OAuth login. */
-export const BUILTIN_PROVIDERS: (() => Provider)[] = [
+export const BUILTIN_PROVIDERS: ((fetchImpl?: typeof fetch) => Provider)[] = [
   claudeCliProvider, opencodeCliProvider, anthropicProvider, openaiProvider, githubCopilotProvider, openrouterProvider, googleProvider,
   xaiProvider, deepseekProvider, groqProvider, mistralProvider,
 ];
@@ -226,7 +226,7 @@ export class ProviderManager {
     this.fallback = o.fallbackModel;
     this.fetchImpl = o.fetch ?? fetch;
     this.models = o.models ?? createModels({ credentials: new FileCredentialStore(join(o.dataDir, "auth.json")) });
-    for (const make of BUILTIN_PROVIDERS) { const p = make(); if (!this.models.getProvider(p.id)) this.models.setProvider(p); }
+    for (const make of BUILTIN_PROVIDERS) { const p = make(this.fetchImpl); if (!this.models.getProvider(p.id)) this.models.setProvider(p); }
     for (const def of this.state.custom) {
       if (this.models.getProvider(def.id)) throw new Error(`provider ${def.id} conflicts with a built-in provider`);
       this.models.setProvider(customProvider(def, this.fetchImpl));
