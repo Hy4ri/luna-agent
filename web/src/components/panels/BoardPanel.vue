@@ -5,6 +5,7 @@ import { api, json, post } from '@/lib/api';
 import { history } from '@/stores/sessions';
 import { chat } from '@/stores/chat';
 import { boardChanged, openPanel, ui } from '@/stores/app';
+import BoardImage from './BoardImage.vue';
 import type { Project } from '@/lib/types';
 
 type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
@@ -18,7 +19,7 @@ const search = ref(''), priority = ref('');
 const editing = ref(false), editingId = ref<number | null>(null), editingArchived = ref(false);
 const form = reactive({ subject: '', description: '', priority: 'medium' as Priority, status: 'backlog' as Status, owner: '', labels: '', blockedBy: '' });
 const answer = ref(''), activity = ref<{ id: number; at: number; by: string; text: string }[]>([]);
-const board = ref<HTMLElement>(), editorTitle = ref<HTMLInputElement>();
+const board = ref<HTMLElement>(), editorTitle = ref<HTMLInputElement>(), fileInput = ref<HTMLInputElement>();
 let generation = 0, disposed = false, controller: AbortController | undefined, refreshQueued = false;
 let editorReturn: HTMLElement | null = null;
 const visible = computed(() => cards.value.filter(c => (!priority.value || c.priority === priority.value) && `${c.subject} ${c.description} ${c.labels.join(' ')} ${c.owner || ''} #${c.id}`.toLowerCase().includes(search.value.toLowerCase())));
@@ -107,6 +108,11 @@ async function refreshEditing() {
   const id = editingId.value; if (id === null) return;
   const data = await json<{ cards: Card[] }>(`/v1/projects/${selectedPid.value}/board${archived.value ? '?archived=1' : ''}`);
   if (!disposed) cards.value = data.cards;
+}
+function chooseFiles(c?: Card) {
+  if (busy.value || loading.value || drag.value) return;
+  if (c) openEditor(c);
+  void nextTick(() => fileInput.value?.click());
 }
 async function attachFiles(event: Event) {
   const input = event.target as HTMLInputElement, id = editingId.value;
@@ -274,6 +280,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
                 </div>
                 <div class="kb-card-footer">
                   <span class="kb-state-dot" aria-hidden="true"><Check v-if="c.status === 'done'" :size="12" /></span>
+                  <button type="button" class="kb-icon kb-card-attach" :aria-label="`Attach files to card #${c.id}`" :title="c.attachments.length ? `${c.attachments.length} attachments · Add files` : 'Attach files'" :disabled="busy || loading" @click="chooseFiles(c)"><Paperclip :size="14" /><span v-if="c.attachments.length">{{ c.attachments.length }}</span></button>
                   <select class="kb-move" :aria-label="`Move card #${c.id}`" :value="c.status" :disabled="busy || loading" @change="moveCard(c, ($event.target as HTMLSelectElement).value as Status)"><option dir="auto" v-for="[st, label] in columns" :key="st" :value="st">{{ label }}</option></select>
                 </div>
               </article>
@@ -294,8 +301,9 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
           <label>Waits on card IDs<input v-model="form.blockedBy" aria-label="Dependencies" placeholder="#12, #18" :disabled="busy" /><small>Comma separated. Dependencies must belong to this project.</small></label>
           <div v-if="editingCard" class="kb-files">
             <span class="kb-files-title">Attachments</span>
-            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><Paperclip :size="13" /><span dir="auto" class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
-            <label class="kb-button kb-attach" :class="{ 'kb-attach-off': busy }"><Paperclip :size="14" />Attach file<input type="file" multiple hidden aria-label="Attach file" :disabled="busy" @change="attachFiles" /></label>
+            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><BoardImage v-if="/^image\/(png|jpeg|gif|webp|avif|bmp)$/i.test(a.type)" :path="attachPath(editingCard.id, a.id)" :name="a.name" /><Paperclip v-else :size="13" /><span dir="auto" class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
+            <button type="button" class="kb-button kb-attach" :disabled="busy" @click="chooseFiles()"><Paperclip :size="14" />Attach files</button>
+            <input ref="fileInput" type="file" multiple hidden aria-label="Attach files" :disabled="busy" @change="attachFiles" />
             <small>Up to 20 files per card, 10 MB each.</small>
           </div>
           <div v-if="editingCard?.blocked" class="kb-answer">
@@ -399,6 +407,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-blocked strong { font-weight:600; }
 .kb-blocked svg { flex:none; margin-top:1px; }
 .kb-card-footer { display:flex; align-items:center; gap:7px; border-top:1px solid #303030; background:color-mix(in srgb,var(--status-color) 5%,var(--background)); padding:4px 9px; margin-top:auto; }
+.kb-card-attach { width:auto; min-width:30px; min-height:30px; padding:4px; font-size:11px!important; border-color:transparent; background:transparent; }
 .kb-state-dot { width:12px; height:12px; flex:none; display:grid; place-items:center; color:var(--status-color); }
 .kb-state-dot:empty::after { content:''; width:6px; height:6px; background:currentColor; border-radius:50%; }
 .kb .kb-move { width:100%; min-width:0; font-size:12px; color:var(--status-color); border:1px solid transparent; padding:5px 0; background:transparent; border-radius: var(--radius); }

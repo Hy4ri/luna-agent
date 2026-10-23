@@ -933,7 +933,10 @@ The `board` tool shows attachment names in `get`. Deleting a card or project del
 - `GET /v1/projects/:id/cards/:cardId/attachments/:attachmentId`: downloads the file as an attachment.
 - `DELETE /v1/projects/:id/cards/:cardId/attachments/:attachmentId`: removes it.
 
+Each saved board card has a paperclip button to open its editor and select files.
+The button shows the attachment count when files are present.
 The card editor has an **Attachments** list with attach, download, and remove.
+Supported image formats show a preview in this list. New cards must be saved before attaching files.
 
 ## Execution machines (first version)
 
