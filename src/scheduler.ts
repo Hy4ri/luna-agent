@@ -68,6 +68,20 @@ export interface Run {
   readAt: number | null;
 }
 
+/**
+ * The newest report for each job. A newer report replaces an older unread one; the older one is superseded
+ * and lives in history. Empty output is not a report.
+ */
+const newestPerJob = `
+  SELECT MAX(id) FROM runs
+  WHERE report=1 AND status != 'running'
+    AND (TRIM(COALESCE(output, '')) != '' OR TRIM(COALESCE(error, '')) != '')
+  GROUP BY job_id
+`;
+
+/** Inbox rows: the newest report per job, only while it is unread. */
+const inboxIds = `SELECT id FROM runs WHERE id IN (${newestPerJob}) AND read_at IS NULL`;
+
 export class CronStore {
   readonly db: DatabaseSync;
   constructor(path: string) {
@@ -443,59 +457,36 @@ export class CronStore {
 
   reports(options: { history?: boolean; jobId?: number; before?: number; limit?: number } = {}): Run[] {
     const { history = false, jobId, before, limit = 50 } = options;
-    let query: string;
     const params: any[] = [];
-
+    let query = `
+      SELECT r.* FROM runs r
+      WHERE r.report=1 AND r.status != 'running'
+        AND (TRIM(COALESCE(r.output, '')) != '' OR TRIM(COALESCE(r.error, '')) != '')
+    `;
     if (history) {
-      query = `
-        SELECT r.* FROM runs r
-        WHERE r.report=1 AND r.status != 'running'
-          AND r.id NOT IN (
-            SELECT MAX(r2.id) FROM runs r2 WHERE r2.report=1 AND r2.status != 'running' GROUP BY r2.job_id
-          )
-      `;
-      if (jobId !== undefined) {
-        query += " AND r.job_id=?";
-        params.push(jobId);
-      }
-      if (before !== undefined) {
-        query += " AND r.id<?";
-        params.push(before);
-      }
-      query += " ORDER BY r.id DESC LIMIT ?";
-      params.push(limit);
+      // History keeps every report that is not waiting in the inbox: read reports and replaced ones.
+      query += " AND r.id NOT IN (" + inboxIds + ")";
     } else {
-      query = `
-        SELECT r.* FROM runs r
-        WHERE r.report=1 AND r.status != 'running'
-          AND r.id IN (
-            SELECT MAX(r2.id) FROM runs r2 WHERE r2.report=1 AND r2.status != 'running' GROUP BY r2.job_id
-          )
-      `;
-      if (jobId !== undefined) {
-        query += " AND r.job_id=?";
-        params.push(jobId);
-      }
-      if (before !== undefined) {
-        query += " AND r.id<?";
-        params.push(before);
-      }
-      query += " ORDER BY r.id DESC LIMIT ?";
-      params.push(limit);
+      // Inbox: the newest unread report per job.
+      query += " AND r.id IN (" + inboxIds + ")";
     }
+    if (jobId !== undefined) {
+      query += " AND r.job_id=?";
+      params.push(jobId);
+    }
+    if (before !== undefined) {
+      query += " AND r.id<?";
+      params.push(before);
+    }
+    // Keep the ID cursor consistent with newest-first pagination.
+    query += " ORDER BY r.id DESC LIMIT ?";
+    params.push(limit);
 
     return this.db.prepare(query).all(...params).map((r) => this.run(r));
   }
 
   unreadCount(): number {
-    const r = this.db.prepare(`
-      SELECT COUNT(*) as c FROM runs
-      WHERE report=1 AND status != 'running' AND read_at IS NULL
-        AND (TRIM(COALESCE(output, '')) != '' OR TRIM(COALESCE(error, '')) != '')
-        AND id IN (
-          SELECT MAX(r2.id) FROM runs r2 WHERE r2.report=1 AND r2.status != 'running' GROUP BY r2.job_id
-        )
-    `).get() as any;
+    const r = this.db.prepare(`SELECT COUNT(*) as c FROM (${inboxIds})`).get() as any;
     return r?.c ?? 0;
   }
 

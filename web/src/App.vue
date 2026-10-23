@@ -12,7 +12,6 @@ import StatusBar from '@/components/chat/StatusBar.vue';
 import Composer from '@/components/composer/Composer.vue';
 import PanelHost from '@/components/panels/PanelHost.vue';
 import CommandPalette from '@/components/CommandPalette.vue';
-import CronPage from '@/pages/CronPage.vue';
 import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
 import { isDesktop, serverUrl } from '@/lib/api';
@@ -388,7 +387,6 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-if="ui.view !== 'chat'" :inert="blocked" class="flex min-w-0 flex-1 overflow-hidden">
-        <CronPage v-if="ui.view === 'cron'" :inert="blocked" />
         <AnalyticsPage v-if="ui.view === 'analytics'" :inert="blocked" />
         <SettingsPage v-if="ui.view === 'settings'" :inert="blocked" />
       </div>

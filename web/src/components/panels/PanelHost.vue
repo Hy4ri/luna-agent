@@ -5,7 +5,7 @@ import { computed } from 'vue';
 import { PANELS } from './index';
 
 /** Panels that open as a centered floating window instead of a side drawer. */
-const WINDOWS: Record<string, string> = { board: 'board-window', projects: 'projects-window' };
+const WINDOWS: Record<string, string> = { board: 'board-window', projects: 'projects-window', cron: 'cron-window' };
 const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
 </script>
 <template>
@@ -28,6 +28,7 @@ const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
 /* Sized from the backdrop (which fills #app), not the screen: #app starts below the status bar. */
 .board-window { height: 94%; max-height: 100%; }
 .projects-window { max-width: 900px; height: min(600px, 100%); }
+.cron-window { max-width: min(1180px, 100%); height: 94%; }
 .window-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 @media (max-width: 760px) {
   .panel-backdrop.wide { padding: 8px; }
