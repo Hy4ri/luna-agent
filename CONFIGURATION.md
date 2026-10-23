@@ -47,6 +47,11 @@ The Providers and MCP panels also write this file, not separate settings files.
 - `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` overrides.
   Set both provider and model, or omit both to inherit the parent model.
   Normal and forked children use these defaults. Children cannot delegate further.
+  Children have no `ask_user_question`. A child that needs input or approval calls `session_handoff`.
+  `delegate_task` then reports `needs_input` or `needs_approval` with the reason: `wait` returns early and `list` shows it.
+  When the child's turn ends, the spawning session also gets one follow-up message (once per handoff).
+  The message grants no permission. Answer the child with `delegate_task` `steer`; approvals stay with m57.
+  A handoff that ends while the daemon is down does not send a message, but `wait` and `list` still show it.
 - `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
 - `disabledTools`: tool names hidden from the model and refused if called. Applies to the next model request, including existing sessions.
