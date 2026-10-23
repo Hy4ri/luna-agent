@@ -9,7 +9,7 @@
         <h1 tabindex="-1" class="m-0 text-[24px] font-semibold tracking-tight leading-[1.3]">Analytics</h1>
         <p class="m-0 text-[14px] text-muted-foreground">Model usage, token flow, and recorded cost.</p>
       </div>
-      <Button type="button" variant="outline" class="h-9 px-4 text-xs font-medium text-foreground bg-card border-border hover:bg-accent" @click="navigate('chat')">Back to chat</Button>
+      <button type="button" class="icon-button" aria-label="Close analytics" @click="navigate('chat')"><X :size="18" /></button>
     </header>
 
     <div class="flex items-end gap-3 flex-wrap pb-5 max-w-[1180px] mx-auto">
@@ -366,7 +366,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Menu } from '@lucide/vue'
+import { Menu, X } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { ui, setDrawer, navigate } from '@/stores/app'
 import { json } from '@/lib/api'
