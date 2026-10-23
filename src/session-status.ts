@@ -53,7 +53,7 @@ export async function readSessionHandoff(tx: Tx, id: ConversationId): Promise<Ha
 
 export const SessionStatusExtension = defineExtension({
   name: "session-status",
-  sections: [section("session-status", () => "Before returning control to the user because you need permission or information, call session_handoff with needs_approval or needs_input and a short reason. For structured questions, use ask_user_question (purpose: approval for permission). These tools only report state; they never grant permission. A normal final answer is marked Finished, not verified task completion.")],
+  sections: [section("session-status", () => "Before returning control to the user because you need permission or information, call session_handoff with needs_approval or needs_input and a short reason. For structured questions, use ask_user_question (purpose: approval for permission). Without ask_user_question (subagents), use session_handoff. A subagent handoff wakes the session that spawned it. These tools only report state; they never grant permission. A normal final answer is marked Finished, not verified task completion.")],
   tools: [defineTool({
     name: "session_handoff",
     description: "Mark that your final response needs human approval or input. Call before the final response, then stop work until the user replies. This records state only: it does not grant approval, abort tools, or verify completion. Use ask_user_question for a structured question instead.",

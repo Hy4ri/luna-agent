@@ -4,6 +4,7 @@
 // so list/wait/steer/stop only ever touch that parent's children. Replay safety: spawn is keyed by the tool
 // call's task id (a rerun after a crash finds the child it already made) and every message has a deterministic requestId.
 import { ExecTarget } from "./workers.js";
+import { isRunning, readSessionStatus } from "./session-status.js";
 import { Type } from "@earendil-works/pi-ai";
 import { configure, defineDoc, defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 
@@ -36,7 +37,9 @@ const parameters = Type.Object({
   timeoutSec: Type.Optional(Type.Number({ description: "wait: max seconds to wait (default 120, max 1800)" })),
 });
 
-type ChildReport = { id: number; state: "running" | "done" | "unanswered" | "idle"; answer?: string };
+/** `needs_*`: the child stopped (handoff) or waits (ask_user_question) for someone above it. Not m57's approval. */
+type ChildReport = { id: number; state: "running" | "done" | "unanswered" | "idle" | "needs_input" | "needs_approval"; answer?: string; reason?: string };
+const blocked = (r: ChildReport) => r.state === "needs_input" || r.state === "needs_approval";
 
 export interface DelegateSettings {
   provider?: string; model?: string;
@@ -51,13 +54,14 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
         name: "delegate_task",
         description:
           "Delegate work to parallel subagent conversations. spawn (optionally fork=true to inherit this conversation's history) returns a child id; " +
-          "spawn several, keep working, then wait to gather their answers. steer redirects a running child; stop aborts one; list shows yours.",
+          "spawn several, keep working, then wait to gather their answers. steer redirects a running child; stop aborts one; list shows yours. " +
+          "A child state needs_input or needs_approval means it stopped for you; answer with steer, or ask m57. A child never grants approval.",
         parameters,
         replay: "safe",
         execute: async (args, api, context) => {
           const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], isError });
           const parent = await api.agent(context);
-          // Children cannot delegate further or mutate a shared board without a project link.
+          // Children cannot delegate further, mutate a shared board without a project link, or ask a human (nobody sees a hidden child's questionnaire; they hand off instead).
           // Configured child defaults override the parent.
           const defaults = settings();
           // The configured child cwd is a main-host path; children of a worker session keep the parent's directory.
@@ -65,7 +69,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
           const childCwd = onWorker ? parent.cwd : defaults.cwd ?? parent.cwd;
           const childAgent = {
             model: defaults.provider && defaults.model ? { provider: defaults.provider, modelId: defaults.model } : parent.model,
-            thinkingLevel: defaults.thinkingLevel ?? parent.thinkingLevel, extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board")] },
+            thinkingLevel: defaults.thinkingLevel ?? parent.thinkingLevel, extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board" || e.name === "ask-user")] },
             ...(childCwd ? { cwd: childCwd } : {}),
           } as never;
 
@@ -93,7 +97,13 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
                     .join("\n");
                 }
               }
-              return { id, state, answer };
+              // A child that asks or hands off is blocked, whether its turn is still waiting or already ended.
+              let reason: string | undefined;
+              if (state === "running" || state === "done") {
+                const status = await readSessionStatus(tx, id as never, await isRunning(tx, id as never));
+                if (status.status === "needs_input" || status.status === "needs_approval") { state = status.status; reason = status.statusReason ?? undefined; }
+              }
+              return { id, state, answer, reason };
             }, context);
 
           // Idempotent: a rerun with the same requestId neither logs the message twice nor submits it twice.
@@ -167,7 +177,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
             case "list": {
               const kids = await mine();
               const rows = await Promise.all(kids.map(async (k) => ({ ...(await report(k.id)), task: k.task })));
-              return text(rows.map((r) => `${r.id}: ${r.state} - ${r.task.slice(0, 80)}`).join("\n") || "no children");
+              return text(rows.map((r) => `${r.id}: ${r.state}${r.reason ? ` (${r.reason.slice(0, 120)})` : ""} - ${r.task.slice(0, 80)}`).join("\n") || "no children");
             }
             case "wait": {
               const { ok: ids, foreign } = args.ids?.length ? await owned(args.ids) : { ok: (await mine()).map((c) => c.id), foreign: [] as number[] };
@@ -176,11 +186,11 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               const deadline = Date.now() + ms;
               while (Date.now() < deadline && !context.abortSignal?.aborted) {
                 const now = await Promise.all(ids.map(report));
-                if (now.every((r) => r.state !== "running")) break;
+                if (now.every((r) => r.state !== "running") || now.some(blocked)) break;
                 await new Promise((r) => setTimeout(r, 250));
               }
               const rows = await Promise.all(ids.map(report));
-              return text(rows.map((r) => `[${r.id}] ${r.state}${r.answer ? `\n${r.answer}` : ""}`).join("\n\n") + foreignNote(foreign));
+              return text(rows.map((r) => `[${r.id}] ${r.state}${r.reason ? `: ${r.reason}` : ""}${r.answer ? `\n${r.answer}` : ""}`).join("\n\n") + foreignNote(foreign));
             }
           }
         },

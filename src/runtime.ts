@@ -39,6 +39,7 @@ import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
 import { LimitContinuer } from "./limit-continue.js";
+import { SubagentNotifier } from "./subagent-notify.js";
 import { createWorkersExtension, WorkerHub, WorkerStore } from "./workers.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
@@ -285,6 +286,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
     skip: (id) => !!isCronConversation?.get(String(id)) });
   await limitContinuer.start();
+  // A blocked subagent (session_handoff) wakes the session that spawned it.
+  const subagentNotifier = new SubagentNotifier({ harness, log });
+  if (on("delegate")) subagentNotifier.start();
 
   return {
     sideCommands,
@@ -314,6 +318,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
       await limitContinuer.close();
+      await subagentNotifier.close();
       await titler.close();
       await sideCommands.close();
       providers.close();
