@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { Menu, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
+import { Menu, ScanEye, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
+import ReviewInspector from "@/components/chat/ReviewInspector.vue";
 import Extras from '@/components/chat/Extras.vue';
 import StatusBar from '@/components/chat/StatusBar.vue';
 import Composer from '@/components/composer/Composer.vue';
@@ -16,7 +17,7 @@ import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette } from '@/stores/app';
-import { chat, newSession, openSession, clearConversation, addErr, activityVisible, contextView, usageText } from '@/stores/chat';
+import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
 import { sessionState, sessionStatusLabel } from '@/lib/session-status';
@@ -37,7 +38,10 @@ const RAIL_DOCK_AT = 1120, RAIL_UNDOCK_BELOW = 1080;
 const mainRef = ref<HTMLElement | null>(null);
 const railRoom = ref(false);
 let railObserver: ResizeObserver | undefined;
-const railContent = computed(() => !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
+const selectedReview = ref<string | null>(null);
+const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
+watch(() => chat.session, () => { selectedReview.value = null; });
+const railContent = computed(() => reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
 const docked = computed(() => railRoom.value && railContent.value);
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
@@ -332,6 +336,7 @@ onUnmounted(() => {
               <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
               <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt) }}</span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
             </div>
+            <button v-if="!docked && reviewJobs.length" type="button" class="icon-button shrink-0" :aria-label="`Inspect review agents${runningReviews ? ' · ' + runningReviews + ' running' : ''}`" title="Review agents" @click="selectedReview = reviewJobs[0]!.id"><ScanEye :size="18" :class="{ 'text-primary-text': runningReviews > 0 }" /></button>
             <MachineStatus v-if="!mobile" />
             <StatusBar v-if="!mobile && !docked" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
@@ -351,6 +356,7 @@ onUnmounted(() => {
               </PopoverContent>
             </Popover>
           </header>
+          <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
           <div class="chat-body">
             <div class="chat-column">
               <Transcript />
