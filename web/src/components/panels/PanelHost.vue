@@ -26,8 +26,8 @@ const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
 .float-window { width: 100%; max-width: none; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px #0009; }
 .float-window > header { padding: 16px 20px; }
 /* Sized from the backdrop (which fills #app), not the screen: #app starts below the status bar. */
-.board-window { height: 94%; max-height: 100%; }
-.projects-window { max-width: 900px; height: min(600px, 100%); }
+.board-window { max-width: min(1180px, 100%); height: 94%; max-height: 100%; }
+.projects-window { max-width: min(1180px, 100%); height: 94%; }
 .cron-window { max-width: min(1180px, 100%); height: 94%; }
 .window-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 @media (max-width: 760px) {

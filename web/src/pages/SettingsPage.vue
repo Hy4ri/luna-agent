@@ -11,7 +11,7 @@ import SettingsSearch from './settings/SettingsSearch.vue'
 import type { SettingsResult } from './settings/settingsSearch'
 import { PANELS } from '@/components/panels'
 import { sections, fieldTitles, labelFor, helpFor, summaries, timing, managers, groupFor, assertCatalogCoverage, settingRoute } from './settings/catalog'
-import { Menu, ArrowLeft, ArrowUpRight, MessageSquare, Network, BookOpen, Image, Wrench, Clock, Settings2, AlertCircle, RefreshCw } from '@lucide/vue'
+import { Menu, X, ArrowLeft, ArrowUpRight, MessageSquare, Network, BookOpen, Image, Wrench, Clock, Settings2, AlertCircle, RefreshCw } from '@lucide/vue'
 
 const mobile = useMobile()
 const icons = [MessageSquare, Network, Network, Wrench, BookOpen, Image, Clock, Settings2]
@@ -252,7 +252,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
     <header class="settings-header">
       <button id="settings-menu" class="icon-button mobile-only" type="button" aria-label="Open navigation" aria-controls="side" :aria-expanded="ui.drawer" @click="setDrawer(true)"><Menu :size="20" /></button>
       <div class="settings-heading"><h1>Settings</h1><p>Find a setting and make Luna work the way you do.</p></div>
-      <button class="settings-button back-button" type="button" data-settings-close :disabled="disabled" @click="navigate('chat')"><ArrowLeft :size="16" /><span>Back to chat</span></button>
+      <button class="icon-button" type="button" data-settings-close aria-label="Close settings" :disabled="disabled" @click="navigate('chat')"><X :size="18" /></button>
     </header>
     <SettingsSearch :schema="saved?.schema" :config="draft" :disabled="disabled || loading || !!loadError" @select="selectSearch" />
     <div class="settings-layout">
