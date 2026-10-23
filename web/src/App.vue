@@ -153,6 +153,45 @@ function openNavigation() {
   if (sessionPane) window.parent.postMessage({ type: 'luna:open-navigation' }, location.origin);
   else setDrawer(true);
 }
+// An edge-only gesture leaves normal transcript selection and horizontal content alone.
+const SWIPE_EDGE = 32, SWIPE_DISTANCE = 64, SWIPE_SLOP = 12, SWIPE_TIMEOUT = 700;
+let navigationSwipe: { id: number; x: number; y: number; started: number } | null = null;
+function canSwipeNavigation() {
+  return mobile.value && !ui.login && !ui.panel && !ui.palette && !ui.drawer
+    && !document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"]');
+}
+function cancelNavigationSwipe() { navigationSwipe = null; }
+function startNavigationSwipe(event: TouchEvent) {
+  cancelNavigationSwipe();
+  if (!canSwipeNavigation() || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  if (touch.clientX < 0 || touch.clientX > SWIPE_EDGE) return;
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest('button, a, input, textarea, select, [contenteditable], [role="slider"], [role="dialog"], [role="alertdialog"]')) return;
+  // Do not take a gesture from an independently scrollable horizontal surface.
+  for (let el: Element | null = target; el; el = el.parentElement) {
+    if (el.scrollWidth > el.clientWidth && /auto|scroll/.test(getComputedStyle(el).overflowX)) return;
+  }
+  navigationSwipe = { id: touch.identifier, x: touch.clientX, y: touch.clientY, started: performance.now() };
+}
+function moveNavigationSwipe(event: TouchEvent) {
+  const swipe = navigationSwipe;
+  if (!swipe) return;
+  const touch = [...event.touches].find(t => t.identifier === swipe.id);
+  if (!canSwipeNavigation() || event.touches.length !== 1 || !touch
+    || performance.now() - swipe.started > SWIPE_TIMEOUT
+    || touch.clientX < swipe.x - SWIPE_SLOP
+    || Math.abs(touch.clientY - swipe.y) > SWIPE_SLOP) cancelNavigationSwipe();
+}
+function endNavigationSwipe(event: TouchEvent) {
+  const swipe = navigationSwipe;
+  cancelNavigationSwipe();
+  if (!swipe || !canSwipeNavigation() || event.touches.length) return;
+  const touch = [...event.changedTouches].find(t => t.identifier === swipe.id);
+  if (touch && performance.now() - swipe.started <= SWIPE_TIMEOUT
+    && touch.clientX - swipe.x >= SWIPE_DISTANCE
+    && Math.abs(touch.clientY - swipe.y) <= SWIPE_SLOP) openNavigation();
+}
 function closeTile() {
   if (sessionPane) closeSessionPane();
   else clearConversation();
@@ -279,7 +318,9 @@ onUnmounted(() => {
 
 <template>
   <TooltipProvider>
-    <div class="flex h-full min-h-0 w-full overflow-hidden bg-background text-foreground">
+    <div class="flex h-full min-h-0 w-full overflow-hidden bg-background text-foreground"
+      @touchstart.passive="startNavigationSwipe" @touchmove.passive="moveNavigationSwipe"
+      @touchend.passive="endNavigationSwipe" @touchcancel.passive="cancelNavigationSwipe">
       <Sidebar v-if="!sessionPane" :inert="ui.login || !!ui.panel" />
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <div id="chat-workspace" v-show="ui.view === 'chat'" :inert="blocked" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
