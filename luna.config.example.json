@@ -72,7 +72,8 @@
   },
   "learn": {
     "idleMinutes": 30,
-    "schedule": "0 4 * * *"
+    "captureEnabled": true,
+    "files": []
   },
   "server": {
     "host": "127.0.0.1",

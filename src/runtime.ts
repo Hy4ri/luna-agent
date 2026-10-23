@@ -28,7 +28,8 @@ import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
 import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
 import { createSkillManageExtension, SkillManager } from "./skill-manage.js";
-import { createLearnExtension, LEARN_JOB, LEARN_PROMPT, LearnStore, scanIdle } from "./learn.js";
+import { createLearnExtension, LEARN_JOB, LearnStore, scanIdle } from "./learn.js";
+import { LearnFiles } from "./learn-files.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
 import { createBrowserToolsExtension } from "./browser-tools.js";
@@ -99,7 +100,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   for (const c of mcp.connections) log(`mcp ${c.name}: ${c.toolNames.length} tools`);
 
   const cronDb = join(cfg.dataDir, "cron.db");
-  const store = on("cron") || on("improve") ? new CronStore(cronDb) : undefined;
+  const store = on("cron") || on("improve") || on("learn") ? new CronStore(cronDb) : undefined;
   let scheduler: Scheduler | undefined;
 
   let harnessRef: Awaited<ReturnType<typeof openLuna>> | undefined;
@@ -126,7 +127,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   ])));
   // Identity and always-on memory belong to the runtime, including cron and child conversations.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
-    const files = ["SOUL.md", "USER.md", "MEMORY.md"];
+    const projection = learn?.projectionState(memory || undefined);
+    const files = ["SOUL.md", "USER.md", ...(projection?.managed && projection.stale ? [] : ["MEMORY.md"])];
     // Sent with every prompt, so each file is capped; the model can read the full file with its tools.
     const CAP = 4000;
     const text = files.filter(f => existsSync(join(cfg.dataDir, f)))
@@ -135,7 +137,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
         const cut = body.length > CAP ? `${body.slice(0, CAP)}\n[truncated: ${body.length - CAP} more chars in ${join(cfg.dataDir, f)}]` : body;
         return `## ${f}\n${cut}`;
       }).join("\n\n");
-    return text || undefined;
+    return (text + (projection?.managed && projection.stale ? "\nMEMORY.md projection is stale or edited. Use recall for current database facts; request review before refreshing the file." : "")) || undefined;
   })] }));
   if (on("delegate")) extensions.push(createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler));
@@ -145,7 +147,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("improve")) extensions.push(createImproveExtension(improver!, { allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks }));
   if (on("skills")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs)));
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
-  const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db")) : undefined;
+  const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db"), {
+    files: new LearnFiles(cfg.dataDir, () => live().learn.files),
+    skip: id => !!store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1").get(String(id)),
+  }) : undefined;
   if (learn) extensions.push(createLearnExtension(learn, improver!, memory || undefined));
   if (on("tool-search")) extensions.push(createToolSearchExtension());
   if (on("todo")) extensions.push(Todo);
@@ -229,7 +234,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       exclude: [board, ...(ask ? [ask] : [])],
     });
     syncImproveJob(cfg, store!);
-    syncJob(store!, LEARN_JOB, learn ? cfg.learn.schedule : undefined, LEARN_PROMPT);
+    disableLegacyLearnJob(store!);
     await scheduler.start();
   }
 
@@ -237,7 +242,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let learnTimer: ReturnType<typeof setInterval> | undefined;
   let learnRunning: Promise<unknown> | undefined;
   const learnScan = () => {
-    if (!learn || learnRunning) return learnRunning;
+    if (!learn || !live().learn.captureEnabled || !live().extensions.includes("learn") || learnRunning) return learnRunning;
     const isCronRun = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
     learnRunning = scanIdle({
       store: learn, idleMs: live().learn.idleMinutes * 60_000, log,
@@ -259,7 +264,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     for (const f of await mcp.reconcile(next.mcpServers)) warnings.push(`mcp ${f.name}: ${f.error}`);
     if (scheduler && store) {
       syncImproveJob(live(), store);
-      syncJob(store, LEARN_JOB, learn ? live().learn.schedule : undefined, LEARN_PROMPT);
+      disableLegacyLearnJob(store);
       scheduler.rearm();
     }
     return warnings;
@@ -337,6 +342,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
 
 /** Keep the built-in improve job in line with config: create, update, or disable it. */
 function syncImproveJob(cfg: LunaConfig, store: CronStore) { syncJob(store, IMPROVE_JOB, cfg.improve.schedule, IMPROVE_PROMPT); }
+
+/** Never recreate or re-enable the legacy model pass. Keep its history intact. */
+function disableLegacyLearnJob(store: CronStore) {
+  const job = store.listJobs().find(j => j.name === LEARN_JOB);
+  if (job?.enabled) store.setEnabled(job.id, false);
+}
 
 /** Keep one built-in job in line with config: create, update, or disable it (`want` undefined = disabled). */
 function syncJob(store: CronStore, name: string, want: string | undefined, prompt: string) {

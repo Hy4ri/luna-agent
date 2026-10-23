@@ -1,6 +1,7 @@
 // Durable long-term memory: SQLite store of facts (keyed, upserted) and notes (free-form),
 // a compacted system-prompt section, and remember/recall/forget tools.
 import { DatabaseSync } from "node:sqlite";
+import { chmodSync } from "node:fs";
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 
@@ -30,6 +31,7 @@ export class MemoryStore {
 
   constructor(path: string, opts: MemoryOptions = {}) {
     this.db = new DatabaseSync(path);
+    if (path !== ":memory:") chmodSync(path, 0o600);
     this.budget = opts.budget ?? 3000;
     this.maxNotes = opts.maxNotes ?? 40;
     this.db.exec(`
@@ -45,6 +47,8 @@ export class MemoryStore {
         archived INTEGER NOT NULL DEFAULT 0
       );
       CREATE UNIQUE INDEX IF NOT EXISTS memory_fact_key ON memory(key) WHERE kind = 'fact' AND archived = 0;
+      CREATE TABLE IF NOT EXISTS memory_provenance (key TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS memory_history (id INTEGER PRIMARY KEY, key TEXT NOT NULL, before_text TEXT, after_text TEXT, created INTEGER NOT NULL);
     `);
   }
 
@@ -57,32 +61,101 @@ export class MemoryStore {
     const content = input.content.trim();
     if (!content) throw new Error("content is empty");
     const kind = input.kind ?? (input.key ? "fact" : "note");
-    if (kind === "fact" && !input.key) throw new Error("a fact needs a key (e.g. 'printer.ip')");
+    if (kind === "fact" && !input.key?.trim()) throw new Error("a fact needs a key (e.g. 'printer.ip')");
     const tags = (input.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean).join(",");
     const now = Date.now();
     let row: MemoryRow;
-    if (kind === "fact") {
-      const key = input.key!.trim();
-      const existing = this.db.prepare("SELECT id FROM memory WHERE kind='fact' AND archived=0 AND key=?").get(key) as
-        | { id: number }
-        | undefined;
-      if (existing) {
-        this.db.prepare("UPDATE memory SET content=?, tags=?, updated=? WHERE id=?").run(content, tags, now, existing.id);
-        row = this.get(existing.id)!;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const before = kind === "fact" ? this.factSnapshot(input.key!.trim()) : null;
+      if (kind === "fact") {
+        const key = input.key!.trim();
+        const existing = this.db.prepare("SELECT id FROM memory WHERE kind='fact' AND archived=0 AND key=?").get(key) as
+          | { id: number }
+          | undefined;
+        if (existing) {
+          this.db.prepare("UPDATE memory SET content=?, tags=?, updated=? WHERE id=?").run(content, tags, now, existing.id);
+          row = this.get(existing.id)!;
+        } else {
+          const r = this.db
+            .prepare("INSERT INTO memory(kind,key,content,tags,created,updated) VALUES('fact',?,?,?,?,?)")
+            .run(key, content, tags, now, now);
+          row = this.get(Number(r.lastInsertRowid))!;
+        }
       } else {
         const r = this.db
-          .prepare("INSERT INTO memory(kind,key,content,tags,created,updated) VALUES('fact',?,?,?,?,?)")
-          .run(key, content, tags, now, now);
+          .prepare("INSERT INTO memory(kind,key,content,tags,created,updated) VALUES('note',NULL,?,?,?,?)")
+          .run(content, tags, now, now);
         row = this.get(Number(r.lastInsertRowid))!;
       }
-    } else {
-      const r = this.db
-        .prepare("INSERT INTO memory(kind,key,content,tags,created,updated) VALUES('note',NULL,?,?,?,?)")
-        .run(content, tags, now, now);
-      row = this.get(Number(r.lastInsertRowid))!;
-    }
+      if (kind === "fact") {
+        this.db.prepare("DELETE FROM memory_provenance WHERE key=?").run(input.key!.trim());
+        this.db.prepare("INSERT INTO memory_history(key,before_text,after_text,created) VALUES(?,?,?,?)")
+          .run(input.key!.trim(),before,this.factSnapshot(input.key!.trim()),now);
+      }
+      this.db.exec("COMMIT");
+    } catch(e) { this.db.exec("ROLLBACK"); throw e; }
     this.compact();
     return row;
+  }
+
+  /** Exact snapshot includes metadata, so a concurrent fact edit invalidates a pending learning proposal. */
+  factSnapshot(key: string): string | null {
+    const row = this.db.prepare("SELECT * FROM memory WHERE kind='fact' AND key=? AND archived=0").get(key) as unknown as MemoryRow | undefined;
+    if (!row) return null;
+    const meta = this.db.prepare("SELECT metadata FROM memory_provenance WHERE key=?").get(key) as { metadata: string } | undefined;
+    return JSON.stringify({ row, metadata: meta ? JSON.parse(meta.metadata) : null });
+  }
+
+  changeFact(key: string, expected: string | null, content: string, metadata: Record<string, unknown>): string {
+    if (!key.trim() || !content.trim() || metadata.domain !== "global") throw new Error("learning memory requires a keyed global fact");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (this.factSnapshot(key) !== expected) throw new Error("memory changed since proposal; no overwrite performed");
+      const now = Date.now();
+      const old = expected ? JSON.parse(expected).row as MemoryRow : undefined;
+      if (old) this.db.prepare("UPDATE memory SET content=?,updated=? WHERE id=?").run(content.trim(), Math.max(now,old.updated+1),old.id);
+      else this.db.prepare("INSERT INTO memory(kind,key,content,tags,created,updated) VALUES('fact',?,?,'lesson',?,?)").run(key,content.trim(),now,now);
+      this.db.prepare("INSERT INTO memory_provenance(key,metadata) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET metadata=excluded.metadata").run(key,JSON.stringify(metadata));
+      const after = this.factSnapshot(key)!;
+      this.db.prepare("INSERT INTO memory_history(key,before_text,after_text,created) VALUES(?,?,?,?)").run(key,expected,after,now);
+      this.db.exec("COMMIT");
+      return after;
+    } catch(e) { this.db.exec("ROLLBACK"); throw e; }
+  }
+
+  restoreFact(key: string, expected: string, before: string | null) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (this.factSnapshot(key) !== expected) throw new Error("memory changed after apply; rollback refused");
+      const old = before ? JSON.parse(before) as { row: MemoryRow; metadata: unknown } : null;
+      this.db.prepare("DELETE FROM memory WHERE kind='fact' AND key=? AND archived=0").run(key);
+      this.db.prepare("DELETE FROM memory_provenance WHERE key=?").run(key);
+      if (old) {
+        const r = old.row;
+        this.db.prepare("INSERT INTO memory(id,kind,key,content,tags,created,updated,archived) VALUES(?,?,?,?,?,?,?,?)")
+          .run(r.id,r.kind,r.key,r.content,r.tags,r.created,r.updated,r.archived);
+        if (old.metadata) this.db.prepare("INSERT INTO memory_provenance(key,metadata) VALUES(?,?)").run(key,JSON.stringify(old.metadata));
+      }
+      this.db.prepare("INSERT INTO memory_history(key,before_text,after_text,created) VALUES(?,?,?,?)").run(key,expected,before,Date.now());
+      this.db.exec("COMMIT");
+    } catch(e) { this.db.exec("ROLLBACK"); throw e; }
+  }
+
+  /** A complete bounded projection. Refuse overflow instead of silently dropping selected facts. */
+  projection(keys: string[]): string {
+    const lines = ["# Memory", "", "<!-- Managed projection from memory.db. Refresh through a reviewed learning proposal. -->", ""];
+    for (const key of [...new Set(keys)].sort()) {
+      const snapshot = this.factSnapshot(key);
+      if (!snapshot) throw new Error(`missing fact ${key}`);
+      const { row, metadata } = JSON.parse(snapshot) as { row: MemoryRow; metadata: { domain?: string; reviewAt?: number } | null };
+      if (metadata?.domain && metadata.domain !== "global") throw new Error("project fact cannot enter global projection");
+      if (metadata?.reviewAt && metadata.reviewAt <= Date.now()) throw new Error(`fact ${key} needs review`);
+      lines.push(`- ${key}: ${row.content.replace(/\s+/g," ")}`);
+    }
+    const out = lines.join("\n") + "\n";
+    if (out.length > 4000) throw new Error("projection exceeds identity budget (4000 chars); select fewer facts");
+    return out;
   }
 
   get(id: number): MemoryRow | undefined {
@@ -90,7 +163,17 @@ export class MemoryStore {
   }
 
   forget(id: number): boolean {
-    return Number(this.db.prepare("DELETE FROM memory WHERE id=?").run(id).changes) > 0;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.get(id);
+      if (row?.key) {
+        this.db.prepare("DELETE FROM memory_provenance WHERE key=?").run(row.key);
+        this.db.prepare("DELETE FROM memory_history WHERE key=?").run(row.key);
+      }
+      const removed = Number(this.db.prepare("DELETE FROM memory WHERE id=?").run(id).changes) > 0;
+      this.db.exec("COMMIT");
+      return removed;
+    } catch(e) { this.db.exec("ROLLBACK"); throw e; }
   }
 
   /** Search live rows by whitespace-separated terms (all must match content/key/tags). Empty query: most recent. */
@@ -166,7 +249,11 @@ export class MemoryStore {
     let droppedFacts = 0;
     if (facts.length) {
       add("Facts:");
-      for (const f of facts) if (!add(`- ${f.key}: ${oneLine(f.content, 300)}`)) droppedFacts++;
+      for (const f of facts) {
+        const p = this.db.prepare("SELECT metadata FROM memory_provenance WHERE key=?").get(f.key!) as { metadata: string } | undefined;
+        const due = p ? JSON.parse(p.metadata).reviewAt : null;
+        if (!add(`- ${f.key}${due && due <= Date.now() ? " [review due; verify before use]" : ""}: ${oneLine(f.content, 300)}`)) droppedFacts++;
+      }
     }
     if (digest) {
       add("Older notes (digest):");

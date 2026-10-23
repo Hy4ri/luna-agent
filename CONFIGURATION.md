@@ -162,29 +162,125 @@ The `skills` extension gives the agent `skill_view`, `skill_list`, and `skill_ma
 
 ## Session learning
 
-The `learn` extension finds lessons in past sessions. It does nothing during a live turn.
+The `learn` extension captures contextual evidence without a background model call. A learning proposal is a
+reviewable change, not a new authority to write. **All proposals require user approval.** No automatic-write
+policy is enabled. The existing `remember`, file, and skill tools retain their separate permission scope;
+this feature is not an OS sandbox around those tools.
 
-1. **Detect.** After a conversation is idle for `learn.idleMinutes` (default `30`), a scan records signals:
-   user corrections, explicit user rules, and failed tool calls. It skips subagent and cron conversations.
-   A signal stores a redacted one-line summary and a pointer (session and message), not a transcript copy.
-   A tool error that the same tool recovers from later in the session becomes a tool lesson immediately.
-2. **Diagnose.** The daily `luna-learn` cron job (`learn.schedule`, default `0 4 * * *`) groups signals into lessons.
-   Each lesson has a cause: `missing`, `not_loaded`, `ignored`, or `wrong`.
-3. **Fix.** A lesson needs evidence from 2+ sessions or one explicit user rule. A skill proposal needs
-   regression phrases (`must_contain`), passes a dry-run verification, and can grow the skill by at most 1500 characters.
-   A `not_loaded` fix must change the skill description. An `ignored` rule is not rewritten; it is flagged for a code guard.
-4. **Review.** The learning agent reviews its own proposals. It applies a routine fix at once (`lesson_propose`),
-   with a backup. It drops noise lessons with `lesson_dismiss`, so they are never proposed again.
-   A fix that removes or reverses a rule, or changes identity, safety, permission, publishing, money, or privacy behavior,
-   is held with a `critical` reason. Only held fixes wait in **Settings → Automation → Lessons**, with the reason, a diff, and evidence.
-   Approve applies a held fix, and Reject stops it from being proposed again. Roll back restores the backup of any applied skill change.
-   The agent cannot apply or dismiss a held fix, and cannot dismiss an applied lesson.
-5. **Measure.** A recurrence after apply marks the lesson `ineffective`; a second failure flags it for a code guard.
-   Three later sessions that load the skill without a recurrence mark it `confirmed`.
+### Capture and diagnosis
 
-Data lives in `<dataDir>/learn.db`. HTTP: `GET /v1/lessons`, `POST /v1/lessons/scan`, and
-`POST /v1/lessons/:id/approve|reject|rollback` (`reject` takes an optional `note`). Each lesson has `critical`:
-the hold reason, or `null`. Proposals that were pending before automatic review stay held for the user.
+- `learn.captureEnabled` (default `true`) enables idle scanning after `learn.idleMinutes` (default `30`).
+  Capture stores source pointers, a bounded redacted summary, preceding task/action pointers, loaded skills,
+  and a normalized content fingerprint. Full transcripts stay in conversation storage.
+- Compaction entries, background notices, peer messages, delegated conversations, and scheduled prompts are
+  not independent user statements. Quoted blocks are excluded from rule matching. Message length is not a filter.
+- Tool errors stay signals, not automatic lessons. Patterns from at least two conversations become visible for
+  review. A later success from the same tool is only a recovery heuristic; it does not prove the same problem was fixed.
+- `lesson_capture { session, message, kind }` captures a source missed by the heuristic, including long corrections
+  and tool outcomes. `kind` is `rule`, `correction`, or `outcome`. User statements and tool results are checked
+  against the original transcript, not model-supplied source text.
+- `lesson_record` creates an unapplied candidate with `claim`, `cause`, `scope`, optional `skill`, `target`,
+  `domain` (default `global`), `review_at` (Unix milliseconds), and `signal_ids`. `lesson_id` edits an existing
+  candidate. A semantic diagnosis change invalidates previous assessments but retains them in history.
+- Causes: `missing` (missing fact/procedure), `stale`, `not_loaded` (retrieval), `ignored` (available rule not followed),
+  `wrong`, `conflict`, `project` (project-only knowledge), and `uncertain`. Ignored rules need a proposed code check,
+  not more text. Conflicting and uncertain diagnoses cannot produce writes.
+- `lesson_assess { signal_id, role, rationale }` records `explicit`, `support`, `conflict`, or `irrelevant` after
+  context review. One explicit user statement can support a preference; inferred claims need distinct sources in
+  at least two sessions. Repeated normalized content does not count twice. Semantic independence still needs
+  review; fingerprints do not detect all paraphrases. Unresolved conflict blocks a proposal.
+- `lesson_dismiss { signal_id | lesson_id, reason }` dismisses noise without deleting its evidence. It cannot
+  dismiss an applied change or bypass a held proposal.
+
+### Storage and write destinations
+
+`learn.db` stores sources, assessments, observations, before/after change journals, and history. `memory.db`
+stores facts and notes, plus keyed fact provenance and history. Both database files use mode `0600`.
+Existing ledger records are retained, not reset.
+
+| Scope | Destination and rule |
+| --- | --- |
+| `memory` | One global fact in `memory.db`; `fact` and stable `fact_key` are required. Versioned snapshots detect stale approvals. |
+| `skill` | One managed `SKILL.md`; `skill` and complete `content` required. External skills remain read-only. Lint and a 1500-character growth budget apply. Retrieval fixes change the description. |
+| `user` | `<dataDir>/USER.md`; requires an explicitly assessed user statement and full proposed content. Inferences do not qualify. |
+| `projection` | `<dataDir>/MEMORY.md`, generated from explicit `memory_keys`. Existing manual contents remain untouched until approval. |
+| `project` | One explicitly enrolled file, with a matching non-global domain. Project-only knowledge cannot enter a global destination. |
+
+`SOUL.md` cannot be written through learning proposals. Identity changes remain a separate explicit task.
+Enrol project files in `learn.files`, for example:
+
+```json
+{ "learn": { "captureEnabled": true, "idleMinutes": 30,
+  "files": [{ "path": "/absolute/project/AGENTS.md", "domain": "project-name" }] } }
+```
+
+Enrollment is not approval of a change. Targets must be regular text files; symlink paths, binary files, and
+files over 100 KB are refused. Learning refuses proposals whose snapshots contain recognizable credentials.
+Redaction is heuristic, not a guarantee that every secret format is detected. Store databases and backups securely.
+
+`lesson_propose` accepts `lesson_id`, optional `content`, `fact`, `fact_key`, `memory_keys`, `must_contain`, and
+`critical` (review explanation). It saves a before/after snapshot and waits for the user. `must_contain` checks
+text only; it is not behavioral verification. Proposals do not run shell commands or paid model benchmarks.
+Skill learning rollback uses the learning journal, not the separate `skill_rollback` version series.
+
+### Review, concurrency, and recovery
+
+**Settings → Automation → Lessons** shows proposals, original source pointers, assessments, target changes,
+observations, and review-due notices. Approve applies the exact reviewed change; Reject preserves the evidence.
+
+- Memory application uses an immediate SQLite transaction and compares the complete prior snapshot.
+- File application checks the exact reviewed contents, takes a cooperating-writer lock, and atomically replaces
+  the target. It checks contents again before replacement and reads the result back. External editors do not use
+  this lock: there is a narrow check/rename race. This is not a filesystem transaction against arbitrary writers.
+- The journal records intent before apply and rollback. An interrupted change remains `applying` or `blocked` and needs
+  explicit reconciliation; it is not automatically retried. Reconcile reads the target to distinguish not-applied,
+  applied, reverted, and conflicting states. A leftover `.luna-learning-lock` requires manual inspection before removal.
+- Rollback refuses a target changed after apply. A new skill/file can be removed only if its content still matches
+  the approved version. Memory rollback restores the original fact and metadata. Snapshot history remains available.
+- Legacy proposals lack reviewed source assessments and change snapshots, so they cannot be approved directly.
+  Reject and create a new candidate using recaptured original evidence. Legacy `confirmed` entries are displayed
+  as unverified legacy confirmations; loading a skill no longer confirms anything.
+- `forget` removes that fact's current memory, provenance, and memory history. Source transcripts and existing
+  learning journals are separate records and are not purged by this action.
+
+### MEMORY.md projection
+
+A projection is a complete, sorted selection of database facts, limited to 4000 characters. Overflow is refused,
+not silently truncated. Missing or review-due facts cannot be projected. Approval checks both the selected fact
+snapshots and the existing file. A database change or manual file edit marks the projection stale. The runtime
+omits the stale file from the identity section, reports the problem, and keeps database recall available.
+Refresh requires another reviewed proposal; no automatic file overwrite occurs. Manual files not yet adopted
+as a projection retain their previous behavior. General `remember` updates clear old learning provenance rather
+than falsely attributing new content to an older source.
+
+### Outcomes and cost
+
+`lesson_observe { lesson_id, session, message, outcome, relevance, evidence }` records a later relevant
+`success`, `failure`, or `unknown`. Assistant claims alone cannot establish success. The observation is bound to
+an applied change and source timestamp. Repeated source content is deduplicated. Reported failures mark a change
+`ineffective`; no observations means effect unknown. The user can verify a successful observation only while the
+applied target still matches and no later failure contradicts it. This verifies that observation, not every future task.
+
+`learn_review` returns paged open lessons and signals (default 20, maximum 100), projection state, and observation
+counts. Use `offset` for pagination, `history: true` for closed lessons and legacy signals, or `lesson_id` for evidence, change journal,
+and revision history. Legacy signals lack original-source fingerprints and stay outside the default queue.
+Metrics include reported outcomes, observed lesson/session pairs, and review-due items.
+They are not independent proof of improvement. Manual review usage remains in the host session's usage records.
+
+The legacy `learn.schedule` field is accepted only for configuration compatibility. It no longer schedules a
+model job. Startup and settings reconciliation disable the old `luna-learn` job without deleting its history.
+No replacement job is created. Idle capture makes **zero model calls**; review occurs in a requested normal
+session or after a relevant correction. There is no automatic replay evaluator or automatic policy promotion.
+
+HTTP routes:
+- `GET /v1/lessons`: lessons, evidence, assessments, changes, observations, projection state, metrics.
+- `POST /v1/lessons/scan`: deterministic idle capture (respects capture configuration).
+- `POST /v1/lessons/:id/approve|reject|rollback|reconcile`: user decisions; `reject` accepts an optional `note`.
+- `POST /v1/lessons/:id/verify`: user confirmation, body `{ "observation": <id> }`.
+
+Implementation checks follow the repository's no-tests rule: compiler checks and frontend build only.
+No regression fixtures or runtime verification scripts are shipped. Behavioral and browser verification are
+still needed before claiming operational reliability or measured improvement.
 
 ## Learning from a source
 

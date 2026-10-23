@@ -136,10 +136,14 @@ export const ConfigSchema = z
     mcpServers: z.array(McpServerSchema).default([]),
     cron: z.strictObject({ notifyUrl: z.url().optional(), runTimeoutMinutes: z.number().positive().optional() }).prefault({}),
     improve: z.strictObject({ schedule: cronExpr.optional(), allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
-    /** Session learning: scan idle conversations for lessons; a daily cron pass diagnoses them, applies routine fixes and holds critical ones for the user. */
+    /** Contextual learning capture. Model review is explicit; no built-in scheduled model pass. */
     learn: z.strictObject({
       idleMinutes: z.number().positive().default(30),
-      schedule: cronExpr.default("0 4 * * *"),
+      /** Legacy field accepted for compatibility; does not create or enable a job. */
+      schedule: cronExpr.optional(),
+      captureEnabled: z.boolean().default(true),
+      /** User-enrolled project files. Identity files remain separately protected. */
+      files: z.array(z.strictObject({ path: z.string().min(1).refine(isAbsolute, "learning file path must be absolute"), domain: z.string().min(1).refine(s => s !== "global", "project domain cannot be global") })).default([]),
     }).prefault({}),
     server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787) }).prefault({}),
   })
