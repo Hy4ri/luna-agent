@@ -2,17 +2,18 @@
 // Each Luna tool is exposed to opencode through a loopback MCP server. A tool call is held open until Luna has run the tool.
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server as HttpServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   createProvider, createAssistantMessageEventStream, getCurrentTools, getCurrentSystemPrompt,
-  type ProviderStreams, type AssistantMessage, type TextContent, type ThinkingContent, type ToolCall, type Message, type Tool,
+  type ProviderStreams, type AssistantMessage, type TextContent, type ThinkingContent, type ToolCall, type Message, type Tool, type ImageContent,
 } from "@earendil-works/pi-ai";
 
 const run = promisify(execFile);
@@ -23,6 +24,12 @@ const DENIED = ["shell", "edit", "write", "glob", "grep", "question", "skill", "
 const HELD_TIMEOUT_MS = 55 * 60_000;
 const IDLE_SWEEP_MS = 30 * 60_000;
 const BATCH_DEBOUNCE_MS = 300;
+const API_TIMEOUT_MS = 30_000;
+/** The opencode routes used here are marked experimental. Refuse to run when one is gone. */
+const TESTED_VERSION = "2.1";
+const REQUIRED_ROUTES = ["/api/session", "/api/session/{sessionID}/prompt", "/api/session/{sessionID}/interrupt",
+  "/api/experimental/mcp/{server}", "/api/experimental/mcp/{server}/connect", "/api/event", "/api/model",
+  "/api/experimental/session/{sessionID}/instructions/entries/{key}"];
 
 export function opencodeExecutable() {
   return process.env.LUNA_OPENCODE_EXECUTABLE ?? "opencode";
@@ -44,15 +51,32 @@ async function ensureService() {
   const file = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode", "service.json");
   if (!existsSync(file)) throw new Error(`opencode service password file missing: ${file}`);
   const { password } = JSON.parse(readFileSync(file, "utf8")) as { password: string };
-  service = { url: url.replace(/\/$/, ""), auth: "Basic " + Buffer.from(`opencode:${password}`).toString("base64") };
+  const found = { url: url.replace(/\/$/, ""), auth: "Basic " + Buffer.from(`opencode:${password}`).toString("base64") };
+  await checkRoutes(found);
+  service = found;
   return service;
+}
+
+/** Fails with a clear message when the running opencode no longer offers the routes this provider needs. */
+async function checkRoutes(s: { url: string; auth: string }) {
+  const get = async (path: string) => {
+    const res = await fetch(s.url + path, { headers: { authorization: s.auth }, signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`opencode ${path}: ${res.status}`);
+    return res.json() as Promise<any>;
+  };
+  const [info, spec] = await Promise.all([get("/api/info"), get("/openapi.json")]);
+  const missing = REQUIRED_ROUTES.filter(r => !spec.paths?.[r]);
+  if (missing.length) {
+    throw new Error(`opencode ${info.version ?? "?"} lacks routes this provider needs (${missing.join(", ")}). Tested with ${TESTED_VERSION}.x.`);
+  }
 }
 
 async function api(method: string, path: string, opts: { body?: unknown; dir?: string; signal?: AbortSignal; okStatuses?: number[] } = {}) {
   const s = await ensureService();
   const query = opts.dir ? `?location[directory]=${encodeURIComponent(opts.dir)}` : "";
+  const signal = AbortSignal.any([AbortSignal.timeout(API_TIMEOUT_MS), ...(opts.signal ? [opts.signal] : [])]);
   const res = await fetch(s.url + path + query, {
-    method, signal: opts.signal,
+    method, signal,
     headers: { authorization: s.auth, ...(opts.body !== undefined ? { "content-type": "application/json" } : {}) },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
@@ -60,6 +84,17 @@ async function api(method: string, path: string, opts: { body?: unknown; dir?: s
   if (!res.ok && !opts.okStatuses?.includes(res.status)) throw new Error(`opencode ${method} ${path}: ${res.status} ${text.slice(0, 300)}`);
   if (!text) return undefined;
   try { return JSON.parse(text) as any; } catch { return text; }
+}
+
+/** Turns an opencode failure event into a message that says what to do. */
+export function failureMessage(error: any): string {
+  const status: number | undefined = error?.status;
+  const message: string = error?.message ?? "opencode execution failed";
+  if (status === 429) return `opencode rate limit (429): ${message}. Free models are throttled; wait or pick another model.`;
+  if (status === 403 && /free tier/i.test(message)) return `opencode refused the request (403): ${message} Free models only work from a real opencode session; check that opencode is logged in and updated.`;
+  if (status === 401 || status === 403) return `opencode auth error (${status}): ${message}`;
+  if (status && status >= 500) return `opencode upstream error (${status}): ${message}`;
+  return status ? `opencode error (${status}): ${message}` : message;
 }
 
 // ------------------------------------------------------------------ conversations
@@ -87,7 +122,9 @@ class Queue {
 interface Conv {
   key: string; id: string; dir: string; toolsHash: string; tools: Tool[];
   sessionId?: string; queue: Queue; sse?: AbortController;
-  held: Map<string, Held>; counter: number; lastUsed: number;
+  held: Map<string, Held>; counter: number; lastUsed: number; images: number;
+  /** What the live opencode session already holds, so a follow-up can send only the new user message. */
+  sent?: { model: string; systemHash: string; count: number; firstHash: string; reply: string };
 }
 
 const convs = new Map<string, Conv>();
@@ -149,13 +186,42 @@ function conversationKey(messages: Message[], system: string, sessionId?: string
   return "h:" + createHash("sha256").update(system + "\n" + (first ? textOf(first.content as any) : "")).digest("hex");
 }
 
-/** Plain-text rendering of the transcript for a fresh opencode session. */
-function renderPrompt(messages: Message[]): string {
+type Attached = { uri: string; name: string };
+
+/** Writes images into the scratch dir and returns file:// attachments the opencode prompt route accepts. */
+function attachImages(conv: Conv, images: ImageContent[]): Attached[] {
+  return images.map((img) => {
+    const ext = img.mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "png";
+    const name = `image-${++conv.images}.${ext}`;
+    const path = join(conv.dir, name);
+    writeFileSync(path, Buffer.from(img.data, "base64"));
+    return { uri: pathToFileURL(path).href, name };
+  });
+}
+
+function userParts(content: string | (TextContent | ImageContent)[]) {
+  if (typeof content === "string") return { text: content, images: [] as ImageContent[] };
+  const images = content.filter((c): c is ImageContent => c.type === "image");
+  return { text: content.filter((c): c is TextContent => c.type === "text").map(c => c.text).join("\n"), images };
+}
+
+/** Prompt for a fresh opencode session: the whole transcript as text, plus the user images when the model can see them. */
+function renderPrompt(conv: Conv, messages: Message[], vision: boolean): { text: string; files: Attached[] } {
   const turns = messages.filter(m => m.role !== "system");
-  if (turns.length === 1 && turns[0]!.role === "user") return textOf(turns[0]!.content as any);
+  const images: ImageContent[] = [];
+  const note = (n: number) => vision ? `[image attached: see attachment ${n}]` : "[image omitted: this model cannot see images]";
+  const userText = (m: Extract<Message, { role: "user" }>) => {
+    const parts = userParts(m.content);
+    const marks = parts.images.map(img => { if (vision) images.push(img); return note(images.length); });
+    return [parts.text, ...marks].filter(Boolean).join("\n");
+  };
+  if (turns.length === 1 && turns[0]!.role === "user") {
+    const text = userText(turns[0] as any);
+    return { text, files: attachImages(conv, images) };
+  }
   const lines: string[] = ["Conversation so far (the last user or tool message is what you must answer now):", ""];
   for (const m of turns) {
-    if (m.role === "user") lines.push(`[user]\n${textOf(m.content as any)}\n`);
+    if (m.role === "user") lines.push(`[user]\n${userText(m)}\n`);
     else if (m.role === "assistant") {
       for (const c of m.content) {
         if (c.type === "text" && c.text) lines.push(`[assistant]\n${c.text}\n`);
@@ -165,12 +231,39 @@ function renderPrompt(messages: Message[]): string {
       lines.push(`[tool result ${m.toolName}${m.isError ? " (error)" : ""}]\n${textOf(m.content)}\n`);
     }
   }
-  return lines.join("\n");
+  // Only the newest images are attached; older ones keep their text marker.
+  const keep = images.slice(-4);
+  return { text: lines.join("\n"), files: attachImages(conv, keep) };
+}
+
+const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+
+/** The new user message after the part opencode already holds, when the history is an exact continuation. */
+function followUp(conv: Conv, messages: Message[], model: string, system: string, vision: boolean): { text: string; files: Attached[] } | undefined {
+  const sent = conv.sent;
+  if (!sent || !conv.sessionId || conv.held.size) return undefined;
+  const turns = messages.filter(m => m.role !== "system");
+  if (sent.model !== model || sent.systemHash !== sha(system)) return undefined;
+  if (turns.length <= sent.count + 1 || sha(textOf((turns[0] as any).content ?? "")) !== sent.firstHash) return undefined;
+  const reply = turns[sent.count];
+  if (!reply || reply.role !== "assistant") return undefined;
+  const replyText = reply.content.filter((c): c is TextContent => c.type === "text").map(c => c.text).join("");
+  if (replyText !== sent.reply) return undefined;
+  const rest = turns.slice(sent.count + 1);
+  if (!rest.every(m => m.role === "user")) return undefined;
+  const images: ImageContent[] = [];
+  const text = rest.map((m: any) => {
+    const parts = userParts(m.content);
+    const marks = parts.images.map(img => { if (vision) images.push(img); return vision ? `[image attached: see attachment ${images.length}]` : "[image omitted: this model cannot see images]"; });
+    return [parts.text, ...marks].filter(Boolean).join("\n");
+  }).join("\n\n");
+  return { text, files: attachImages(conv, images) };
 }
 
 async function closeSession(conv: Conv, reason: string) {
   const sessionId = conv.sessionId;
   conv.sessionId = undefined;
+  conv.sent = undefined;
   conv.sse?.abort();
   conv.sse = undefined;
   for (const held of conv.held.values()) held.resolve({ text: reason, isError: true });
@@ -231,7 +324,7 @@ async function subscribe(conv: Conv, sessionId: string) {
   })();
 }
 
-async function startSession(conv: Conv, model: { providerID: string; id: string }, system: string, prompt: string, signal?: AbortSignal) {
+async function startSession(conv: Conv, model: { providerID: string; id: string }, system: string, prompt: { text: string; files: Attached[] }, signal?: AbortSignal) {
   await closeSession(conv, "superseded by a new request");
   const { port } = await startMcp();
   await api("PUT", `/api/experimental/mcp/${MCP_NAME}`, {
@@ -248,7 +341,11 @@ async function startSession(conv: Conv, model: { providerID: string; id: string 
   conv.sessionId = sessionId;
   await subscribe(conv, sessionId);
   if (system) await api("PUT", `/api/experimental/session/${sessionId}/instructions/entries/luna-system`, { body: { value: system }, signal });
-  await api("POST", `/api/session/${sessionId}/prompt`, { body: { text: prompt }, signal });
+  await sendPrompt(sessionId, prompt, signal);
+}
+
+async function sendPrompt(sessionId: string, prompt: { text: string; files: Attached[] }, signal?: AbortSignal) {
+  await api("POST", `/api/session/${sessionId}/prompt`, { body: { text: prompt.text, ...(prompt.files.length ? { files: prompt.files } : {}) }, signal });
 }
 
 // ------------------------------------------------------------------ stream
@@ -300,7 +397,7 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
         const id = randomUUID();
         const dir = join(tmpdir(), "luna-opencode", id);
         mkdirSync(dir, { recursive: true });
-        conv = { key, id, dir, toolsHash: "", tools, queue: new Queue(), held: new Map(), counter: 0, lastUsed: Date.now() };
+        conv = { key, id, dir, toolsHash: "", tools, queue: new Queue(), held: new Map(), counter: 0, lastUsed: Date.now(), images: 0 };
         convs.set(key, conv);
         startSweeper();
       }
@@ -321,7 +418,23 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
           held.resolve({ text: textOf(result.content), isError: result.isError });
         }
       } else {
-        await startSession(conv, parseModel(model.id), system, renderPrompt(messages), options?.signal);
+        const vision = model.input.includes("image");
+        const next = followUp(conv, messages, model.id, system, vision);
+        if (next) {
+          // The live session already holds the earlier turns: send only the new user message.
+          try {
+            conv.queue = new Queue();
+            conv.sse?.abort();
+            await subscribe(conv, conv.sessionId!);
+            await sendPrompt(conv.sessionId!, next, options?.signal);
+          } catch (error) {
+            if (options?.signal?.aborted) throw error;
+            // The session is gone or unreachable: replay the transcript into a new one.
+            await startSession(conv, parseModel(model.id), system, renderPrompt(conv, messages, vision), options?.signal);
+          }
+        } else {
+          await startSession(conv, parseModel(model.id), system, renderPrompt(conv, messages, vision), options?.signal);
+        }
       }
 
       // Read opencode events until the model finishes or asks for tools.
@@ -351,7 +464,7 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
             break;
           case "session.execution.succeeded": break loop;
           case "session.execution.failed":
-            throw new Error(ev.data?.error?.message ?? `opencode execution failed: ${JSON.stringify(ev.data).slice(0, 300)}`);
+            throw new Error(ev.data?.error ? failureMessage(ev.data.error) : `opencode execution failed: ${JSON.stringify(ev.data).slice(0, 300)}`);
           case "session.execution.interrupted": throw new Error("opencode execution interrupted");
         }
       }
@@ -367,7 +480,11 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
         events.push({ type: "toolcall_end", contentIndex, toolCall: call, partial: message });
       }
       message.stopReason = result === "toolUse" ? "toolUse" : "stop";
-      if (result === "stop") await closeSession(conv, "finished");
+      if (result === "stop") {
+        // Keep the session: the next user message can continue it instead of replaying the transcript.
+        const turns = messages.filter(m => m.role !== "system");
+        conv.sent = { model: model.id, systemHash: sha(system), count: turns.length, firstHash: sha(textOf((turns[0] as any)?.content ?? "")), reply: text?.text ?? "" };
+      }
       events.push({ type: "done", reason: message.stopReason, message });
     } catch (error) {
       if (conv) await closeSession(conv, "request failed").catch(() => {});
@@ -399,6 +516,9 @@ async function listModels() {
 const FALLBACK = ["big-pickle", "beam-free", "deepseek-v4.1-flash-free", "flint-40b-free", "glm-5.3-flash-free",
   "mimo-v2.6-flash-free", "nemotron-3-ultra-free", "nemotron-3.5-lightning-free", "nemotron-3.5-super-vl-free"];
 
+/** Fallback models that accept images (the live list reports this itself). */
+const FALLBACK_VISION = new Set(["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "mimo-v2.6-flash-free", "nemotron-3.5-super-vl-free"]);
+
 export function opencodeCliProvider() {
   return createProvider({
     id: PROVIDER_ID, name: "OpenCode (CLI)",
@@ -407,7 +527,7 @@ export function opencodeCliProvider() {
         ? { auth: {}, source: "opencode CLI" } : undefined } },
     models: FALLBACK.map(id => ({
       id: `opencode/${id}`, name: `${id} (opencode)`, api: PROVIDER_ID as string, provider: PROVIDER_ID, baseUrl: "",
-      input: ["text" as const], reasoning: false, contextWindow: 200_000, maxTokens: 32_000,
+      input: (FALLBACK_VISION.has(id) ? ["text", "image"] : ["text"]) as ("text" | "image")[], reasoning: false, contextWindow: 200_000, maxTokens: 32_000,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     })),
     fetchModels: async ({ allowNetwork }) => (allowNetwork ? listModels() : []),
