@@ -410,7 +410,7 @@ onUnmounted(() => {
 
 <style scoped>
 .settings-backdrop { padding: 24px; }
-.settings-window { width: 100%; max-width: min(1180px, 100%); height: 94%; display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px #0009; background: var(--background); }
+.settings-window { width: 100%; max-width: min(1475px, 100%); height: 94%; display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px #0009; background: var(--background); }
 @media (max-width: 760px) { .settings-backdrop { padding: 8px; } .settings-window { height: 100%; } }
 .mobile-menu-action {
   display: flex;
