@@ -199,6 +199,15 @@ export class WorkerHub {
     return link.call("handle", id => ({ t: "handle", id, handle, op, args: encode(args) as unknown[] }), context);
   }
   connection(workerId: number) { return this.links.get(workerId); }
+  /** Only the worker's executable search path and home may enter review commands. */
+  reviewEnvironment(workerId: number): Record<string, string> {
+    const capabilities = this.links.get(workerId)?.capabilities;
+    if (!capabilities) throw new Error(this.offline(workerId));
+    if (typeof capabilities.path !== "string" || !capabilities.path) {
+      throw new Error("The worker command environment is unavailable. Reconnect an updated worker.");
+    }
+    return { PATH: capabilities.path, HOME: capabilities.home };
+  }
   defaultCwd(workerId: number) { return this.links.get(workerId)?.capabilities.cwd ?? this.store.get(workerId)?.capabilities?.cwd; }
   private offline(workerId: number) {
     const w = this.store.get(workerId);

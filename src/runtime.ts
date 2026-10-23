@@ -265,7 +265,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     return warnings;
   });
 
-  const sideCommands = new SideCommands({ harness, models: built.models, remoteEnv: (worker, cwd) => workers.env(worker, cwd), route: () => {
+  const sideCommands = new SideCommands({ harness, models: built.models, remoteEnv: (worker, cwd) => workers.env(worker, cwd), reviewEnvironment: worker => workers.reviewEnvironment(worker), route: () => {
     const route = (settings?.resolved() ?? cfg).auxiliary.side_question;
     return route ? { provider: route.provider, modelId: route.model } : undefined;
   }, reviewRoute: () => {

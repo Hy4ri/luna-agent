@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Message, Models, Model, Usage } from "@earendil-works/pi-ai";
 import { AgentDoc, ProviderDoc, UsageDoc, type Agent, type AgentState, type Conversation } from "@earendil-works/pi-durable";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { context } from "./luna.js";
 import { runReview } from "./review.js";
 
@@ -62,6 +64,7 @@ export class SideCommands {
   constructor(private readonly options: {
     harness: Harness; models?: Models; route?: () => { provider: string; modelId: string } | undefined;
     remoteEnv?: (worker: number, cwd?: string) => import("@earendil-works/pi-durable/env").ExecutionEnv;
+    reviewEnvironment?: (worker: number) => Record<string, string>;
     /** Model for /review. Unset means /review refuses to start; it never falls back to another model. */
     reviewRoute?: () => { provider: string; modelId: string } | undefined;
     /** Working directory when the source conversation has none. */
@@ -126,10 +129,25 @@ export class SideCommands {
     }
     const agent = await source.agent(context);
     const route = kind === "btw" ? this.options.route?.() : kind === "review" ? this.options.reviewRoute?.() : undefined;
-    // /review reads files and runs git on main. It must not review main's tree for a session that runs elsewhere.
-    if (kind === "review" && (await this.options.harness.snapshot(ExecTarget, source.id, context))?.worker != null)
-      throw new Error("review runs on main only: move this session to main to review it");
+    const target = await this.options.harness.snapshot(ExecTarget, source.id, context);
+    const worker = target?.worker ?? null;
+    if (kind === "review" && worker !== null && !this.options.remoteEnv)
+      throw new Error("remote worker execution is not configured");
     if (kind === "review" && !route) throw new Error("no review model: set auxiliary.review in Settings");
+    let reviewEnv: ExecutionEnv | undefined;
+    let reviewCommandEnv: Record<string, string> | undefined;
+    let reviewCwd = agent.cwd ?? this.options.cwd ?? process.cwd();
+    if (kind === "review") {
+      if (worker !== null) {
+        if (!this.options.reviewEnvironment) throw new Error("remote review environment is not configured");
+        reviewCommandEnv = this.options.reviewEnvironment(worker);
+        reviewEnv = this.options.remoteEnv!(worker, agent.cwd);
+        reviewCwd = reviewEnv.cwd || reviewCwd;
+      } else {
+        reviewEnv = new NodeExecutionEnv({ cwd: reviewCwd });
+        reviewCwd = reviewEnv.cwd;
+      }
+    }
     const ref = route ?? agent.model;
     const models = this.options.models;
     const model = ref && models?.getModel(ref.provider, ref.modelId);
@@ -151,7 +169,7 @@ export class SideCommands {
       try {
         if (controller.signal.aborted) throw new Error("side job stopped during shutdown");
         const text = kind === "review"
-          ? await runReview({ models: models!, model, thinking: agent.thinkingLevel, messages, cwd: agent.cwd ?? this.options.cwd ?? process.cwd(),
+          ? await runReview({ models: models!, model, thinking: agent.thinkingLevel, messages, cwd: reviewCwd, env: reviewEnv, commandEnv: reviewCommandEnv,
             focus: prompt, signal: controller.signal, usage: usage => this.usage(source, model, usage) })
           : kind === "btw"
           ? await this.answer(source, prompt, messages, model, agent, !!route, identity?.sessionId, controller.signal)

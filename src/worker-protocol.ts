@@ -29,7 +29,7 @@ export type EnvMethod = typeof ENV_METHODS[number];
 export const HANDLE_METHODS = new Set<EnvMethod>(["openBinaryReader", "openTextLineReader", "openDirReader"]);
 export const HANDLE_OPS = new Set(["info", "read", "scanLines", "readLine", "next", "close"]);
 
-export interface Capabilities { hostname: string; platform: string; arch: string; node: string; user: string; home: string; cwd: string }
+export interface Capabilities { hostname: string; platform: string; arch: string; node: string; user: string; home: string; cwd: string; path?: string }
 
 export type MainMessage =
   | { t: "welcome"; protocol: number; workerId: number; name: string }

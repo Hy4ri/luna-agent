@@ -585,6 +585,13 @@ same report uses one request ID to prevent duplicate messages.
 `auxiliary.review` is required. Without it, `/review` returns an error. It never uses the session model.
 Changes apply to the next review (**Settings → Models & accounts → Session review**).
 
+File reads, searches, and Git commands run on the session's execution machine, including remote workers.
+Commands have a 20-second timeout. They receive only that machine's `PATH` and `HOME`, plus fixed locale
+and Git safety variables; they do not inherit daemon credentials or Git environment overrides.
+Workers must advertise their executable search path. Restart an updated worker before using remote reviews;
+older workers return an update error. Offline workers and failed execution requests stop the review instead of
+supplying incomplete workspace evidence.
+
 What the reviewer receives:
 
 - All user messages (the requirements), capped at 30,000 characters, newest kept first.

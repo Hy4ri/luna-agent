@@ -21,7 +21,7 @@ export function startWorker(o: WorkerOptions) {
   const log = o.log ?? ((m: string) => console.error(m));
   const cwd = o.cwd ?? homedir();
   const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
-    user: userInfo().username, home: homedir(), cwd };
+    user: userInfo().username, home: homedir(), cwd, path: process.env.PATH };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
   let socket: WebSocket | undefined, stopped = false, delay = 1000, retry: ReturnType<typeof setTimeout> | undefined;
   let connected: (() => void) | undefined;
@@ -85,7 +85,7 @@ export function startWorker(o: WorkerOptions) {
             }
           } else if (m.method === "exec") {
             const options = { ...(args[1] as object | undefined), onOutput: (text: string, _c: unknown, info: unknown) => send({ t: "output", id: m.id, text, info }) };
-            result = await env.exec(args[0] as string, options, ctx);
+            result = await env.exec(args[0] as string | readonly string[], options, ctx);
           } else {
             const fn = (env as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[m.method];
             if (typeof fn !== "function") throw new Error(`method ${m.method} is not available on this worker`);
