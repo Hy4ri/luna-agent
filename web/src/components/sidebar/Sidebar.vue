@@ -17,6 +17,8 @@ import {
   Ellipsis,
   Pencil,
   Sparkles,
+  Copy,
+  Check,
   Trash2,
   Settings as SettingsIcon,
   LoaderCircle,
@@ -30,6 +32,7 @@ import { loadWorkers, workers } from "@/stores/workers";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
+import { copyToClipboard } from "@/lib/message";
 
 import PruneSessionsDialog from "./PruneSessionsDialog.vue";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -49,6 +52,9 @@ const activeMenuBtnEl = ref<HTMLElement | null>(null);
 const menuPos = ref({ top: 0, left: 0 });
 const titleAvailable = ref(false);
 const titling = ref(false);
+/** Feedback for the session id copy: empty, "ok", or "fail". */
+const copyState = ref<"" | "ok" | "fail">("");
+let copyTimer: ReturnType<typeof setTimeout> | null = null;
 
 const filteredSessions = computed(() => {
   const q = history.query.trim().toLowerCase();
@@ -241,10 +247,11 @@ function openSessionMenu(s: any, event: MouseEvent) {
   activeMenuSession.value = s;
   activeMenuBtnEl.value = btn;
   titleAvailable.value = false;
+  copyState.value = "";
   void titleModelAvailable().then(ok => { if (activeMenuSession.value?.id === s.id) titleAvailable.value = ok; });
   const rect = btn.getBoundingClientRect();
   menuPos.value = {
-    top: Math.min(rect.top, window.innerHeight - 240),
+    top: Math.min(rect.top, window.innerHeight - 300),
     left: Math.min(rect.right + 4, window.innerWidth - 180),
   };
   void nextTick(() => document.querySelector<HTMLButtonElement>('#session-menu button:not(:disabled)')?.focus());
@@ -254,6 +261,11 @@ async function handleMenuAction(action: string, s: any) {
   if (action === "pin") {
     await togglePinned(s);
     closeMenu();
+  } else if (action === "copy-id") {
+    const ok = await copyToClipboard(String(s.id));
+    copyState.value = ok ? "ok" : "fail";
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => { copyState.value = ""; if (ok) closeMenu(); }, 1200);
   } else if (action === "rename") {
     closeMenu();
     startRename(s);
@@ -274,6 +286,8 @@ async function handleMenuAction(action: string, s: any) {
 function closeMenu() {
   activeMenuSession.value = null;
   activeMenuBtnEl.value?.focus();
+  copyState.value = "";
+  if (copyTimer) { clearTimeout(copyTimer); copyTimer = null; }
 }
 function outsideMenu(e: PointerEvent) {
   if (activeMenuSession.value && !(e.target as Element).closest('#session-menu,.session-manage')) closeMenu();
@@ -287,7 +301,11 @@ function menuKey(e: KeyboardEvent) {
   const index = items.indexOf(document.activeElement as HTMLButtonElement);
   items[(index + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
 }
-onUnmounted(() => { document.removeEventListener('pointerdown', outsideMenu); document.removeEventListener('keydown', menuKey, true); });
+onUnmounted(() => {
+  if (copyTimer) clearTimeout(copyTimer);
+  document.removeEventListener('pointerdown', outsideMenu);
+  document.removeEventListener('keydown', menuKey, true);
+});
 onMounted(() => {
   loadWorkers().catch(() => {});
   document.addEventListener('pointerdown', outsideMenu);
@@ -558,6 +576,16 @@ onMounted(() => {
       >
         <Pencil :size="14" />
         <span>Rename</span>
+      </button>
+      <button
+        role="menuitem"
+        aria-live="polite"
+        title="Copy the session id for logs, search, and API calls"
+        @click="handleMenuAction('copy-id', activeMenuSession)"
+      >
+        <Check v-if="copyState === 'ok'" :size="14" />
+        <Copy v-else :size="14" />
+        <span>{{ copyState === 'ok' ? 'Copied' : copyState === 'fail' ? 'Copy failed' : 'Copy ID' }}</span>
       </button>
       <button
         role="menuitem"
