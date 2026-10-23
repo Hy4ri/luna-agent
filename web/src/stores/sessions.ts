@@ -4,6 +4,7 @@ import { api, json, post } from "@/lib/api";
 import { notify } from "@/lib/platform";
 import { sessionState, SESSION_STATUS_LABELS } from "@/lib/session-status";
 import type { Project, SessionMeta, SessionStatus } from "@/lib/types";
+import { chat, clearConversation } from "./chat";
 
 const GROUPS_KEY = "luna.side.groups";
 function readGroups(): Record<string, boolean> {
@@ -56,7 +57,6 @@ function notifyChanges(list: SessionMeta[]) {
 
 let historyRequest = 0;
 export async function loadSessions() {
-  const { chat, clearConversation } = await import("./chat");
   const request = ++historyRequest;
   const r = await json<{ sessions: SessionMeta[] }>("/v1/sessions");
   if (request !== historyRequest) return;
@@ -96,7 +96,6 @@ export const togglePinned = (s: SessionMeta) =>
   act(() => post(`/v1/sessions/${s.id}/metadata`, { pinned: !s.pinned }, "PATCH"));
 export const toggleArchived = (s: SessionMeta) => act(async () => {
   await post(`/v1/sessions/${s.id}/metadata`, { archived: !s.archived }, "PATCH");
-  const { chat, clearConversation } = await import("./chat");
   if (!s.archived && String(chat.session) === String(s.id)) clearConversation();
 });
 /** Asks for confirmation (native dialog), then deletes the conversation and its children. */
@@ -113,7 +112,6 @@ export async function deleteSession(s: SessionMeta) {
   if (!confirm('Permanently delete "' + sessionTitle(s) + '" and all its child conversations and forks? Stored messages and search entries will be removed. This cannot be undone.')) return;
   return act(async () => {
     const result = await json<{ deleted: (number | string)[] }>(`/v1/sessions/${s.id}`, { method: "DELETE" });
-    const { chat, clearConversation } = await import("./chat");
     if (result.deleted.some(n => String(n) === String(chat.session))) clearConversation();
   });
 }

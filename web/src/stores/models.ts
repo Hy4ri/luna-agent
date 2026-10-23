@@ -2,6 +2,7 @@
 import { computed, reactive } from "vue";
 import { json, post } from "@/lib/api";
 import type { ModelInfo } from "@/lib/types";
+import { addErr, chat } from "./chat";
 
 export interface ModelRef { provider: string; modelId: string }
 export const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -55,14 +56,12 @@ export async function loadModels() {
     return false;
   }
   models.loaded = true;
-  const { chat } = await import("./chat");
   if (!chat.session) setSelectedModel(models.draft.model ?? models.defaultModel);
   return true;
 }
 
 /** Selects a draft model, or updates the open server conversation. */
 export async function chooseModel(m: ModelInfo): Promise<boolean> {
-  const { chat, addErr } = await import("./chat");
   try {
     const target = chat.session;
     if (!target) {
@@ -77,7 +76,6 @@ export async function chooseModel(m: ModelInfo): Promise<boolean> {
 }
 
 export async function setThinking(level: string) {
-  const { chat, addErr } = await import("./chat");
   models.thinking = level;
   const sid = chat.session, epoch = chat.epoch;
   if (!sid) { models.draft.thinkingLevel = level; return; }

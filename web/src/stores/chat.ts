@@ -6,7 +6,7 @@ import type { Machine } from "./workers";
 import { api, json, post } from "@/lib/api";
 import { watchFeed, type Feed } from "@/lib/sync";
 import { savedSession, rememberSession, routeSession, sessionPane, notifySessionPanes } from "@/lib/pane";
-import { focusInput, leavePages } from "./app";
+import { boardChanged, focusInput, leavePages } from "./app";
 import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, retirePendingEntries, refreshPending } from "./composer";
 import { models, setSelectedModel } from "./models";
 import { history, loadSessions, resetHistoryView } from "./sessions";
@@ -461,7 +461,7 @@ export function startListFeed() {
     path: "/v1/events", api,
     onEvent: async type => {
       if (type === "sessions_changed") { void reloadList(); notifySessionPanes(type); return; }
-      if (type === "board_changed") { notifySessionPanes(type); const { boardChanged } = await import("./app"); boardChanged.value++; }
+      if (type === "board_changed") { notifySessionPanes(type); boardChanged.value++; }
     },
     onDisconnect: e => e.message !== "unauthorized",
   });
@@ -469,7 +469,7 @@ export function startListFeed() {
 window.addEventListener("message", async event => {
   if (!sessionPane || event.origin !== location.origin || event.source !== window.parent || event.data?.type !== "luna:workspace-event") return;
   if (event.data.event === "sessions_changed") void reloadList();
-  if (event.data.event === "board_changed") { const { boardChanged } = await import("./app"); boardChanged.value++; }
+  if (event.data.event === "board_changed") { boardChanged.value++; }
 });
 function reconnectFeeds() { activeFeed?.reconnect(); listFeed?.reconnect(); }
 // Focus and visibility can arrive together. Keep a fresh or connecting feed instead of restarting it twice.
