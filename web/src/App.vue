@@ -2,6 +2,7 @@
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { Menu, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
@@ -23,6 +24,12 @@ import { useMobile } from '@/lib/dom';
 import { trackViewport } from '@/lib/viewport';
 
 const mobile = useMobile();
+const mobileMenuOpen = ref(false);
+watch([mobile, () => chat.session, () => ui.view], () => { mobileMenuOpen.value = false; });
+function mobileAction(action: () => unknown) {
+  mobileMenuOpen.value = false;
+  action();
+}
 // Session rail (#88): dock goal, activity, and context to the right when this tile has room.
 // Measure the tile, not the window: split view gives each tile its own width.
 // Two thresholds prevent flicker near the boundary.
@@ -284,12 +291,24 @@ onUnmounted(() => {
               <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
               <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt) }}</span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
             </div>
-            <MachineStatus />
-            <StatusBar v-if="!docked" />
-            <button v-if="activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
+            <MachineStatus v-if="!mobile" />
+            <StatusBar v-if="!mobile && !docked" />
+            <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
-            <button v-if="!sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
-            <button v-if="chat.session || (chat.draftOpen && tileIds.length)" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
+            <button v-if="!mobile && !sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
+            <button v-if="!mobile && (chat.session || (chat.draftOpen && tileIds.length))" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
+            <Popover v-if="mobile" v-model:open="mobileMenuOpen">
+              <PopoverTrigger as-child>
+                <button id="mobile-more" class="icon-button shrink-0" aria-label="Conversation menu" title="Conversation menu"><Ellipsis :size="18" /></button>
+              </PopoverTrigger>
+              <PopoverContent align="end" aria-label="Conversation menu" class="mobile-conversation-menu grid w-64 gap-2 p-2">
+                <MachineStatus />
+                <StatusBar v-if="!docked" />
+                <button v-if="activeSession" class="mobile-menu-action" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="mobileAction(pinSession)"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" />{{ activeSession.pinned ? 'Unpin session' : 'Pin session' }}</button>
+                <button v-if="!sessionPane && !tiled" class="mobile-menu-action" @click="mobileAction(() => openPanel('session'))"><Ellipsis :size="18" />Conversation settings</button>
+                <button v-if="chat.session || (chat.draftOpen && tileIds.length)" class="mobile-menu-action" @click="mobileAction(closeTile)"><X :size="18" />Remove tile</button>
+              </PopoverContent>
+            </Popover>
           </header>
           <div class="chat-body">
             <div class="chat-column">
@@ -343,6 +362,23 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.mobile-menu-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: var(--radius);
+  text-align: left;
+  font-size: 13px;
+}
+.mobile-menu-action:hover, .mobile-menu-action:focus-visible { background: var(--accent); }
+.mobile-menu-action:disabled { opacity: .5; }
+:global(.mobile-conversation-menu #machine-status) { min-height: 44px; max-width: 100%; padding: 8px; }
+:global(.mobile-conversation-menu #statusbar > summary) { min-height: 44px; padding: 8px; }
+:global(.mobile-conversation-menu .usage-summary-label), :global(.mobile-conversation-menu .usage-cost) { display: inline; }
+:global(.mobile-conversation-menu .usage-details) { position: static; width: 100%; box-shadow: none; margin-top: 8px; }
+
 .chat-workspace {
   position: relative;
   display: flex;
