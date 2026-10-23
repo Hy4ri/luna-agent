@@ -1,28 +1,146 @@
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 45bcd08b85b478f0f96006881d489820f1264d2c..301b00925640c41d67e7a10a9cc7afec717335b7 100644
+index 45bcd08..919e833 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
-@@ -553,7 +553,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+@@ -162,6 +162,7 @@ export const stream = (model, context, options) => {
+             stopReason: "pending",
+             timestamp: Date.now(),
+         };
++        let limitWindows = [];
+         try {
+             const apiKey = options?.apiKey;
+             if (!apiKey) {
+@@ -284,6 +285,7 @@ export const stream = (model, context, options) => {
+                         combinedSignal.cleanup();
+                     }
+                     await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
++                    limitWindows = codexLimitHeaderWindows(response.headers, Date.now());
+                     if (response.ok) {
+                         break;
+                     }
+@@ -302,7 +304,13 @@ export const stream = (model, context, options) => {
+                         statusText: response.statusText,
+                     });
+                     const info = await parseErrorResponse(fakeResponse);
+-                    throw new Error(info.friendlyMessage || info.message);
++                    let payload;
++                    try { payload = JSON.parse(errorText); } catch { payload = {}; }
++                    throw new CodexApiError(info.friendlyMessage || info.message, {
++                        code: payload?.error?.code ?? payload?.error?.type,
++                        payload: { error: payload?.error, httpStatus: response.status,
++                            limitWindows },
++                    });
+                 }
+                 catch (error) {
+                     if (error instanceof Error) {
+@@ -348,6 +356,10 @@ export const stream = (model, context, options) => {
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
+             output.errorMessage = formatProviderError(normalizeProviderError(error));
++            const limit = codexLimitFailure(error, limitWindows);
++            if (limit && output.stopReason === "error") {
++                appendAssistantMessageDiagnostic(output, { type: "luna.usage-limit", timestamp: Date.now(), details: limit });
++            }
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+         }
+@@ -501,6 +513,48 @@ class CodexApiError extends Error {
+         this.cause = options?.cause;
+     }
+ }
++// luna: preserve typed quota data through pi-ai's persisted diagnostic channel.
++function codexLimitHeaderWindows(headers, now) {
++    const windows = [];
++    // Same header families as codex-api/src/rate_limits.rs, including model-scoped metered limits.
++    for (const [name, used] of headers) {
++        const match = /^x-(.+)-(primary|secondary)-used-percent$/.exec(name);
++        if (!match || !Number.isFinite(Number(used)) || Number(used) < 100) continue;
++        const reset = headers.get(`x-${match[1]}-${match[2]}-reset-at`);
++        const at = reset !== null && reset.trim() !== "" ? Number(reset) * 1000 : NaN;
++        windows.push({ id: `${match[1]}:${match[2]}`, resetAt: Number.isFinite(at) && at > 0 && at <= 8.64e15 ? at : null });
++    }
++    const retry = headers.get("retry-after");
++    if (retry !== null) {
++        const delay = Number(retry);
++        const at = retry.trim() !== "" && Number.isFinite(delay) && delay >= 0 ? now + delay * 1000 : Date.parse(retry);
++        if (Number.isFinite(at) && at > 0 && at <= 8.64e15) windows.push({ id: "retry-after", resetAt: at });
++    }
++    return windows;
++}
++function codexLimitFailure(error, headerWindows) {
++    if (!(error instanceof CodexApiError)) return undefined;
++    const payload = error.payload;
++    const native = payload?.response?.error ?? payload?.error ?? payload;
++    const code = String(error.code ?? native?.code ?? native?.type ?? "");
++    const status = payload?.httpStatus;
++    if ([401, 402, 403].includes(status) || /^(insufficient_quota|billing_error|invalid_api_key|authentication_error|usage_not_included)$/.test(code)) {
++        return { kind: "fatal", windows: [] };
++    }
++    if (status !== 429 && !/^(usage_limit_reached|rate_limit_exceeded|rate_limit_error|usageLimitExceeded)$/.test(code)) return undefined;
++    const byId = new Map(headerWindows.map(window => [window.id, window]));
++    for (const window of payload?.limitWindows ?? []) {
++        if (window.exhausted === false) byId.delete(window.id);
++        else byId.set(window.id, { id: window.id, resetAt: window.resetAt });
++    }
++    const windows = [...byId.values()];
++    const reset = native?.resets_at ?? payload?.resets_at;
++    if (reset !== undefined) {
++        const at = typeof reset === "number" ? reset * 1000 : NaN;
++        windows.push({ id: "refusal", resetAt: Number.isFinite(at) && at > 0 && at <= 8.64e15 ? at : null });
++    }
++    return { kind: "wait", windows };
++}
+ class CodexProtocolError extends Error {
+     payload;
+     constructor(message, options) {
+@@ -540,6 +594,7 @@ function extractCodexEventError(event) {
+     };
+ }
+ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
++    const quotaWindows = new Map();
+     for await (const event of events) {
+         try {
+             await onProviderStreamEvent?.(event, model);
+@@ -551,18 +606,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+         const type = typeof event.type === "string" ? event.type : undefined;
+         if (!type)
              continue;
++        if (type === "codex.rate_limits") {
++            const reportedBucket = event.metered_limit_name ?? event.limit_name;
++            const bucket = typeof reportedBucket === "string" && reportedBucket.trim()
++                ? reportedBucket.trim().toLowerCase().replaceAll("_", "-") : "codex";
++            for (const position of ["primary", "secondary"]) {
++                const window = event.rate_limits?.[position];
++                if (!window || typeof window.used_percent !== "number" || !Number.isFinite(window.used_percent)) continue;
++                const id = `${bucket}:${position}`;
++                const at = window.reset_at === undefined ? quotaWindows.get(id)?.resetAt
++                    : typeof window.reset_at === "number" ? window.reset_at * 1000 : NaN;
++                quotaWindows.set(id, { id, exhausted: window.used_percent >= 100,
++                    resetAt: Number.isFinite(at) && at > 0 && at <= 8.64e15 ? at : null });
++            }
++            continue;
++        }
          if (type === "error") {
              const { code, message } = extractCodexEventError(event);
 -            throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}`, {
 +            const resetsAt = event.error?.resets_at ?? event.resets_at;
 +            throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}${Number.isFinite(resetsAt) ? ` (resets_at=${resetsAt})` : ""}`, {
                  code,
-                 payload: event,
+-                payload: event,
++                payload: { ...event, limitWindows: [...quotaWindows.values()] },
              });
-@@ -562,7 +563,8 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+         }
+         if (type === "response.failed") {
              const response = event.response;
              const code = response?.error?.code;
              const message = response?.error?.message;
 -            throw new CodexApiError(message || "Codex response failed", { code, payload: event });
 +            const resetsAt = response?.error?.resets_at;
-+            throw new CodexApiError(`${message || "Codex response failed"}${Number.isFinite(resetsAt) ? ` (resets_at=${resetsAt})` : ""}`, { code, payload: event });
++            throw new CodexApiError(`${message || "Codex response failed"}${Number.isFinite(resetsAt) ? ` (resets_at=${resetsAt})` : ""}`, { code, payload: { ...event, limitWindows: [...quotaWindows.values()] } });
          }
          if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
              const response = event.response;
-@@ -1262,6 +1264,11 @@ async function parseErrorResponse(response) {
+@@ -1262,6 +1334,11 @@ async function parseErrorResponse(response) {
                  friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
              }
              message = err.message || friendlyMessage || message;

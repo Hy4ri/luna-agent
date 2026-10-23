@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { LIMIT_DIAGNOSTIC } from "./provider-limits.js";
+import { ClaudeTransportError } from "./claude-native/types.js";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
   createProvider, createAssistantMessageEventStream, getCurrentTools,
@@ -106,6 +108,11 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
     } catch (error) {
       message.stopReason = options?.signal?.aborted ? "aborted" : "error";
       message.errorMessage = error instanceof Error ? error.message : String(error);
+      if (error instanceof ClaudeTransportError && error.limit) {
+        message.diagnostics = [...(message.diagnostics ?? []), {
+          type: LIMIT_DIAGNOSTIC, timestamp: Date.now(), details: error.limit,
+        }];
+      }
       events.push({ type: "error", reason: message.stopReason, error: message });
     } finally {
       events.end(message);

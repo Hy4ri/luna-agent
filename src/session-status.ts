@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { AskDoc } from "./ask.js";
 import { GoalDoc } from "./goal.js";
 import { classifyLimit } from "./limit-reset.js";
+import { readProviderLimit, type ProviderLimit } from "./provider-limits.js";
 
 export type SessionStatus = "ready" | "running" | "finished" | "needs_approval" | "needs_input" | "limit_reached" | "failed" | "stopped";
 export interface SessionState { status: SessionStatus; statusReason: string | null }
@@ -79,17 +80,32 @@ function isLimitError(message: string) {
 }
 const state = (status: SessionStatus, statusReason: string | null = null): SessionState => ({ status, statusReason });
 
-/** Model failure text of the newest foreground turn, with its input boundary. Undefined when the turn did not fail. */
-export async function readTurnFailure(tx: Tx, id: ConversationId): Promise<{ boundary: number; message: string } | undefined> {
+export type TurnFailure = {
+  boundary: number; generation: number; message: string; failedAt?: number;
+  provider?: string; model?: string; limit?: ProviderLimit;
+};
+
+/** Inspect failure metadata only, tied to the newest generation and input. */
+export async function readTurnFailure(tx: Tx, id: ConversationId): Promise<TurnFailure | undefined> {
   const tail = await sessionTail(tx, id);
   if (tail.reset && !tail.assistant) return undefined;
   const generation = (await tx.scanTasks({ conversationId: id, kind: "pi.generation", background: false, order: "descending" }, 1)).items[0];
-  const outcome = generation?.state.outcome;
-  if (outcome?.status === "failed" || outcome?.status === "faulted") return { boundary: tail.boundary, message: outcome.error.message };
-  if (outcome?.status === "aborted" || outcome?.status === "orphaned") return undefined;
-  const message = tail.assistant?.model?.find(message => message.role === "assistant");
-  if (message?.role === "assistant" && message.stopReason === "error") return { boundary: tail.boundary, message: message.errorMessage ?? "" };
-  return undefined;
+  if (!generation || generation.state.status !== "terminal" || tail.assistant?.byTaskId !== generation.id) return undefined;
+  const outcome = generation.state.outcome;
+  if (outcome.status === "aborted" || outcome.status === "orphaned") return undefined;
+  const message = tail.assistant.model?.find(message => message.role === "assistant");
+  if (outcome.status !== "failed" && outcome.status !== "faulted" && message?.stopReason !== "error") return undefined;
+  const detail = outcome.status === "failed" || outcome.status === "faulted" ? outcome.error.detail : undefined;
+  const requested = detail && typeof detail === "object" && !Array.isArray(detail) ? detail.requestModel : undefined;
+  const requestModel = requested && typeof requested === "object" && !Array.isArray(requested) &&
+    typeof requested.provider === "string" && typeof requested.modelId === "string"
+    ? { provider: requested.provider, modelId: requested.modelId } : undefined;
+  return {
+    boundary: tail.boundary, generation: Number(generation.id), failedAt: generation.endedAt,
+    message: outcome.status === "failed" || outcome.status === "faulted" ? outcome.error.message : message?.errorMessage ?? "",
+    ...(message?.stopReason === "error" ? { provider: requestModel?.provider ?? message.provider,
+      model: requestModel?.modelId ?? message.model, limit: readProviderLimit(message) } : {}),
+  };
 }
 
 /** True while a foreground task of the conversation is pending, running, waiting or completing. */
@@ -112,18 +128,19 @@ export async function readSessionStatus(tx: Tx, id: ConversationId, running: boo
   // Only the foreground generation owns the session outcome. Tool errors and queue edits do not.
   const generation = (await tx.scanTasks({ conversationId: id, kind: "pi.generation", background: false, order: "descending" }, 1)).items[0];
   const outcome = generation?.state.outcome;
+  const message = tail.assistant?.model?.find(message => message.role === "assistant");
+  const providerLimited = tail.assistant?.byTaskId === generation?.id && message?.stopReason === "error" && readProviderLimit(message)?.kind === "wait";
   if (outcome?.status === "aborted") return state("stopped", "Stopped by the user.");
   if (outcome?.status === "failed" || outcome?.status === "faulted") {
     const reason = outcome.error.message;
-    return state(isLimitError(reason) ? "limit_reached" : "failed", reason.slice(0, 500));
+    return state(providerLimited || isLimitError(reason) ? "limit_reached" : "failed", reason.slice(0, 500));
   }
   if (outcome?.status === "orphaned") return state("failed", outcome.reason.slice(0, 500));
 
-  const message = tail.assistant?.model?.find(message => message.role === "assistant");
   if (message?.role === "assistant") {
     if (message.stopReason === "aborted") return state("stopped", "The response was stopped.");
     if (message.stopReason === "length") return state("limit_reached", "The response reached the model output limit.");
-    if (message.stopReason === "error") return state(isLimitError(message.errorMessage ?? "") ? "limit_reached" : "failed", (message.errorMessage || "The model request failed.").slice(0, 500));
+    if (message.stopReason === "error") return state(providerLimited || isLimitError(message.errorMessage ?? "") ? "limit_reached" : "failed", (message.errorMessage || "The model request failed.").slice(0, 500));
   }
 
   const goal = (await tx.doc(GoalDoc, id)).goal;

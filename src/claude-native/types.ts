@@ -1,4 +1,5 @@
 // Shared contract for the in-process Claude native transport.
+import type { ProviderLimit } from "../provider-limits.js";
 
 /** One Anthropic content block. Unknown fields are carried through unchanged. */
 export interface Block {
@@ -79,7 +80,7 @@ export interface Frame {
 
 /** Error with an HTTP-equivalent status: 503 CLI missing, 401 logged out, 429/402/529 native limits. */
 export class ClaudeTransportError extends Error {
-  constructor(message: string, readonly statusCode?: number) {
+  constructor(message: string, readonly statusCode?: number, readonly limit?: ProviderLimit) {
     super(message);
     this.name = "ClaudeTransportError";
   }
