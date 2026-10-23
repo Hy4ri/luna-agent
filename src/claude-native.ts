@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   getCurrentSystemPrompt, getCurrentTools,
   type ImageContent, type TextContent, type TranscriptContext,
@@ -46,9 +47,38 @@ function blocks(content: (TextContent | ImageContent)[]): Block[] {
     : { type: "image", source: { type: "base64", media_type: block.mimeType, data: block.data } });
 }
 
+/** Claude accepts only this form for tool-call ids; foreign providers use ids with `|` or long hashes. */
+const CLAUDE_TOOL_ID = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/**
+ * Deterministic Claude-safe ids for the foreign tool calls in one request.
+ * The stored transcript keeps its own ids, and a mapped id stays the same across requests, so the cache prefix holds.
+ */
+function claudeToolIds(messages: TranscriptContext["messages"]): Map<string, string> {
+  const ids: string[] = [];
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      for (const block of message.content) if (block.type === "toolCall") ids.push(block.id);
+    } else if (message.role === "toolResult") ids.push(message.toolCallId);
+  }
+  const taken = new Set(ids.filter(id => CLAUDE_TOOL_ID.test(id)));
+  const map = new Map<string, string>();
+  for (const id of ids) {
+    if (map.has(id)) continue;
+    if (CLAUDE_TOOL_ID.test(id)) { map.set(id, id); continue; }
+    const digest = createHash("sha256").update(id).digest("hex").slice(0, 40);
+    let safe = `toolu_${digest}`;
+    for (let n = 2; taken.has(safe); n++) safe = `toolu_${digest}_${n}`;
+    taken.add(safe);
+    map.set(id, safe);
+  }
+  return map;
+}
+
 /** Convert only model-visible content. Luna remains the sole transcript owner. */
 export function prepareNativeRequest(context: TranscriptContext, model: { id: string }, maxTokens?: number): NativeRequest {
   const messages: NativeMessage[] = [];
+  const toolIds = claudeToolIds(context.messages);
   const system = getCurrentSystemPrompt(context.messages);
   if (system) messages.push({ role: "system", content: system });
   for (const message of context.messages) {
@@ -56,11 +86,12 @@ export function prepareNativeRequest(context: TranscriptContext, model: { id: st
     if (message.role === "user") {
       messages.push({ role: "user", content: typeof message.content === "string" ? message.content : blocks(message.content) });
     } else if (message.role === "toolResult") {
-      messages.push({ role: "tool", tool_call_id: message.toolCallId, is_error: message.isError, content: blocks(message.content) });
+      messages.push({ role: "tool", tool_call_id: toolIds.get(message.toolCallId) ?? message.toolCallId,
+        is_error: message.isError, content: blocks(message.content) });
     } else {
       const text = message.content.filter(b => b.type === "text");
       const calls: NativeToolCall[] = message.content.filter(b => b.type === "toolCall").map(b => ({
-        id: b.id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.arguments) },
+        id: toolIds.get(b.id) ?? b.id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.arguments) },
       }));
       const native: NativeMessage = { role: "assistant", content: text.map(b => b.text).join("") || null };
       if (calls.length) native.tool_calls = calls;
