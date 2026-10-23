@@ -1196,19 +1196,23 @@ export function createApp(opts: ServerOptions) {
     return opts.memory.forget(Number(c.req.param("id"))) ? c.json({ ok: true }) : err(c, 404, "no such memory");
   });
 
-  // ---- lessons: the learning agent applies routine fixes; only proposals it marks critical wait for approve/reject. ----
+  // ---- Evidence-backed proposals: only the user-facing routes approve or verify changes. ----
   const lessonView = (l: ReturnType<LearnStore["lesson"]> & {}) => {
     const L = opts.learn!.store;
     return {
       ...l, needs_guard: !!l.needs_guard, tests: l.tests ? JSON.parse(l.tests) as string[] : [], sessions: L.sessions(l.id),
-      current: l.status === "proposed" && l.scope === "skill" && l.skill ? opts.learn!.improver.read(l.skill) ?? null : null,
-      evidence: L.evidence(l.id).map((s) => ({ id: s.id, kind: s.kind, session: s.conv, message: s.entry, summary: s.summary, ts: s.ts })),
+      current: L.changes(l.id).at(-1)?.before_text ?? null,
+      changes: L.changes(l.id), assessments: L.assessments(l.id), observations: L.observations(l.id),
+      currentMatches: L.currentMatches(l.id, opts.learn!.improver, opts.memory),
+      effect: l.status === "confirmed" ? "legacy confirmation; behavioral effect unknown" : l.status === "verified" ? "user-verified observation" : "not verified",
+      evidence: L.evidence(l.id).map((s) => ({ id: s.id, kind: s.kind, session: s.conv, message: s.entry, summary: s.summary, ts: s.ts, context: JSON.parse(s.context) })),
     };
   };
   const learnOff = (c: HonoContext) => opts.learn ? undefined : err(c, 404, "learning disabled");
   app.get("/v1/lessons", (c) => learnOff(c) ?? c.json({
     lessons: opts.learn!.store.lessons().map(lessonView),
-    unassigned: opts.learn!.store.unassigned(1000).length,
+    unassigned: opts.learn!.store.pendingCount(),
+    projection: opts.learn!.store.projectionState(opts.memory), metrics: opts.learn!.store.metrics(),
   }));
   app.post("/v1/lessons/scan", async (c) => { const no = learnOff(c); if (no) return no; await opts.learn!.scan?.(); return c.json({ ok: true }); });
   const lessonAction = (action: (id: number, body: Record<string, unknown>) => unknown) => async (c: HonoContext) => {
@@ -1221,7 +1225,13 @@ export function createApp(opts: ServerOptions) {
   };
   app.post("/v1/lessons/:id/approve", lessonAction((id) => opts.learn!.store.approve(id, opts.learn!.improver, opts.memory)));
   app.post("/v1/lessons/:id/reject", lessonAction((id, b) => opts.learn!.store.reject(id, typeof b.note === "string" ? b.note : "")));
-  app.post("/v1/lessons/:id/rollback", lessonAction((id) => opts.learn!.store.rollback(id, opts.learn!.improver)));
+  app.post("/v1/lessons/:id/rollback", lessonAction((id) => opts.learn!.store.rollback(id, opts.learn!.improver, opts.memory)));
+  app.post("/v1/lessons/:id/reconcile", lessonAction((id) => opts.learn!.store.reconcile(id, opts.learn!.improver, opts.memory)));
+  app.post("/v1/lessons/:id/verify", lessonAction((id, b) => {
+    if (!Number.isSafeInteger(b.observation) || Number(b.observation) < 1) throw new Error("observation id required");
+    if (opts.learn!.store.currentMatches(id, opts.learn!.improver, opts.memory) !== true) throw new Error("applied target changed; cannot verify this revision");
+    return opts.learn!.store.verify(id, Number(b.observation));
+  }));
 
   // ---- skills (read-only; the model edits them through skill_manage / skill_propose) ----
   app.get("/v1/skills", (c) => {
