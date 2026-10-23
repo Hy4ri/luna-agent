@@ -79,7 +79,7 @@ onUnmounted(() => window.removeEventListener("resize", position));
     <input id="reasoning-slider" type="range" min="0" :max="LEVELS.length - 1" step="1" :value="preview"
       aria-label="Reasoning level" :aria-valuetext="label" autofocus
       @input="preview = Number(($event.target as HTMLInputElement).value)" @change="change" />
-    <div class="reasoning-stops" aria-hidden="true"><span v-for="level in LEVELS" :key="level"></span></div>
+    <div class="reasoning-stops" aria-hidden="true"><span v-for="(level, i) in LEVELS" :key="level" :class="{ active: i === active }"></span></div>
     <div class="reasoning-endpoints" aria-hidden="true"><span>Off</span><span>Max</span></div>
   </div>
 </template>
@@ -93,7 +93,8 @@ onUnmounted(() => window.removeEventListener("resize", position));
 .reasoning-heading { font-size: 13px; margin-bottom: 14px; gap: 16px; }
 .reasoning-heading output { color: var(--reasoning-color); font-weight: 600; }
 #reasoning-slider { display: block; width: 100%; min-height: 28px; margin: 0; padding: 0; accent-color: var(--reasoning-color); cursor: pointer; }
-.reasoning-stops { display: flex; justify-content: space-between; padding: 0 7px; pointer-events: none; }
+.reasoning-stops { display: flex; align-items: center; justify-content: space-between; padding: 0 7px; pointer-events: none; }
 .reasoning-stops span { height: 3px; width: 1px; background: var(--muted-foreground); opacity: .5; }
+.reasoning-stops span.active { height: 9px; width: 2px; border-radius: 1px; background: var(--reasoning-color); opacity: 1; }
 .reasoning-endpoints { margin-top: 6px; font-size: 12px; color: var(--muted-foreground); }
 </style>
