@@ -14,7 +14,7 @@ import { createWebApp } from "./web-assets.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Extension } from "@earendil-works/pi-durable";
-import { configure, LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput, type AgentEvent } from "@earendil-works/pi-durable";
+import { configure, LiveDoc, UsageDoc, watchEvents, type Tx, type ConversationId, type ConversationRecord, type UserInput, type AgentEvent, type EntryId } from "@earendil-works/pi-durable";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
@@ -484,6 +484,33 @@ export function createApp(opts: ServerOptions) {
     }, context);
     if (project) opts.conversations!.projects.link(Number(conv.id), project.id);
     return c.json({ id: conv.id }, 201);
+  });
+
+  // Fork: a new session whose model context starts as of one visible entry of this session. The stored agent
+  // state (model, thinking level, tools) rides along in the built-in `pi.agent` document (rewindable, fork asOf);
+  // `ExecTarget` is fork `current`, so the worker target survives. Docs marked fork `initial` (goal, ask, ...) stay behind.
+  app.post("/v1/sessions/:id/fork", async c => {
+    if (!opts.conversations) return err(c, 404, "fork disabled");
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const b = await c.req.json().catch(() => ({})) as { at?: unknown };
+    if (!Number.isSafeInteger(b.at)) return err(c, 400, "at must be an entry id");
+    let badEntry: string | null = null;
+    const forked = await harness.commit(async tx => {
+      // One commit: fork at one visible entry. Visibility is pi-durable's rule, and it is fork-aware: an entry
+      // inherited from a parent conversation (shown in this session's transcript) counts. The stored agent state
+      // (model, thinking, tools) rides along via the built-in `pi.agent` document copies in this commit.
+      try {
+        return await tx.forkConversation(conv.id, b.at as EntryId, { ownership: { kind: "ownerless" } });
+      } catch (e) {
+        if (/not visible from conversation/.test((e as Error).message)) { badEntry = (e as Error).message; return undefined; }
+        throw e;
+      }
+    }, context);
+    if (badEntry !== null || !forked) return err(c, 404, "entry is not visible in this session");
+    const project = opts.conversations.projects.projectOf(Number(conv.id));
+    if (project) opts.conversations.projects.link(Number(forked.id), project);
+    return c.json({ id: forked.id }, 201);
   });
 
   const contextUsage = async (conv: NonNullable<Awaited<ReturnType<typeof getConv>>>) => {
