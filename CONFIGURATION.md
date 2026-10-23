@@ -461,6 +461,28 @@ LUNA_PLAYWRIGHT_PATH=/path/to/playwright pnpm run verify:settings-ui
 Also run `verify:settings-page-ui` to check full-page navigation, tabs, drafts, deep links, mobile layout, and error recovery.
 Both tests use isolated config files, databases, and a faux model. They do not call an external AI provider.
 
+## OpenAI long-context models
+
+The built-in OpenAI provider reads its authenticated `/v1/models` catalog at startup,
+on the existing hourly refresh, and when **Refresh models** is selected.
+It accepts both subscription catalogs (`models` / `slug`) and API-key catalogs (`data` / `id`).
+For each built-in chat model, a valid `context_window` updates its normal capacity.
+When `max_context_window` is larger, Luna adds a separate entry labelled with that capacity,
+for example **GPT-6 Sol (872K)**. There is no fixed model list or long-context limit.
+Models marked hidden or unsupported do not produce variants. Missing or invalid limits do not
+produce variants either. Models absent from the installed built-in catalog are not guessed:
+the installed catalog still supplies capabilities, output limits, and pricing.
+
+Both entries use the same OpenAI credentials and upstream model ID. Long-context selections
+use the local ID `<upstream-model-id>-long-context`, with provider `openai`.
+Luna removes that local suffix before sending the request. The selected capacity applies to
+context tracking and runtime compaction. No additional provider or login is required.
+
+Failed refreshes retain the last successful catalog in memory and report an error through the
+existing model refresh status. A fresh process starts from the built-in catalog until discovery
+succeeds. API-key catalogs that supply no context metadata do not gain speculative variants.
+Large contexts can consume more usage; the built-in pricing tiers remain unchanged.
+
 ## Context usage
 
 The chat context bar shows estimated active tokens, model capacity, and the percentage used.
