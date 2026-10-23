@@ -10,5 +10,8 @@ dist/
 luna.config.json
 .luna/
 
+# Local generated assets
+red-moon-*.png
+
 # direnv
 .direnv/
