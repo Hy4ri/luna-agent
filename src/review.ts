@@ -5,13 +5,19 @@ import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { Type, type AssistantMessage, type Message, type Model, type Models, type Tool, type Usage } from "@earendil-works/pi-ai";
-import { type ExecutionEnv } from "@earendil-works/pi-durable/env";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 
 export const REVIEW_DEFAULT_PROMPT = "Review this session";
 const MAX_ROUNDS = 40;
 const TOOL_OUTPUT = 20_000;
 const DIFF_BRIEF = 60_000;
+
+function commandEnvironment(env: ExecutionEnv, supplied?: Record<string, string>): Record<string, string> {
+  if (!supplied && env.id !== "node:local") throw new Error("The worker command environment is unavailable. Reconnect an updated worker.");
+  const source = supplied ?? process.env;
+  return Object.fromEntries(["PATH", "HOME"].flatMap(key => source[key] === undefined ? [] : [[key, source[key]!]]));
+}
 const SYSTEM = [
   "You are a read-only reviewer of one coding-agent session. Judge two things:",
   "1. Coverage: did the agent do what the user asked, including later corrections and constraints?",
@@ -67,26 +73,26 @@ export function checkGitArgs(args: readonly string[]): string | undefined {
   return undefined;
 }
 
-async function runCommand(env: ExecutionEnv, command: readonly string[], cwd: string, signal: AbortSignal | undefined): Promise<{ out: string; code: number }> {
+async function runCommand(env: ExecutionEnv, command: readonly string[], cwd: string, signal: AbortSignal | undefined, commandEnv?: Record<string, string>): Promise<{ out: string; code: number }> {
   let out = "";
   const ctx = signal ? withAbortSignal(signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
   const res = await env.exec(command, {
     cwd,
-    timeout: 20_000,
-    env: { LANG: "C.UTF-8", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
+    timeout: 20,
+    inheritEnv: false,
+    env: { ...commandEnvironment(env, commandEnv), LANG: "C.UTF-8", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
     onOutput: (chunk) => {
-      if (out.length < 4 * 1024 * 1024) out += chunk;
+      if (out.length < 4 * 1024 * 1024) out += chunk.slice(0, 4 * 1024 * 1024 - out.length);
     },
   }, ctx);
   if (!res.ok) {
-    if (signal?.aborted) throw new Error("aborted");
-    return { out: out || res.error.message, code: -1 };
+    throw new Error(signal?.aborted ? "aborted" : res.error.message);
   }
   return { out, code: res.value.exitCode };
 }
 const cap = (text: string, limit = TOOL_OUTPUT) => text.length > limit ? `${text.slice(0, limit)}\n[truncated: ${text.length - limit} more characters]` : text;
-const git = (env: ExecutionEnv, args: string[], cwd: string, signal?: AbortSignal) =>
-  runCommand(env, ["git", "--no-pager", "-c", "core.fsmonitor=false", "-c", "diff.external=", ...args], cwd, signal);
+const git = (env: ExecutionEnv, args: string[], cwd: string, signal?: AbortSignal, commandEnv?: Record<string, string>) =>
+  runCommand(env, ["git", "--no-pager", "-c", "core.fsmonitor=false", "-c", "diff.external=", ...args], cwd, signal, commandEnv);
 
 /** A path under the real working directory, or an error string. */
 async function inside(env: ExecutionEnv, path: string, ctx = BACKGROUND_CONTEXT): Promise<{ path: string } | { error: string }> {
@@ -138,22 +144,23 @@ export function renderReviewHistory(messages: readonly Message[]): string {
   ].join("\n\n");
 }
 
-async function workspace(env: ExecutionEnv, cwd: string, signal?: AbortSignal) {
+async function workspace(env: ExecutionEnv, cwd: string, signal?: AbortSignal, commandEnv?: Record<string, string>) {
   const [head, branch, status, diff, stat] = await Promise.all([
-    git(env, ["rev-parse", "HEAD"], cwd, signal), git(env, ["rev-parse", "--abbrev-ref", "HEAD"], cwd, signal), git(env, ["status", "--porcelain", "--untracked-files=all"], cwd, signal),
-    git(env, ["diff", "HEAD", "--no-ext-diff", "--no-textconv"], cwd, signal), git(env, ["diff", "HEAD", "--stat", "--no-ext-diff", "--no-textconv"], cwd, signal),
+    git(env, ["rev-parse", "HEAD"], cwd, signal, commandEnv), git(env, ["rev-parse", "--abbrev-ref", "HEAD"], cwd, signal, commandEnv), git(env, ["status", "--porcelain", "--untracked-files=all"], cwd, signal, commandEnv),
+    git(env, ["diff", "HEAD", "--no-ext-diff", "--no-textconv"], cwd, signal, commandEnv), git(env, ["diff", "HEAD", "--stat", "--no-ext-diff", "--no-textconv"], cwd, signal, commandEnv),
   ]);
-  if (head.code === -1 && !head.out.includes("not a git repository")) {
-    throw new Error(head.out || "failed to inspect workspace");
-  }
   const ok = head.code === 0;
+  if (ok) {
+    const failed = [branch, status, diff, stat].find(result => result.code !== 0);
+    if (failed) throw new Error(failed.out || "failed to inspect workspace");
+  }
   const fingerprint = createHash("sha256").update([head.out, status.out, diff.out].join("\0")).digest("hex");
   return { ok, fingerprint, head: head.out.trim(), branch: branch.out.trim(), status: status.out, diff: diff.out, stat: stat.out };
 }
 
-export async function buildReviewBrief(messages: readonly Message[], cwd: string, focus: string, signal?: AbortSignal, env?: ExecutionEnv) {
+export async function buildReviewBrief(messages: readonly Message[], cwd: string, focus: string, signal?: AbortSignal, env?: ExecutionEnv, commandEnv?: Record<string, string>) {
   const targetEnv = env ?? new NodeExecutionEnv({ cwd });
-  const ws = await workspace(targetEnv, cwd, signal);
+  const ws = await workspace(targetEnv, cwd, signal, commandEnv);
   const parts = [
     focus && focus !== REVIEW_DEFAULT_PROMPT ? `## Focus requested by the user\n${focus}` : "",
     renderReviewHistory(messages),
@@ -164,7 +171,7 @@ export async function buildReviewBrief(messages: readonly Message[], cwd: string
   return { text: parts.join("\n\n"), fingerprint: ws.fingerprint };
 }
 
-async function callTool(env: ExecutionEnv, name: string, args: Record<string, unknown>, cwd: string, messages: readonly Message[], signal?: AbortSignal): Promise<string> {
+async function callTool(env: ExecutionEnv, name: string, args: Record<string, unknown>, cwd: string, messages: readonly Message[], signal?: AbortSignal, commandEnv?: Record<string, string>): Promise<string> {
   const ctx = signal ? withAbortSignal(signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
   if (name === "read_file") {
     if (typeof args.path !== "string") throw new Error("path (string) required");
@@ -185,7 +192,7 @@ async function callTool(env: ExecutionEnv, name: string, args: Record<string, un
     if (typeof args.pattern !== "string" || !args.pattern) throw new Error("pattern (string) required");
     const target = await inside(env, typeof args.path === "string" && args.path ? args.path : ".", ctx);
     if ("error" in target) throw new Error(target.error);
-    const r = await runCommand(env, ["grep", "-rnIE", "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=dist", "-m", "50", "-e", args.pattern, "--", target.path], cwd, signal);
+    const r = await runCommand(env, ["grep", "-rnIE", "--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude-dir=dist", "-m", "50", "-e", args.pattern, "--", target.path], cwd, signal, commandEnv);
     if (r.code === 1) return "no matches";
     if (r.code !== 0 && !r.out) throw new Error("search failed");
     let text = r.out;
@@ -200,7 +207,7 @@ async function callTool(env: ExecutionEnv, name: string, args: Record<string, un
     if (refused) throw new Error(refused);
     // Repo config can name external diff and textconv programs; never let a read run one.
     const argv = args.args as string[], sub = argv[0]!;
-    const r = await git(env, DIFFING.has(sub) ? [sub, "--no-ext-diff", "--no-textconv", ...argv.slice(1)] : argv, cwd, signal);
+    const r = await git(env, DIFFING.has(sub) ? [sub, "--no-ext-diff", "--no-textconv", ...argv.slice(1)] : argv, cwd, signal, commandEnv);
     return cap(r.out || (r.code === 0 ? "(no output)" : `git exited with ${r.code}`));
   }
   if (name === "session_message") {
@@ -215,10 +222,11 @@ export interface ReviewOptions {
   models: Models; model: Model<any>; thinking?: string; messages: readonly Message[]; cwd: string; focus: string;
   signal: AbortSignal; usage: (usage: Usage) => Promise<void>; sessionId?: string;
   env?: ExecutionEnv;
+  commandEnv?: Record<string, string>;
 }
 export async function runReview(o: ReviewOptions): Promise<string> {
   const env = o.env ?? new NodeExecutionEnv({ cwd: o.cwd });
-  const brief = await buildReviewBrief(o.messages, o.cwd, o.focus, o.signal, env);
+  const brief = await buildReviewBrief(o.messages, o.cwd, o.focus, o.signal, env, o.commandEnv);
   const convo: Message[] = [{ role: "user", content: brief.text, timestamp: Date.now() }];
   let report = "";
   for (let round = 0; round <= MAX_ROUNDS; round++) {
@@ -232,13 +240,13 @@ export async function runReview(o: ReviewOptions): Promise<string> {
     convo.push(response);
     for (const call of calls) {
       let text: string, isError = false;
-      try { text = await callTool(env, call.name, (call.arguments ?? {}) as Record<string, unknown>, o.cwd, o.messages, o.signal); }
+      try { text = await callTool(env, call.name, (call.arguments ?? {}) as Record<string, unknown>, o.cwd, o.messages, o.signal, o.commandEnv); }
       catch (error) { text = (error as Error).message; isError = true; }
       convo.push({ role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text }], isError, timestamp: Date.now() });
     }
   }
   if (!report) throw new Error("review produced no report");
-  const after = await workspace(env, o.cwd, o.signal);
+  const after = await workspace(env, o.cwd, o.signal, o.commandEnv);
   const notes = [];
   if (after.fingerprint !== brief.fingerprint) notes.push("Note: the workspace changed while this review ran. Findings may be outdated.");
   notes.push("No tests were run. This review used read-only access.");

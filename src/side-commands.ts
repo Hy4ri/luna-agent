@@ -64,6 +64,7 @@ export class SideCommands {
   constructor(private readonly options: {
     harness: Harness; models?: Models; route?: () => { provider: string; modelId: string } | undefined;
     remoteEnv?: (worker: number, cwd?: string) => import("@earendil-works/pi-durable/env").ExecutionEnv;
+    reviewEnvironment?: (worker: number) => Record<string, string>;
     /** Model for /review. Unset means /review refuses to start; it never falls back to another model. */
     reviewRoute?: () => { provider: string; modelId: string } | undefined;
     /** Working directory when the source conversation has none. */
@@ -134,9 +135,12 @@ export class SideCommands {
       throw new Error("remote worker execution is not configured");
     if (kind === "review" && !route) throw new Error("no review model: set auxiliary.review in Settings");
     let reviewEnv: ExecutionEnv | undefined;
+    let reviewCommandEnv: Record<string, string> | undefined;
     let reviewCwd = agent.cwd ?? this.options.cwd ?? process.cwd();
     if (kind === "review") {
       if (worker !== null) {
+        if (!this.options.reviewEnvironment) throw new Error("remote review environment is not configured");
+        reviewCommandEnv = this.options.reviewEnvironment(worker);
         reviewEnv = this.options.remoteEnv!(worker, agent.cwd);
         reviewCwd = reviewEnv.cwd || reviewCwd;
       } else {
@@ -165,7 +169,7 @@ export class SideCommands {
       try {
         if (controller.signal.aborted) throw new Error("side job stopped during shutdown");
         const text = kind === "review"
-          ? await runReview({ models: models!, model, thinking: agent.thinkingLevel, messages, cwd: reviewCwd, env: reviewEnv,
+          ? await runReview({ models: models!, model, thinking: agent.thinkingLevel, messages, cwd: reviewCwd, env: reviewEnv, commandEnv: reviewCommandEnv,
             focus: prompt, signal: controller.signal, usage: usage => this.usage(source, model, usage) })
           : kind === "btw"
           ? await this.answer(source, prompt, messages, model, agent, !!route, identity?.sessionId, controller.signal)

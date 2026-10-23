@@ -21,7 +21,7 @@ export function startWorker(o: WorkerOptions) {
   const log = o.log ?? ((m: string) => console.error(m));
   const cwd = o.cwd ?? homedir();
   const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
-    user: userInfo().username, home: homedir(), cwd };
+    user: userInfo().username, home: homedir(), cwd, path: process.env.PATH };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
   let socket: WebSocket | undefined, stopped = false, delay = 1000, retry: ReturnType<typeof setTimeout> | undefined;
   let connected: (() => void) | undefined;

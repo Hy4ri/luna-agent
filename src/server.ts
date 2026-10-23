@@ -121,6 +121,7 @@ export function createApp(opts: ServerOptions) {
     harness,
     models: opts.models,
     remoteEnv: opts.workers ? (worker, cwd) => opts.workers!.env(worker, cwd) : undefined,
+    reviewEnvironment: opts.workers ? worker => opts.workers!.reviewEnvironment(worker) : undefined,
     cwd: opts.cwd,
   });
   /** Epoch ms of the scheduled continuation, only while the setting is on and nothing runs. */
