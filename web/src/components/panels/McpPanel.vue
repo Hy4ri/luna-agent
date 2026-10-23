@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from "vue";
+import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
 import { json, api, post } from "@/lib/api";
 
@@ -189,7 +190,8 @@ onMounted(() => {
           <button @click="run(() => toggleServerEnabled(s.name, s.enabled))">{{ s.enabled ? 'Disable' : 'Enable' }}</button>
           <button @click="run(() => removeServer(s.name))">Remove</button>
         </div>
-        <span v-else class="muted">From the config file; edit it there.</span>
+        <span v-else class="muted">From the settings file.</span>
+        <ConnectionDefinitionEditor collection="mcpServers" :name="s.name" @busy="emit('busy', $event)" @changed="run(fetchData)" />
       </div></details>
     </template>
 

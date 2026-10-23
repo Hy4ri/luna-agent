@@ -2,7 +2,7 @@
 import { nextTick, reactive, ref } from "vue";
 import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, url } from "@/lib/api";
 import { isMobile } from "@/lib/dom";
-import { sections } from "@/pages/settings/catalog";
+import { sections, resolveSettingsRoute } from "@/pages/settings/catalog";
 import { sessionPane } from "@/lib/pane";
 
 export type View = "chat" | "analytics" | "settings";
@@ -19,7 +19,10 @@ export const ui = reactive({
   login: false,
   loginError: "",
   view: "chat" as View,
-  settingsTab: "general",
+  settingsTab: "chat",
+  settingsTarget: "",
+  settingsIndex: false,
+  settingsNavigation: 0,
   panel: null as string | null,
   drawer: false,
   collapsed: localStorage.getItem("luna.side.collapsed") === "1",
@@ -48,7 +51,7 @@ let guard: SettingsGuard | null = null;
 export function setSettingsGuard(g: SettingsGuard | null) { guard = g; }
 /** True while the Settings page holds unsaved or in-flight edits. */
 export const settingsDirty = () => ui.view === "settings" && !!guard?.isDirty();
-const settingsHash = (tab = ui.settingsTab) => (tab === "general" ? "#settings" : "#settings/" + tab);
+const settingsHash = () => "#settings/" + ui.settingsTab + (ui.settingsTarget ? "/" + ui.settingsTarget.split(".").map(encodeURIComponent).join("/") : "");
 const clearHash = () => history.replaceState(null, "", location.pathname + location.search);
 
 /** Leave the Settings page. Returns false when the user keeps unsaved edits. */
@@ -66,23 +69,29 @@ function closePage(view: "analytics") {
   if (location.hash === "#" + view) clearHash();
   setDrawer(false);
 }
-export function openSettings(tab?: string) {
+export function openSettings(route?: string) {
   if (ui.login) return;
-  const selected = tab || (location.hash.startsWith("#settings/") ? location.hash.slice(10) : ui.view === "settings" ? ui.settingsTab : "general");
-  const next = selected === "workspace" ? "context" : SETTINGS_TABS.includes(selected) ? selected : "general";
-  if (ui.view === "settings" && next !== ui.settingsTab && guard?.canChangeTab?.() === false) {
-    history.replaceState(null, "", settingsHash());
-    return;
+  if (ui.view === "settings" && guard?.canChangeTab?.() === false) {
+    history.replaceState(null, "", settingsHash()); return;
   }
-  ui.settingsTab = next;
-  if (ui.view !== "settings") { closePanel(); closePage("analytics"); ui.view = "settings"; setDrawer(false); }
+  ui.settingsIndex = !route && (location.hash === "#settings" || !location.hash.startsWith("#settings/"));
+  const selected = route || (location.hash.startsWith("#settings/") ? location.hash.slice(10) : "chat");
+  const { category, target } = resolveSettingsRoute(selected);
+  ui.settingsTab = category;
+  ui.settingsTarget = target;
+  ui.settingsNavigation++;
+  if (ui.view !== "settings") { closePanel(); closePage("analytics"); ui.view = "settings"; }
   setDrawer(false);
-  if (location.hash !== settingsHash()) location.hash = settingsHash().slice(1);
+  if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
-/** Called by the Settings page when the user switches tabs. */
-export function setSettingsTab(id: string) {
+/** Navigate inside Settings without discarding the shared draft. */
+export function setSettingsTab(route: string) {
   if (guard?.canChangeTab?.() === false) return;
-  ui.settingsTab = id;
+  ui.settingsIndex = false;
+  const { category, target } = resolveSettingsRoute(route);
+  ui.settingsTab = category;
+  ui.settingsTarget = target;
+  ui.settingsNavigation++;
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
 function openPage(view: "analytics") {
@@ -113,10 +122,10 @@ export function navigate(view: View, tab?: string) {
 
 // ---- panels ----
 let returnFocus: Element | null = null;
-export function openPanel(name: string) {
+export function openPanel(name: string, options?: { keepSettings?: boolean }) {
   if (name === "settings") { closePanel(); return openSettings(); }
   if (name === "analytics") { closePanel(); return openAnalytics(); }
-  if (!closeSettings()) return;
+  if (!options?.keepSettings && !closeSettings()) return;
   returnFocus = document.activeElement;
   setDrawer(false);
   ui.boardEditing = false;

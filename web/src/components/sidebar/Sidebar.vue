@@ -24,9 +24,10 @@ import {
   LoaderCircle,
   Command as CommandIcon,
   Monitor,
+  ChartNoAxesColumn,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
-import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, setPalette } from "@/stores/app";
+import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, setPalette, openAnalytics } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
@@ -371,6 +372,7 @@ onMounted(() => {
         <Kanban :size="18" />
         <span class="side-label">Board</span>
       </button>
+      <button class="side-item" title="Analytics" :aria-current="ui.view === 'analytics' ? 'page' : undefined" @click="openAnalytics"><ChartNoAxesColumn :size="18" /><span class="side-label">Analytics</span></button>
     </nav>
 
     <!-- History Section -->

@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, provide, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { ui, setSettingsGuard, setDrawer, navigate, setSettingsTab, settingsChanged } from '@/stores/app'
+import { ui, setSettingsGuard, setDrawer, navigate, openPanel, setSettingsTab, settingsChanged } from '@/stores/app'
 import { scheduleContext } from '@/stores/chat'
 import { loadModels, models } from '@/stores/models'
 import { json, post } from '@/lib/api'
 import { useMobile } from '@/lib/dom'
 import ComponentField from './settings/ComponentField.vue'
 import SettingsGroup from './settings/SettingsGroup.vue'
+import SettingsSearch from './settings/SettingsSearch.vue'
+import type { SettingsResult } from './settings/settingsSearch'
 import { PANELS } from '@/components/panels'
-import { sections, fieldTitles, labelFor, helpFor, summaries, timing, managers } from './settings/catalog'
+import { sections, fieldTitles, labelFor, helpFor, summaries, timing, managers, groupFor, assertCatalogCoverage, settingRoute } from './settings/catalog'
 import { Menu, ArrowLeft, ArrowUpRight, MessageSquare, Network, BookOpen, Image, Wrench, Clock, Settings2, AlertCircle, RefreshCw } from '@lucide/vue'
 
 const mobile = useMobile()
-const icons = [MessageSquare, Network, BookOpen, Image, Wrench, Clock, Settings2]
+const icons = [MessageSquare, Network, Network, Wrench, BookOpen, Image, Clock, Settings2]
+const mobileIndex = ref(mobile.value && ui.settingsIndex)
 const saved = ref<any>(null)
 const draft = ref<any>(null)
 const baseline = ref('')
@@ -25,37 +28,30 @@ const isReloading = ref(false)
 const isRefreshingModels = ref(false)
 const modelRefreshMessage = ref('')
 const content = ref<HTMLElement | null>(null)
-const activeTab = computed(() => sections.some(s => s.id === ui.settingsTab) ? ui.settingsTab : 'general')
+const activeTab = computed(() => sections.some(s => s.id === ui.settingsTab) ? ui.settingsTab : 'chat')
 const section = computed(() => sections.find(s => s.id === activeTab.value)!)
 const dirty = computed(() => !!draft.value && JSON.stringify(draft.value) !== baseline.value)
-const activeView = ref('configuration')
 const managerBusy = ref(false)
-const sectionViews = computed(() => (managers[activeTab.value] || []).filter(item => PANELS[item.id]))
-const sectionLinks = computed(() => (managers[activeTab.value] || []).filter(item => !PANELS[item.id]))
-const activeManager = computed(() => sectionViews.value.find(item => item.id === activeView.value))
-const sharesConfig = computed(() => ['providers', 'mcp'].includes(activeView.value))
-const disabled = computed(() => isSaving.value || isReloading.value || managerBusy.value)
-async function selectView(id: string, focus = false) {
-  if (disabled.value || loading.value) return
-  activeView.value = id
-  await nextTick()
-  if (focus) document.getElementById(`settings-view-${id}`)?.focus({ preventScroll: true })
+const pendingForms = ref(new Set<string>())
+const pendingFormReload = ref(false)
+provide('settingsPendingForms', pendingForms)
+watch(() => pendingForms.value.size, count => { if (!count && pendingFormReload.value && !dirty.value) { pendingFormReload.value = false; void loadSettings() } })
+const related = computed(() => managers[activeTab.value] || [])
+const disabled = computed(() => isSaving.value || isReloading.value || managerBusy.value || managerReloading.value)
+const managerReloading = ref(false)
+async function managerChanged() {
+  if (pendingForms.value.size) { pendingFormReload.value = true; return }
+  // Managers are disabled while the draft is dirty. Block stale saves until the new revision is loaded.
+  managerReloading.value = true
+  try { await loadSettings() } finally { managerReloading.value = false }
 }
-function moveView(event: KeyboardEvent, index: number) {
-  const ids = ['configuration', ...sectionViews.value.map(item => item.id)]
-  let next: number
-  if (event.key === 'ArrowRight') next = (index + 1) % ids.length
-  else if (event.key === 'ArrowLeft') next = (index - 1 + ids.length) % ids.length
-  else if (event.key === 'Home') next = 0
-  else if (event.key === 'End') next = ids.length - 1
-  else return
-  event.preventDefault()
-  void selectView(ids[next]!, true)
+function selectSearch(result: SettingsResult) {
+  if (disabled.value) return
+  if (result.panel) openRelated(result.panel)
+  else { setSettingsTab(result.route); mobileIndex.value = false; void revealTarget() }
 }
-function managerChanged() {
-  // Shared configuration writes are allowed only with a clean draft.
-  // Reload their new revision before Save can write an older snapshot.
-  if (sharesConfig.value && !dirty.value) void loadSettings()
+function openRelated(id: string) {
+  if (!disabled.value && !loading.value) openPanel(id, { keepSettings: true })
 }
 const thinkingLevels = computed<string[]>(() => saved.value?.schema.properties.thinkingLevel.enum || [])
 const choices = computed(() => {
@@ -68,6 +64,7 @@ const choices = computed(() => {
 })
 provide('settingsModelChoices', choices)
 provide('settingsDraft', draft)
+provide('settingsOverrides', computed<string[]>(() => saved.value?.environmentOverrides || []))
 provide('settingsDisabled', disabled)
 function groupStatus(key: string): string {
   const value = draft.value?.[key]
@@ -107,6 +104,7 @@ function chooseModel(value: string, child = false) {
 async function selectTab(id: string, focus = false) {
   if (disabled.value || loading.value) return
   setSettingsTab(id)
+  mobileIndex.value = false
   await nextTick()
   if (content.value) content.value.scrollTop = 0
   if (focus) {
@@ -125,11 +123,29 @@ function moveTab(event: KeyboardEvent, index: number) {
   event.preventDefault()
   void selectTab(sections[next]!.id, true)
 }
-watch(activeTab, async () => {
-  activeView.value = 'configuration'
+watch(() => ui.settingsNavigation, () => { mobileIndex.value = mobile.value && ui.settingsIndex })
+async function revealTarget() {
+  if (loading.value || !saved.value) return
+  if (!ui.settingsTarget) return
+  mobileIndex.value = false
   await nextTick()
-  document.getElementById(`settings-tab-${activeTab.value}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-})
+  const [group, ...parts] = ui.settingsTarget.split('.')
+  const sectionEl = [...(content.value?.querySelectorAll<HTMLElement>('[data-section]') || [])].find(el => el.dataset.section === group)
+  if (!sectionEl) return
+  const key = section.value.keys.find(key => groupFor(key) === group)
+  const path = ['main-model'].includes(group!) ? parts.join('.') : [key, ...parts].filter(Boolean).join('.')
+  const controls = [...sectionEl.querySelectorAll<HTMLElement>('[data-setting]')]
+  let target = controls.find(el => el.dataset.setting === path)
+  // Optional model overrides have one chooser until a model is selected.
+  target ||= controls.filter(el => path.startsWith((el.dataset.setting || '') + '.')).sort((a, b) => (b.dataset.setting?.length || 0) - (a.dataset.setting?.length || 0))[0]
+  if (target) {
+    for (let parent = target.parentElement; parent && parent !== sectionEl; parent = parent.parentElement) if (parent instanceof HTMLDetailsElement) parent.open = true
+  }
+  target ||= sectionEl.querySelector<HTMLElement>('input, select, textarea, button, h3') || sectionEl
+  target.scrollIntoView({ block: 'center', behavior: 'instant' })
+  target.focus({ preventScroll: true })
+}
+watch([() => ui.settingsNavigation, loading], () => { void revealTarget() }, { flush: 'post' })
 let mounted = true
 async function loadSettings() {
   loading.value = true
@@ -137,6 +153,7 @@ async function loadSettings() {
   try {
     const [res] = await Promise.all([json('/v1/settings'), loadModels()])
     if (!mounted) return
+    assertCatalogCoverage(res.schema)
     saved.value = res
     draft.value = structuredClone(res.config)
     baseline.value = JSON.stringify(draft.value)
@@ -149,7 +166,13 @@ async function loadSettings() {
   }
 }
 async function saveSettings() {
-  if (disabled.value || !saved.value) return
+  const form = content.value?.querySelector<HTMLFieldSetElement>('#settings-configuration')
+  const invalid = form?.querySelector<HTMLInputElement>('input:invalid, select:invalid, textarea:invalid')
+  if (invalid) {
+    for (let parent = invalid.parentElement; parent; parent = parent.parentElement) if (parent instanceof HTMLDetailsElement) parent.open = true
+    invalid.reportValidity(); invalid.focus(); return
+  }
+  if (disabled.value || loading.value || !dirty.value || !saved.value) return
   isSaving.value = true
   saveError.value = false
   try {
@@ -166,10 +189,15 @@ async function saveSettings() {
   } catch (e: any) {
     statusText.value = e.message || 'Failed to save settings'
     saveError.value = true
+    try {
+      const issues = JSON.parse(e.message)
+      const path = issues.find((issue: any) => Array.isArray(issue.path) && issue.path.length)?.path
+      if (path) { isSaving.value = false; setSettingsTab(settingRoute(path)); await revealTarget() }
+    } catch { /* Non-schema errors remain visible in the save status. */ }
   } finally { isSaving.value = false }
 }
 async function reloadSettings() {
-  if (disabled.value || !confirm('Discard unsaved edits and reload settings?')) return
+  if (disabled.value || (dirty.value && !confirm('Discard unsaved edits and reload settings?'))) return
   isReloading.value = true
   try { await loadSettings() } finally { isReloading.value = false }
 }
@@ -198,7 +226,7 @@ function setVal(path: (string | number)[], value: any) {
   if (value === undefined) delete target[key]
   else target[key] = value
   saveError.value = false
-  statusText.value = 'Unsaved changes.'
+  statusText.value = dirty.value ? 'Unsaved changes.' : saved.value?.restartRequired ? 'Saved startup settings need a Luna restart.' : 'No unsaved changes.'
 }
 function seedSchema(schema: any): any {
   if (schema.default !== undefined) return JSON.parse(JSON.stringify(schema.default))
@@ -211,7 +239,7 @@ function seedSchema(schema: any): any {
   return schema.type === 'boolean' ? false : ['number', 'integer'].includes(schema.type) ? (schema.minimum ?? 1) : ''
 }
 onMounted(() => {
-  setSettingsGuard({ canLeave: () => !disabled.value && (!dirty.value || confirm('Discard unsaved settings?')), isDirty: () => dirty.value || disabled.value, canChangeTab: () => !disabled.value })
+  setSettingsGuard({ canLeave: () => !disabled.value && ((!dirty.value && !pendingForms.value.size) || confirm('Discard unsaved settings and connection edits?')), isDirty: () => dirty.value || !!pendingForms.value.size || disabled.value, canChangeTab: () => !disabled.value && (!pendingForms.value.size || confirm('Discard unsaved connection definition edits?')) })
   void loadSettings()
 })
 onUnmounted(() => { mounted = false; setSettingsGuard(null) })
@@ -223,63 +251,64 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
   <div id="settings-screen" class="settings-screen">
     <header class="settings-header">
       <button id="settings-menu" class="icon-button mobile-only" type="button" aria-label="Open navigation" aria-controls="side" :aria-expanded="ui.drawer" @click="setDrawer(true)"><Menu :size="20" /></button>
-      <div class="settings-heading"><h1>Settings</h1><p>Make Luna work the way you do.</p></div>
+      <div class="settings-heading"><h1>Settings</h1><p>Find a setting and make Luna work the way you do.</p></div>
       <button class="settings-button back-button" type="button" data-settings-close :disabled="disabled" @click="navigate('chat')"><ArrowLeft :size="16" /><span>Back to chat</span></button>
     </header>
+    <SettingsSearch :schema="saved?.schema" :config="draft" :disabled="disabled || loading || !!loadError" @select="selectSearch" />
     <div class="settings-layout">
-      <nav class="settings-nav" aria-label="Settings sections">
-        <div class="settings-tabs" role="tablist" aria-label="Settings sections" :aria-orientation="mobile ? 'horizontal' : 'vertical'">
-          <button v-for="(item, index) in sections" :id="'settings-tab-' + item.id" :key="item.id" type="button" role="tab" :data-settings-tab="item.id" aria-controls="settings-fields" :aria-selected="activeTab === item.id" :tabindex="activeTab === item.id ? 0 : -1" :disabled="disabled || loading" @click="selectTab(item.id)" @keydown="moveTab($event, index)"><component :is="icons[index]" :size="18" /><span>{{ item.title }}</span></button>
+      <nav v-show="!mobile || mobileIndex" class="settings-nav" aria-label="Settings categories">
+        <div class="settings-tabs">
+          <button v-for="(item, index) in sections" :id="'settings-tab-' + item.id" :key="item.id" type="button" :data-settings-tab="item.id" :aria-current="!mobileIndex && activeTab === item.id ? 'page' : undefined" :disabled="disabled || loading" @click="selectTab(item.id)" @keydown="moveTab($event, index)"><component :is="icons[index]" :size="18" /><span><strong>{{ item.title }}</strong><small v-if="mobile">{{ item.description }}</small></span></button>
         </div>
       </nav>
-      <div ref="content" class="settings-scroll">
-        <div id="settings-fields" class="settings-content" role="tabpanel" :aria-labelledby="'settings-tab-' + activeTab" tabindex="0">
-          <div class="section-heading"><h2>{{ section.title }}</h2><p>{{ section.description }}</p></div>
+      <div v-show="!mobile || !mobileIndex" ref="content" class="settings-scroll">
+        <div id="settings-fields" class="settings-content" tabindex="-1">
+          <button v-if="mobile" type="button" class="settings-button index-back" :disabled="disabled" @click="mobileIndex = true"><ArrowLeft :size="16" />All settings</button>
+          <div class="section-heading"><h2 tabindex="-1" id="settings-category-title">{{ section.title }}</h2><p>{{ section.description }}</p></div>
           <div v-if="loading" class="settings-loading" role="status">Loading settings…</div>
           <div v-else-if="loadError" class="settings-error"><p role="alert"><AlertCircle :size="18" />{{ loadError }}</p><button class="settings-button" type="button" @click="loadSettings">Retry</button></div>
-
-          <div v-if="sectionViews.length" class="settings-subtabs" role="tablist" :aria-label="section.title + ' views'" aria-orientation="horizontal">
-            <button id="settings-view-configuration" type="button" role="tab" data-settings-view="configuration" aria-controls="settings-configuration" :aria-selected="activeView === 'configuration'" :tabindex="activeView === 'configuration' ? 0 : -1" :disabled="disabled || loading" @click="selectView('configuration')" @keydown="moveView($event, 0)">Configuration</button>
-            <button v-for="(item, index) in sectionViews" :id="'settings-view-' + item.id" :key="item.id" type="button" role="tab" :data-settings-view="item.id" aria-controls="settings-management" :aria-selected="activeView === item.id" :tabindex="activeView === item.id ? 0 : -1" :disabled="disabled || loading" @click="selectView(item.id)" @keydown="moveView($event, index + 1)">{{ item.title }}</button>
-          </div>
-          <section v-if="activeManager" id="settings-management" class="settings-management" role="tabpanel" :aria-labelledby="'settings-view-' + activeView" tabindex="0">
-            <p class="manager-description">{{ activeManager.description }}</p>
-            <p v-if="sharesConfig && dirty" class="manager-notice" role="status">Save or reload your settings draft before changing accounts or connections. Your edits are kept.</p>
-            <p v-else-if="sharesConfig" class="manager-notice">These actions save immediately. They do not use Save settings.</p>
-            <fieldset class="settings-manager" :disabled="isSaving || isReloading || (sharesConfig && (!saved || !!loadError || loading || dirty))">
-              <component :is="PANELS[activeView]?.component" :key="activeView" @busy="managerBusy = $event" @changed="managerChanged" />
-            </fieldset>
-          </section>
-
-          <div v-if="sectionLinks.length && activeView === 'configuration'" class="manager-grid" aria-label="Related pages">
-            <button v-for="manager in sectionLinks" :key="manager.id" type="button" class="manager-link" :data-panel="manager.id" :disabled="disabled" @click="navigate(manager.id as 'analytics')"><div><strong>{{ manager.title }}</strong><p>{{ manager.description }}</p></div><ArrowUpRight :size="18" /></button>
-          </div>
-
-          <fieldset v-if="saved && draft && !loading && !loadError" v-show="activeView === 'configuration'" id="settings-configuration" class="settings-body" :disabled="disabled" aria-label="Configuration settings" :role="sectionViews.length ? 'tabpanel' : undefined" :aria-labelledby="sectionViews.length ? 'settings-view-configuration' : undefined">
+          <template v-else-if="saved && draft">
+            <p class="manager-notice">{{ activeTab === 'connections' ? 'Account and connection actions apply immediately. They do not use Save settings.' : 'Preference edits use Save settings. Changes from every category share one draft.' }}</p>
+            <div v-if="related.length" class="manager-grid" aria-label="Related management panels">
+              <button v-for="manager in related" :key="manager.id" type="button" class="manager-link" :data-panel="manager.id" :disabled="disabled" @click="openRelated(manager.id)"><div><strong>{{ manager.title }}</strong><p>{{ manager.description }}</p></div><ArrowUpRight :size="18" /></button>
+            </div>
+            <template v-if="activeTab === 'connections'">
+              <p v-if="dirty" class="manager-notice" role="status">Save or discard preference edits before changing accounts or connections. Your draft is kept.</p>
+              <section v-for="manager in [{ id: 'providers', title: 'Provider accounts' }, { id: 'mcp', title: 'MCP connections' }]" :key="manager.id" :data-section="manager.id" class="settings-management">
+                <h3 tabindex="-1">{{ manager.title }}</h3>
+                <fieldset class="settings-manager" :disabled="isSaving || isReloading || dirty || managerReloading || !!loadError">
+                  <component :is="PANELS[manager.id]?.component" @busy="managerBusy = $event" @changed="managerChanged" />
+                </fieldset>
+              </section>
+            </template>
+            <fieldset v-else id="settings-configuration" class="settings-body" :disabled="disabled" aria-label="Preference settings">
             <template v-if="activeTab === 'models'">
-              <SettingsGroup title="Main conversation" :status="groupStatus('models-main')" timing="New conversations" description="Choose the default model. Existing conversations keep their current model." data-section="models-main">
-                <label class="field-label"><span>Main default model</span><select class="input" aria-label="Main default model" :value="modelValue()" @change="chooseModel(($event.target as HTMLSelectElement).value)"><option value="">Runtime default</option><option v-if="modelValue() && !choices.some(c => c.value === modelValue())" :value="modelValue()">{{ modelValue() }} (saved)</option><option v-for="choice in choices" :key="choice.value" :value="choice.value">{{ choice.label }}</option></select></label>
+              <SettingsGroup title="Main conversation" :status="groupStatus('models-main')" timing="New conversations" description="Choose the default model. Existing conversations keep their current model." data-section="main-model">
+                <label class="field-label"><span>Main default model</span><select class="input" data-setting="model" aria-label="Main default model" :value="modelValue()" @change="chooseModel(($event.target as HTMLSelectElement).value)"><option value="">Runtime default</option><option v-if="modelValue() && !choices.some(c => c.value === modelValue())" :value="modelValue()">{{ modelValue() }} (saved)</option><option v-for="choice in choices" :key="choice.value" :value="choice.value">{{ choice.label }}</option></select></label>
                 <label class="field-label"><span>Main thinking level</span><select class="input" data-setting="thinkingLevel" aria-label="Main thinking level" aria-describedby="main-thinking-help" :value="draft.thinkingLevel ?? ''" @change="setVal(['thinkingLevel'], ($event.target as HTMLSelectElement).value || undefined)"><option value="">Model default</option><option v-for="level in thinkingLevels" :key="level" :value="level">{{ level }}</option></select><small id="main-thinking-help">{{ helpFor(['thinkingLevel']) }}</small></label>
                 <details class="advanced-fields"><summary>Provider and model IDs</summary><ComponentField v-for="key in ['provider', 'model']" :key="key" :schema="saved.schema.properties[key]" :path="[key]" :required="(saved.schema.required || []).includes(key)" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" /></details>
               </SettingsGroup>
-              <SettingsGroup title="Subagent defaults" :status="groupStatus('models-subagents')" timing="New subagents" :description="summaries.subagents" data-section="models-subagents">
-                <label class="field-label"><span>Subagent default model</span><select class="input" aria-label="Subagent default model" :value="modelValue(true)" @change="chooseModel(($event.target as HTMLSelectElement).value, true)"><option value="">Inherit parent model</option><option v-if="modelValue(true) && !choices.some(c => c.value === modelValue(true))" :value="modelValue(true)">{{ modelValue(true) }} (saved)</option><option v-for="choice in choices" :key="choice.value" :value="choice.value">{{ choice.label }}</option></select></label>
+              <SettingsGroup title="Subagent defaults" :status="groupStatus('models-subagents')" timing="New subagents" :description="summaries.subagents" data-section="subagents">
+                <label class="field-label"><span>Subagent default model</span><select class="input" data-setting="subagents.model" aria-label="Subagent default model" :value="modelValue(true)" @change="chooseModel(($event.target as HTMLSelectElement).value, true)"><option value="">Inherit parent model</option><option v-if="modelValue(true) && !choices.some(c => c.value === modelValue(true))" :value="modelValue(true)">{{ modelValue(true) }} (saved)</option><option v-for="choice in choices" :key="choice.value" :value="choice.value">{{ choice.label }}</option></select></label>
                 <label class="field-label"><span>Subagent thinking level</span><select class="input" data-setting="subagents.thinkingLevel" aria-label="Subagent thinking level" :value="draft.subagents.thinkingLevel ?? ''" @change="setVal(['subagents', 'thinkingLevel'], ($event.target as HTMLSelectElement).value || undefined)"><option value="">Inherit parent thinking level</option><option v-for="level in thinkingLevels" :key="level" :value="level">{{ level }}</option></select></label>
                 <ComponentField :schema="saved.schema.properties.subagents.properties.cwd" :path="['subagents','cwd']" :required="false" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" />
                 <details class="advanced-fields"><summary>Provider and model IDs</summary><ComponentField v-for="key in ['provider', 'model']" :key="key" :schema="saved.schema.properties.subagents.properties[key]" :path="['subagents', key]" :required="false" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" /></details>
               </SettingsGroup>
-              <SettingsGroup title="Model catalog" :status="groupStatus('models-refresh')" class="full-span" data-section="models-refresh"><div><button class="settings-button" type="button" :disabled="isRefreshingModels" @click="refreshModels"><RefreshCw :size="16" :class="{ 'refresh-spin': isRefreshingModels }" />{{ isRefreshingModels ? 'Refreshing…' : 'Refresh models' }}</button></div><p class="section-description">Refreshes automatically at startup and every hour. Saved model definitions and unsaved settings are kept.</p><p v-if="models.refresh?.checkedAt" class="help">Last checked: {{ new Date(models.refresh.checkedAt).toLocaleString() }}</p><p v-if="modelRefreshMessage" role="status" class="help">{{ modelRefreshMessage }}</p><p v-else-if="models.refresh && Object.keys(models.refresh.errors).length" role="status" class="help">Some providers could not refresh. Existing models are kept. {{ Object.entries(models.refresh.errors).map(([id, error]) => `${id}: ${error}`).join('; ') }}</p></SettingsGroup>
+              <SettingsGroup title="Model catalog" :status="groupStatus('models-refresh')" class="full-span" data-section="catalog"><div><button class="settings-button" type="button" :disabled="isRefreshingModels" @click="refreshModels"><RefreshCw :size="16" :class="{ 'refresh-spin': isRefreshingModels }" />{{ isRefreshingModels ? 'Refreshing…' : 'Refresh models' }}</button></div><p class="section-description">Refreshes automatically at startup and every hour. Saved model definitions and unsaved settings are kept.</p><p v-if="models.refresh?.checkedAt" class="help">Last checked: {{ new Date(models.refresh.checkedAt).toLocaleString() }}</p><p v-if="modelRefreshMessage" role="status" class="help">{{ modelRefreshMessage }}</p><p v-else-if="models.refresh && Object.keys(models.refresh.errors).length" role="status" class="help">Some providers could not refresh. Existing models are kept. {{ Object.entries(models.refresh.errors).map(([id, error]) => `${id}: ${error}`).join('; ') }}</p></SettingsGroup>
             </template>
-
-            <template v-for="key in section.keys" :key="key">
-              <SettingsGroup v-if="activeTab !== 'models' || ['auxiliary', 'providers'].includes(key)" :title="fieldTitles[key] || key" :description="summaries[key]" :status="groupStatus(key)" :timing="timing[key] || 'Applies live'" :data-section="key"><ComponentField :schema="saved.schema.properties[key]" :path="[key]" :required="(saved.schema.required || []).includes(key)" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" /></SettingsGroup>
-            </template>
-            <SettingsGroup v-if="activeTab === 'system'" title="Configuration file" timing="Read only" class="full-span" data-section="configuration-file"><p class="config-path">{{ saved.path }}</p><p class="section-description">Save settings writes every section to this file. Saved secret markers keep existing credentials unchanged.</p><p v-if="saved.environmentOverrides.length" class="help">Environment overrides: {{ saved.environmentOverrides.join(', ') }}. These values take precedence over saved settings.</p><p v-else class="help">No environment overrides are active.</p></SettingsGroup>
-          </fieldset>
+              <template v-for="key in section.keys" :key="key">
+                <SettingsGroup v-if="activeTab !== 'models' || key === 'auxiliary'" :title="fieldTitles[key] || key" :description="summaries[key]" :status="groupStatus(key)" :timing="timing[key] || 'Applies live'" :data-section="groupFor(key)">
+                  <ComponentField :schema="saved.schema.properties[key]" :path="[key]" :required="(saved.schema.required || []).includes(key)" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" />
+                </SettingsGroup>
+              </template>
+              <SettingsGroup v-if="activeTab === 'media'" title="Analysis models" data-section="analysis-models"><p class="section-description">Choose image and video models in Models → Task-specific models.</p><button class="settings-button" type="button" @click="setSettingsTab('models/task-models')">Choose analysis models<ArrowUpRight :size="16" /></button></SettingsGroup>
+              <SettingsGroup v-if="activeTab === 'system'" title="Configuration file" timing="Read only" data-section="configuration-file"><p class="config-path">{{ saved.path }}</p><p class="section-description">Save settings writes every category to this file. Saved secret markers keep existing credentials unchanged.</p><p v-if="saved.environmentOverrides.length" class="help">Environment overrides: {{ saved.environmentOverrides.join(', ') }}. These values take precedence over saved settings.</p><p v-else class="help">No environment overrides are active.</p></SettingsGroup>
+            </fieldset>
+          </template>
         </div>
       </div>
     </div>
-    <footer class="settings-footer"><div class="save-state"><strong>{{ dirty ? 'Unsaved changes' : saved?.restartRequired ? 'Restart required' : 'Configuration' }}</strong><p role="status" aria-live="polite" :class="{ 'save-error': saveError }">{{ statusText || 'Settings apply as shown beside each section.' }}</p></div><div class="save-actions"><button class="settings-button" type="button" :disabled="!saved || loading || disabled" @click="reloadSettings">{{ isReloading ? 'Reloading…' : 'Reload' }}</button><button class="settings-button primary" type="button" data-settings-save :disabled="!saved || loading || disabled" @click="saveSettings">{{ isSaving ? 'Saving...' : 'Save settings' }}</button></div></footer>
+    <footer class="settings-footer"><div class="save-state"><strong>{{ dirty ? 'Unsaved changes' : saved?.restartRequired ? 'Restart required' : 'Settings' }}</strong><p role="status" aria-live="polite" :class="{ 'save-error': saveError }">{{ statusText || 'Settings apply as shown beside each group.' }}</p></div><div class="save-actions"><button class="settings-button" type="button" :disabled="!saved || loading || disabled" @click="reloadSettings">{{ isReloading ? 'Reloading…' : dirty ? 'Discard changes' : 'Reload' }}</button><button class="settings-button primary" type="button" data-settings-save :disabled="!saved || loading || disabled || !dirty" @click="saveSettings">{{ isSaving ? 'Saving...' : 'Save settings' }}</button></div></footer>
   </div>
 </template>
 
@@ -292,47 +321,21 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .settings-layout { display: flex; min-height: 0; flex: 1; }
 .settings-nav { flex: 0 0 208px; padding: 20px 12px; border-right: 1px solid var(--border); overflow-y: auto; }
 .settings-tabs { display: flex; flex-direction: column; gap: 4px; }
+.settings-tabs button strong { font-weight: inherit; }
+.settings-tabs button small { display: block; font-size: 13px; margin-top: 4px; color: var(--muted-foreground); line-height: 1.5; }
+.index-back { margin-bottom: 20px; }
+.settings-management { padding-block: 20px; border-top: 1px solid var(--border); }
+.settings-management h3 { font-size: 18px; margin-bottom: 16px; }
 .settings-tabs button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border-radius: var(--radius); text-align: left; color: var(--muted-foreground); cursor: pointer; flex-shrink: 0; }
 .settings-tabs button:hover { background: var(--accent); color: var(--foreground); }
-.settings-tabs button[aria-selected="true"] { background: var(--acc-soft); color: var(--primary-text); font-weight: 600; }
+.settings-tabs button[aria-current="page"] { background: var(--acc-soft); color: var(--primary-text); font-weight: 600; }
 .settings-tabs svg { flex-shrink: 0; }
 .settings-scroll { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
-.settings-content { padding: 28px 32px 40px; min-width: 0; }
+.settings-content { padding: 28px 32px 40px; min-width: 0; max-width: 1040px; margin-inline: auto; }
 .section-heading { margin-bottom: 24px; }
 .section-heading h2 { font-size: 21.5px; font-weight: 600; letter-spacing: -.02em; }
 .settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; min-width: 0; padding: 0; margin: 0; border: 0; }
-@media (min-width: 961px) {
-  .settings-body {
-    grid-template-columns: 320px minmax(0, 1fr);
-    grid-template-rows: repeat(8, max-content) 1fr;
-    grid-auto-flow: dense;
-    column-gap: 32px;
-    row-gap: 8px;
-  }
-  .settings-body:not(:has(> details.settings-card[open] ~ details.settings-card[open])) > details.settings-card[open] > :deep(.group-content) {
-    grid-row: 1 / 10;
-  }
-  .settings-body:not(:has(> details.settings-card[open]))::after {
-    content: "Select a setting group on the left to inspect and edit its options.";
-    grid-column: 2;
-    grid-row: 1 / 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 220px;
-    padding: 32px;
-    border: 1px dashed var(--border);
-    border-radius: var(--radius);
-    color: var(--muted-foreground);
-    font-size: 14px;
-    text-align: center;
-  }
-}
 .section-description, .help { color: var(--muted-foreground); line-height: 1.6; font-size: 14px; max-width: 76ch; }
-.settings-subtabs { display: flex; gap: 20px; margin: -8px 0 24px; border-bottom: 1px solid var(--border); overflow-x: auto; min-width: 0; }
-.settings-subtabs button { min-height: 44px; padding: 10px 2px; flex-shrink: 0; border-bottom: 2px solid transparent; font-size: 15px; color: var(--muted-foreground); cursor: pointer; white-space: nowrap; }
-.settings-subtabs button:hover { color: var(--foreground); }
-.settings-subtabs button[aria-selected="true"] { color: var(--primary-text); border-color: var(--primary); font-weight: 600; }
 .settings-management { min-width: 0; }
 .manager-description { color: var(--muted-foreground); font-size: 15px; line-height: 1.6; margin-bottom: 16px; }
 .manager-notice { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: var(--muted-foreground); }
@@ -380,12 +383,12 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .mobile-only { display: inline-flex; width: 44px; height: 44px; }
   .back-button { padding-inline: 12px; }
   .settings-layout { flex-direction: column; }
-  .settings-nav { flex: 0 0 auto; width: 100%; padding: 8px 16px; border-right: 0; border-bottom: 1px solid var(--border); overflow: hidden; }
-  .settings-tabs { flex-direction: row; overflow-x: auto; gap: 4px; padding: 4px; scroll-padding-inline: 4px; }
-  .settings-tabs button { white-space: nowrap; font-size: 14px; }
+  .settings-nav { flex: 1; width: 100%; padding: 16px; border: 0; overflow-y: auto; }
+  .settings-tabs { flex-direction: column; gap: 8px; }
+  .settings-tabs button { white-space: normal; font-size: 15px; border: 1px solid var(--border); align-items: flex-start; padding: 16px; }
   .settings-content { padding: 24px 16px 32px; }
   .settings-body { gap: 16px; }
-  .settings-footer { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+  .settings-footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); flex-wrap: wrap; gap: 8px; }
   .save-state { width: 100%; }
   .save-state strong { display: none; }
   .save-state p { margin: 0; max-height: 4.5em; overflow-y: auto; }

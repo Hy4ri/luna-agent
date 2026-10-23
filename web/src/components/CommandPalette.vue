@@ -8,7 +8,8 @@ import { chat, openSession, scheduleContext } from '@/stores/chat';
 import { history, sessionTitle, projectName } from '@/stores/sessions';
 import { models, modelKey, selectedKey, chooseModel, LEVELS, levelLabel, setThinking } from '@/stores/models';
 import { PANELS } from '@/components/panels';
-import { sections, labelFor } from '@/pages/settings/catalog';
+import { sections, labelFor, isVisibleSetting, settingRoute } from '@/pages/settings/catalog';
+import { fieldLocation } from '@/pages/settings/settingsSearch';
 import { json, post } from '@/lib/api';
 import { useMobile } from '@/lib/dom';
 
@@ -125,12 +126,15 @@ const items = computed<Item[]>(() => {
   if (view) {
     const blocked = saving.value ? 'Saving' : undefined;
     for (const field of fieldsOf(view.schema)) {
+      if (!isVisibleSetting(field.path)) continue;
       const title = fieldTitle(field.path), id = 'setting:' + field.path.join('.');
+      const location = fieldLocation(field.path);
+      add({ id: 'open:' + id, group: 'Open setting', label: title, hint: location, run: () => navigate('settings', settingRoute(field.path)) });
       const value = read(view.config, field.path) ?? field.fallback;
       if (field.kind === 'boolean') {
-        add({ id, group: 'Settings', label: title, state: value ? 'On' : 'Off', disabled: blocked, keep: true, run: () => writeSetting(field.path, !value) });
+        add({ id, group: 'Settings', label: title, hint: location, state: value ? 'On' : 'Off', disabled: blocked, keep: true, run: () => writeSetting(field.path, !value) });
       } else for (const option of field.values) {
-        add({ id: `${id}=${option}`, group: 'Settings', label: `${title}: ${option}`, current: value === option, disabled: blocked, keep: true, run: () => writeSetting(field.path, option) });
+        add({ id: `${id}=${option}`, group: 'Settings', label: `${title}: ${option}`, hint: location, current: value === option, disabled: blocked, keep: true, run: () => writeSetting(field.path, option) });
       }
     }
   }

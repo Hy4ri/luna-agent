@@ -32,7 +32,7 @@ export const DESCRIPTIONS: Record<string, string> = {
   cron: "Reports that need checking, scheduled prompt jobs, and report history.",
   memory: "Search, save, and remove persistent facts.",
   skills: "Browse the instructions available to Luna.",
-  providers: "Connect accounts and choose your default model.",
+  providers: "Connect accounts and manage custom provider definitions.",
   mcp: "Connect external tools and manage their access.",
   lessons: "Review what Luna learned from past sessions before it changes skills or memory.",
 };
