@@ -102,7 +102,6 @@ const items = computed<Item[]>(() => {
   const add = (item: Item) => list.push(item);
 
   add({ id: 'view:chat', group: 'Go to', label: 'Chat', current: ui.view === 'chat' && !ui.panel, run: () => navigate('chat') });
-  add({ id: 'view:cron', group: 'Go to', label: 'Cron', current: ui.view === 'cron', run: () => navigate('cron') });
   add({ id: 'view:analytics', group: 'Go to', label: 'Analytics', current: ui.view === 'analytics', run: () => navigate('analytics') });
   for (const s of sections) add({ id: 'settings:' + s.id, group: 'Go to', label: 'Settings: ' + s.title, hint: s.description, current: ui.view === 'settings' && ui.settingsTab === s.id, run: () => navigate('settings', s.id) });
   for (const [id, panel] of Object.entries(PANELS)) add({ id: 'panel:' + id, group: 'Open', label: panel.title, hint: panel.desc, current: ui.panel === id, run: () => openPanel(id) });

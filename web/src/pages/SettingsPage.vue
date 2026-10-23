@@ -252,7 +252,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
           </section>
 
           <div v-if="sectionLinks.length && activeView === 'configuration'" class="manager-grid" aria-label="Related pages">
-            <button v-for="manager in sectionLinks" :key="manager.id" type="button" class="manager-link" :data-panel="manager.id" :disabled="disabled" @click="navigate(manager.id as 'cron' | 'analytics')"><div><strong>{{ manager.title }}</strong><p>{{ manager.description }}</p></div><ArrowUpRight :size="18" /></button>
+            <button v-for="manager in sectionLinks" :key="manager.id" type="button" class="manager-link" :data-panel="manager.id" :disabled="disabled" @click="navigate(manager.id as 'analytics')"><div><strong>{{ manager.title }}</strong><p>{{ manager.description }}</p></div><ArrowUpRight :size="18" /></button>
           </div>
 
           <fieldset v-if="saved && draft && !loading && !loadError" v-show="activeView === 'configuration'" id="settings-configuration" class="settings-body" :disabled="disabled" aria-label="Configuration settings" :role="sectionViews.length ? 'tabpanel' : undefined" :aria-labelledby="sectionViews.length ? 'settings-view-configuration' : undefined">

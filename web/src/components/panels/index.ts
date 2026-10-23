@@ -9,13 +9,14 @@ import SkillsPanel from "./SkillsPanel.vue";
 import ProvidersPanel from "./ProvidersPanel.vue";
 import McpPanel from "./McpPanel.vue";
 import LessonsPanel from "./LessonsPanel.vue";
+import CronPanel from "./CronPanel.vue";
 
 export const TITLES: Record<string, string> = {
   projects: "Projects",
   board: "Project board",
   session: "Session",
   agents: "Subagents",
-  cron: "Cron jobs",
+  cron: "Cron",
   memory: "Memory",
   skills: "Skills",
   providers: "Model providers",
@@ -28,7 +29,7 @@ export const DESCRIPTIONS: Record<string, string> = {
   board: "Cards shared by you and the sessions in the selected project.",
   session: "Instructions, context, and tools for this conversation.",
   agents: "Delegated work in this conversation.",
-  cron: "Manage scheduled prompts and inspect recent runs.",
+  cron: "Reports that need checking, scheduled prompt jobs, and report history.",
   memory: "Search, save, and remove persistent facts.",
   skills: "Browse the instructions available to Luna.",
   providers: "Connect accounts and choose your default model.",
@@ -57,6 +58,11 @@ export const PANELS: Record<string, { title: string; desc: string; component: Co
     title: TITLES.agents,
     desc: DESCRIPTIONS.agents,
     component: AgentsPanel,
+  },
+  cron: {
+    title: TITLES.cron,
+    desc: DESCRIPTIONS.cron,
+    component: CronPanel,
   },
   memory: {
     title: TITLES.memory,

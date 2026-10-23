@@ -358,7 +358,7 @@ onMounted(() => {
         <span class="side-label">Commands</span>
         <kbd class="side-kbd">Ctrl K</kbd>
       </button>
-      <button class="side-item" data-panel="cron" title="Cron" :aria-current="ui.view === 'cron' ? 'page' : undefined" @click="openPanel('cron')">
+      <button class="side-item" data-panel="cron" title="Cron" @click="openPanel('cron')">
         <Clock :size="18" />
         <span class="side-label">Cron</span>
         <span id="cron-unread" class="pill" :hidden="!ui.cronUnread">{{ ui.cronUnread }}</span>

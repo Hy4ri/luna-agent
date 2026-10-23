@@ -76,6 +76,16 @@ The Providers and MCP panels also write this file, not separate settings files.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
 
+### Cron reports in the web UI
+
+Open **Cron** from the sidebar. It opens a floating panel with **Reports**, **Jobs**, and **History**.
+Reports contains the newest meaningful unread report for each job. New reports replace older reports for that job.
+Opening a report marks it read and keeps its detail visible. Returning to the list removes the read entry.
+Use **Mark unread** to restore the latest report, or **Mark all read** to clear the current inbox.
+Older, superseded reports remain in History, even when marked unread. History is newest first and supports a job filter.
+The sidebar badge counts unread inbox entries and is hidden at zero. Job health stays separate in Jobs.
+Closing the panel preserves unfinished job edits. A successful run is not labeled as proof that an earlier problem was resolved.
+
 ## Interactive replies
 
 Assistant replies can include `ui` fences for charts and plots, or `html` fences for custom interactive visuals.

@@ -156,7 +156,6 @@ export const managers: Record<string, { id: string; title: string; description: 
   tools: [{ id: 'mcp', title: 'Live MCP connections', description: 'Connect external tools, inspect status, enable, disable, or remove a managed server.' }, { id: 'workers', title: 'Execution machines', description: 'Connect machines for file and command execution.' }],
   automation: [
     { id: 'lessons', title: 'Review lessons', description: 'Review proposed changes, inspect contextual evidence, verify outcomes, and roll back unchanged targets.' },
-    { id: 'cron', title: 'Cron jobs & reports', description: 'Manage scheduled prompts and inspect their reports and run history.' },
   ],
   system: [{ id: 'analytics', title: 'Usage analytics', description: 'Filter model usage, compare tokens and recorded costs, and inspect reported tool usage.' }],
 }

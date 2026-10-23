@@ -100,7 +100,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   `#app` is `position: fixed` with `height: var(--viewport-height, 100dvh)` and `top: var(--viewport-top, 0px)`, updated dynamically by `trackViewport()` (`web/src/lib/viewport.ts`) when mobile virtual keyboards resize `window.visualViewport` (while preserving native pinch-zoom when `viewport.scale !== 1`).
 - **Sidebar (`aside#side`):**
   - Resizable on desktop (`--side-w`, default `264px`) via `#side-resize` drag handle; collapsible to a `60px` icon rail (`aside#side.collapsed`) that hides text labels via accessible clip rules and exposes `#history-rail`.
-  - Top navigation items (`.side-item`) switch between primary views (`chat`, `cron`, `analytics`, `settings`) or open workspace panels (`projects`, `board`, `memory`, `skills`, `lessons`). Active view uses `[aria-current="page"]` (`background: var(--acc-soft); color: var(--primary)`).
+  - Top navigation items (`.side-item`) switch between primary views (`chat`, `analytics`, `settings`) or open workspace panels (`cron`, `projects`, `board`, `memory`, `skills`, `lessons`). Active view uses `[aria-current="page"]` (`background: var(--acc-soft); color: var(--primary)`).
   - **Session History (`#sessions`):** Grouped by project (`.session-group`) with collapsible headers (`.group-toggle`) and a per-project quick-create button (`.group-new`). Pinned sessions sort first, followed by most recent activity. Collapsed groups keep pinned sessions and sessions with any status except `ready` or `stopped` visible, indented beneath their own header. Expanding restores the full list in the same order.
   - **Mobile Drawer (`@media (max-width: 760px)`):** Slides over the canvas (`width: 280px`, `transform: translateX(-100%)` → `translateX(0)` when `.open`) with a backdrop scrim (`#shade`).
 - **Command Palette (`CommandPalette.vue`, `#command-palette`):**
@@ -161,15 +161,16 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 
 ### 4. Full Pages & Workspace Panels (`web/src/pages/`, `web/src/components/panels/`)
 
-- **Full-Page Views (`SettingsPage.vue`, `CronPage.vue`, `AnalyticsPage.vue`):**
+- **Full-Page Views (`SettingsPage.vue`, `AnalyticsPage.vue`):**
   - Render in the main content area when `ui.view !== 'chat'`.
   - **Settings (`SettingsPage.vue`):** 6 vertical/horizontal navigation tabs (`General`, `Models`, `Context`, `Tools`, `Automation`, `Workspace`) sharing one unsaved draft with dirty-navigation protection, inline status summaries (`groupStatus`), and collapsible manager disclosures (`details.card > summary` + `.manager-body`).
-  - **Cron (`CronPage.vue`) & Analytics (`AnalyticsPage.vue`):** Master-detail or responsive card/table layouts with explicit empty, loading, and error states.
+  - **Analytics (`AnalyticsPage.vue`):** Responsive usage layouts with explicit empty, loading, and error states.
 - **Panels & Floating Windows (`PanelHost.vue`):**
   - Slide-over drawer panels (`max-w-xl`, right-aligned: `session`, `agents`, `memory`, `skills`, `providers`, `mcp`, `lessons`) use `#pbody` with shared `.card`, `.row`, `.grid`, and `.field-label` layout rules.
   - **Centered Floating Windows (`WINDOWS` in `PanelHost.vue`):**
     - `board` (`.board-window`): `height: 94dvh`, `max-height: calc(100dvh - 48px)`, full-width kanban workspace.
     - `projects` (`.projects-window`): `max-width: 900px`, `height: min(600px, calc(100dvh - 48px))`, split list + detail window.
+    - `cron` (`CronPanel.vue`, `.cron-window`): maximum width `1180px`, height `94%`, responsive list and detail layout. Reports is an unread inbox, Jobs manages schedules and health, and History holds read and superseded reports, newest first, with a job filter. Opening a report marks it read without closing its detail. Back returns to the list. New reports replace older reports for that job. Mark unread restores the latest report; superseded reports remain in History. Mark all read clears the current inbox. The sidebar badge counts unread inbox entries and hides at zero. Closing preserves the active tab, job selection, history filter, and unfinished job edit.
 
 ---
 
@@ -240,7 +241,6 @@ pnpm run verify:mobile-viewport-ui  # Mobile drawer, responsive header, and visu
 pnpm run verify:settings-page-ui    # Settings tabs, drafts, and inline managers
 pnpm run verify:board-ui            # Kanban board window and # mention autocomplete
 pnpm run verify:projects-ui         # Projects floating window
-pnpm run verify:cron-screen-ui      # Cron management page
 pnpm run verify:analytics-ui        # Usage analytics page
 ```
 

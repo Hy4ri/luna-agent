@@ -5,7 +5,7 @@ import { isMobile } from "@/lib/dom";
 import { sections } from "@/pages/settings/catalog";
 import { sessionPane } from "@/lib/pane";
 
-export type View = "chat" | "cron" | "analytics" | "settings";
+export type View = "chat" | "analytics" | "settings";
 export const SETTINGS_TABS: readonly string[] = sections.map(section => section.id);
 export const SIDE_MIN = 200, SIDE_MAX = 480, SIDE_DEFAULT = 264;
 
@@ -60,7 +60,7 @@ export function closeSettings(force = false): boolean {
   setDrawer(false);
   return true;
 }
-function closePage(view: "cron" | "analytics") {
+function closePage(view: "analytics") {
   if (ui.view !== view) return;
   ui.view = "chat";
   if (location.hash === "#" + view) clearHash();
@@ -75,7 +75,7 @@ export function openSettings(tab?: string) {
     return;
   }
   ui.settingsTab = next;
-  if (ui.view !== "settings") { closePanel(); closePage("cron"); closePage("analytics"); ui.view = "settings"; setDrawer(false); }
+  if (ui.view !== "settings") { closePanel(); closePage("analytics"); ui.view = "settings"; setDrawer(false); }
   setDrawer(false);
   if (location.hash !== settingsHash()) location.hash = settingsHash().slice(1);
 }
@@ -85,14 +85,13 @@ export function setSettingsTab(id: string) {
   ui.settingsTab = id;
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
-function openPage(view: "cron" | "analytics") {
+function openPage(view: "analytics") {
   if (!closeSettings()) return;
   if (ui.login) return;
   closePanel(); setDrawer(false);
   ui.view = view;
   if (location.hash !== "#" + view) location.hash = view;
 }
-export const openCron = () => openPage("cron");
 export const openAnalytics = () => openPage("analytics");
 /** "Back to chat" from any page. Focuses the composer. */
 export function backToChat() {
@@ -103,12 +102,11 @@ export function backToChat() {
 /** Leave whatever page is open (used before switching conversations). */
 export function leavePages(): boolean {
   if (!closeSettings()) return false;
-  if (ui.view === "cron" || ui.view === "analytics") closePage(ui.view);
+  if (ui.view === "analytics") closePage("analytics");
   return true;
 }
 export function navigate(view: View, tab?: string) {
   if (view === "settings") openSettings(tab);
-  else if (view === "cron") openCron();
   else if (view === "analytics") openAnalytics();
   else backToChat();
 }
@@ -118,7 +116,6 @@ let returnFocus: Element | null = null;
 export function openPanel(name: string) {
   if (name === "settings") { closePanel(); return openSettings(); }
   if (name === "analytics") { closePanel(); return openAnalytics(); }
-  if (name === "cron") { closePanel(); return openCron(); }
   if (!closeSettings()) return;
   returnFocus = document.activeElement;
   setDrawer(false);
@@ -134,7 +131,6 @@ export function closePanel() {
     if (el?.isConnected && !el.closest("[inert]") && el.offsetParent !== null) el.focus();
     else if (ui.view === "settings") document.getElementById("settings-menu")?.focus();
     else if (ui.view === "analytics") document.getElementById("analytics-menu")?.focus();
-    else if (ui.view === "cron") document.getElementById("cron-menu")?.focus();
     else {
       const menu = document.getElementById("menu");
       (menu?.offsetParent ? menu : document.getElementById("more"))?.focus();
@@ -182,6 +178,8 @@ export function login(value: string, server?: string) {
 }
 
 // ---- boot ----
+/** Keeps the sidebar unread count current while the Cron panel is closed. */
+let badgeTimer: ReturnType<typeof setInterval> | undefined;
 export async function boot() {
   const chat = await import("./chat");
   const models = await import("./models");
@@ -200,6 +198,7 @@ export async function boot() {
     if (chat.chat.session) await chat.openSession(chat.chat.session); else composer.restoreDraft();
     chat.startListFeed();
     void badge.refreshCronBadge();
+    badgeTimer ??= setInterval(() => { if (!document.hidden) void badge.refreshCronBadge(); }, 30_000);
     applyHash();
   } catch (e) {
     if ((e as Error).message !== "unauthorized") chat.chat.bootError = String((e as Error).message || e);
@@ -210,14 +209,14 @@ function applyHash() {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) openSettings();
   else if (h === "#analytics") { if (ui.view !== "analytics") openAnalytics(); }
-  else if (h === "#cron") { if (ui.view !== "cron") openCron(); }
+  else if (h === "#cron") { history.replaceState(null, "", location.pathname + location.search); openPanel("cron"); }
 }
 window.addEventListener("hashchange", () => {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) { openSettings(); return; }
   if (!closeSettings()) return;
   if (h === "#analytics" || h === "#cron") applyHash();
-  else { closePage("cron"); closePage("analytics"); }
+  else { closePage("analytics"); }
 });
 window.addEventListener("beforeunload", e => {
   if (ui.view === "settings" && guard?.isDirty()) { e.preventDefault(); e.returnValue = ""; }
