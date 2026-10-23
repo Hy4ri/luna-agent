@@ -51,6 +51,10 @@ The Providers and MCP panels also write this file, not separate settings files.
   `delegate_task` then reports `needs_input` or `needs_approval` with the reason: `wait` returns early and `list` shows it.
   When the child's turn ends, the spawning session also gets one follow-up message (once per handoff).
   The message grants no permission. Answer the child with `delegate_task` `steer`; approvals stay with m57.
+  `delegate_task` actions: `show` prints a child's full pending request and its last tool calls; `stop` is final until the child is steered.
+  `spawn` also takes `worktree` and `base` (own git worktree on a new branch, under `.luna-worktrees` beside the project),
+  `notes` (a facts file put in the brief) and `timeoutSec` (child budget, enforced when the parent runs `list` or `wait`).
+  Every brief tells the child to end with a `receipt` JSON block; `wait` checks `commit_sha` against git. There is no `approve` action: only m57 approves.
   A handoff that ends while the daemon is down does not send a message, but `wait` and `list` still show it.
 - `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
