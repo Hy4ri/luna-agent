@@ -15,7 +15,7 @@ import CommandPalette from '@/components/CommandPalette.vue';
 import AnalyticsPage from '@/pages/AnalyticsPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
 import { isDesktop, serverUrl } from '@/lib/api';
-import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette } from '@/stores/app';
+import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate } from '@/stores/app';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
@@ -326,7 +326,7 @@ onUnmounted(() => {
       @touchend.passive="endNavigationSwipe" @touchcancel.passive="cancelNavigationSwipe">
       <Sidebar v-if="!sessionPane" :inert="ui.login || !!ui.panel" />
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
-      <div id="chat-workspace" v-show="ui.view === 'chat'" :inert="blocked" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
+      <div id="chat-workspace" :inert="blocked || ui.view !== 'chat'" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
         <main id="main" ref="mainRef" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
             <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" :aria-controls="sessionPane ? undefined : 'side'" :aria-expanded="sessionPane ? undefined : ui.drawer" @click="openNavigation"><Menu :size="18" /></button>
@@ -386,9 +386,11 @@ onUnmounted(() => {
           <span>{{ dropMessage }}</span>
         </div>
       </div>
-      <div v-if="ui.view !== 'chat'" :inert="blocked" class="flex min-w-0 flex-1 overflow-hidden">
-        <AnalyticsPage v-if="ui.view === 'analytics'" :inert="blocked" />
-        <SettingsPage v-if="ui.view === 'settings'" :inert="blocked" />
+      <div v-if="ui.view === 'analytics'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+        <div class="settings-window"><AnalyticsPage :inert="blocked" /></div>
+      </div>
+      <div v-if="ui.view === 'settings'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+        <div class="settings-window"><SettingsPage :inert="blocked" /></div>
       </div>
       <PanelHost />
       <CommandPalette v-if="!sessionPane" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
@@ -407,6 +409,9 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.settings-backdrop { padding: 24px; }
+.settings-window { width: 100%; max-width: min(1180px, 100%); height: 94%; display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px #0009; background: var(--background); }
+@media (max-width: 760px) { .settings-backdrop { padding: 8px; } .settings-window { height: 100%; } }
 .mobile-menu-action {
   display: flex;
   align-items: center;
