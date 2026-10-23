@@ -24,10 +24,11 @@ import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import type { ModelRef } from "./scheduler.js";
 import type { SettingsStore } from "./settings.js";
 import { claudeCliProvider } from "./claude-cli.js";
+import { opencodeCliProvider } from "./opencode-cli.js";
 
 /** Built-in providers offered in the UI. Each brings its own catalog, API-key auth and (where supported) OAuth login. */
 export const BUILTIN_PROVIDERS: (() => Provider)[] = [
-  claudeCliProvider, anthropicProvider, openaiProvider, githubCopilotProvider, openrouterProvider, googleProvider,
+  claudeCliProvider, opencodeCliProvider, anthropicProvider, openaiProvider, githubCopilotProvider, openrouterProvider, googleProvider,
   xaiProvider, deepseekProvider, groqProvider, mistralProvider,
 ];
 

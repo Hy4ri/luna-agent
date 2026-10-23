@@ -373,6 +373,19 @@ The UI shows a restart notice after you save one of them.
 Environment variables still override the file: `LUNA_DATA`, `LUNA_CWD`, `LUNA_PROVIDER`,
 `LUNA_MODEL`, `LUNA_HOST`, and `LUNA_PORT`. Settings lists active override names.
 
+## OpenCode CLI provider
+
+The `opencode-cli` provider runs models through the installed `opencode` background service, including its free
+models. OpenCode's free tier only accepts requests from OpenCode itself, so Luna does not call the API directly.
+Model ids look like `opencode/big-pickle` (`provider/model`, as printed by `opencode models`).
+
+Luna keeps tool execution. Each conversation gets a loopback MCP server that lists Luna's tools. OpenCode's own
+tools are denied (except `read`, which the free tier requires), and the session runs in an empty scratch directory.
+A tool call is held open until Luna has run the tool and returned the result. Free models can be rate-limited or
+removed at any time, and free providers may log prompts: do not send secrets to them.
+`LUNA_OPENCODE_EXECUTABLE` selects the executable; the default is `opencode` on PATH. The routes used are marked
+experimental, so pin the opencode version you tested.
+
 ## Claude CLI provider
 
 The `claude-cli` provider uses the installed Claude Code login. It requires a recent official

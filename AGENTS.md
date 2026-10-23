@@ -74,6 +74,7 @@ luna-pi/
 │   ├── cli.ts                  # Interactive terminal client against the daemon HTTP/SSE API
 │   ├── providers.ts            # Built-in + custom model providers, auth.json store, catalog refresh
 │   ├── claude-cli.ts           # Claude CLI provider adapter
+│   ├── opencode-cli.ts         # OpenCode CLI provider adapter (free models; Luna tools via loopback MCP)
 │   ├── claude-native/          # Native Claude transport, history budgeting, and admission control
 │   ├── mcp.ts                  # McpManager: stdio/HTTP/SSE lifecycle and <dataDir>/mcp.json
 │   ├── scheduler.ts            # CronStore (SQLite) and Scheduler loop

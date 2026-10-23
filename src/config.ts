@@ -150,7 +150,7 @@ export const ConfigSchema = z
   .superRefine((c, ctx) => {
     if (!!c.subagents.provider !== !!c.subagents.model) ctx.addIssue({ code: "custom", path: ["subagents"], message: "provider and model must be set together" });
     if (new Set(c.providers.map(p => p.id)).size !== c.providers.length) ctx.addIssue({ code: "custom", path: ["providers"], message: "duplicate provider id" });
-    const builtinProviders = ["faux", "claude-cli", "anthropic", "openai", "github-copilot", "openrouter", "google", "xai", "deepseek", "groq", "mistral"];
+    const builtinProviders = ["faux", "claude-cli", "opencode-cli", "anthropic", "openai", "github-copilot", "openrouter", "google", "xai", "deepseek", "groq", "mistral"];
     if (c.providers.some(p => builtinProviders.includes(p.id))) ctx.addIssue({ code: "custom", path: ["providers"], message: "custom provider id conflicts with a built-in provider" });
     const seen = new Set<string>();
     for (const s of c.mcpServers) {
