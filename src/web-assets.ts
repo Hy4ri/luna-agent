@@ -21,7 +21,7 @@ export function createWebApp(root: URL): Hono {
       const page = readFileSync(new URL("index.html", root), "utf8");
       const assets = readdirSync(new URL("assets/", root), { withFileTypes: true })
         .filter(item => item.isFile()).map(item => item.name).sort();
-      const files = ["/", "/manifest.webmanifest", "/icon.svg", ...assets.map(n => "/assets/" + n)];
+      const files = ["/", "/manifest.webmanifest", "/icon.svg", "/icon.png", ...assets.map(n => "/assets/" + n)];
       const worker = readFileSync(new URL("sw.js", root), "utf8");
       const version = "luna-vue-" + createHash("sha256").update(page).update(worker).update(JSON.stringify(files)).digest("hex").slice(0, 16);
       const swCode = worker
@@ -47,8 +47,8 @@ export function createWebApp(root: URL): Hono {
     return c.body(build.swCode, 200, { "content-type": "text/javascript; charset=UTF-8", "cache-control": "no-cache", "x-content-type-options": "nosniff" });
   });
 
-  for (const path of ["/manifest.webmanifest", "/icon.svg"]) {
-    const type = path.endsWith(".svg") ? "image/svg+xml; charset=UTF-8" : "application/manifest+json; charset=UTF-8";
+  for (const path of ["/manifest.webmanifest", "/icon.svg", "/icon.png"]) {
+    const type = path.endsWith(".svg") ? "image/svg+xml; charset=UTF-8" : path.endsWith(".png") ? "image/png" : "application/manifest+json; charset=UTF-8";
     app.get(path, (c) => {
       try {
         return c.body(readFileSync(new URL(path.slice(1), root)), 200, { "content-type": type, "cache-control": "no-cache", "x-content-type-options": "nosniff" });
