@@ -7,6 +7,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Admission } from "./admission.js";
+import { claudeHeaderLimit, recordClaudeLimit, type ProviderLimit } from "../provider-limits.js";
 import { CARRIER_TYPE, TOOL_PREFIX, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
 import { ClaudeTransportError, type Block, type NativeRequest, type NativeResponse, type NativeToolCall } from "./types.js";
 
@@ -291,10 +292,25 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     const results: Json[] = [];
     let stopped = false, emitted = "", fast = false;
     let nativeError: string | undefined, nativeErrorCode: unknown;
+    const blockedWindows = new Map<string, number | null>();
+    const limit = (status: number | undefined): ProviderLimit | undefined => {
+      if (status === 401 || status === 402 || status === 403) return { kind: "fatal", windows: [] };
+      if (status !== 429 && status !== 529 && !blockedWindows.size) return undefined;
+      const reported = claudeHeaderLimit(admission.limitHeaders, Date.now());
+      return { kind: "wait", windows: [
+        ...reported.windows,
+        ...[...blockedWindows].map(([id, resetAt]) => ({ id, resetAt })),
+      ] };
+    };
     for (;;) {
       const event = await reader.next(timeoutMs, signal);
       if (event === END) break;
+      if (event.type === "rate_limit_event" && event.rate_limit_info && typeof event.rate_limit_info === "object") {
+        recordClaudeLimit(blockedWindows, event.rate_limit_info);
+      }
       if (event.type === "assistant") {
+        const info = event.api_error_params?.rate_limit_info;
+        if (info && typeof info === "object") recordClaudeLimit(blockedWindows, info);
         if (event.error || event.message?.error) {
           nativeError = (event.message?.content ?? []).filter((b: Block) => b.type === "text")
             .map((b: Block) => b.text ?? "").join("\n");
@@ -331,7 +347,7 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
           (admission.failure ? `, relay failure ${admission.failure}` : "") + `, native retries denied: ${admission.denied}`;
         if (admission.errorText()) first += ", upstream said: " + admission.errorText().slice(0, 500);
         const status = admission.status !== undefined && admission.status >= 400 ? admission.status : undefined;
-        throw new ClaudeTransportError(`Incomplete upstream response (${first})` + (nativeError ? ": " + nativeError : ""), status);
+        throw new ClaudeTransportError(`Incomplete upstream response (${first})` + (nativeError ? ": " + nativeError : ""), status, limit(status));
       }
       assistants = [admission.capture.message!];
       stopped = true;
@@ -341,7 +357,13 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
       if (nativeErrorCode === "authentication_failed" && !admission.used) {
         throw new ClaudeTransportError(`${LOGGED_OUT_HINT} (native: ${nativeError})${tail()}`, 401);
       }
-      throw new ClaudeTransportError("Native API error: " + nativeError, NATIVE_ERROR_STATUS[String(nativeErrorCode)]);
+      const status = NATIVE_ERROR_STATUS[String(nativeErrorCode)];
+      throw new ClaudeTransportError("Native API error: " + nativeError, status, limit(status));
+    }
+    const terminal = results.at(-1);
+    if (terminal?.is_error && (blockedWindows.size || terminal.api_error_status === 429 || terminal.api_error_status === 529)) {
+      const status = typeof terminal.api_error_status === "number" ? terminal.api_error_status : 429;
+      throw new ClaudeTransportError("Native usage limit: " + String(terminal.result ?? terminal.subtype), status, limit(status));
     }
     if (results.length !== 1 || !assistants.length || !stopped) {
       throw new Error("Incomplete native response: assistant, message_stop and one result required");
@@ -360,7 +382,8 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     }
     const boundary = calls.length > 0 && final.subtype === "error_max_turns" && (fast || exitCode === 1);
     if (!boundary && !handled && ((!fast && exitCode !== 0) || final.is_error || final.subtype !== "success")) {
-      throw new Error("Native request failed: " + String(final.subtype) + tail());
+      const status = typeof final.api_error_status === "number" ? final.api_error_status : blockedWindows.size ? 429 : undefined;
+      throw new ClaudeTransportError("Native request failed: " + String(final.subtype) + tail(), status, limit(status));
     }
     const usage = admission.used ? assistants[0]!.usage : final.usage;
     if (!usage || typeof usage.input_tokens !== "number" || typeof usage.output_tokens !== "number") {

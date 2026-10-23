@@ -593,6 +593,7 @@ export class Admission {
   used = false;
   denied = 0;
   status: number | undefined = undefined;
+  readonly limitHeaders: Record<string, string> = {};
   failure: string | undefined = undefined;
   requestId: string | undefined = undefined;
   unrestored: string | undefined = undefined;
@@ -829,6 +830,11 @@ export class Admission {
 
         upstreamReq.on('response', proxyRes => {
           this.status = proxyRes.statusCode;
+          for (const [name, value] of Object.entries(proxyRes.headers)) {
+            if (typeof value === 'string' && (name.startsWith('anthropic-ratelimit-') || name === 'retry-after')) {
+              this.limitHeaders[name] = value;
+            }
+          }
           this.requestId = (proxyRes.headers['request-id'] || proxyRes.headers['x-request-id']) as string | undefined;
 
           res.statusCode = proxyRes.statusCode || 200;

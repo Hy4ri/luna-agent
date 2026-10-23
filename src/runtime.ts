@@ -289,7 +289,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // Continue after a usage limit resets. Cron runs have their own timeout and run log, so they never wait.
   const isCronConversation = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
   const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
-    skip: (id) => !!isCronConversation?.get(String(id)) });
+    defaultModel: () => providers.defaultModel(),
+    skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)) });
   await limitContinuer.start();
   // A blocked subagent (session_handoff) wakes the session that spawned it.
   const subagentNotifier = new SubagentNotifier({ harness, log });

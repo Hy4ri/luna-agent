@@ -1,5 +1,5 @@
 diff --git a/dist/harness/generation.js b/dist/harness/generation.js
-index d046232b140f91542879ecd60d05f5796449bf31..d5e829419d4bdbfa0b362201e7e65a7af70fc429 100644
+index d046232..0b54833 100644
 --- a/dist/harness/generation.js
 +++ b/dist/harness/generation.js
 @@ -6,7 +6,7 @@ import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.j
@@ -121,7 +121,17 @@ index d046232b140f91542879ecd60d05f5796449bf31..d5e829419d4bdbfa0b362201e7e65a7a
          if (selectCut(view, compaction.keepRecentTokens) !== undefined) {
              const text = message.errorMessage ?? "Context overflow";
              await runtime.commit(async (tx) => {
-@@ -455,7 +502,7 @@ async function classify(runtime, request, message, context) {
+@@ -446,7 +493,8 @@ async function classify(runtime, request, message, context) {
+         await endFailedRun(tx, runtime, live, failure, { status: "unanswered", reason: "model_error", detail: text });
+         return {
+             status: "terminal",
+-            outcome: { status: "failed", error: { message: text, detail: { reason: "model_error" } } },
++            // luna: retain the selected identity, which can differ from a transport's upstream model ID.
++            outcome: { status: "failed", error: { message: text, detail: { reason: "model_error", requestModel: ref } } },
+         };
+     }, context);
+ }
+@@ -455,7 +503,7 @@ async function classify(runtime, request, message, context) {
   * message and hands the run to a successor generation, but only when the boundary selected no user item and no reset.
   * Otherwise the run's inputs settle `done`, and selected user items start the next run.
   */
@@ -130,7 +140,7 @@ index d046232b140f91542879ecd60d05f5796449bf31..d5e829419d4bdbfa0b362201e7e65a7a
      let continuation;
      await runtime.hooks.each("onYield", async (hook) => {
          if (continuation !== undefined)
-@@ -467,9 +514,15 @@ async function answer(runtime, message, context) {
+@@ -467,9 +515,15 @@ async function answer(runtime, message, context) {
          // Queue modes are read on the Session line, when the boundary is decided.
          const boundary = await prepareBoundary(tx, conversationId, runtime.settings);
          const live = await tx.doc(LiveDoc, conversationId);
@@ -149,7 +159,7 @@ index d046232b140f91542879ecd60d05f5796449bf31..d5e829419d4bdbfa0b362201e7e65a7a
              const user = { role: "user", content: continuation, timestamp: runtime.now() };
              await tx.appendEntry(UserEntry, conversationId, { model: [user] });
 diff --git a/dist/harness/harness.js b/dist/harness/harness.js
-index 29ef22e06d97ad482c0286c0f67f3e37f8fc39bf..8a8cc740123c70bb0afafb062af2798726aa36a6 100644
+index 29ef22e..8a8cc74 100644
 --- a/dist/harness/harness.js
 +++ b/dist/harness/harness.js
 @@ -121,7 +121,9 @@ class HarnessImpl extends SessionImpl {
@@ -172,7 +182,7 @@ index 29ef22e06d97ad482c0286c0f67f3e37f8fc39bf..8a8cc740123c70bb0afafb062af27987
              blocked: (record) => this.#tasks.blockedReason(record),
              subscribeBlocked: (listener) => this.#tasks.subscribeBlocked(listener),
 diff --git a/dist/harness/inbox.d.ts b/dist/harness/inbox.d.ts
-index 553a1655c75da4bc08e7051c41375aef701882a9..e641a0fe75a7d7213245aa79406c9fd4becd8fdf 100644
+index 553a165..e641a0f 100644
 --- a/dist/harness/inbox.d.ts
 +++ b/dist/harness/inbox.d.ts
 @@ -6,6 +6,7 @@ export type InboxItem = {
@@ -192,7 +202,7 @@ index 553a1655c75da4bc08e7051c41375aef701882a9..e641a0fe75a7d7213245aa79406c9fd4
  /**
   * Read what a boundary needs. Table reads must precede the commit's first table write, so callers prepare the
 diff --git a/dist/harness/inbox.js b/dist/harness/inbox.js
-index 5ef33aa67d8435deecfb92dcbae0a987e8332976..e5fa8e310ac837e33abeed8a8409b01cbce616f3 100644
+index 5ef33aa..e5fa8e3 100644
 --- a/dist/harness/inbox.js
 +++ b/dist/harness/inbox.js
 @@ -42,7 +42,8 @@ export async function applyBoundary(tx, boundary, at, now) {
@@ -232,7 +242,7 @@ index 5ef33aa67d8435deecfb92dcbae0a987e8332976..e5fa8e310ac837e33abeed8a8409b01c
  /** Append the entry an input is placed as: `entry`'s kind and data, or `pi.user`, with the user message of `content`. */
  export function appendInput(tx, conversationId, content, entry, now) {
 diff --git a/dist/harness/scheduler.js b/dist/harness/scheduler.js
-index ba7a0169b9bc54cd3123a4cc770d8d7a5c61b63d..87ea304fe38c691a076cb45db43ce1049eebaa2a 100644
+index ba7a016..87ea304 100644
 --- a/dist/harness/scheduler.js
 +++ b/dist/harness/scheduler.js
 @@ -80,6 +80,7 @@ export class TaskScheduler {
@@ -260,7 +270,7 @@ index ba7a0169b9bc54cd3123a4cc770d8d7a5c61b63d..87ea304fe38c691a076cb45db43ce104
              get settings() {
                  return settings();
 diff --git a/dist/harness/submissions.js b/dist/harness/submissions.js
-index 8496124ee10b4814b27b4b6316f27d2023bcf8e4..9263fe045f0d3b5a46ce01465db5a3ce3d069906 100644
+index 8496124..ba24a4e 100644
 --- a/dist/harness/submissions.js
 +++ b/dist/harness/submissions.js
 @@ -19,7 +19,9 @@ export class Submissions {
@@ -323,20 +333,38 @@ index 8496124ee10b4814b27b4b6316f27d2023bcf8e4..9263fe045f0d3b5a46ce01465db5a3ce
          this.id = id;
          this.#submissions = submissions;
      }
+@@ -156,6 +186,13 @@ export async function admitSubmission(tx, conversationId, draft, now, queueModes
+             return { id: existing.id, status: existing.status === "unanswered" ? "done" : existing.status };
+         }
+     }
++    // luna: validate server-generated inputs atomically with their admission. Never persist the host callback.
++    if (draft.type === "input" && draft.guard !== undefined) {
++        if (draft.whenBusy !== "reject") throw new TypeError("Guarded input requires whenBusy: reject");
++        if (!(await draft.guard(tx))) {
++            throw Object.assign(new Error("Input admission guard rejected submission"), { name: "SubmissionGuardRejected" });
++        }
++    }
+     const fields = { conversationId, requestId: draft.requestId, trace: span?.propagation?.inject(span) };
+     if (draft.type === "write" &&
+         isDisplayOnly(draft.entry) &&
 diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
-index 192a9cce35ad4729009d2e3f75f475c8dffa16c8..04cd180406e26dd99f5771217be347570cf71979 100644
+index 192a9cc..84e7978 100644
 --- a/dist/harness/types.d.ts
 +++ b/dist/harness/types.d.ts
-@@ -26,7 +26,7 @@ export type SubmissionDraft = {
+@@ -26,7 +26,11 @@ export type SubmissionDraft = {
  } & ({
      readonly type: "input";
      readonly content: UserInput;
 -    readonly whenBusy?: "steer" | "followUp" | "reject";
++    /** Host-only read guard, checked on the admission transaction after request-ID deduplication.
++     * False throws SubmissionGuardRejected without placing input. Never stored or replayed; use only for immediate input.
++     * Read only through tx; calling Harness reads from this callback deadlocks the mutation line. */
++    readonly guard?: (tx: Tx) => boolean | Promise<boolean>;
 +    readonly whenBusy?: "steer" | "followUp" | "reject" | "redirect";
      /** Place the input as this entry; default `pi.user` without data. The kind must not start with `pi.`. */
      readonly entry?: InputEntry;
  } | {
-@@ -43,6 +43,7 @@ export type SettledSubmissionRecord = SubmissionRecord & {
+@@ -43,6 +47,7 @@ export type SettledSubmissionRecord = SubmissionRecord & {
  };
  /** Awaitable host object for one durably admitted submission. */
  export interface Submission {

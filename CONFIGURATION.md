@@ -33,14 +33,26 @@ The Providers and MCP panels also write this file, not separate settings files.
   `POST /v1/tasks/:id/retry` runs one again.
 - `autoContinue`: continue a turn automatically after a rate or usage limit resets. `enabled` defaults to `false`.
   Edit it under **Settings → Automation**. Changes apply live.
-  When a top-level turn stops on a limit error, Luna reads the reset time from the error and waits until one minute after it.
-  It understands epoch fields (`resets_at`), clock times with a zone ("resets 12:30am (Asia/Amman)"), durations
-  ("try again in 6m0s", Google `retryDelay`), and ISO times. Without a time, it retries after 2, 10, 30, then 60 minutes.
-  Short transient errors are first retried inside the turn by the runtime, as before.
+  When a top-level turn stops on a limit error, Luna uses structured provider quota data when available.
+  Claude native preserves rejected SDK quota windows and upstream quota headers. Codex preserves HTTP quota headers,
+  streamed `codex.rate_limits` windows (including metered model buckets), and the refusal's `resets_at` field.
+  These details stay in assistant diagnostics, not in the model-visible conversation.
+  Luna waits until one minute after the latest blocked window resets. An exact reset requires a time for every blocked window.
+  Other providers retain message-based recovery: epoch fields (`resets_at`), clock times with a zone
+  ("resets 12:30am (Asia/Amman)"), durations ("try again in 6m0s", Google `retryDelay`), and ISO times.
+  Without a complete reset time, Luna retries after 2, 10, 30, then 60 minutes, but not before any known blocked reset.
+  The continuation says whether the reported reset time or an estimated retry delay has passed. It does not claim quota was checked.
+  Reset timestamps already expired when the turn failed are not scheduled. Short transient errors still use the runtime's in-turn retries.
   Context overflow, authentication, billing, and `insufficient_quota` errors never wait.
   `maxWaitHours` (default `168`) skips longer waits. `maxAttempts` (default `5`) stops continuations that hit a limit again.
-  A new message or **Cancel** next to the resume time removes the wait. Waits survive a restart.
-  Cron runs and subagents never continue automatically.
+  A new message or **Cancel** next to the resume time cancels the scheduled continuation.
+  Delivery rechecks the failed generation, provider/model, current input, pending user requests, archive state, and live enable setting.
+  Recovery uses the selected request model, including local long-context aliases, rather than the transport's upstream model ID.
+  These checks also run atomically during input admission, so cancellation or newer input before admission prevents delivery.
+  Waits survive a restart. A stable submission ID prevents duplicate delivery after a crash.
+  The saved wait remains until submission succeeds; failed delivery is retried after 30 seconds with the same ID.
+  Waits saved by older versions without a failed-generation identity are discarded on startup; retry those turns manually.
+  Cron runs, archived sessions, and subagents never continue automatically.
 - `sessionTalk`: messages between sessions. `enabled` defaults to `true`; `maxHops` (1 through 20) defaults to `3`.
   Edit it under **Settings → Chat**. Changes apply live. See **Sessions talk with each other**.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.

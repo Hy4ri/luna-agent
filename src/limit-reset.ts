@@ -91,7 +91,7 @@ export function classifyLimit(message: string, now = Date.now(), defaultTz = Int
   const wait = WAIT.some(r => r.test(text));
   // A 429 body may say "billing" in a hint ("or use an API key"), so a named wait wins over a soft fatal word,
   // except for the cases that never reset by themselves.
-  if (/\binsufficient_quota\b|\bcredit balance\b|\bcontext[_ -]?(?:window|length)\b|\bprompt is too long\b|\binput is too long\b/i.test(text)) return { kind: "fatal" };
+  if (/\binsufficient_quota\b|\b(?:credit|available) balance\b|\bout of budget\b|\bpayment required\b|\bbilling_error\b|\b(?:401|402|403)\b|\binvalid[_ -](?:api|x-api)[_ -]?key\b|\bauthentication(?:[_ -](?:failed|error))?\b|\bunauthori[sz]ed\b|\bcontext[_ -]?(?:window|length)\b|\bcontext.{0,30}(?:exceeded|too (?:large|long))\b|\bmax(?:imum)?[_ -](?:tokens|context)\b|\bprompt is too long\b|\binput is too long\b/i.test(text)) return { kind: "fatal" };
   if (!wait) return FATAL.some(r => r.test(text)) ? { kind: "fatal" } : { kind: "none" };
   const resetAt = resetTime(text, now, defaultTz);
   return resetAt !== undefined ? { kind: "wait", resetAt } : { kind: "wait" };
