@@ -4,6 +4,10 @@ import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, ur
 import { isMobile } from "@/lib/dom";
 import { sections, resolveSettingsRoute } from "@/pages/settings/catalog";
 import { sessionPane } from "@/lib/pane";
+import * as chatStore from "./chat";
+import * as modelsStore from "./models";
+import * as sessionsStore from "./sessions";
+import * as composerStore from "./composer";
 
 export type View = "chat" | "analytics" | "settings";
 export const SETTINGS_TABS: readonly string[] = sections.map(section => section.id);
@@ -171,7 +175,7 @@ export function setSideWidth(px: number | null) {
 export function showLogin(err = "") {
   closeSettings(true);
   if (ui.view !== "chat") ui.view = "chat";
-  void import("./chat").then(m => m.stopFeeds());
+  chatStore.stopFeeds();
   closePanel(); ui.drawer = false;
   ui.login = true; ui.loginError = err;
   void nextTick(() => document.getElementById("token")?.focus());
@@ -180,7 +184,7 @@ onUnauthorized(showLogin);
 export function login(value: string, server?: string) {
   if (server !== undefined) setServerUrl(server);
   setToken(value.trim());
-  void import("./sessions").then(m => m.resetNotifications());
+  sessionsStore.resetNotifications();
   ui.login = false; ui.loginError = "";
   setDrawer(false);
   void boot();
@@ -190,10 +194,7 @@ export function login(value: string, server?: string) {
 /** Keeps the sidebar unread count current while the Cron panel is closed. */
 let badgeTimer: ReturnType<typeof setInterval> | undefined;
 export async function boot() {
-  const chat = await import("./chat");
-  const models = await import("./models");
-  const sessions = await import("./sessions");
-  const composer = await import("./composer");
+  const chat = chatStore, models = modelsStore, sessions = sessionsStore, composer = composerStore;
   const badge = await import("@/pages/cron/badge");
   chat.chat.booting = true;
   try {
