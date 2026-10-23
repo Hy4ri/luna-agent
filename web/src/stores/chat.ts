@@ -13,7 +13,7 @@ import { history, loadSessions, resetHistoryView } from "./sessions";
 
 export interface Notice { id: number; text: string; kind: "err" | "muted"; scope: "session" | "run" }
 export interface SideMedia { directive: string; name: string; url: string; type: string }
-export interface SideJob { id: string; kind: string; status: string; prompt: string; text?: string; media?: SideMedia[]; createdAt: number }
+export interface SideJob { id: string; kind: string; status: string; prompt: string; text?: string; media?: SideMedia[]; createdAt: number; activity?: { kind: "status" | "message" | "tool"; text: string; result?: string; isError?: boolean }[] }
 export interface ContextValue {
   contextWindow?: number; percent?: number; usedTokens: number;
   compacting?: boolean;
@@ -121,6 +121,9 @@ export const usageText = computed(() => {
   for (const v of Object.values(u.models) as any[]) { inT += v.input + (v.cacheRead || 0) + (v.cacheWrite || 0); outT += v.output; cost += v.cost?.total || 0; }
   return `${(inT / 1000).toFixed(1)}k in · ${(outT / 1000).toFixed(1)}k out${cost ? " · $" + cost.toFixed(4) : ""}`;
 });
+
+export const reviewJobs = computed(() => [...chat.sideJobs.values()].filter(j => j.kind === "review").sort((a, b) => b.createdAt - a.createdAt));
+export const runningReviews = computed(() => reviewJobs.value.filter(j => j.status === "running").length);
 
 // Tasks, processes, or subagents exist for this session.
 export const activityVisible = computed(() =>

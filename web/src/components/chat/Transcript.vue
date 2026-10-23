@@ -77,7 +77,7 @@ watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, cha
 // Merge side reports at their start time, rather than pinning them after every later turn.
 // Keep durable entry order, including entries that do not contribute model messages.
 const timeline = computed(() => {
-  const jobs = [...chat.sideJobs.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const jobs = [...chat.sideJobs.values()].filter(j => j.kind !== "review").sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   const rows: { key: string; entry?: any; job?: typeof jobs[number] }[] = [];
   let at = 0;
   for (const entry of entryList.value) {

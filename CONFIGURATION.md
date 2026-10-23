@@ -671,7 +671,10 @@ Images go directly to the new conversation. Audio attachments become local files
 Audio understanding requires an enabled tool that can read or transcribe those files; it is not a native audio model input.
 Ordinary messages cannot contain audio. `/btw` ignores attachments.
 
-The started receipt includes the prompt preview and job ID. Results appear separately in the same chat.
+The started receipt includes the prompt preview and job ID. Side-question and background results appear separately in the same chat.
+Review jobs appear in the right session sidebar. Select a review to inspect its activity and report.
+On narrow screens, including mobile, a review button in the conversation header opens the same inspector.
+Reviews do not add report cards to the transcript or controls to the composer.
 They are not synthetic user or assistant entries in the main history. The main agent never sees them.
 The web client restores job results after reconnecting, or after switching away and back, while the daemon remains running.
 The CLI prints results with their job ID. Closing a viewer does not stop a job. The main Stop button does not stop side jobs.
@@ -712,13 +715,15 @@ HTTP clients use the normal message endpoint. Side commands return HTTP 202 with
 `{ command: true, job, notice }`, without a main submission ID.
 `GET /v1/sessions/:id/side-jobs` lists only that chat's jobs.
 The session event stream sends `side_jobs` on connection and `side_job` for state changes.
+Review jobs also include an `activity` array of status, assistant-message, and tool-result events.
+Tool events include their arguments, output, and error state. Activity updates use the same session event stream.
 Retries with the same request ID reuse the same job; conflicting reuse is rejected.
 
 ## Session review (`/review`)
 
 `/review [focus]` starts a read-only reviewer for the current chat. It judges two things: whether the agent
-covered what you asked, and the quality of the code. It runs as a background job on its own model and returns a report
-in the chat, like `/btw` and `/bg`. Reports stay at their start position, above later messages.
+covered what you asked, and the quality of the code. It runs as a background job on its own model. Its activity and report appear in the review inspector,
+opened from the right sidebar or the conversation header on narrow screens.
 The report is not a main-history entry. The main agent sees it only if you click **Send to agent** on a
 completed report. This sends the full report and focus as a user message to the same session. If the agent is
 busy, the message waits for the active turn. Your composer draft stays unchanged. Repeated delivery of the

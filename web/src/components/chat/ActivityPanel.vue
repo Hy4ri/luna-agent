@@ -2,26 +2,32 @@
 // One collapsed disclosure for this conversation's live work: tasks, background processes, subagents.
 import { computed, onUnmounted, ref, watch } from "vue";
 import { Activity, ArrowUpRight, Check, ChevronRight, Circle, CircleAlert, LoaderCircle, Square } from "@lucide/vue";
+import ReviewInspector from "./ReviewInspector.vue";
 import { json } from "@/lib/api";
-import { activityVisible, chat, childLive, openSession, stopChild, stopProcess, type ChildRow, type ProcessRow } from "@/stores/chat";
+import { activityVisible, reviewJobs, chat, childLive, openSession, stopChild, stopProcess, type ChildRow, type ProcessRow } from "@/stores/chat";
 
 // Docked in the session rail: always expanded, no disclosure row.
 const props = defineProps<{ docked?: boolean }>();
 
 const todos = computed(() => (chat.extras?.todos || []).filter((t: any) => t.status !== "deleted"));
 const processes = computed(() => chat.extras?.processes || []);
+const reviews = reviewJobs;
+const liveReviews = computed(() => reviews.value.filter(j => j.status === "running"));
+const selectedReview = ref<string | null>(null);
+const reviewJob = computed(() => reviews.value.find(j => j.id === selectedReview.value) || null);
 const children = computed(() => chat.extras?.children || []);
 const doneTasks = computed(() => todos.value.filter((t: any) => t.status === "completed").length);
 const activeTask = computed(() => todos.value.find((t: any) => t.status === "in_progress"));
 const liveProcesses = computed(() => processes.value.filter(p => p.running));
 const liveChildren = computed(() => children.value.filter(childLive));
-const live = computed(() => !!activeTask.value || liveProcesses.value.length > 0 || liveChildren.value.length > 0);
-const visible = activityVisible;
+const live = computed(() => !!activeTask.value || liveProcesses.value.length > 0 || liveChildren.value.length > 0 || (!!props.docked && liveReviews.value.length > 0));
+const visible = computed(() => activityVisible.value || (props.docked && reviews.value.length > 0));
 
 const label = computed(() => {
   if (activeTask.value) return activeTask.value.activeForm || activeTask.value.subject;
   if (liveProcesses.value[0]) return liveProcesses.value[0].command.split("\n")[0];
   if (liveChildren.value[0]) return liveChildren.value[0].task.split("\n")[0];
+  if (props.docked && liveReviews.value[0]) return "Review agent · " + liveReviews.value[0].prompt;
   if (todos.value.length && doneTasks.value === todos.value.length) return "All tasks complete";
   return "Nothing running";
 });
@@ -31,7 +37,7 @@ const open = ref(false);
 const expanded = ref<string | null>(null);
 const output = ref<{ id: string; text: string; error?: string } | null>(null);
 let outputTimer: ReturnType<typeof setTimeout> | undefined;
-watch(() => chat.session, () => { open.value = false; expanded.value = null; output.value = null; clearTimeout(outputTimer); });
+watch(() => chat.session, () => { selectedReview.value = null; open.value = false; expanded.value = null; output.value = null; clearTimeout(outputTimer); });
 onUnmounted(() => clearTimeout(outputTimer));
 
 async function loadOutput(id: string) {
@@ -113,6 +119,22 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
         </div>
       </section>
 
+      <section v-if="docked && reviews.length" class="activity-section" aria-label="Review agents">
+        <h4>Review agents <span>{{ liveReviews.length }} running</span></h4>
+        <div v-for="job in reviews" :key="job.id" class="activity-row" :data-review="job.id" :data-status="job.status">
+          <div class="activity-line">
+            <LoaderCircle v-if="job.status === 'running'" :size="14" class="spin" aria-label="Running" />
+            <CircleAlert v-else-if="job.status === 'failed'" :size="14" class="bad" aria-label="Failed" />
+            <Check v-else :size="14" aria-label="Complete" />
+            <button type="button" class="activity-main" :title="job.prompt" @click="selectedReview = job.id">
+              <span dir="auto">{{ job.prompt }}</span>
+              <small class="max-w-full truncate">{{ job.status === 'running' ? (job.activity?.at(-1)?.text || 'Starting review…') : job.status === 'complete' ? 'Review complete' : 'Review failed' }}</small>
+            </button>
+            <button type="button" class="icon-button" aria-label="Inspect review agent" title="Inspect review" @click="selectedReview = job.id"><ArrowUpRight :size="14" /></button>
+          </div>
+        </div>
+      </section>
+
       <section v-if="children.length" class="activity-section" aria-label="Subagents">
         <h4>Subagents <span>{{ liveChildren.length }} running</span></h4>
         <div v-for="c in children" :key="c.id" class="activity-row" :data-child="c.id" :data-status="c.status">
@@ -131,4 +153,5 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
       </section>
     </div>
   </component>
+  <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
 </template>

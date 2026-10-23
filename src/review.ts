@@ -218,34 +218,47 @@ async function callTool(env: ExecutionEnv, name: string, args: Record<string, un
   throw new Error(`tool ${name} is not available; this reviewer is read-only`);
 }
 
+export interface ReviewActivity {
+  kind: "status" | "message" | "tool"; text: string; result?: string; isError?: boolean;
+}
+
 export interface ReviewOptions {
   models: Models; model: Model<any>; thinking?: string; messages: readonly Message[]; cwd: string; focus: string;
   signal: AbortSignal; usage: (usage: Usage) => Promise<void>; sessionId?: string;
   env?: ExecutionEnv;
   commandEnv?: Record<string, string>;
+  activity?: (entry: ReviewActivity) => void;
 }
 export async function runReview(o: ReviewOptions): Promise<string> {
   const env = o.env ?? new NodeExecutionEnv({ cwd: o.cwd });
+  o.activity?.({ kind: "status", text: "Inspecting workspace and session history" });
   const brief = await buildReviewBrief(o.messages, o.cwd, o.focus, o.signal, env, o.commandEnv);
   const convo: Message[] = [{ role: "user", content: brief.text, timestamp: Date.now() }];
   let report = "";
   for (let round = 0; round <= MAX_ROUNDS; round++) {
     const last = round === MAX_ROUNDS;
+    o.activity?.({ kind: "status", text: last ? "Writing final report" : `Reviewing · round ${round + 1}` });
     const response = await o.models.completeSimple(o.model, { systemPrompt: SYSTEM, tools, messages: convo },
       { signal: o.signal, ...(last ? { toolChoice: "none" as const } : {}), reasoning: o.thinking && o.thinking !== "off" ? o.thinking as never : undefined });
     await o.usage(response.usage);
     if (response.stopReason === "error" || response.stopReason === "aborted") throw new Error(response.errorMessage || response.stopReason);
+    const message = response.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+    if (message) o.activity?.({ kind: "message", text: message });
     const calls = response.content.filter(b => b.type === "toolCall");
     if (!calls.length || last) { report = response.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim(); break; }
     convo.push(response);
     for (const call of calls) {
+      const action = `${call.name} ${JSON.stringify(call.arguments ?? {})}`;
+      o.activity?.({ kind: "status", text: action });
       let text: string, isError = false;
       try { text = await callTool(env, call.name, (call.arguments ?? {}) as Record<string, unknown>, o.cwd, o.messages, o.signal, o.commandEnv); }
       catch (error) { text = (error as Error).message; isError = true; }
+      o.activity?.({ kind: "tool", text: action, result: text, isError });
       convo.push({ role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text }], isError, timestamp: Date.now() });
     }
   }
   if (!report) throw new Error("review produced no report");
+  o.activity?.({ kind: "status", text: "Checking workspace for changes" });
   const after = await workspace(env, o.cwd, o.signal, o.commandEnv);
   const notes = [];
   if (after.fingerprint !== brief.fingerprint) notes.push("Note: the workspace changed while this review ran. Findings may be outdated.");

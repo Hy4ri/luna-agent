@@ -130,7 +130,7 @@ export async function submitMessage(sid: string, body: any) {
         const old = chat.sideJobs.get(result.job.id);
         if (!old || old.status === "running") putSideJob(result.job);
       }
-      const lines = [result.notice, ...(result.queue || []).map((row: any) => `${row.number}. ${typeof row.content === "string" ? row.content : JSON.stringify(row.content)}`)].filter(Boolean);
+      const lines = [result.job?.kind === "review" ? undefined : result.notice, ...(result.queue || []).map((row: any) => `${row.number}. ${typeof row.content === "string" ? row.content : JSON.stringify(row.content)}`)].filter(Boolean);
       if (lines.length) chat.busyFeedback = lines.join("\n");
     }
     composer.sendErrors.delete(sid);

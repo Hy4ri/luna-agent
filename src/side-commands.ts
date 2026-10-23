@@ -8,13 +8,14 @@ import { AgentDoc, ProviderDoc, UsageDoc, type Agent, type AgentState, type Conv
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { context } from "./luna.js";
-import { runReview } from "./review.js";
+import { runReview, type ReviewActivity } from "./review.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export type SideInput = string | ({ type: "text"; text: string } | { type: "image" | "audio"; data: string; mimeType: string })[];
 export interface SideJob {
   id: string; sessionId: string; kind: "btw" | "bg" | "review"; prompt: string;
   status: "running" | "complete" | "failed"; text: string; conversationId?: number; createdAt: number;
+  activity?: ReviewActivity[];
 }
 const INSTRUCTION = "Answer only the side question. Do not continue or critique the main task. " +
   "Do not use tools. If the context is not enough, say so. Keep the answer short. " +
@@ -170,7 +171,9 @@ export class SideCommands {
         if (controller.signal.aborted) throw new Error("side job stopped during shutdown");
         const text = kind === "review"
           ? await runReview({ models: models!, model, thinking: agent.thinkingLevel, messages, cwd: reviewCwd, env: reviewEnv, commandEnv: reviewCommandEnv,
-            focus: prompt, signal: controller.signal, usage: usage => this.usage(source, model, usage) })
+            focus: prompt, signal: controller.signal, activity: entry => {
+              (job.activity ??= []).push(entry); this.notify(job);
+            }, usage: usage => this.usage(source, model, usage) })
           : kind === "btw"
           ? await this.answer(source, prompt, messages, model, agent, !!route, identity?.sessionId, controller.signal)
           : await this.background(source, job, model, agent, state, content, controller.signal);
