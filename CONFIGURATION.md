@@ -383,6 +383,11 @@ Luna keeps tool execution. Each conversation gets a loopback MCP server that lis
 tools are denied (except `read`, which the free tier requires), and the session runs in an empty scratch directory.
 A tool call is held open until Luna has run the tool and returned the result. Free models can be rate-limited or
 removed at any time, and free providers may log prompts: do not send secrets to them.
+Follow-up user messages continue the live opencode session instead of replaying the transcript, when the history
+is an exact continuation; otherwise a new session replays it as text. User images go to vision models as file
+attachments (images inside tool results are not forwarded). Free-tier errors (403, 429, 5xx) reach the chat with
+the status and a hint. On start the provider checks the running opencode for the routes it needs and fails with a
+clear message if one is missing (tested with 2.1.x).
 `LUNA_OPENCODE_EXECUTABLE` selects the executable; the default is `opencode` on PATH. The routes used are marked
 experimental, so pin the opencode version you tested.
 
