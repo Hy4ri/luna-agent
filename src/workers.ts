@@ -321,6 +321,8 @@ export function createWorkersExtension(hub: () => WorkerHub | undefined): Extens
     return `bash, read, write, edit, and process tools run on execution machine "${w.name}"` +
       (c ? ` (hostname ${c.hostname}, ${c.platform}/${c.arch}, user ${c.user}, default directory ${c.cwd}).` : ".") +
       workingDirectory + authority +
-      " All paths in those tools are paths on that machine. Web, browser, MCP, image, vision, memory, skills, and board tools run on the main Luna host and cannot see that machine's files.";
+      " All paths in those tools are paths on that machine." +
+      " Browser tools and worker-specific MCP tools (w<id>_<server>__*) run on that worker; main MCP servers remain available." +
+      " Vision reads remote files through the worker link.";
   })] });
 }

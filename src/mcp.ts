@@ -22,6 +22,7 @@ export interface McpConnection {
   readonly name: string;
   readonly extension: Extension;
   readonly toolNames: string[];
+  readonly toolDefs: { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
   callTool(tool: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
   close(): Promise<void>;
 }
@@ -82,6 +83,7 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
       name: cfg.name,
       extension,
       toolNames: registered.map((t) => t.name),
+      toolDefs: tools.map((t) => ({ name: String(t.name), description: t.description as string | undefined, inputSchema: (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown> })),
       callTool: (tool, args, signal) => client.callTool({ name: tool, arguments: args }, undefined, { signal, timeout: cfg.timeoutMs ?? CALL_TIMEOUT_MS }),
       close: () => client.close(),
     };

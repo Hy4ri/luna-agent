@@ -42,6 +42,7 @@ import { SessionTitler } from "./titles.js";
 import { LimitContinuer } from "./limit-continue.js";
 import { SubagentNotifier } from "./subagent-notify.js";
 import { createWorkersExtension, WorkerHub, WorkerStore } from "./workers.js";
+import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
@@ -105,6 +106,11 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
 
   let harnessRef: Awaited<ReturnType<typeof openLuna>> | undefined;
   const extensions: Extension[] = [];
+  // Workers hub early so browser tools can proxy to the session's worker.
+  const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
+  extensions.push(createWorkersExtension(() => workers));
+  // Per-worker MCP: worker-only tools appear as w<id>_<server>__* and proxy via WorkerHub.mcpCall. Main MCP stays available.
+  new WorkerMcpProxy(workers, registry, log).attach();
   const imageGenConfig = () => (settings?.resolved() ?? cfg).image_gen;
   const imageGen = new ImageGenManager({ config: imageGenConfig, providers: o.imageGenProviders ?? new Map([
     ["openai-codex", createOpenAICodexImageProvider({ config: () => imageGenConfig()["openai-codex"],
@@ -124,7 +130,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   ])));
   extensions.push(createBrowserToolsExtension(() => live().browser, new Map([
     ["camofox", createCamofoxBrowserProvider(() => live().browser.providers.camofox, mcp)],
-  ])));
+  ]), { hub: () => workers }));
   // Identity and always-on memory belong to the runtime, including cron and child conversations.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
     const projection = learn?.projectionState(memory || undefined);
@@ -181,9 +187,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const recall = on("recall") ? new RecallIndex(join(cfg.dataDir, "recall.db")) : undefined;
   if (recall) extensions.push(createRecallExtension(recall));
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
-  // Execution workers: other machines that run a session's file and shell tools. Always available; unused without workers.
-  const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
-  extensions.push(createWorkersExtension(() => workers));
   extensions.push(createFileMentionExtension({ home: (w) => w === null ? homedir() : workers.store.get(w)?.capabilities?.home }));
 
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;

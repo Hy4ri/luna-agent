@@ -2,6 +2,7 @@
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { validateWebUrl } from "./web-tools.js";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { isWorkerEnv, WORKER_ENV_PREFIX } from "./worker-protocol.js";
 import type { WorkerHub } from "./workers.js";
 
@@ -40,9 +41,7 @@ function checkInteger(args: unknown, key: string, minimum: number) {
 }
 class RemoteBrowserProvider implements BrowserProvider {
   constructor(private hub: WorkerHub, private workerId: number) {}
-  private provider(signal: AbortSignal) { signal.throwIfAborted(); return this; }
   async call<T>(method: import("./worker-protocol.js").BrowserMethod, args: unknown, signal: AbortSignal): Promise<T> {
-    const { BACKGROUND_CONTEXT, withAbortSignal } = await import("@earendil-works/chord/context");
     const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
     const res = await this.hub.browserCall(this.workerId, method, [args], ctx);
     if (!res.ok) throw res.error;
