@@ -407,7 +407,7 @@ The Camofox MCP connection controls its cookie/storage session. Share it only be
 Handles can become invalid after a connection restart or provider change. Open a new tab when this occurs.
 
 Select the provider under **Settings → Tools → Browser tools**. It defaults to `disabled`.
-Camofox is the only included browser provider. It reuses a named, enabled MCP connection:
+Two browser providers are included: `camofox` and `chromium`. `camofox` reuses a named, enabled MCP connection:
 
 ```json
 {
@@ -426,7 +426,11 @@ Camofox is the only included browser provider. It reuses a named, enabled MCP co
 
 Camofox and its MCP dependencies must already be installed. Its browser service must already be running.
 This feature does not install or start that service. Use the actual MCP file path and Node command on your host.
-Provider options stay under `browser.providers.camofox`. Connection settings and credentials stay in the existing MCP configuration.
+`chromium` launches a local Chromium-based browser such as Helium through Playwright, on the machine where Luna code runs (main, or a worker).
+It needs `browser.providers.chromium.executablePath` and `pnpm install` on that machine. `headless` defaults to true.
+Tabs share one browser context. Snapshots use Playwright's accessibility snapshot, and refs work with `browser_click` and `browser_type`.
+
+Provider options stay under `browser.providers.<provider>`. Connection settings and credentials stay in the existing MCP configuration.
 For the Camofox MCP server, use its `CAMOFOX_BASE_URL`, `CAMOFOX_ACCESS_KEY`, and session environment settings when required.
 The MCP manager keeps protected values out of Settings responses. It supplies the connection timeout and cancellation signal.
 Cancellation stops waiting for the call; it cannot undo an action already sent to the browser.
@@ -1208,10 +1212,9 @@ Supported image formats show a preview in this list. New cards must be saved bef
 ## Execution machines (first version)
 
 One main daemon owns sessions, history, agent execution, models, skills, memory, settings, and schedules.
-A worker runs only file and shell operations for sessions that explicitly target it.
+A worker runs file, shell, browser, and MCP operations for sessions that explicitly target it.
 Opening or sending instructions to a session never changes its execution machine.
-Browser, MCP, web, image generation, vision, and video tools run on main.
-In a worker session, they read local file paths from the worker.
+Web, image generation, vision, and video tools run on main. In a worker session, they read local file paths from the worker.
 `video_analyze` applies the credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
 `image_generate` source images must be inside the worker's working directory.
 The worker opens each protected file once. It checks the opened file and reads from it, so a symlink swap cannot redirect the read.
@@ -1307,10 +1310,21 @@ Native background processes use that environment and retain their output central
 Files named by an assistant `MEDIA:` directive are fetched on demand from the source worker.
 For sessions created through the API, existing answer attachments keep their source after execution transfers.
 
+### Browser and MCP on a worker
+
+In a worker session, `browser_*` tools drive the worker's browser. Main MCP servers stay available.
+The worker reads `browser` and `mcpServers` from its own `luna.config.json` (`LUNA_CONFIG`, or the file in the directory where it starts).
+A worker without `browser.provider` set reports that browser tools are not enabled. It never fakes a page.
+Each MCP server on the worker appears as deferred tools named `w<workerId>_<server>__<tool>`.
+Only sessions on that worker can find or call them. Main sessions and sessions on other workers cannot.
+The worker starts its MCP servers when it connects. Restart the worker to apply config changes.
+Screenshots return through the worker link on demand.
+
 ### Disconnection and recovery
 
+
 History and last known progress stay on main when a worker disconnects.
-In-flight calls fail. New file and shell calls fail clearly instead of falling back to main.
+In-flight calls fail. New file, shell, browser, and worker MCP calls fail with "Nothing ran" instead of falling back to main.
 Calls are never automatically replayed after reconnect. A new link cannot reuse an old file-reader handle.
 Worker shutdown and a detected connection loss abort its commands and close readers.
 A hard crash can leave OS processes running. Main reports their state as unknown; check before repeating a command.

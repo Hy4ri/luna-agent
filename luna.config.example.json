@@ -119,6 +119,9 @@
     "providers": {
       "camofox": {
         "mcpServer": "camofox"
+      },
+      "chromium": {
+        "headless": true
       }
     }
   },

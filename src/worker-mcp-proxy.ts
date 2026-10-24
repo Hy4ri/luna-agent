@@ -1,93 +1,84 @@
-// Per-worker MCP proxy: tools that exist only on a worker, namespaced by machine.
-// Main MCP servers stay available. Worker tools are added when the worker connects and removed on disconnect.
-// Every worker tool proxies via WorkerHub.mcpCall and never falls back to main. Offline → "Nothing ran".
-import { defineExtension, defineTool, type Extension, type Registry } from "@earendil-works/pi-durable";
+// Per-worker MCP proxy: MCP servers configured on a worker appear as `w<id>_<server>__<tool>` tools.
+// They are deferred, proxied through WorkerHub.mcpCall, and usable only in sessions bound to that worker.
+// The tools stay registered while the worker is offline, so a call fails with "Nothing ran" and never reaches main.
+import { defineExtension, defineTool, type Extension, type Registry, type ToolRegistration } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { WORKER_ENV_PREFIX } from "./worker-protocol.js";
 import type { WorkerHub } from "./workers.js";
+import type { WorkerToolDef } from "./worker-services.js";
 
 const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
-
-export interface WorkerToolDef {
-  name: string; // already sanitized tool name on worker, e.g. "my_tool"
-  description?: string;
-  inputSchema?: Record<string, unknown>;
-  server: string; // worker server name, e.g. "my-server"
-}
+const EXTENSION = "worker-mcp";
+const workerOf = (env: { id: string } | undefined) => {
+  if (!env?.id.startsWith(WORKER_ENV_PREFIX)) return undefined;
+  const id = Number(env.id.slice(WORKER_ENV_PREFIX.length));
+  return Number.isSafeInteger(id) ? id : undefined;
+};
 
 export class WorkerMcpProxy {
-  private installed = new Map<number, Extension[]>();
+  /** Last known tools per worker. Kept across disconnects. */
+  private defs = new Map<number, WorkerToolDef[]>();
+  private owner = new Map<string, number>();
   constructor(private hub: WorkerHub, private registry: Registry, private log: (m: string) => void = () => {}) {}
 
   attach() {
-    this.hub.onConnect((id) => { void this.onConnect(id); });
-    this.hub.onDisconnect((id) => this.onDisconnect(id));
-    // If workers already online (e.g. hub created after attach), sync them.
-    for (const w of this.hub.list().filter(w => w.online)) void this.onConnect(w.id);
+    this.hub.onConnect(id => { void this.refresh(id); });
+    // A deleted worker never returns, so its tools go. A disconnected worker keeps them, so calls report "Nothing ran".
+    this.hub.onRemove(id => { if (this.defs.delete(id)) this.install(); });
+    for (const w of this.hub.list().filter(w => w.online)) void this.refresh(w.id);
   }
 
-  private async onConnect(workerId: number) {
-    // Remove stale first
-    this.onDisconnect(workerId);
+  private async refresh(workerId: number) {
     let res;
-    try { res = await this.hub.mcpList(workerId, BACKGROUND_CONTEXT); } catch (e) { this.log(`worker ${workerId} mcpList failed: ${(e as Error).message}`); return; }
-    if (!res.ok) {
-      // Offline or error: nothing to install. Offline text already contains "Nothing ran" but we don't install.
-      return;
-    }
-    const defs = res.value as WorkerToolDef[] | unknown;
-    if (!Array.isArray(defs) || defs.length === 0) return;
-    const byServer = new Map<string, WorkerToolDef[]>();
-    for (const d of defs as WorkerToolDef[]) {
-      if (!d || typeof d.name !== "string" || typeof d.server !== "string") continue;
-      const arr = byServer.get(d.server) ?? [];
-      arr.push(d);
-      byServer.set(d.server, arr);
-    }
-    const hub = this.hub;
-    const extensions: Extension[] = [];
-    for (const [server, tools] of byServer) {
-      const prefix = `w${workerId}_${sanitize(server)}`;
-      const registered = tools.map((t) => {
-        const toolName = `${prefix}__${sanitize(t.name)}`;
-        const schema = (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>;
-        const serverName = server;
-        const toolOrigName = t.name;
-        return defineTool({
-          name: toolName,
-          description: `[mcp:${server} on worker ${workerId}] ${t.description ?? t.name}`,
-          parameters: Type.Unsafe<Record<string, unknown>>(schema),
-          deferred: true as const,
-          async execute(args: Record<string, unknown>, _api: unknown, context: { abortSignal?: AbortSignal }) {
-            const signal = context.abortSignal ?? new AbortController().signal;
-            const raw = await hub.mcpCall(workerId, serverName, toolOrigName, args as Record<string, unknown>, { abortSignal: signal } as any);
-            if (!raw.ok) throw (raw as { error: Error }).error;
-            const res: any = raw.value;
-            if (res && typeof res === "object" && Array.isArray((res as { content?: unknown[] }).content)) {
-              const content: unknown[] = (res as { content: unknown[] }).content;
-              const output = (content as any[]).map((c) =>
-                c?.type === "text" ? { type: "text" as const, text: String(c.text) }
-                : c?.type === "image" ? { type: "image" as const, data: c.data, mimeType: c.mimeType }
-                : { type: "text" as const, text: JSON.stringify(c) });
-              return { output: output.length ? output : [{ type: "text" as const, text: "" }], isError: (res as { isError?: boolean }).isError === true };
-            }
-            return { output: [{ type: "text" as const, text: typeof res === "string" ? res : JSON.stringify(res) }] };
-          },
-        });
-      });
-      const ext = defineExtension({ name: `mcp-worker-${workerId}-${sanitize(server)}`, tools: registered });
-      this.registry.install(ext);
-      extensions.push(ext);
-      this.log(`worker ${workerId} mcp: installed ${registered.length} tools from "${server}" as ${prefix}__*`);
-    }
-    if (extensions.length) this.installed.set(workerId, extensions);
+    try { res = await this.hub.mcpList(workerId, BACKGROUND_CONTEXT); } catch (e) { this.log(`worker ${workerId} mcp list failed: ${(e as Error).message}`); return; }
+    if (!res.ok) { this.log(`worker ${workerId} mcp list failed: ${res.error.message}`); return; }
+    const valid = (Array.isArray(res.value) ? res.value : []).filter((d): d is WorkerToolDef => !!d && typeof d.name === "string" && typeof d.server === "string");
+    this.defs.set(workerId, valid);
+    this.install();
+    this.log(`worker ${workerId} mcp: ${valid.length} tools`);
   }
 
-  private onDisconnect(workerId: number) {
-    const exts = this.installed.get(workerId);
-    if (!exts) return;
-    for (const e of exts) try { this.registry.uninstall(e); } catch {}
-    this.installed.delete(workerId);
-    this.log(`worker ${workerId} mcp: removed ${exts.length} extensions`);
+  private tool(workerId: number, d: WorkerToolDef) {
+    const hub = this.hub;
+    return defineTool({
+      name: `w${workerId}_${sanitize(d.server)}__${sanitize(d.name)}`,
+      description: `[mcp:${d.server} on worker ${workerId}] ${d.description ?? d.name}`,
+      parameters: Type.Unsafe<Record<string, unknown>>(d.inputSchema ?? { type: "object", properties: {} }),
+      deferred: true as const,
+      async execute(args, api, context) {
+        if (workerOf(api.env) !== workerId) throw new Error(`This tool runs on execution machine ${workerId}. Nothing ran. Move this session to that machine to use it.`);
+        const raw = await hub.mcpCall(workerId, d.server, d.name, args, context);
+        if (!raw.ok) throw raw.error;
+        const res = raw.value as { content?: unknown; isError?: boolean; structuredContent?: unknown } | null;
+        const content: any[] = Array.isArray(res?.content) ? res!.content as any[] : [{ type: "text", text: JSON.stringify(res?.structuredContent ?? res) }];
+        const output = content.map(c =>
+          c?.type === "text" ? { type: "text" as const, text: String(c.text) }
+          : c?.type === "image" ? { type: "image" as const, data: c.data, mimeType: c.mimeType }
+          : { type: "text" as const, text: JSON.stringify(c) });
+        return { output: output.length ? output : [{ type: "text" as const, text: "" }], isError: res?.isError === true };
+      },
+    });
+  }
+
+  private install() {
+    const tools: ToolRegistration[] = [];
+    this.owner.clear();
+    for (const [workerId, defs] of this.defs) for (const d of defs) { const t = this.tool(workerId, d); tools.push(t); this.owner.set(t.name, workerId); }
+    const owner = this.owner;
+    // tool_search lists deferred tools of the whole registry. Each session sees only its own worker's tools.
+    const extension: Extension = defineExtension({
+      name: EXTENSION, tools,
+      wraps: [{ tool: "tool_search", wrap: (tool: ToolRegistration): ToolRegistration => ({
+        ...tool,
+        execute: (args: any, api: any, context: any) => tool.execute(args, Object.create(api, {
+          agent: { value: async (c: unknown) => {
+            const agent = await api.agent(c), bound = workerOf(api.env);
+            return { ...agent, deferred: agent.deferred.filter((t: { name: string }) => !owner.has(t.name) || owner.get(t.name) === bound) };
+          } },
+        }), context),
+      }) }],
+    });
+    this.registry.install(extension);
   }
 }
