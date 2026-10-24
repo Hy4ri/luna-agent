@@ -9,7 +9,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError } from "@earendil-works/pi-durable/env";
 import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, PROTOCOL_VERSION, decode, encode, encodeResult,
   type BrowserMethod, type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
-import type { BrowserProvider } from "./browser-tools.js";
+import { WorkerServices } from "./worker-services.js";
 
 export interface WorkerOptions {
   url: string; token: string; cwd?: string;
@@ -18,69 +18,10 @@ export interface WorkerOptions {
   onUnauthorized?: () => void;
 }
 
-let workerBrowserProvider: BrowserProvider | undefined | null = null;
-let workerMcp: import("./mcp.js").McpManager | undefined;
-let workerMcpReady: Promise<void> | undefined;
-
-async function getWorkerBrowserProvider(): Promise<BrowserProvider | undefined> {
-  if (workerBrowserProvider !== null) return workerBrowserProvider ?? undefined;
-  try {
-    const { createCamofoxBrowserProvider } = await import("./camofox-browser-provider.js");
-    const { parseConfig } = await import("./config.js");
-    let cfg: import("./config.js").LunaConfig;
-    try { cfg = parseConfig({}, process.cwd()); } catch { workerBrowserProvider = undefined; return undefined; }
-    const { SettingsStore } = await import("./settings.js");
-    const store = cfg.configPath ? new SettingsStore(cfg.configPath, cfg.dataDir) : undefined;
-    const live = store?.resolved() ?? cfg;
-    if (live.browser.provider === "disabled") { workerBrowserProvider = undefined; return undefined; }
-    const mcp = await getWorkerMcp();
-    const provider = createCamofoxBrowserProvider(() => live.browser.providers.camofox, mcp ?? ({ callTool: async () => { throw new Error("MCP not available"); } } as any));
-    workerBrowserProvider = provider;
-    return provider;
-  } catch { workerBrowserProvider = undefined; return undefined; }
-}
-function fakeBrowserProvider(): BrowserProvider {
-  const tabs = new Map<string, { url: string }>();
-  let next = 1;
-  const newId = () => `tab_${next++}`;
-  return {
-    async open(req) { const tabId = newId(); tabs.set(tabId, { url: req.url }); return { tabId, url: req.url }; },
-    async navigate(req) { if (!tabs.has(req.tabId)) throw new Error("no such tab"); tabs.set(req.tabId, { url: req.url }); return { tabId: req.tabId, url: req.url }; },
-    async close(req) { tabs.delete(req.tabId); },
-    async snapshot(req) { const t = tabs.get(req.tabId); if (!t) throw new Error("no such tab"); return { tabId: req.tabId, url: t.url, content: `Snapshot of ${t.url} fake content`, hasMore: false }; },
-    async click() {},
-    async type() {},
-    async scroll() {},
-    async screenshot() { return { data: Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]).toString("base64"), mimeType: "image/png" as const }; },
-  };
-}
-async function getWorkerMcp(): Promise<import("./mcp.js").McpManager> {
-  if (workerMcp) return workerMcp;
-  if (workerMcpReady) await workerMcpReady;
-  if (workerMcp) return workerMcp;
-  const { McpManager } = await import("./mcp.js");
-  const { createRegistry } = await import("@earendil-works/pi-durable");
-  const { parseConfig } = await import("./config.js");
-  let cfg: import("./config.js").LunaConfig;
-  try { cfg = parseConfig({}, process.cwd()); } catch { cfg = { mcpServers: [], dataDir: "/tmp", browser: { provider: "disabled", providers: { camofox: { mcpServer: "camofox" } } }, image_gen: {}, } as any; }
-  let settings: import("./settings.js").SettingsStore | undefined;
-  try {
-    const { SettingsStore } = await import("./settings.js");
-    settings = cfg.configPath ? new SettingsStore(cfg.configPath, cfg.dataDir) : undefined;
-  } catch {}
-  const registry = createRegistry();
-  const mcp = new McpManager(registry, (settings?.resolved() ?? cfg).mcpServers as any, settings ? undefined : "/tmp/luna-worker-mcp.json", settings as any);
-  workerMcp = mcp;
-  workerMcpReady = mcp.start().catch(() => {}).then(() => {});
-  await workerMcpReady;
-  // Also try to load worker-specific file: ~/.luna/mcp.json or /home/m57/.luna/mcp.json if different, we already did via SettingsStore.
-  // Fallback: ensure at least one dummy server if none and env indicates test.
-  return mcp;
-}
-
 export function startWorker(o: WorkerOptions) {
   const log = o.log ?? ((m: string) => console.error(m));
   const cwd = o.cwd ?? homedir();
+  const services = new WorkerServices();
   const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
     user: userInfo().username, home: homedir(), cwd, path: process.env.PATH };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
@@ -135,41 +76,19 @@ export function startWorker(o: WorkerOptions) {
         let result: unknown;
         if (m.t === "browser") {
           if (!(BROWSER_METHODS as readonly string[]).includes(m.method)) throw new Error(`unsupported browser method ${m.method}`);
-          const provider = (await getWorkerBrowserProvider()) ?? fakeBrowserProvider();
-          const args = decode(m.args) as unknown[];
-          const req = args[0] as any;
-          let value: unknown;
-          switch (m.method as BrowserMethod) {
-            case "open": value = await provider.open(req, controller.signal); break;
-            case "navigate": value = await provider.navigate(req, controller.signal); break;
-            case "close": await provider.close(req, controller.signal); value = undefined; break;
-            case "snapshot": value = await provider.snapshot(req, controller.signal); break;
-            case "click": await provider.click(req, controller.signal); value = undefined; break;
-            case "type": await provider.type(req, controller.signal); value = undefined; break;
-            case "scroll": await provider.scroll(req, controller.signal); value = undefined; break;
-            case "screenshot": value = await provider.screenshot(req, controller.signal); break;
-          }
+          const provider = await services.browser();
+          const req = (decode(m.args) as unknown[])[0] as never;
+          const signal = controller.signal;
+          const value = await ({
+            open: () => provider.open(req, signal), navigate: () => provider.navigate(req, signal), close: () => provider.close(req, signal),
+            snapshot: () => provider.snapshot(req, signal), click: () => provider.click(req, signal), type: () => provider.type(req, signal),
+            scroll: () => provider.scroll(req, signal), screenshot: () => provider.screenshot(req, signal),
+          } satisfies Record<BrowserMethod, () => Promise<unknown>>)[m.method]();
           result = { ok: true, value };
         } else if (m.t === "mcpList") {
-          let defs: { name: string; description?: string; inputSchema?: Record<string, unknown>; server: string }[] = [];
-          try {
-            const mgr = await getWorkerMcp();
-            for (const c of mgr.connections) for (const d of c.toolDefs) defs.push({ name: String(d.name), description: d.description, inputSchema: d.inputSchema, server: c.name });
-            if (defs.length === 0) defs = [{ name: "worker_echo", description: "Echo on worker", inputSchema: { type: "object", properties: { text: { type: "string" } } }, server: "worker-dummy" }];
-          } catch {
-            defs = [{ name: "worker_echo", description: "Echo on worker", inputSchema: { type: "object", properties: { text: { type: "string" } } }, server: "worker-dummy" }];
-          }
-          result = { ok: true, value: defs };
+          result = { ok: true, value: await services.mcpList() };
         } else if (m.t === "mcpCall") {
-          const args = decode(m.args) as Record<string, unknown>;
-          if (m.server === "worker-dummy") {
-            // Dummy worker-only tool (used when worker has no real MCP). Always available.
-            result = { ok: true, value: { content: [{ type: "text", text: JSON.stringify({ echo: args, worker: true }) }] } };
-          } else {
-            const mgr = await getWorkerMcp();
-            const raw = await mgr.callTool(m.server, m.tool, args as Record<string, unknown>, controller.signal);
-            result = { ok: true, value: raw };
-          }
+          result = { ok: true, value: await services.mcpCall(m.server, m.tool, decode(m.args) as Record<string, unknown>, controller.signal) };
         } else if (m.t === "call") {
           if (!(ENV_METHODS as readonly string[]).includes(m.method)) throw new Error(`unsupported method ${m.method}`);
           const env = envFor(m.cwd || cwd);
@@ -224,7 +143,7 @@ export function startWorker(o: WorkerOptions) {
     /** Resolves after the first welcome from main. */
     ready,
     /** Stop reconnecting, kill running commands, then close the link. */
-    async close() { stopped = true; clearTimeout(retry); await release(); socket?.close(); },
+    async close() { stopped = true; clearTimeout(retry); await release(); socket?.close(); await services.close(); },
   };
 }
 

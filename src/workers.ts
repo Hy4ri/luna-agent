@@ -135,10 +135,8 @@ export class WorkerHub {
   private links = new Map<number, Link>();
   private wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 * 1024 });
   private connectListeners = new Set<(id: number) => void>();
-  private disconnectListeners = new Set<(id: number) => void>();
   constructor(readonly store: WorkerStore, private log: (m: string) => void = m => console.error(m)) {}
   onConnect(fn: (id: number) => void) { this.connectListeners.add(fn); return () => this.connectListeners.delete(fn); }
-  onDisconnect(fn: (id: number) => void) { this.disconnectListeners.add(fn); return () => this.disconnectListeners.delete(fn); }
 
   /** Handle `GET /v1/workers/connect` upgrades on the daemon's HTTP server. Other upgrades are left alone. */
   attach(server: Pick<Server, "on">) { server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(req, socket, head)); }
@@ -174,7 +172,6 @@ export class WorkerHub {
       ws.on("close", () => {
         if (this.links.get(worker.id) === link) { this.links.delete(worker.id); this.store.seen(worker.id); }
         link.drop(`Worker "${worker.name}" disconnected.`);
-        for (const fn of this.disconnectListeners) try { fn(worker.id); } catch {}
       });
     });
   }
