@@ -1,5 +1,5 @@
 <template>
-  <div id="analytics-screen" class="flex-1 min-w-0 min-h-0 overflow-auto p-6 [padding-inline:max(20px,calc((100%-1475px)/2))] [overflow-wrap:anywhere]" :aria-busy="busy ? 'true' : 'false'">
+  <div id="analytics-screen" class="flex-1 min-w-0 min-h-0 overflow-auto p-6 max-[760px]:p-3 [padding-inline:max(16px,calc((100%-1475px)/2))] [overflow-wrap:anywhere]" :aria-busy="busy ? 'true' : 'false'">
     <!-- Top Header -->
     <header class="flex items-center gap-3 flex-wrap mb-5 max-w-[1475px] mx-auto">
       <Button id="analytics-menu" type="button" variant="ghost" size="icon" class="hidden max-[760px]:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground" aria-label="Open navigation" aria-controls="side" @click="setDrawer(true)">
