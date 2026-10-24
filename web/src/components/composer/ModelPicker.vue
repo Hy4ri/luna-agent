@@ -117,14 +117,14 @@ onUnmounted(() => {
 #model-picker {
   position: fixed;
   margin: 0;
-  display: flex;
+  display: none;
   flex-direction: column;
   gap: 12px;
   padding: 14px;
   background: var(--popover);
   color: var(--popover-foreground);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 1px;
   box-shadow: 0 16px 48px rgb(0 0 0 / .5), 0 2px 12px rgb(0 0 0 / .35);
   overflow: hidden;
   min-height: 0;
@@ -132,6 +132,14 @@ onUnmounted(() => {
   z-index: 30;
 }
 #model-picker :deep(.model-selector) { min-height: 0; }
+#model-picker :deep(input),
+#model-picker :deep(.ms-chip),
+#model-picker :deep(.ms-pinned),
+#model-picker :deep(.ms-pinned-chip),
+#model-picker :deep(.ms-row),
+#model-picker :deep(.ms-badge),
+#model-picker :deep(.ms-pin),
+#model-picker .mp-empty { border-radius: 1px; }
 #model-picker :deep(.ms-list) { flex: 1; min-height: 120px; }
 #model-picker:popover-open { display: flex; }
 .mp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
