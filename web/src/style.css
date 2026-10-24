@@ -760,6 +760,12 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .activity-section + .activity-section { border-top: 1px solid var(--border); margin-top: 4px; }
 .activity-section h4 { display: flex; justify-content: space-between; margin: 8px 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .activity-section h4 span { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.activity-section-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+.activity-section-toggle span { margin-left: auto; }
+.activity-section-toggle svg { flex: none; }
+.activity-section-toggle .section-open { transform: rotate(90deg); }
+.activity-section-toggle:focus-visible { outline: 2px solid var(--primary-text); outline-offset: 2px; }
+
 .activity-row { padding: 2px 0; }
 .activity-line { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .activity-line > svg { flex: none; color: var(--muted-foreground); }
