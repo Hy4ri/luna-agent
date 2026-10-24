@@ -1127,6 +1127,35 @@ LUNA_VIDEO_LIVE_APPROVED=1 LUNA_CONFIG=/absolute/path/luna.config.json \
 Review the returned description against the actual clip. A regex match alone does not prove complete video understanding.
 The live script does not start or restart the daemon or edit configuration. Provider auth can refresh stored OAuth credentials.
 
+## Project machines and creation
+
+`POST /v1/projects` accepts `name`, optional host `cwd`, and optional
+`worker` (registered numeric worker ID) with `workerCwd` (absolute path).
+
+- Host-only: `{ "name": "Local", "cwd": "/home/user/project" }`.
+- Worker-only: `{ "name": "Remote", "worker": 1, "workerCwd": "/home/user/project" }`.
+- Both: supply the host `cwd` and the worker fields together.
+- For compatibility, `{ "name": "Remote", "worker": 1, "cwd": "/home/user/project" }`
+  treats `cwd` as the worker directory when `workerCwd` is omitted.
+
+Creation returns `201` with `{ id, name, cwd, workerDirs }`. Worker-only projects
+have `cwd: ""` and a `workerDirs` entry. Host paths must exist on the main host.
+Worker paths must be absolute; the worker checks existence when used. Creating a
+project records paths; it does not create filesystem directories. Offline workers
+can be linked without executing anything on them.
+
+Unknown workers return `404`. Invalid paths or incomplete worker fields return
+`400`; duplicate names return `409`.
+
+In Projects, **Create on** defaults to **Host**. Choose **Worker** for a worker-only
+project or **Both** to require directories on both machines. Select a worker and
+enter its directory for Worker or Both. Hidden directory fields are not submitted. Starting a chat selects the first linked worker
+for a project without a host directory. The composer permits changing the machine.
+Session creation, machine changes, and draft file completion reject a named project
+on an unlinked machine with `400`, even when an explicit directory is supplied.
+General chats retain the normal machine defaults. No operation falls back to main
+when a selected worker is offline.
+
 ## General chat board
 
 The built-in **General** project is always available. It shares one persistent board across sessions in **Chats**.

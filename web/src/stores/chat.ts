@@ -415,6 +415,10 @@ export async function newSession(project?: number | string | null): Promise<bool
   if (!leavePages()) return false;
   clearConversation();
   chat.project = project !== undefined && project !== null ? Number(project) : null;
+  const selectedProject = history.projects.find(p => p.id === chat.project);
+  if (selectedProject && !selectedProject.general && !selectedProject.cwd) {
+    chat.draftWorker = selectedProject.workerDirs?.[0]?.worker ?? null;
+  }
   chat.draftOpen = true;
   return true;
 }

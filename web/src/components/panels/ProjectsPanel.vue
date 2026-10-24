@@ -20,6 +20,7 @@ const selected = ref<number | "new" | null>(null);
 const showDetail = ref(false);
 const name = ref("");
 const cwd = ref("");
+const createOn = ref<"host" | "worker" | "both">("host");
 const newWorker = ref<number | null>(null);
 const newWorkerCwd = ref("");
 const busy = ref(false);
@@ -37,7 +38,7 @@ const recent = computed(() => current.value ? sessionsOf(current.value.id).slice
 const dirty = computed(() => {
   if (selected.value === "new") {
     const workerOnly = newWorker.value !== null && !!newWorkerCwd.value.trim();
-    return !!name.value.trim() && (!!cwd.value.trim() || workerOnly);
+    return !!name.value.trim() && (createOn.value === "worker" || !!cwd.value.trim()) && (createOn.value === "host" || workerOnly);
   }
   return !!current.value && (name.value !== current.value.name || cwd.value.trim() !== current.value.cwd);
 });
@@ -78,7 +79,7 @@ function select(id: number | "new" | null) {
   const p = typeof id === "number" ? history.projects.find(x => x.id === id) : null;
   name.value = p?.name ?? "";
   cwd.value = p?.cwd ?? "";
-  if (id === "new") { newWorker.value = null; newWorkerCwd.value = ""; }
+  if (id === "new") { createOn.value = "host"; newWorker.value = null; newWorkerCwd.value = ""; }
   syncMachineDirs();
   if (id !== null) showDetail.value = true;
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
@@ -96,10 +97,11 @@ async function run(action: () => Promise<void>) {
 
 const save = () => run(async () => {
   if (selected.value === "new") {
-    const hostCwd = cwd.value.trim();
+    const hostCwd = createOn.value === "worker" ? "" : cwd.value.trim();
     const payload: Record<string, unknown> = { name: name.value.trim(), cwd: hostCwd };
-    if (newWorker.value !== null && newWorkerCwd.value.trim()) { payload.worker = newWorker.value; payload.workerCwd = newWorkerCwd.value.trim(); }
-    if (!hostCwd && newWorker.value !== null && !newWorkerCwd.value.trim()) { notice.value = "Enter a directory on the selected worker"; return; }
+    if (createOn.value !== "host" && newWorker.value !== null && newWorkerCwd.value.trim()) { payload.worker = newWorker.value; payload.workerCwd = newWorkerCwd.value.trim(); }
+    if (createOn.value !== "host" && (newWorker.value === null || !newWorkerCwd.value.trim())) { notice.value = "Select a worker and enter its directory"; return; }
+    if (createOn.value !== "worker" && !hostCwd) { notice.value = "Enter a main host directory"; return; }
     const created = await post<{ id: number }>("/v1/projects", payload);
     await refresh();
     select(created.id);
@@ -186,11 +188,12 @@ onMounted(async () => {
         <form v-else class="pw-sec" @submit.prevent="save">
           <h4 v-if="selected !== 'new'">Settings</h4>
           <label class="pw-field">Name<input dir="auto" id="project-name" v-model="name" aria-label="Project name" autocomplete="off" /></label>
-          <label class="pw-field">Working directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>
-          <template v-if="selected === 'new' && workers.list.length">
-            <label class="pw-field">Create on worker (optional)<select v-model="newWorker" class="pw-input" aria-label="Worker for new project"><option :value="null">— Main host only —</option><option v-for="w in workers.list" :key="w.id" :value="w.id">{{ w.name }}{{ w.online ? "" : " · Offline" }}</option></select></label>
-            <label v-if="newWorker !== null" class="pw-field">Directory on {{ workers.list.find(w => w.id === newWorker)?.name ?? "worker" }}<input v-model="newWorkerCwd" class="pw-mono" :aria-label="'Directory on worker'" placeholder="/absolute path on this worker" autocomplete="off" spellcheck="false" /></label>
-            <p v-if="newWorker !== null && !cwd.trim()" class="pw-muted pw-small">With no host directory, the project exists only on the worker and uses its board there.</p>
+          <label v-if="selected === 'new'" class="pw-field">Create on<select v-model="createOn" class="pw-input" aria-label="Create project on"><option value="host">Host</option><option value="worker">Worker</option><option value="both">Both</option></select></label>
+          <label v-if="selected !== 'new' || createOn !== 'worker'" class="pw-field">Main host directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>
+          <template v-if="selected === 'new' && createOn !== 'host'">
+            <label class="pw-field">Worker<select v-model="newWorker" class="pw-input" aria-label="Worker for new project"><option :value="null" disabled>Select a worker</option><option v-for="w in workers.list" :key="w.id" :value="w.id">{{ w.name }}{{ w.online ? "" : " · Offline" }}</option></select></label>
+            <p v-if="!workers.list.length" class="pw-muted pw-small">Register a worker before creating a project on it.</p>
+            <label class="pw-field">Worker directory<input v-model="newWorkerCwd" class="pw-mono" aria-label="Directory on worker" placeholder="/absolute/path/on/worker" autocomplete="off" spellcheck="false" /></label>
           </template>
           <div class="pw-row">
             <button type="submit" class="pw-btn pw-primary" :disabled="!dirty || busy">{{ selected === 'new' ? 'Add project' : 'Save' }}</button>

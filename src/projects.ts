@@ -106,6 +106,7 @@ export class ProjectStore {
       if (opts!.worker === undefined || opts!.workerCwd === undefined) throw new ProjectError(400, "worker and workerCwd required together");
       if (!Number.isSafeInteger(opts!.worker) || (opts!.worker as number) < 1) throw new ProjectError(400, "invalid worker");
       const workerCwd = this.cleanWorkerCwd(opts!.workerCwd);
+      if (cwd !== undefined && typeof cwd !== "string") throw new ProjectError(400, "cwd must be an absolute path");
       let hostCwd = "";
       if (typeof cwd === "string" && cwd.trim() !== "") hostCwd = this.clean(cleanName, cwd).cwd;
       this.db.exec("BEGIN IMMEDIATE");
