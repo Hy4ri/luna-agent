@@ -438,7 +438,16 @@ export async function stopRun() {
 /** Starts a new conversation and leaves a Cron report in the composer. Never submits it. */
 export async function continueCronRun(run: any) {
   if (!await newSession() || chat.session) throw new Error("Conversation changed. Open the report again to continue.");
-  composer.text = `Discuss this Cron report.\nJob: ${run.jobName}\nRun: #${run.id}\nFinished: ${new Date(run.endedAt || run.startedAt).toISOString()}\nStatus: ${run.status}\n\n${[run.output, run.error ? "Error: " + run.error : null].filter(Boolean).join("\n\n") || "(No output)"}\n\n`;
+  composer.text = "";
+  composer.attachments = [{
+    mimeType: "text/plain", url: "",
+    report: { jobName: run.jobName, id: run.id, status: run.status },
+    data: "[Attached Cron report]\n" + JSON.stringify({
+      jobName: run.jobName, id: run.id, status: run.status,
+      finished: new Date(run.endedAt || run.startedAt).toISOString(),
+      output: run.output || "", error: run.error || "",
+    }),
+  }];
   saveDraft(); focusInput.value++;
 }
 
