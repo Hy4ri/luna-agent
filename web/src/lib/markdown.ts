@@ -17,8 +17,9 @@ function inline(text: string): (Node | string)[] {
   // 14: underscore bold: __text__
   // 15: underscore italic: \b_text_\b
   // 16: strikethrough: ~~text~~
+  // 17: keyboard key: <kbd>text</kbd> (plain text, no attributes)
   // \n: line break
-  const re = /(`+)([\s\S]*?)\1|!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|<((?:https?|mailto):[^\s>]+)>|\b(https?:\/\/[^\s<)]+)|\*\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*\*|\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*|\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*|__([^_\s\n](?:[^_\n]*?[^_\s\n])?)__|\b_([^_\s\n](?:[^_\n]*?[^_\s\n])?)_\b|~~([^~\s\n](?:[^~\n]*?[^~\s\n])?)~~|\n/g;
+  const re = /(`+)([\s\S]*?)\1|!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|<((?:https?|mailto):[^\s>]+)>|\b(https?:\/\/[^\s<)]+)|\*\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*\*|\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*|\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*|__([^_\s\n](?:[^_\n]*?[^_\s\n])?)__|\b_([^_\s\n](?:[^_\n]*?[^_\s\n])?)_\b|~~([^~\s\n](?:[^~\n]*?[^~\s\n])?)~~|<kbd>([^<>\n]*)<\/kbd>|\n/g;
 
   let last = 0;
   let m: RegExpExecArray | null;
@@ -53,6 +54,9 @@ function inline(text: string): (Node | string)[] {
     } else if (m[16]) {
       // Strikethrough
       out.push(h("del", {}, ...inline(m[16])));
+    } else if (m[17] !== undefined) {
+      // Only this exact tag pair is supported; content stays text, never HTML.
+      out.push(h("kbd", { dir: "auto" }, m[17]));
     } else if (m[0] === "\n") {
       out.push(h("br"));
     }
