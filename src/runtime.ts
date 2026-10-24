@@ -34,6 +34,7 @@ import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
 import { createBrowserToolsExtension } from "./browser-tools.js";
 import { createCamofoxBrowserProvider } from "./camofox-browser-provider.js";
+import { createChromiumBrowserProvider } from "./chromium-browser-provider.js";
 import { createWebToolsExtension } from "./web-tools.js";
 import { createDdgsWebProvider } from "./ddgs-web-provider.js";
 import { FileCredentialStore, ProviderManager } from "./providers.js";
@@ -130,6 +131,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   ])));
   extensions.push(createBrowserToolsExtension(() => live().browser, new Map([
     ["camofox", createCamofoxBrowserProvider(() => live().browser.providers.camofox, mcp)],
+    ["chromium", createChromiumBrowserProvider(() => live().browser.providers.chromium)],
   ]), { hub: () => workers }));
   // Identity and always-on memory belong to the runtime, including cron and child conversations.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {

@@ -47,7 +47,7 @@ const selectedVariant = computed(() => variants.value.find(item => item.properti
 const nestedObject = computed(() => props.path.length > 1 && !(props.path.length === 2 && props.path[0] === 'providers') && !['web.providers', 'browser.providers'].includes(full.value) && !(props.path[0] === 'vision' && props.path[1] === 'profiles' && props.path.length === 3))
 const isProfiles = computed(() => full.value === 'vision.profiles')
 const itemName = computed(() => ({ mcpServers: 'MCP server', providers: 'provider', models: 'model', skillDirs: 'skill directory', args: 'argument' }[key.value] || 'item'))
-const optionLabels: Record<string, string> = { disabled: 'Disabled', ddgs: 'DDGS', camofox: 'Camofox', interrupt: 'Interrupt', queue: 'Queue', steer: 'Steer', native: 'Active model', auxiliary: 'Auxiliary model', on: 'On', moderate: 'Moderate', off: 'Off', low: 'Low', medium: 'Medium', high: 'High', 'openai-completions': 'OpenAI-compatible chat completions', 'openai-responses': 'OpenAI Responses', 'anthropic-messages': 'Anthropic-compatible messages' }
+const optionLabels: Record<string, string> = { disabled: 'Disabled', ddgs: 'DDGS', camofox: 'Camofox', chromium: 'Chromium (local)', interrupt: 'Interrupt', queue: 'Queue', steer: 'Steer', native: 'Active model', auxiliary: 'Auxiliary model', on: 'On', moderate: 'Moderate', off: 'Off', low: 'Low', medium: 'Medium', high: 'High', 'openai-completions': 'OpenAI-compatible chat completions', 'openai-responses': 'OpenAI Responses', 'anthropic-messages': 'Anthropic-compatible messages' }
 const keyError = ref('')
 const expandedKeys = ref<Record<string, boolean>>({})
 const choiceOptions = computed<{ value: string; label: string }[] | null>(() => {

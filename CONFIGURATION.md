@@ -407,7 +407,7 @@ The Camofox MCP connection controls its cookie/storage session. Share it only be
 Handles can become invalid after a connection restart or provider change. Open a new tab when this occurs.
 
 Select the provider under **Settings → Tools → Browser tools**. It defaults to `disabled`.
-Camofox is the only included browser provider. It reuses a named, enabled MCP connection:
+Two browser providers are included: `camofox` and `chromium`. `camofox` reuses a named, enabled MCP connection:
 
 ```json
 {
@@ -426,7 +426,11 @@ Camofox is the only included browser provider. It reuses a named, enabled MCP co
 
 Camofox and its MCP dependencies must already be installed. Its browser service must already be running.
 This feature does not install or start that service. Use the actual MCP file path and Node command on your host.
-Provider options stay under `browser.providers.camofox`. Connection settings and credentials stay in the existing MCP configuration.
+`chromium` launches a local Chromium-based browser such as Helium through Playwright, on the machine where Luna code runs (main, or a worker).
+It needs `browser.providers.chromium.executablePath` and `pnpm install` on that machine. `headless` defaults to true.
+Tabs share one browser context. Snapshots use Playwright's accessibility snapshot, and refs work with `browser_click` and `browser_type`.
+
+Provider options stay under `browser.providers.<provider>`. Connection settings and credentials stay in the existing MCP configuration.
 For the Camofox MCP server, use its `CAMOFOX_BASE_URL`, `CAMOFOX_ACCESS_KEY`, and session environment settings when required.
 The MCP manager keeps protected values out of Settings responses. It supplies the connection timeout and cancellation signal.
 Cancellation stops waiting for the call; it cannot undo an action already sent to the browser.

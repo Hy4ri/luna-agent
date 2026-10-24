@@ -24,6 +24,8 @@ export class WorkerMcpProxy {
 
   attach() {
     this.hub.onConnect(id => { void this.refresh(id); });
+    // A deleted worker never returns, so its tools go. A disconnected worker keeps them, so calls report "Nothing ran".
+    this.hub.onRemove(id => { if (this.defs.delete(id)) this.install(); });
     for (const w of this.hub.list().filter(w => w.online)) void this.refresh(w.id);
   }
 
