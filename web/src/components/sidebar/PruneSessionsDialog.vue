@@ -66,7 +66,7 @@ function close() { if (!busy.value) emit("close"); }
           <input v-model="includeArchived" type="checkbox" :disabled="busy" class="accent-primary" />
           Include archived sessions
         </label>
-        <p class="text-sm text-muted-foreground">Open sessions and sessions with running work are kept. Recent forks protect their parent sessions. Deletion is permanent and cannot be undone.</p>
+        <p class="text-sm text-muted-foreground">Pinned sessions, open sessions, and sessions with running work are kept. Recent forks protect their parent sessions. Deletion is permanent and cannot be undone.</p>
         <p role="status" class="text-sm" aria-live="polite">
           <template v-if="loading">Checking sessions…</template>
           <template v-else-if="valid && !error">{{ ids.length }} {{ noun(ids.length) }} will be permanently deleted.</template>
