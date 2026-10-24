@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, inject } from "vue";
-import { Pin, PinOff, Search, Brain, Eye, Check } from "@lucide/vue";
-import { models, modelKey, togglePin } from "@/stores/models";
+import { Pin, PinOff, Search, Brain, Eye, Check, ArrowUp, ArrowDown, ChevronRight } from "@lucide/vue";
+import { models, modelKey, togglePin, movePin } from "@/stores/models";
 import type { ModelInfo } from "@/lib/types";
 
 const injectedChoices = inject("settingsModelChoices", null as unknown as { value: string; label: string }[] | null);
@@ -36,10 +36,15 @@ const props = withDefaults(defineProps<{
   placeholder?: string;
   emptyLabel?: string;
   autofocus?: boolean;
+  searchTarget?: HTMLElement;
+  searchVisible?: boolean;
+  compactPicker?: boolean;
 }>(), {
   placeholder: "Search models…",
   emptyLabel: "Use default",
   autofocus: false,
+  searchVisible: true,
+  compactPicker: false,
 });
 
 const emit = defineEmits<{
@@ -48,41 +53,39 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const editingPins = ref(false);
 const query = ref("");
-const providerFilter = ref<string>("all");
+const openProviders = ref(new Set<string>());
 const activeIndex = ref(0);
 const searchRef = ref<HTMLInputElement | null>(null);
 const listRef = ref<HTMLElement | null>(null);
 
-const providers = computed(() => {
-  const set = new Set(effectiveModels.value.map(m => m.provider));
-  return [...set].sort((a, b) => a.localeCompare(b));
-});
-
-const filtered = computed<ModelInfo[]>(() => {
-  let list = effectiveModels.value.slice();
-  if (providerFilter.value !== "all") list = list.filter(m => m.provider === providerFilter.value);
+const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
-  if (q) {
-    list = list.filter(m => {
-      const hay = `${m.provider}/${m.id} ${m.name || ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }
-  // pinned first when not searching? keep stable order otherwise
-  if (!q && providerFilter.value === "all") {
-    const pinSet = new Set(models.pins);
-    const pinned = list.filter(m => pinSet.has(modelKey(m)));
-    const rest = list.filter(m => !pinSet.has(modelKey(m)));
-    // keep pinned in pin order
-    pinned.sort((a, b) => models.pins.indexOf(modelKey(a)) - models.pins.indexOf(modelKey(b)));
-    return [...pinned, ...rest];
-  }
-  return list;
+  return effectiveModels.value.filter(m => !q || `${m.provider}/${m.id} ${m.name || ""}`.toLowerCase().includes(q));
 });
+const providerGroups = computed(() => {
+  const searching = !!query.value.trim();
+  const groups = new Map<string, ModelInfo[]>();
+  for (const m of filtered.value) {
+    if (!searching && models.pins.includes(modelKey(m))) continue;
+    const entries = groups.get(m.provider) || [];
+    entries.push(m);
+    groups.set(m.provider, entries);
+  }
+  return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([provider, entries]) => ({
+    provider, models: entries, open: searching || openProviders.value.has(provider),
+  }));
+});
+function toggleProvider(provider: string) {
+  if (query.value.trim()) return;
+  const next = new Set(openProviders.value);
+  if (next.has(provider)) next.delete(provider); else next.add(provider);
+  openProviders.value = next;
+}
 
 const pinnedModels = computed(() => {
-  if (query.value.trim() || providerFilter.value !== "all") return [];
+  if (query.value.trim()) return [];
   return models.pins
     .map(key => {
       const [provider, ...rest] = key.split("/");
@@ -92,6 +95,24 @@ const pinnedModels = computed(() => {
     })
     .filter(x => !!x.model);
 });
+
+type ListItem = { kind: "provider"; key: string; provider: string; count: number; open: boolean }
+  | { kind: "model"; key: string; model: ModelInfo; pinned: boolean; pinIndex: number; index: number };
+const listItems = computed<ListItem[]>(() => {
+  const items: ListItem[] = [];
+  let index = 0;
+  pinnedModels.value.forEach((entry, pinIndex) => {
+    if (entry.model) items.push({ kind: "model", key: entry.key, model: entry.model, pinned: true, pinIndex, index: index++ });
+  });
+  for (const group of providerGroups.value) {
+    items.push({ kind: "provider", key: `provider:${group.provider}`, provider: group.provider, count: group.models.length, open: group.open });
+    if (group.open) for (const model of group.models) {
+      items.push({ kind: "model", key: modelKey(model), model, pinned: false, pinIndex: -1, index: index++ });
+    }
+  }
+  return items;
+});
+const visibleModels = computed(() => listItems.value.flatMap(item => item.kind === "model" ? [item.model] : []));
 
 function isSelected(m: ModelInfo) {
   return modelKey(m) === props.value;
@@ -134,9 +155,10 @@ function handleTogglePin(key: string, e: Event) {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if ((e.target as HTMLElement).closest(".ms-pin, .ms-edit, .ms-provider")) return;
   if (e.key === "ArrowDown") {
     e.preventDefault();
-    activeIndex.value = Math.min(activeIndex.value + 1, filtered.value.length - 1);
+    activeIndex.value = Math.min(activeIndex.value + 1, visibleModels.value.length - 1);
     scrollActive();
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
@@ -144,14 +166,13 @@ function onKeydown(e: KeyboardEvent) {
     scrollActive();
   } else if (e.key === "Enter") {
     e.preventDefault();
-    const m = filtered.value[activeIndex.value];
+    const m = visibleModels.value[activeIndex.value];
     if (m) selectModel(m);
   } else if (e.key === "Escape") {
-    if (query.value.trim() || providerFilter.value !== "all") {
+    if (query.value.trim()) {
       e.preventDefault();
       e.stopPropagation();
       query.value = "";
-      providerFilter.value = "all";
     } else {
       e.preventDefault();
       emit("close");
@@ -166,8 +187,10 @@ function scrollActive() {
   });
 }
 
-watch([query, providerFilter], () => { activeIndex.value = 0; });
-watch(filtered, (list) => {
+watch(() => props.searchVisible, visible => { if (!visible) query.value = ""; });
+
+watch(query, () => { activeIndex.value = 0; });
+watch(visibleModels, (list) => {
   if (activeIndex.value >= list.length) activeIndex.value = Math.max(0, list.length - 1);
 });
 
@@ -178,8 +201,9 @@ defineExpose({ focusSearch });
 </script>
 
 <template>
-  <div class="model-selector" @keydown="onKeydown">
-    <div class="ms-search">
+  <div class="model-selector" :class="{ 'ms-compact-picker': compactPicker }" @keydown="onKeydown">
+    <Teleport :to="searchTarget || 'body'" :disabled="!searchTarget">
+    <div v-if="searchVisible" class="ms-search" @keydown.stop="onKeydown">
       <Search :size="14" class="ms-search-icon" aria-hidden="true" />
       <input
         ref="searchRef"
@@ -192,56 +216,18 @@ defineExpose({ focusSearch });
       />
       <span v-if="query" class="ms-count">{{ filtered.length }}</span>
     </div>
+    </Teleport>
 
-    <div v-if="providers.length > 1" class="ms-chips" role="tablist" aria-label="Filter by provider">
-      <button
-        type="button"
-        class="ms-chip"
-        :data-active="providerFilter === 'all' ? 'true' : undefined"
-        role="tab"
-        :aria-selected="providerFilter === 'all'"
-        @click="providerFilter = 'all'"
-      >All <span class="ms-chip-count">{{ models.list.length }}</span></button>
-      <button
-        v-for="p in providers"
-        :key="p"
-        type="button"
-        class="ms-chip"
-        :data-active="providerFilter === p ? 'true' : undefined"
-        role="tab"
-        :aria-selected="providerFilter === p"
-        @click="providerFilter = p"
-      >{{ p }}<span class="ms-chip-count">{{ models.list.filter(m=>m.provider===p).length }}</span></button>
-    </div>
-
-    <div ref="listRef" class="ms-list" role="listbox" :aria-label="emptyLabel">
-      <div v-if="pinnedModels.length" class="ms-pinned" aria-label="Pinned models">
-        <div class="ms-section-label">Pinned</div>
-        <div class="ms-pinned-row">
-          <button
-            v-for="entry in pinnedModels"
-            :key="entry.key"
-            type="button"
-            class="ms-pinned-chip"
-            :data-selected="value === entry.key ? 'true' : undefined"
-            :title="entry.key"
-            @click="selectKey(entry.key)"
-          >
-            <span class="ms-pinned-name">{{ entry.model?.name || entry.id }}</span>
-            <small>{{ entry.provider }}</small>
-            <span v-if="value === entry.key" class="ms-check"><Check :size="12" /></span>
-          </button>
-        </div>
-      </div>
+    <div ref="listRef" class="ms-list" role="group" aria-label="Models">
 
       <button
         v-if="emptyLabel"
         type="button"
         class="ms-row"
-        role="option"
+
         :data-active="activeIndex === -1 ? 'true' : undefined"
         :data-selected="!value ? 'true' : undefined"
-        :aria-selected="!value"
+        :aria-pressed="!value"
         @click="emit('select', '', null); emit('change', undefined)"
         @mouseenter="activeIndex = -1"
       >
@@ -249,45 +235,63 @@ defineExpose({ focusSearch });
         <Check v-if="!value" :size="14" class="ms-selected" aria-hidden="true" />
       </button>
 
-      <button
-        v-for="(m, i) in filtered"
-        :key="modelKey(m)"
-        type="button"
-        class="ms-row"
-        role="option"
-        :data-active="activeIndex === i ? 'true' : undefined"
-        :data-selected="isSelected(m) ? 'true' : undefined"
-        :aria-selected="isSelected(m)"
-        @click="selectModel(m)"
-        @mouseenter="activeIndex = i"
+      <template v-for="section in ['pinned', 'providers'] as const" :key="section">
+      <div v-if="section === 'pinned' && pinnedModels.length" class="ms-section-head">
+        <span class="ms-section-label">Pinned</span>
+        <button type="button" class="ms-edit" :aria-pressed="editingPins" @click="editingPins = !editingPins">{{ editingPins ? "Done" : "Edit" }}</button>
+      </div>
+      <div v-if="section === 'providers' && pinnedModels.length && providerGroups.length" class="ms-divider" role="separator" aria-label="Other models"></div>
+      <div v-if="section === 'pinned' ? pinnedModels.length : providerGroups.length" :class="section === 'pinned' ? 'ms-pinned-scroll' : 'ms-provider-scroll'">
+      <template v-for="item in listItems.filter(item => section === 'pinned' ? item.kind === 'model' && item.pinned : item.kind === 'provider' || !item.pinned)" :key="item.key">
+        <template v-if="item.kind === 'provider'">
+          <button type="button" class="ms-provider" :aria-expanded="item.open" :aria-disabled="!!query.trim()" @click="toggleProvider(item.provider)">
+            <ChevronRight :size="14" class="ms-provider-chevron" :class="{ 'is-open': item.open }" aria-hidden="true" />
+            <span class="ms-provider-name">{{ item.provider }}</span>
+            <span class="ms-provider-count">{{ item.count }}</span>
+          </button>
+        </template>
+        <template v-else>
+              <div class="ms-entry" :class="{ 'ms-entry-pinned': item.pinned }">
+            <button
+              type="button"
+              class="ms-row"
+              :data-active="activeIndex === item.index ? 'true' : undefined"
+              :data-selected="isSelected(item.model) ? 'true' : undefined"
+              :aria-pressed="isSelected(item.model)"
+              @click="selectModel(item.model)"
+              @mouseenter="activeIndex = item.index"
       >
-        <span class="ms-row-main">
-          <span class="ms-name">{{ displayName(m) }}</span>
-          <span class="ms-sub">{{ m.provider }} · {{ m.id }}</span>
-        </span>
-        <span class="ms-badges" aria-hidden="true">
-          <span v-if="reasoning(m)" class="ms-badge" title="Supports reasoning"><Brain :size="11" /> </span>
-          <span v-if="vision(m)" class="ms-badge" title="Vision capable"><Eye :size="11" /></span>
-        </span>
-        <Check v-if="isSelected(m)" :size="14" class="ms-selected" aria-hidden="true" />
-        <span
-          role="button"
-          :aria-label="(isPinned(modelKey(m)) ? 'Unpin ' : 'Pin ') + modelKey(m)"
-          class="ms-pin"
-          :data-pinned="isPinned(modelKey(m)) ? 'true' : undefined"
-          @click="handleTogglePin(modelKey(m), $event)"
-        >
-          <Pin v-if="!isPinned(modelKey(m))" :size="13" />
-          <PinOff v-else :size="13" />
-        </span>
-      </button>
+              <span class="ms-row-main">
+          <span class="ms-name">{{ displayName(item.model) }}</span>
+          <span class="ms-sub">{{ item.pinned ? item.model.provider : `${item.model.provider} · ${item.model.id}` }}</span>
+              </span>
+              <span class="ms-badges" aria-hidden="true">
+          <span v-if="reasoning(item.model)" class="ms-badge" title="Supports reasoning"><Brain :size="11" /> </span>
+          <span v-if="vision(item.model)" class="ms-badge" title="Vision capable"><Eye :size="11" /></span>
+              </span>
+              <Check v-if="isSelected(item.model)" :size="14" class="ms-selected" aria-hidden="true" />
+            </button>
+            <div v-if="editingPins && item.pinned" class="ms-pin-actions">
+              <button type="button" class="ms-pin" :disabled="item.pinIndex === 0" :aria-label="'Move ' + displayName(item.model) + ' up'" @click="movePin(modelKey(item.model), -1)"><ArrowUp :size="14" /></button>
+              <button type="button" class="ms-pin" :disabled="item.pinIndex === pinnedModels.length - 1" :aria-label="'Move ' + displayName(item.model) + ' down'" @click="movePin(modelKey(item.model), 1)"><ArrowDown :size="14" /></button>
+              <button type="button" class="ms-pin" :aria-label="'Unpin ' + displayName(item.model)" @click="handleTogglePin(modelKey(item.model), $event)"><PinOff :size="14" /></button>
+            </div>
+            <button v-else-if="!isPinned(modelKey(item.model)) || !pinnedModels.length" type="button" class="ms-pin" :aria-label="(isPinned(modelKey(item.model)) ? 'Unpin ' : 'Pin ') + modelKey(item.model)" :aria-pressed="isPinned(modelKey(item.model))" @click="handleTogglePin(modelKey(item.model), $event)">
+              <PinOff v-if="isPinned(modelKey(item.model))" :size="14" /><Pin v-else :size="14" />
+            </button>
+              </div>
+        </template>
+      </template>
+
+      </div>
+      </template>
 
       <p v-if="!filtered.length" class="ms-empty" role="status">
-        No models match “{{ query }}”{{ providerFilter !== 'all' ? ' in ' + providerFilter : '' }}.
+        No models match “{{ query }}”.
       </p>
     </div>
 
-    <div class="ms-footer">
+    <div v-if="!compactPicker" class="ms-footer">
       <span class="ms-hint">{{ filtered.length }} models · ↑↓ navigate · Enter select · Esc clear</span>
     </div>
   </div>
@@ -295,25 +299,38 @@ defineExpose({ focusSearch });
 
 <style scoped>
 .model-selector { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
-.ms-search { position: relative; display: flex; align-items: center; }
+.ms-search { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; }
 .ms-search-icon { position: absolute; left: 10px; color: var(--muted-foreground); pointer-events: none; }
 .ms-search input { width: 100%; min-height: 38px; padding: 8px 36px 8px 32px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 14px; }
 .ms-search input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .ms-search input::placeholder { color: var(--muted-foreground); }
 .ms-count { position: absolute; right: 10px; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
-.ms-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
-.ms-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--background); color: var(--muted-foreground); font-size: 12.5px; white-space: nowrap; cursor: pointer; }
-.ms-chip[data-active="true"] { background: var(--acc-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); color: var(--primary-text); font-weight: 600; }
-.ms-chip-count { font-size: 11px; opacity: .7; font-variant-numeric: tabular-nums; }
-.ms-pinned { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--card) 85%, transparent); }
-.ms-section-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); }
-.ms-pinned-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.ms-pinned-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--background); color: var(--foreground); font-size: 12.5px; cursor: pointer; max-width: 100%; }
-.ms-pinned-chip[data-selected="true"] { border-color: var(--primary); background: var(--acc-soft); color: var(--primary-text); }
-.ms-pinned-name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14ch; }
-.ms-pinned-chip small { color: var(--muted-foreground); font-size: 11px; }
-.ms-check { display: grid; place-items: center; color: var(--primary-text); }
+.ms-provider { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
+.ms-provider:hover { background: var(--accent); }
+.ms-provider:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.ms-provider-chevron { flex: none; color: var(--muted-foreground); transition: transform .15s ease; }
+.ms-provider-chevron.is-open { transform: rotate(90deg); }
+.ms-provider-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 600; }
+.ms-provider-count { color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ms-entry:not(.ms-entry-pinned) { margin-left: 14px; border-left: 1px solid var(--border); padding-left: 3px; }
+@media (prefers-reduced-motion: reduce) { .ms-provider-chevron { transition: none; } }
+.ms-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 0 10px; }
+.ms-section-label { font-size: 11px; font-weight: 600; color: var(--muted-foreground); }
+.ms-edit { min-height: 28px; padding: 0 6px; background: transparent; border: 0; color: var(--muted-foreground); font-size: 11px; cursor: pointer; }
+.ms-edit:hover { color: var(--foreground); }
+.ms-divider { flex: none; height: 1px; margin: 8px 0; background: color-mix(in srgb, var(--foreground) 22%, var(--border)); }
+.ms-entry { display: flex; align-items: center; min-width: 0; }
+.ms-entry > .ms-row { flex: 1; min-width: 0; width: auto; }
+.ms-pin-actions { display: flex; flex: none; }
+.ms-pin:disabled { opacity: .35; cursor: default; }
+.ms-edit:focus-visible, .ms-pin:focus-visible, .ms-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .ms-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; scrollbar-width: thin; padding: 2px; }
+.ms-pinned-scroll, .ms-provider-scroll { display: flex; flex-direction: column; gap: 4px; }
+.ms-compact-picker .ms-list { overflow: hidden; max-height: 620px; gap: 4px; }
+.ms-compact-picker .ms-pinned-scroll { flex: 0 1 auto; min-height: 0; max-height: min(220px, 35dvh); overflow-y: auto; scrollbar-width: thin; }
+.ms-compact-picker .ms-provider-scroll { flex: 1 1 auto; min-height: 72px; overflow-y: auto; scrollbar-width: thin; }
+.ms-compact-picker .ms-section-head { flex: none; }
+.ms-compact-picker .ms-divider { margin: 4px 0; }
 .ms-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
 .ms-row:hover, .ms-row[data-active="true"] { background: var(--accent); border-color: var(--border); }
 .ms-row[data-selected="true"] { background: var(--acc-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
@@ -323,8 +340,14 @@ defineExpose({ focusSearch });
 .ms-sub { font-size: 11.5px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .ms-badges { display: inline-flex; gap: 4px; flex: none; }
 .ms-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: var(--secondary); border: 1px solid var(--border); color: var(--muted-foreground); }
+.ms-entry-pinned > .ms-row { min-height: 34px; padding: 5px 10px; }
+.ms-entry-pinned .ms-row-main { display: flex; align-items: baseline; gap: 8px; }
+.ms-entry-pinned .ms-name { font-size: 12.5px; }
+.ms-entry-pinned .ms-sub { flex-shrink: 0; max-width: 35%; font-family: inherit; font-size: 11px; }
+.ms-entry-pinned .ms-badge { width: 16px; height: 16px; border: 0; background: transparent; }
+.ms-entry-pinned .ms-pin { height: 34px; }
 .ms-selected { flex: none; color: var(--primary-text); }
-.ms-pin { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius); color: var(--muted-foreground); }
+.ms-pin { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
 .ms-pin:hover { background: var(--secondary); color: var(--foreground); }
 .ms-pin[data-pinned="true"] { color: var(--primary-text); }
 .ms-empty { padding: 16px 8px; text-align: center; font-size: 13px; color: var(--muted-foreground); }
@@ -333,5 +356,7 @@ defineExpose({ focusSearch });
 @media (max-width: 760px) {
   .ms-search input { min-height: 44px; font-size: 16px; }
   .ms-row { min-height: 48px; }
+  .ms-provider { min-height: 44px; }
+  .ms-entry-pinned > .ms-row, .ms-entry-pinned .ms-pin { min-height: 44px; }
 }
 </style>

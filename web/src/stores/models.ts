@@ -46,6 +46,18 @@ export function togglePin(key: string): boolean {
   return true;
 }
 
+/** Moves a pin without changing the order of other pins. */
+export function movePin(key: string, direction: -1 | 1): boolean {
+  const next = readPins();
+  const index = next.indexOf(key);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= next.length) return false;
+  [next[index], next[target]] = [next[target]!, next[index]!];
+  try { localStorage.setItem(PIN_KEY, JSON.stringify(next)); } catch { return false; }
+  models.pins = next;
+  return true;
+}
+
 export async function loadModels() {
   try {
     const r = await json<{ models: ModelInfo[]; default: ModelRef | null; refresh: typeof models.refresh }>("/v1/models");

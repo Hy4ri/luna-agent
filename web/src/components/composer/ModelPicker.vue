@@ -1,9 +1,22 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { loadModels, models, chooseModel, selectedKey } from "@/stores/models";
+import { Search, X } from "@lucide/vue";
 import ModelSelector from "@/components/ModelSelector.vue";
 import type { ModelInfo } from "@/lib/types";
 
+
+const searchOpen = ref(false);
+const searchTarget = ref<HTMLElement>();
+const searchButton = ref<HTMLButtonElement>();
+
+function toggleSearch() {
+  searchOpen.value = !searchOpen.value;
+  void nextTick(() => {
+    if (searchOpen.value) selectorRef.value?.focusSearch();
+    else searchButton.value?.focus();
+  });
+}
 
 const emit = defineEmits(["open", "close"]);
 const pickerRef = ref<HTMLElement | null>(null);
@@ -14,8 +27,8 @@ function position() {
   const box = pickerRef.value;
   if (!btn || !box) return;
   const r = btn.getBoundingClientRect();
-  const w = Math.min(420, innerWidth - 16);
-  const maxH = Math.min(560, r.top - 16);
+  const w = Math.min(480, innerWidth - 16);
+  const maxH = Math.min(680, r.top - 16);
   Object.assign(box.style, {
     width: w + "px",
     left: Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px",
@@ -49,7 +62,8 @@ function handleBeforeToggle(e: Event) {
       models.pins = Array.isArray(pins) ? pins.filter((p: unknown) => typeof p === "string") : [];
     } catch { /* keep */ }
     position();
-    void nextTick(() => selectorRef.value?.focusSearch());
+    searchOpen.value = false;
+    void nextTick(() => searchButton.value?.focus());
     emit("open");
   } else {
     emit("close");
@@ -95,16 +109,21 @@ onUnmounted(() => {
     aria-label="Choose model"
   >
     <div class="mp-head">
-      <h3>Choose model</h3>
-      <p class="muted">{{ models.list.length }} models · pinned stay on top</p>
+      <h3 v-if="!searchOpen">Choose model</h3>
+      <div v-show="searchOpen" ref="searchTarget" class="mp-search-slot"></div>
+      <button ref="searchButton" type="button" class="mp-search-toggle" :aria-label="searchOpen ? 'Close search' : 'Search models'" :aria-expanded="searchOpen" @click="toggleSearch">
+        <X v-if="searchOpen" :size="16" /><Search v-else :size="16" />
+      </button>
     </div>
 
     <ModelSelector
       ref="selectorRef"
+      compact-picker
       :value="selectedKey"
+      :search-target="searchTarget"
+      :search-visible="searchOpen"
       placeholder="Search by provider, model, or name…"
       empty-label=""
-      autofocus
       @select="handleSelect"
       @close="closePicker"
     />
@@ -119,8 +138,8 @@ onUnmounted(() => {
   margin: 0;
   display: none;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: 0;
+  padding: 8px 10px;
   background: var(--popover);
   color: var(--popover-foreground);
   border: 1px solid var(--border);
@@ -128,22 +147,28 @@ onUnmounted(() => {
   box-shadow: 0 16px 48px rgb(0 0 0 / .5), 0 2px 12px rgb(0 0 0 / .35);
   overflow: hidden;
   min-height: 0;
-  max-height: min(560px, 70dvh);
+  max-height: min(680px, calc(100dvh - 16px));
   z-index: 30;
 }
 #model-picker :deep(.model-selector) { min-height: 0; }
 #model-picker :deep(input),
-#model-picker :deep(.ms-chip),
-#model-picker :deep(.ms-pinned),
-#model-picker :deep(.ms-pinned-chip),
 #model-picker :deep(.ms-row),
 #model-picker :deep(.ms-badge),
 #model-picker :deep(.ms-pin),
 #model-picker .mp-empty { border-radius: 1px; }
 #model-picker :deep(.ms-list) { flex: 1; min-height: 120px; }
 #model-picker:popover-open { display: flex; }
-.mp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.mp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; background: transparent; }
+#model-picker :deep(.ms-provider),
+#model-picker :deep(.ms-entry) { border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 1px; background: var(--background); }
+#model-picker :deep(.ms-section-head) { background: transparent; }
+#model-picker :deep(.ms-provider) { background: var(--secondary); }
+#model-picker :deep(.ms-provider:hover) { background: var(--accent); }
+#model-picker :deep(.ms-entry:not(.ms-entry-pinned)) { border-left: 1px solid var(--border); }
 .mp-head h3 { font-size: 14px; font-weight: 650; letter-spacing: -.015em; }
-.mp-head .muted { font-size: 12px; color: var(--muted-foreground); }
+.mp-search-slot { flex: 1; min-width: 0; }
+.mp-search-toggle { display: grid; place-items: center; flex: none; width: 44px; height: 36px; padding: 0; border: 0; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.mp-search-toggle:hover { color: var(--foreground); background: var(--accent); }
+.mp-search-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .mp-empty { font-size: 13px; color: var(--muted-foreground); text-align: center; padding: 12px 8px; border: 1px dashed var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--card) 60%, transparent); }
 </style>
