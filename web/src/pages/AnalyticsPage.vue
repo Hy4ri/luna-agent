@@ -315,42 +315,349 @@
             </div>
           </template>
 
-          <!-- Tool reported usage (only when !selected) -->
-          <template v-if="!selected && snapshot.tools.length">
-            <section class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
-              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Tool-reported usage</h2>
-              <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Separate counters. Not added to model totals because usage can overlap.</p>
+          <!-- Tools: call counts & error rate -->
+          <section v-if="snapshot.toolsDetailed?.length" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
+            <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Tools</h2>
+            <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Calls counted from retained entries · Error = toolResult isError · Cost is tool-reported usage (not added to model totals).</p>
+            <div class="overflow-auto mt-4 a-scroll" tabindex="0" aria-label="Tool calls table">
+              <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
+                <thead>
+                  <tr class="border-b border-border">
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Tool</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Calls</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Errors</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Error rate</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Total tokens</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="t in snapshot.toolsDetailed" :key="t.name" class="border-b border-border last:border-0">
+                    <td class="p-3 text-left font-medium">{{ t.name }}</td>
+                    <td class="p-3 text-right">{{ full(t.calls) }}</td>
+                    <td class="p-3 text-right">{{ full(t.errors) }}</td>
+                    <td class="p-3 text-right">{{ t.errorRate == null ? '—' : (t.errorRate * 100).toFixed(1) + '%' }}</td>
+                    <td class="p-3 text-right">{{ full(t.usage.totalTokens) }}</td>
+                    <td class="p-3 text-right">{{ usd(t.usage.cost.total) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-              <div class="overflow-auto mt-4 a-scroll" tabindex="0" aria-label="Tool usage table">
+          <!-- Skills -->
+          <section v-if="snapshot.skills?.length" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
+            <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Skills</h2>
+            <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Invocation = skill_view without file_path · Sessions = distinct conversations.</p>
+            <div class="overflow-auto mt-4 a-scroll" tabindex="0" aria-label="Skills table">
+              <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
+                <thead>
+                  <tr class="border-b border-border">
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Skill</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Invocations</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Sessions</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Last used</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="s in snapshot.skills" :key="s.name" class="border-b border-border last:border-0">
+                    <td class="p-3 text-left font-medium">{{ s.name }}</td>
+                    <td class="p-3 text-right">{{ full(s.invocations) }}</td>
+                    <td class="p-3 text-right">{{ full(s.sessions) }}</td>
+                    <td class="p-3 text-left">{{ when(s.lastUsed) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- Projects -->
+          <section v-if="snapshot.projects?.length" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
+            <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Projects</h2>
+            <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Tokens and cost per luna_session_projects · General = sessions without a project.</p>
+            <div class="overflow-auto mt-4 a-scroll" tabindex="0" aria-label="Projects table">
+              <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
+                <thead>
+                  <tr class="border-b border-border">
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Project</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Sessions</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Total tokens</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Hit rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="p in snapshot.projects" :key="p.id" class="border-b border-border last:border-0">
+                    <td class="p-3 text-left font-medium">{{ p.name }}<small class="block text-muted-foreground">#{{ p.id }}</small></td>
+                    <td class="p-3 text-right">{{ full(p.sessions) }}</td>
+                    <td class="p-3 text-right">{{ full(p.usage.totalTokens) }}</td>
+                    <td class="p-3 text-right">{{ usd(p.usage.cost.total) }}</td>
+                    <td class="p-3 text-right">{{ pct(p.usage.cacheHitRate) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <template v-if="snapshot.projectDaily?.length">
+              <h3 class="mt-6 mb-2 text-[14px] font-semibold">Cost per day per project</h3>
+              <p class="a-subtitle text-muted-foreground text-xs mb-3">UTC · Dated assistant responses only.</p>
+              <div class="overflow-auto a-scroll max-h-[320px]" tabindex="0" aria-label="Project daily table">
                 <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
                   <thead>
                     <tr class="border-b border-border">
-                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Tool</th>
-                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Input</th>
-                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Output</th>
-                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cache read</th>
-                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cache write</th>
-                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Total tokens</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Date</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Project</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Tokens</th>
                       <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="t in snapshot.tools" :key="t.name" class="border-b border-border last:border-0">
-                      <td class="p-3 text-left font-medium">{{ t.name }}</td>
-                      <td class="p-3 text-right">{{ full(t.usage.input) }}</td>
-                      <td class="p-3 text-right">{{ full(t.usage.output) }}</td>
-                      <td class="p-3 text-right">{{ full(t.usage.cacheRead) }}</td>
-                      <td class="p-3 text-right">{{ full(t.usage.cacheWrite) }}</td>
-                      <td class="p-3 text-right">{{ full(t.usage.totalTokens) }}</td>
-                      <td class="p-3 text-right">{{ usd(t.usage.cost.total) }}</td>
+                    <tr v-for="r in (snapshot.projectDaily.slice(-60))" :key="r.date + '|' + r.projectId" class="border-b border-border last:border-0">
+                      <td class="p-3 text-left">{{ r.date }}</td>
+                      <td class="p-3 text-left">{{ r.projectName }}</td>
+                      <td class="p-3 text-right">{{ full(r.responses) }}</td>
+                      <td class="p-3 text-right">{{ full(r.usage.totalTokens) }}</td>
+                      <td class="p-3 text-right">{{ usd(r.usage.cost.total) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </section>
+
+          <!-- Workers + Content actions -->
+          <div class="grid grid-cols-2 max-[1100px]:grid-cols-1 gap-4 my-[22px]">
+            <section v-if="snapshot.workers?.length" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card a-section">
+              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Workers</h2>
+              <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">ExecTarget worker · Sessions and cost per worker.</p>
+              <div class="overflow-auto a-scroll" tabindex="0" aria-label="Workers table">
+                <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
+                  <thead>
+                    <tr class="border-b border-border">
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Worker</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Sessions</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Tokens</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cost · USD</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="w in snapshot.workers" :key="String(w.worker)" class="border-b border-border last:border-0">
+                      <td class="p-3 text-left font-medium">{{ w.label }}</td>
+                      <td class="p-3 text-right">{{ full(w.sessions) }}</td>
+                      <td class="p-3 text-right">{{ full(w.usage.totalTokens) }}</td>
+                      <td class="p-3 text-right">{{ usd(w.usage.cost.total) }}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </section>
-          </template>
+            <section v-if="snapshot.contentActions" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card a-section">
+              <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Content actions</h2>
+              <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Tool call counts for file and board operations.</p>
+              <div class="grid gap-[10px] a-breakdown">
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row"><span class="flex-1 text-muted-foreground">Reads</span><strong class="font-medium tabular-nums">{{ full(snapshot.contentActions.reads) }}</strong></div>
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row"><span class="flex-1 text-muted-foreground">Writes</span><strong class="font-medium tabular-nums">{{ full(snapshot.contentActions.writes) }}</strong></div>
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row"><span class="flex-1 text-muted-foreground">Edits</span><strong class="font-medium tabular-nums">{{ full(snapshot.contentActions.edits) }}</strong></div>
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row"><span class="flex-1 text-muted-foreground">Bash execs</span><strong class="font-medium tabular-nums">{{ full(snapshot.contentActions.bashes) }}</strong></div>
+                <div class="flex gap-3 items-baseline text-[14px] a-stat-row"><span class="flex-1 text-muted-foreground">Board ops</span><strong class="font-medium tabular-nums">{{ full(snapshot.contentActions.boards) }}</strong></div>
+              </div>
+            </section>
+          </div>
 
-          <details class="text-muted-foreground text-xs border-t border-border pt-[18px] pb-2 a-notes">
+          <!-- Reliability -->
+          <section v-if="snapshot.reliability" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
+            <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Reliability</h2>
+            <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Error/abort = stopReason per model · Daily trend is retained dated responses.</p>
+            <div class="overflow-auto a-scroll mb-6" tabindex="0" aria-label="Reliability by model">
+              <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
+                <thead>
+                  <tr class="border-b border-border">
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Model</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Errors</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Error rate</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Aborted</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Abort rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in snapshot.reliability.byModel" :key="r.key" class="border-b border-border last:border-0">
+                    <td class="p-3 text-left font-medium">{{ r.model }}<small class="block text-muted-foreground">{{ r.provider }}</small></td>
+                    <td class="p-3 text-right">{{ full(r.responses) }}</td>
+                    <td class="p-3 text-right">{{ full(r.errors) }}</td>
+                    <td class="p-3 text-right">{{ r.errorRate == null ? '—' : (r.errorRate * 100).toFixed(2) + '%' }}</td>
+                    <td class="p-3 text-right">{{ full(r.aborted) }}</td>
+                    <td class="p-3 text-right">{{ r.abortRate == null ? '—' : (r.abortRate * 100).toFixed(2) + '%' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h3 class="m-0 mb-2 text-[14px] font-semibold">Daily errors</h3>
+            <div v-if="!snapshot.reliability.dailyErrors.length" class="text-muted-foreground text-xs">No dated errors recorded.</div>
+            <div v-else class="overflow-auto a-scroll max-h-[280px]" tabindex="0" aria-label="Daily errors">
+              <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
+                <thead>
+                  <tr class="border-b border-border">
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Date</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Errors</th>
+                    <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Aborted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="d in snapshot.reliability.dailyErrors.slice(-30)" :key="d.date" class="border-b border-border last:border-0">
+                    <td class="p-3 text-left">{{ d.date }}</td>
+                    <td class="p-3 text-right">{{ full(d.responses) }}</td>
+                    <td class="p-3 text-right">{{ full(d.errors) }}</td>
+                    <td class="p-3 text-right">{{ full(d.aborted) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- Status breakdown -->
+          <section v-if="snapshot.statusBreakdown" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
+            <h2 class="m-0 mb-[6px] text-[17px] font-semibold">Status overview</h2>
+            <p class="a-subtitle text-muted-foreground text-xs mb-[18px]">Live session status · Click a badge to filter the sessions table.</p>
+            <div class="flex gap-2 flex-wrap">
+              <button
+                v-for="(count, status) in snapshot.statusBreakdown"
+                :key="status"
+                type="button"
+                class="h-7 px-3 rounded-full border text-xs font-medium transition-colors"
+                :class="selectedStatuses.includes(status as SessionStatus) ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary text-foreground border-border hover:bg-accent'"
+                @click="toggleStatus(status as SessionStatus)"
+              >{{ statusLabel(status as SessionStatus) }} · {{ full(count as number) }}</button>
+              <button v-if="selectedStatuses.length" type="button" class="h-7 px-3 rounded-full border text-xs bg-card border-border hover:bg-accent" @click="selectedStatuses = []">Clear filter</button>
+            </div>
+            <p v-if="snapshot.sessionsList?.length" class="text-xs text-muted-foreground mt-3">{{ full(filteredSessions.length) }} of {{ full(snapshot.sessionsList.length) }} sessions shown · {{ selectedSessionIds.size ? full(selectedSessionIds.size) + ' selected' : 'Select sessions for per-session analytics' }}</p>
+          </section>
+
+          <!-- Per-session analytics -->
+          <section v-if="snapshot.sessionsList" class="min-w-0 p-5 border border-border rounded-[var(--radius)] bg-card a-card my-[22px] a-section">
+            <div class="flex items-center gap-3 flex-wrap mb-3">
+              <h2 class="m-0 text-[17px] font-semibold flex-1">Sessions</h2>
+              <span v-if="selectedAggregate" class="text-xs text-muted-foreground">Selected: {{ compact(selectedAggregate.totalTokens) }} tokens · {{ usd(selectedAggregate.cost.total) }} · {{ full(selectedAggregateResponses) }} responses</span>
+              <Button v-if="selectedSessionIds.size" type="button" variant="outline" size="sm" class="h-7 text-xs" @click="selectedSessionIds = new Set()">Clear selection</Button>
+            </div>
+            <p class="a-subtitle text-muted-foreground text-xs mb-3">Per-session usage, status, and activity · Uses recorded ledger totals (includes compaction). Subagent sessions are included.</p>
+
+            <div class="flex gap-3 flex-wrap items-end mb-3">
+              <label class="grid gap-[5px] text-xs text-muted-foreground">
+                Search
+                <input v-model="sessionSearch" placeholder="Title or id" class="h-9 px-3 text-sm text-foreground bg-secondary border border-border rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring w-[220px]" />
+              </label>
+              <label class="grid gap-[5px] text-xs text-muted-foreground">
+                Sort by
+                <select v-model="sessionSort" aria-label="Session sort" class="h-9 px-3 text-sm text-foreground bg-secondary border border-border rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring">
+                  <option value="activityDesc">Last activity · newest</option>
+                  <option value="activityAsc">Last activity · oldest</option>
+                  <option value="tokensDesc">Tokens · high to low</option>
+                  <option value="tokensAsc">Tokens · low to high</option>
+                  <option value="costDesc">Cost · high to low</option>
+                  <option value="costAsc">Cost · low to high</option>
+                  <option value="responsesDesc">Responses · high to low</option>
+                  <option value="turnsDesc">Turns · high to low</option>
+                  <option value="toolsDesc">Tool calls · high to low</option>
+                  <option value="durationDesc">Duration · long to short</option>
+                  <option value="status">Status · A–Z</option>
+                  <option value="createdDesc">Created · newest</option>
+                </select>
+              </label>
+              <label class="grid gap-[5px] text-xs text-muted-foreground">
+                Show
+                <select v-model="sessionShowArchived" class="h-9 px-3 text-sm text-foreground bg-secondary border border-border rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring">
+                  <option :value="'active'">Active only</option>
+                  <option :value="'all'">All including archived</option>
+                  <option :value="'archived'">Archived only</option>
+                </select>
+              </label>
+              <label class="flex items-center gap-2 text-xs text-muted-foreground ml-auto">
+                <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible($event)" />
+                Select filtered ({{ filteredSessions.length }})
+              </label>
+            </div>
+
+            <template v-if="!sortedSessions.length">
+              <p class="a-empty py-[26px] text-muted-foreground text-[14px]">No sessions match the current filters.</p>
+            </template>
+            <template v-else>
+              <div v-if="selectedAggregate" class="grid grid-cols-3 max-[760px]:grid-cols-1 gap-3 mb-4 p-3 rounded-[var(--radius)] bg-secondary border border-border">
+                <div><div class="text-xs text-muted-foreground">Selected tokens</div><strong class="text-sm tabular-nums">{{ full(selectedAggregate.totalTokens) }}</strong> <span class="text-xs text-muted-foreground">· hit {{ pct(selectedAggregate.cacheHitRate) }}</span></div>
+                <div><div class="text-xs text-muted-foreground">Selected cost · USD</div><strong class="text-sm tabular-nums">{{ usd(selectedAggregate.cost.total) }}</strong></div>
+                <div><div class="text-xs text-muted-foreground">Selected responses</div><strong class="text-sm tabular-nums">{{ full(selectedAggregateResponses) }}</strong> <span class="text-xs text-muted-foreground">· {{ full(selectedAggregateErrors) }} errors</span></div>
+              </div>
+              <div class="overflow-auto a-scroll" tabindex="0" aria-label="Sessions table">
+                <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
+                  <thead>
+                    <tr class="border-b border-border">
+                      <th class="p-3 text-left"><input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible($event)" aria-label="Select all filtered" /></th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Session</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Status</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Tokens</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Cost</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-right">Responses</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Last activity</th>
+                      <th scope="col" class="text-muted-foreground text-[12px] font-medium uppercase tracking-wider p-3 text-left">Models</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template v-for="s in pagedSessions" :key="s.id">
+                      <tr class="border-b border-border last:border-0 hover:bg-accent/30" :class="{ 'bg-accent/20': expandedSessionId === s.id }">
+                        <td class="p-3"><input type="checkbox" :checked="selectedSessionIds.has(s.id)" @change="toggleSession(s.id)" /></td>
+                        <td class="p-3 text-left max-w-[260px] whitespace-normal break-words">
+                          <button type="button" class="p-0 border-0 bg-transparent text-left hover:underline text-primary-text text-[13px] font-medium" @click="expandedSessionId = expandedSessionId === s.id ? null : s.id">{{ s.title || 'Untitled' }}</button>
+                          <small class="block text-muted-foreground">#{{ s.id }}<span v-if="s.pinned"> · pinned</span><span v-if="s.archived"> · archived</span><span v-if="s.parent"> · subagent</span></small>
+                        </td>
+                        <td class="p-3 text-left">
+                          <span class="inline-flex items-center h-6 px-2 rounded-full border text-[11px] font-medium" :class="statusChipClass(s.status)">{{ statusLabel(s.status) }}</span>
+                          <small v-if="s.statusReason" class="block text-muted-foreground max-w-[180px] whitespace-normal">{{ s.statusReason }}</small>
+                        </td>
+                        <td class="p-3 text-right">{{ compact(s.usage.totalTokens) }}<small class="block text-muted-foreground">{{ pct(s.usage.cacheHitRate) }}</small></td>
+                        <td class="p-3 text-right">{{ usd(s.usage.cost.total) }}</td>
+                        <td class="p-3 text-right">{{ full(s.responses) }}<small v-if="s.errors || s.aborted" class="block text-muted-foreground">{{ s.errors ? full(s.errors) + ' err' : '' }}{{ s.errors && s.aborted ? ' · ' : '' }}{{ s.aborted ? full(s.aborted) + ' abort' : '' }}</small></td>
+                        <td class="p-3 text-left">{{ when(s.lastActivity) }}<small class="block text-muted-foreground">{{ s.createdAt ? 'created ' + when(s.createdAt) : '' }}</small></td>
+                        <td class="p-3 text-left max-w-[160px] whitespace-normal">{{ s.models.length ? s.models.join(', ') : '—' }}</td>
+                      </tr>
+                      <tr v-if="expandedSessionId === s.id" class="border-b border-border bg-secondary/30">
+                        <td colspan="8" class="p-4 text-left whitespace-normal">
+                          <div class="grid grid-cols-4 max-[760px]:grid-cols-2 gap-3 text-xs">
+                            <div><span class="text-muted-foreground">Input</span><strong class="block tabular-nums">{{ full(s.usage.input) }}</strong></div>
+                            <div><span class="text-muted-foreground">Output</span><strong class="block tabular-nums">{{ full(s.usage.output) }}</strong></div>
+                            <div><span class="text-muted-foreground">Cache read</span><strong class="block tabular-nums">{{ full(s.usage.cacheRead) }}</strong></div>
+                            <div><span class="text-muted-foreground">Cache write</span><strong class="block tabular-nums">{{ full(s.usage.cacheWrite) }}</strong></div>
+                            <div><span class="text-muted-foreground">Reasoning</span><strong class="block tabular-nums">{{ s.usage.reasoning == null ? '—' : full(s.usage.reasoning) }}</strong></div>
+                            <div><span class="text-muted-foreground">Hit rate</span><strong class="block tabular-nums">{{ pct(s.usage.cacheHitRate) }}</strong></div>
+                            <div><span class="text-muted-foreground">Cost total</span><strong class="block tabular-nums">{{ usd(s.usage.cost.total) }}</strong></div>
+                            <div><span class="text-muted-foreground">Worker</span><strong class="block tabular-nums">{{ s.worker == null ? 'main' : '#' + s.worker }}</strong></div>
+                            <div><span class="text-muted-foreground">Turns (user/assistant)</span><strong class="block tabular-nums">{{ full(s.turns.user) }} / {{ full(s.turns.assistant) }} · avg {{ s.avgTokensPerTurn == null ? '—' : full(Math.round(s.avgTokensPerTurn)) }}/turn</strong></div>
+                            <div><span class="text-muted-foreground">Duration</span><strong class="block tabular-nums">{{ s.durationMs == null ? '—' : (s.durationMs < 60000 ? (s.durationMs/1000).toFixed(1) + 's' : (s.durationMs/60000).toFixed(1) + 'm') }}</strong></div>
+                            <div><span class="text-muted-foreground">Tools / errors</span><strong class="block tabular-nums">{{ full(s.toolCalls) }} · {{ full(s.toolErrors) }} err</strong></div>
+                            <div><span class="text-muted-foreground">Subagents / depth</span><strong class="block tabular-nums">{{ full(s.subagentCount) }} · depth {{ full(s.forkDepth) }}</strong></div>
+                          </div>
+                          <div class="mt-3 text-xs flex gap-2 flex-wrap">
+                            <span class="text-muted-foreground">Project:</span> {{ s.projectName ?? 'General' }} (#{{ s.projectId }})
+                            <span class="text-muted-foreground">· Skills:</span> {{ s.skills.length ? s.skills.join(', ') : '—' }}
+                          </div>
+                          <div class="mt-1 text-xs"><span class="text-muted-foreground">Models:</span> {{ s.models.length ? s.models.join(', ') : 'none' }}</div>
+                          <div v-if="s.statusReason" class="mt-1 text-xs"><span class="text-muted-foreground">Reason:</span> {{ s.statusReason }}</div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="sortedSessions.length > pageSize" class="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
+                <Button type="button" variant="outline" size="sm" class="h-7" :disabled="sessionPage === 0" @click="sessionPage = 0">First</Button>
+                <Button type="button" variant="outline" size="sm" class="h-7" :disabled="sessionPage === 0" @click="sessionPage--">Prev</Button>
+                <span>Page {{ sessionPage + 1 }} of {{ totalPages }} · {{ full(sortedSessions.length) }} sessions</span>
+                <Button type="button" variant="outline" size="sm" class="h-7" :disabled="sessionPage >= totalPages - 1" @click="sessionPage++">Next</Button>
+              </div>
+            </template>
+          </section>
+
+                    <details class="text-muted-foreground text-xs border-t border-border pt-[18px] pb-2 a-notes">
             <summary class="cursor-pointer text-foreground min-h-[36px]">How to read these numbers</summary>
             <p class="my-2">{{ snapshot.scope }}</p>
             <ul class="list-disc pl-4 space-y-1 my-2">
@@ -370,6 +677,8 @@ import { Menu, X } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { ui, setDrawer, navigate } from '@/stores/app'
 import { json } from '@/lib/api'
+import { SESSION_STATUS_LABELS } from '@/lib/session-status'
+import type { SessionStatus } from '@/lib/types'
 
 interface UsageCost {
   input: number
@@ -422,6 +731,38 @@ interface ToolItem {
   usage: ModelUsage
 }
 
+interface AnalyticsSession {
+  id: string
+  title: string | null
+  archived: boolean
+  pinned: boolean
+  parent: unknown
+  status: SessionStatus
+  statusReason: string | null
+  lastActivity: string | null
+  createdAt: string | null
+  worker: number | null
+  usage: ModelUsage
+  responses: number
+  errors: number
+  aborted: number
+  models: string[]
+  turns: { user: number; assistant: number }
+  durationMs: number | null
+  subagentCount: number
+  forkDepth: number
+  toolCalls: number
+  toolErrors: number
+  skills: string[]
+  avgTokensPerTurn: number | null
+  projectId: number
+  projectName: string | null
+}
+interface ToolDetailed { name: string; calls: number; errors: number; errorRate: number | null; usage: ModelUsage }
+interface SkillRow { name: string; invocations: number; sessions: number; lastUsed: string | null }
+interface ProjectRow { id: number; name: string; sessions: number; usage: ModelUsage }
+interface WorkerRow { worker: number | null; sessions: number; usage: ModelUsage; label: string }
+
 interface AnalyticsSnapshot {
   generatedAt: string
   scope: string
@@ -429,6 +770,15 @@ interface AnalyticsSnapshot {
   sessions: number
   models: ModelItem[]
   tools: ToolItem[]
+  toolsDetailed?: ToolDetailed[]
+  skills?: SkillRow[]
+  projects?: ProjectRow[]
+  workers?: WorkerRow[]
+  reliability?: { byModel: { key: string; provider: string; model: string; responses: number; errors: number; aborted: number; errorRate: number | null; abortRate: number | null }[]; dailyErrors: { date: string; responses: number; errors: number; aborted: number }[] }
+  projectDaily?: { date: string; projectId: number; projectName: string; responses: number; usage: ModelUsage }[]
+  contentActions?: { reads: number; writes: number; edits: number; bashes: number; boards: number }
+  sessionsList?: AnalyticsSession[]
+  statusBreakdown?: Record<string, number>
   notes: string[]
 }
 
@@ -569,6 +919,106 @@ const comparisonMax = computed(() => {
   return Math.max(0, ...sorted.map(val))
 })
 
+// Sessions filters/sorting/selection
+const sessionSearch = ref("")
+const sessionSort = ref<"activityDesc" | "activityAsc" | "tokensDesc" | "tokensAsc" | "costDesc" | "costAsc" | "responsesDesc" | "status" | "createdDesc" | "durationDesc" | "turnsDesc" | "toolsDesc">("activityDesc")
+const sessionShowArchived = ref<"active" | "all" | "archived">("active")
+const selectedStatuses = ref<SessionStatus[]>([])
+const selectedSessionIds = ref<Set<string>>(new Set())
+const expandedSessionId = ref<string | null>(null)
+const sessionPage = ref(0)
+const pageSize = 50
+
+const statusLabel = (s: SessionStatus) => (SESSION_STATUS_LABELS as Record<string, string>)[s] ?? s
+const statusChipClass = (s: SessionStatus) => {
+  if (s === "running" || s === "reviewing") return "bg-amber-100 text-amber-900 border-amber-200"
+  if (s === "failed") return "bg-red-100 text-red-900 border-red-200"
+  if (s === "needs_approval" || s === "needs_input") return "bg-sky-100 text-sky-900 border-sky-200"
+  if (s === "limit_reached") return "bg-orange-100 text-orange-900 border-orange-200"
+  if (s === "finished" || s === "review_finished") return "bg-emerald-100 text-emerald-900 border-emerald-200"
+  return "bg-secondary text-foreground border-border"
+}
+const toggleStatus = (s: SessionStatus) => {
+  const i = selectedStatuses.value.indexOf(s)
+  if (i >= 0) selectedStatuses.value.splice(i, 1)
+  else selectedStatuses.value.push(s)
+  sessionPage.value = 0
+}
+const toggleSession = (id: string) => {
+  const n = new Set(selectedSessionIds.value)
+  if (n.has(id)) n.delete(id); else n.add(id)
+  selectedSessionIds.value = n
+}
+const toggleAllVisible = (e: Event) => {
+  const checked = (e.target as HTMLInputElement).checked
+  const n = new Set(selectedSessionIds.value)
+  for (const s of filteredSessions.value) if (checked) n.add(s.id); else n.delete(s.id)
+  selectedSessionIds.value = n
+}
+watch([sessionSearch, sessionSort, sessionShowArchived, selectedStatuses], () => { sessionPage.value = 0 })
+
+const filteredSessions = computed(() => {
+  const list = snapshot.value?.sessionsList ?? []
+  const q = sessionSearch.value.trim().toLowerCase()
+  return list.filter(s => {
+    if (sessionShowArchived.value === "active" && s.archived) return false
+    if (sessionShowArchived.value === "archived" && !s.archived) return false
+    if (selectedStatuses.value.length && !selectedStatuses.value.includes(s.status)) return false
+    if (q && !(s.id.toLowerCase().includes(q) || (s.title ?? "").toLowerCase().includes(q) || s.status.toLowerCase().includes(q) || (s.projectName ?? "").toLowerCase().includes(q) || s.skills.join(",").toLowerCase().includes(q))) return false
+    return true
+  })
+})
+
+const sortedSessions = computed(() => {
+  const arr = [...filteredSessions.value]
+  const k = sessionSort.value
+  const cmp: Record<string, (a: AnalyticsSession, b: AnalyticsSession) => number> = {
+    activityDesc: (a, b) => (b.lastActivity ?? b.createdAt ?? "").localeCompare(a.lastActivity ?? a.createdAt ?? "") || Number(b.id) - Number(a.id),
+    activityAsc: (a, b) => (a.lastActivity ?? a.createdAt ?? "").localeCompare(b.lastActivity ?? b.createdAt ?? ""),
+    tokensDesc: (a, b) => b.usage.totalTokens - a.usage.totalTokens,
+    tokensAsc: (a, b) => a.usage.totalTokens - b.usage.totalTokens,
+    costDesc: (a, b) => b.usage.cost.total - a.usage.cost.total,
+    costAsc: (a, b) => a.usage.cost.total - b.usage.cost.total,
+    responsesDesc: (a, b) => b.responses - a.responses,
+    durationDesc: (a, b) => (b.durationMs ?? -1) - (a.durationMs ?? -1),
+    turnsDesc: (a, b) => (b.turns.user + b.turns.assistant) - (a.turns.user + a.turns.assistant),
+    toolsDesc: (a, b) => b.toolCalls - a.toolCalls,
+    status: (a, b) => a.status.localeCompare(b.status) || (b.lastActivity ?? "").localeCompare(a.lastActivity ?? ""),
+    createdDesc: (a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "") || Number(b.id) - Number(a.id),
+  }
+  arr.sort(cmp[k] ?? cmp.activityDesc)
+  return arr
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(sortedSessions.value.length / pageSize)))
+const pagedSessions = computed(() => sortedSessions.value.slice(sessionPage.value * pageSize, sessionPage.value * pageSize + pageSize))
+const allVisibleSelected = computed(() => filteredSessions.value.length > 0 && filteredSessions.value.every(s => selectedSessionIds.value.has(s.id)))
+
+const selectedAggregate = computed<ModelUsage | null>(() => {
+  if (!selectedSessionIds.value.size || !snapshot.value?.sessionsList) return null
+  const agg: ModelUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, reasoning: 0, cacheWrite1h: 0, cacheHitRate: null, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  let hasReasoning = false, has1h = false
+  for (const s of snapshot.value.sessionsList) if (selectedSessionIds.value.has(s.id)) {
+    agg.input += s.usage.input; agg.output += s.usage.output; agg.cacheRead += s.usage.cacheRead; agg.cacheWrite += s.usage.cacheWrite; agg.totalTokens += s.usage.totalTokens
+    if (s.usage.reasoning != null) { agg.reasoning = (agg.reasoning ?? 0) + s.usage.reasoning; hasReasoning = true }
+    if (s.usage.cacheWrite1h != null) { agg.cacheWrite1h = (agg.cacheWrite1h ?? 0) + s.usage.cacheWrite1h; has1h = true }
+    agg.cost.input += s.usage.cost.input; agg.cost.output += s.usage.cost.output; agg.cost.cacheRead += s.usage.cost.cacheRead; agg.cost.cacheWrite += s.usage.cost.cacheWrite; agg.cost.total += s.usage.cost.total
+  }
+  if (!hasReasoning) agg.reasoning = null
+  if (!has1h) agg.cacheWrite1h = null
+  const denom = agg.input + agg.cacheRead + agg.cacheWrite
+  agg.cacheHitRate = denom ? agg.cacheRead / denom : null
+  return agg
+})
+const selectedAggregateResponses = computed(() => {
+  if (!snapshot.value?.sessionsList) return 0
+  return snapshot.value.sessionsList.filter(s => selectedSessionIds.value.has(s.id)).reduce((n, s) => n + s.responses, 0)
+})
+const selectedAggregateErrors = computed(() => {
+  if (!snapshot.value?.sessionsList) return 0
+  return snapshot.value.sessionsList.filter(s => selectedSessionIds.value.has(s.id)).reduce((n, s) => n + s.errors, 0)
+})
+
 async function load() {
   if (!opened.value) return
   const own = ++generation.value
@@ -583,6 +1033,12 @@ async function load() {
     snapshot.value = next
     if (selected.value && !next.models.some(m => m.key === selected.value)) {
       selected.value = ""
+    }
+    // prune selected ids that no longer exist
+    if (next.sessionsList) {
+      const ids = new Set(next.sessionsList.map(s => s.id))
+      const pruned = new Set([...selectedSessionIds.value].filter(id => ids.has(id)))
+      if (pruned.size !== selectedSessionIds.value.size) selectedSessionIds.value = pruned
     }
     updatedText.value = "Updated " + when(next.generatedAt)
     statusText.value = "All retained history · Model totals include compaction usage. Charts show dated responses only."
