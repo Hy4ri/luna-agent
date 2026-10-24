@@ -6,7 +6,7 @@
           <div>
             <DialogTitle class="text-[15px] font-semibold">Sessions Explorer</DialogTitle>
             <DialogDescription class="text-xs text-muted-foreground">
-              Per-session usage, turns, tool errors, and duration across all {{ sessions.length }} sessions.
+              Per-session usage, turns, tool errors, and duration across all {{ allTotal }} sessions.
             </DialogDescription>
           </div>
           <div class="flex items-center gap-2">
@@ -44,7 +44,7 @@
               :class="activeStatusFilter === '' ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary text-foreground border-border hover:bg-accent'"
               @click="activeStatusFilter = ''"
             >
-              All ({{ sessions.length }})
+              All ({{ allTotal }})
             </button>
             <button
               v-for="(count, st) in statusBreakdown"
@@ -61,7 +61,12 @@
       </DialogHeader>
 
       <!-- Table Content -->
-      <div class="p-4 overflow-auto flex-1 max-h-[calc(90vh-140px)]">
+      <div class="p-4 overflow-auto flex-1 max-h-[calc(90vh-140px)]" :aria-busy="loading">
+        <p v-if="loading" role="status" class="mb-3 text-muted-foreground">Loading sessions…</p>
+        <div v-if="errorMessage" role="alert" class="mb-3 text-destructive">
+          {{ errorMessage }}
+          <Button type="button" variant="outline" size="sm" class="ml-2" @click="scheduleLoad(true)">Retry</Button>
+        </div>
         <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
           <thead class="sticky top-0 bg-secondary/80 backdrop-blur z-10">
             <tr class="border-b border-border">
@@ -77,7 +82,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!pagedSessions.length">
+            <tr v-if="!loading && !errorMessage && !pagedSessions.length">
               <td colspan="9" class="p-6 text-center text-muted-foreground">No sessions match current filter.</td>
             </tr>
             <tr
@@ -112,13 +117,13 @@
       </div>
 
       <!-- Pagination Footer -->
-      <div class="p-3 border-t border-border bg-sidebar flex items-center justify-between text-xs text-muted-foreground">
-        <span>Showing {{ startIdx + 1 }}–{{ Math.min(startIdx + pageSize, filteredSessions.length) }} of {{ full(filteredSessions.length) }} sessions</span>
+      <div v-if="!loading && !errorMessage" class="p-3 border-t border-border bg-sidebar flex items-center justify-between text-xs text-muted-foreground">
+        <span>Showing {{ totalSessions ? startIdx + 1 : 0 }}–{{ Math.min(startIdx + pageSize, totalSessions) }} of {{ full(totalSessions) }} sessions</span>
         <div class="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="currentPage === 0" @click="currentPage = 0">First</Button>
-          <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="currentPage === 0" @click="currentPage--">Prev</Button>
+          <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage === 0" @click="currentPage = 0">First</Button>
+          <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage === 0" @click="currentPage--">Prev</Button>
           <span class="px-1 font-mono">Page {{ currentPage + 1 }} of {{ totalPages }}</span>
-          <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="currentPage >= totalPages - 1" @click="currentPage++">Next</Button>
+          <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage >= totalPages - 1" @click="currentPage++">Next</Button>
         </div>
       </div>
     </DialogContent>
@@ -126,18 +131,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue"
+import { ref, computed, watch, onUnmounted } from "vue"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import type { AnalyticsSession } from "./types"
 import type { SessionStatus } from "@/lib/types"
+import { json, serverUrl, token } from "@/lib/api"
 import { SESSION_STATUS_LABELS } from "@/lib/session-status"
 import { full, compact, usd, pct, when, durationFormat } from "./formatters"
 
 const props = defineProps<{
   open: boolean
-  sessions: AnalyticsSession[]
-  statusBreakdown?: Record<string, number>
   selectedCount?: number
 }>()
 
@@ -152,6 +156,25 @@ const sortField = ref("tokensDesc")
 const activeStatusFilter = ref<string>("")
 const currentPage = ref(0)
 const pageSize = 20
+const pagedSessions = ref<AnalyticsSession[]>([])
+const totalSessions = ref(0)
+const allTotal = ref(0)
+const statusBreakdown = ref<Record<string, number>>({})
+const loading = ref(false)
+const errorMessage = ref("")
+interface SessionsPage {
+  generatedAt: string
+  sessions: AnalyticsSession[]
+  total: number
+  allTotal: number
+  statusBreakdown: Record<string, number>
+  page: number
+  limit: number
+}
+let generation = 0
+let controller: AbortController | undefined
+let timer: ReturnType<typeof setTimeout> | undefined
+let applyingPage = false
 
 function statusLabel(status: SessionStatus): string {
   return SESSION_STATUS_LABELS[status] || status
@@ -169,30 +192,71 @@ function statusChipClass(status: SessionStatus): string {
   }
 }
 
-const filteredSessions = computed(() => {
-  let list = props.sessions
-  if (activeStatusFilter.value) {
-    list = list.filter((s) => s.status === activeStatusFilter.value)
-  }
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.toLowerCase()
-    list = list.filter((s) => (s.title && s.title.toLowerCase().includes(q)) || s.id.includes(q))
-  }
-
-  return [...list].sort((a, b) => {
-    switch (sortField.value) {
-      case "tokensDesc": return (b.usage?.totalTokens || 0) - (a.usage?.totalTokens || 0)
-      case "tokensAsc": return (a.usage?.totalTokens || 0) - (b.usage?.totalTokens || 0)
-      case "costDesc": return (b.usage?.cost?.total || 0) - (a.usage?.cost?.total || 0)
-      case "responsesDesc": return (b.responses || 0) - (a.responses || 0)
-      case "durationDesc": return (b.durationMs || 0) - (a.durationMs || 0)
-      case "activityDesc": return new Date(b.lastActivity || 0).getTime() - new Date(a.lastActivity || 0).getTime()
-      default: return 0
-    }
-  })
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredSessions.value.length / pageSize)))
+const totalPages = computed(() => Math.max(1, Math.ceil(totalSessions.value / pageSize)))
 const startIdx = computed(() => currentPage.value * pageSize)
-const pagedSessions = computed(() => filteredSessions.value.slice(startIdx.value, startIdx.value + pageSize))
+
+function invalidate() {
+  generation++
+  controller?.abort()
+  if (timer !== undefined) clearTimeout(timer)
+  timer = undefined
+}
+
+function scheduleLoad(force = false, delay = 0) {
+  invalidate()
+  pagedSessions.value = []
+  errorMessage.value = ""
+  loading.value = props.open
+  if (!props.open) return
+  const own = generation
+  timer = setTimeout(async () => {
+    timer = undefined
+    controller = new AbortController()
+    const query = new URLSearchParams({
+      search: searchQuery.value, status: activeStatusFilter.value, sort: sortField.value,
+      page: String(currentPage.value), limit: String(pageSize),
+    })
+    if (force) query.set("refresh", "true")
+    try {
+      const result = await json<SessionsPage>(`/v1/analytics/sessions?${query}`, { signal: controller.signal })
+      if (own !== generation || !props.open) return
+      pagedSessions.value = result.sessions
+      totalSessions.value = result.total
+      allTotal.value = result.allTotal
+      statusBreakdown.value = result.statusBreakdown
+      applyingPage = true
+      currentPage.value = result.page
+      applyingPage = false
+    } catch (error: any) {
+      if (own === generation && props.open && error?.name !== "AbortError") {
+        errorMessage.value = error?.message || "Could not load sessions."
+      }
+    } finally {
+      if (own === generation) loading.value = false
+    }
+  }, delay)
+}
+
+watch([searchQuery, activeStatusFilter, sortField], () => {
+  currentPage.value = 0
+}, { flush: "sync" })
+watch([serverUrl, token], () => {
+  totalSessions.value = 0
+  allTotal.value = 0
+  statusBreakdown.value = {}
+  currentPage.value = 0
+}, { flush: "sync" })
+watch(
+  () => [props.open, searchQuery.value, activeStatusFilter.value, sortField.value,
+    currentPage.value, serverUrl.value, token.value] as const,
+  (next, previous) => {
+    if (applyingPage) return
+    const opening = next[0] && !previous?.[0]
+    const connectionChanged = !!previous && (next[5] !== previous[5] || next[6] !== previous[6])
+    const searchChanged = !!previous && next[1] !== previous[1]
+    scheduleLoad(opening || connectionChanged, searchChanged && !opening ? 250 : 0)
+  },
+  { immediate: true, flush: "sync" },
+)
+onUnmounted(invalidate)
 </script>
