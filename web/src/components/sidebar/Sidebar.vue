@@ -515,8 +515,8 @@ onMounted(() => {
                     </span>
                   </button>
 
-                  <span v-if="sessionState(s) !== 'ready'" class="session-running session-state" :data-status="sessionState(s)" :data-running="sessionState(s) === 'running' ? 'true' : undefined" role="img" :aria-label="sessionStatusLabel(s)" :title="s.statusReason || sessionStatusLabel(s)">
-                    <LoaderCircle v-if="sessionState(s) === 'running'" :size="14" class="motion-safe:animate-spin" />
+                  <span v-if="sessionState(s) !== 'ready'" class="session-running session-state" :data-status="sessionState(s)" :data-running="['running', 'reviewing'].includes(sessionState(s)) ? 'true' : undefined" role="img" :aria-label="sessionStatusLabel(s)" :title="s.statusReason || sessionStatusLabel(s)">
+                    <LoaderCircle v-if="['running', 'reviewing'].includes(sessionState(s))" :size="14" class="motion-safe:animate-spin" />
                     <span v-else class="session-state-dot" aria-hidden="true"></span>
                   </span>
 

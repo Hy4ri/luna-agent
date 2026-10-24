@@ -3,6 +3,8 @@ import type { SessionMeta, SessionStatus } from "./types";
 export const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
   ready: "Ready",
   running: "Running",
+  reviewing: "Reviewing",
+  review_finished: "Review finished",
   finished: "Finished",
   needs_approval: "Needs approval",
   needs_input: "Needs input",

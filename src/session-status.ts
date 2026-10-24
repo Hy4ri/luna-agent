@@ -1,11 +1,12 @@
 import { defineDoc, defineExtension, defineTool, section, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
+import { randomUUID } from "node:crypto";
 import { AskDoc } from "./ask.js";
 import { GoalDoc } from "./goal.js";
 import { classifyLimit } from "./limit-reset.js";
 import { readProviderLimit, type ProviderLimit } from "./provider-limits.js";
 
-export type SessionStatus = "ready" | "running" | "finished" | "needs_approval" | "needs_input" | "limit_reached" | "failed" | "stopped";
+export type SessionStatus = "ready" | "running" | "reviewing" | "review_finished" | "finished" | "needs_approval" | "needs_input" | "limit_reached" | "failed" | "stopped";
 export interface SessionState { status: SessionStatus; statusReason: string | null }
 
 /** Tracks when the user last opened (read) this session. */
@@ -26,6 +27,33 @@ export const SessionHandoffDoc = defineDoc<{ handoff: Handoff | null }>({
   kind: "luna.session-handoff", version: 1, scope: "conversation", history: "latest", fork: "initial",
   initial: () => ({ handoff: null }),
 });
+
+// Review jobs run outside foreground pi tasks. Their document also invalidates session lists.
+const reviewOwner = randomUUID();
+type ReviewResult = { boundary: number; at: number; status: "complete" | "failed"; reason: string | null };
+export const SessionReviewDoc = defineDoc<{
+  owner: string | null; active: { id: string; boundary: number; at: number }[]; result: ReviewResult | null;
+}>({
+  checkpointWhen: () => false,
+  kind: "luna.session-review", version: 1, scope: "conversation", history: "latest", fork: "initial",
+  initial: () => ({ owner: null, active: [], result: null }),
+});
+
+export async function startSessionReview(tx: Tx, id: ConversationId, jobId: string, boundary: number): Promise<void> {
+  const doc = await tx.doc(SessionReviewDoc, id);
+  if (doc.owner !== reviewOwner) { doc.active = []; doc.owner = reviewOwner; }
+  doc.active.push({ id: jobId, boundary, at: Date.now() });
+}
+
+export async function finishSessionReview(tx: Tx, id: ConversationId, jobId: string, error?: string): Promise<void> {
+  const doc = await tx.doc(SessionReviewDoc, id);
+  if (doc.owner !== reviewOwner) return;
+  const job = doc.active.find(job => job.id === jobId);
+  if (!job) return;
+  doc.active = doc.active.filter(job => job.id !== jobId);
+  doc.result = { boundary: job.boundary, at: Date.now(), status: error === undefined ? "complete" : "failed",
+    reason: error === undefined ? null : error.slice(0, 500) };
+}
 
 /** Entry IDs, not model timestamps, define the current input or reset boundary. */
 async function sessionTail(tx: Tx, id: ConversationId) {
@@ -121,12 +149,24 @@ export async function readSessionStatus(tx: Tx, id: ConversationId, running: boo
   // An accepted answer is no longer actionable, even before the waiting tool consumes it.
   const pending = ask.pending.find(question => !ask.answers[question.callId]);
   if (running && pending) return state(pending.purpose === "approval" ? "needs_approval" : "needs_input", pending.questions[0]?.question ?? "Waiting for your answer.");
+  const review = await tx.doc(SessionReviewDoc, id);
+  if (review.owner === reviewOwner && review.active.length) return state("reviewing");
   if (running) return state("running");
 
   const tail = await sessionTail(tx, id);
   if (tail.reset && !tail.assistant) return state("ready");
-  // Only the foreground generation owns the session outcome. Tool errors and queue edits do not.
   const generation = (await tx.scanTasks({ conversationId: id, kind: "pi.generation", background: false, order: "descending" }, 1)).items[0];
+  const lastMessageAt = Math.max(tail.assistant?.model?.find(message => message.role === "assistant")?.timestamp ?? 0, generation?.endedAt ?? 0);
+  const interrupted = review.owner !== reviewOwner ? review.active.at(-1) : undefined;
+  if (interrupted && interrupted.boundary === tail.boundary && interrupted.at >= lastMessageAt)
+    return state("failed", "Review interrupted by a daemon restart.");
+  const result = review.result;
+  if (result && result.boundary === tail.boundary && result.at >= lastMessageAt) {
+    if (result.status === "failed") return state("failed", result.reason || "Review failed.");
+    const readAt = (await tx.doc(SessionReadDoc, id)).at;
+    return state(readAt !== null && readAt >= result.at ? "ready" : "review_finished");
+  }
+  // Only the foreground generation owns the session outcome. Tool errors and queue edits do not.
   const outcome = generation?.state.outcome;
   const message = tail.assistant?.model?.find(message => message.role === "assistant");
   const providerLimited = tail.assistant?.byTaskId === generation?.id && message?.stopReason === "error" && readProviderLimit(message)?.kind === "wait";
@@ -154,8 +194,7 @@ export async function readSessionStatus(tx: Tx, id: ConversationId, running: boo
   // Finished: clear to ready once the user opens the session after the response arrived.
   const readDoc = await tx.doc(SessionReadDoc, id);
   const readAt = readDoc.at;
-  const lastMessageAt = (message as any).timestamp ?? 0;
-  if (readAt !== null && readAt >= lastMessageAt) return state("ready");
+  if (readAt !== null && readAt >= (message.timestamp ?? 0)) return state("ready");
 
   return state("finished");
 }

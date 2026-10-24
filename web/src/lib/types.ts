@@ -1,6 +1,8 @@
 export type SessionStatus =
   | "ready"
   | "running"
+  | "reviewing"
+  | "review_finished"
   | "finished"
   | "needs_approval"
   | "needs_input"

@@ -572,8 +572,8 @@ export function createApp(opts: ServerOptions) {
       const running = await isRunning(tx, conv.id);
       const status = await readSessionStatus(tx, conv.id, running);
       // Mark read in the same commit. readSessionStatus reads the doc before the mark,
-      // so this GET returns "finished"; subsequent reads see "ready".
-      if (!running && status.status === "finished") await markSessionRead(tx, conv.id);
+      // so this GET returns the completion status; subsequent reads see "ready".
+      if (!running && ["finished", "review_finished"].includes(status.status)) await markSessionRead(tx, conv.id);
       return { running, ...status, resumeAt: await resumeAt(tx, conv.id, running) };
     }, context);
     return c.json({
@@ -981,7 +981,7 @@ export function createApp(opts: ServerOptions) {
     const boardChanged = () => { boardDirty = true; arm(); };
     // Register BEFORE the initial event, so creation during attachment cannot be missed.
     const unsubscribe = harness.subscribeCommits(publication => {
-      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission" || change.type === "document" && ["luna.ask", "luna.goal", "luna.session-handoff", "luna.session-read", "luna.limit-waits"].includes(change.record.kind))) changed();
+      if (publication.changes.some(change => change.type === "conversation" || change.type === "entry" || change.type === "task" || change.type === "submission" || change.type === "document" && ["luna.ask", "luna.goal", "luna.session-handoff", "luna.session-review", "luna.session-read", "luna.limit-waits"].includes(change.record.kind))) changed();
     });
     const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
     const unsubscribeBoard = opts.conversations?.subscribeBoard(boardChanged);
