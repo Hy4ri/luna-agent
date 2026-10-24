@@ -5,7 +5,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
-  Plus,
+  SquarePen,
   Clock,
   FolderKanban,
   Kanban,
@@ -22,12 +22,11 @@ import {
   Trash2,
   Settings as SettingsIcon,
   LoaderCircle,
-  Command as CommandIcon,
   Monitor,
   ChartNoAxesColumn,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
-import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, setPalette, openAnalytics } from "@/stores/app";
+import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
@@ -351,28 +350,23 @@ onMounted(() => {
     <!-- Nav Top -->
     <nav id="nav" class="side-top">
       <button id="new" title="New chat" class="side-item" @click="handleNewChat()">
-        <Plus :size="18" />
+        <SquarePen :size="16" />
         <span class="side-label">New chat</span>
       </button>
-      <button id="open-palette" class="side-item" title="Commands (Ctrl+K)" aria-keyshortcuts="Control+K Meta+K" @click="setDrawer(false); setPalette(true)">
-        <CommandIcon :size="18" />
-        <span class="side-label">Commands</span>
-        <kbd class="side-kbd">Ctrl K</kbd>
-      </button>
       <button class="side-item" data-panel="cron" title="Cron" @click="openPanel('cron')">
-        <Clock :size="18" />
+        <Clock :size="16" />
         <span class="side-label">Cron</span>
         <span id="cron-unread" class="pill" :hidden="!ui.cronUnread">{{ ui.cronUnread }}</span>
       </button>
       <button class="side-item" data-panel="projects" title="Projects" @click="openPanel('projects')">
-        <FolderKanban :size="18" />
+        <FolderKanban :size="16" />
         <span class="side-label">Projects</span>
       </button>
       <button class="side-item" data-panel="board" title="Board" @click="openPanel('board')">
-        <Kanban :size="18" />
+        <Kanban :size="16" />
         <span class="side-label">Board</span>
       </button>
-      <button class="side-item" title="Analytics" :aria-current="ui.view === 'analytics' ? 'page' : undefined" @click="openAnalytics"><ChartNoAxesColumn :size="18" /><span class="side-label">Analytics</span></button>
+      <button class="side-item" title="Analytics" :aria-current="ui.view === 'analytics' ? 'page' : undefined" @click="openAnalytics"><ChartNoAxesColumn :size="16" /><span class="side-label">Analytics</span></button>
     </nav>
 
     <!-- History Section -->
@@ -540,7 +534,7 @@ onMounted(() => {
     <!-- Footer -->
     <div class="side-foot">
       <button class="side-item" data-panel="settings" title="Settings" :aria-current="ui.view === 'settings' ? 'page' : undefined" @click="openPanel('settings')">
-        <SettingsIcon :size="18" />
+        <SettingsIcon :size="16" />
         <span class="side-label">Settings</span>
       </button>
     </div>
