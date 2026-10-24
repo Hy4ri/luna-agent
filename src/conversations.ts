@@ -126,7 +126,8 @@ export class ConversationStore {
         const page = await tx.scanConversations({}, 100, cursor);
         for (const row of page.items) {
           const id = Number(row.id);
-          if (excluded.has(id) || busy.has(id) || (allowed && !allowed.has(id)) || (!options.includeArchived && this.get(id).archived)) continue;
+          const meta = this.get(id);
+          if (meta.pinned || excluded.has(id) || busy.has(id) || (allowed && !allowed.has(id)) || (!options.includeArchived && meta.archived)) continue;
           if (await protectedSession?.(id, tx)) continue;
           const message = await newestMessageTime(tx, row.id), created = (await tx.doc(SessionCreated, row.id)).at;
           const activity = message === null ? created : Math.max(message, created ?? 0);
@@ -137,7 +138,7 @@ export class ConversationStore {
       const selected = new Set<number>();
       for (const id of eligible) {
         const tree = treeOf([id]);
-        // Never cascade through a recent, archived, running, excluded, or unconfirmed descendant.
+        // Never cascade through a pinned, recent, archived, running, excluded, or unconfirmed descendant.
         if (tree.every(child => eligible.has(child))) for (const child of tree) selected.add(child);
       }
       return [...selected].sort((a, b) => a - b);

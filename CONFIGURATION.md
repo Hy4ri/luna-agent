@@ -1250,7 +1250,7 @@ LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 pnpm r
 In **History → History actions → Prune sessions**, enter a positive whole number of days (default seven).
 The preview counts sessions across all projects. Archived sessions are excluded unless **Include archived sessions** is selected.
 The selected session and open split tiles are protected. Running tasks, background processes, and side questions are also protected.
-Pinned sessions have no additional protection. There is no automatic schedule or configuration setting.
+Pinned sessions are always protected, including archived pinned sessions. There is no automatic schedule or configuration setting.
 
 Age uses the newest user or assistant message timestamp, including cross-session messages.
 Creation time protects newer sessions and forks with inherited old messages. Empty sessions use their creation time.
@@ -1262,12 +1262,12 @@ Both endpoints require the normal API authorization:
 - `POST /v1/sessions/prune/preview` accepts `{ "days": 7, "includeArchived": false, "excludeIds": [123] }`.
   It returns `{ "ids": [456, 789] }` without deleting sessions. `excludeIds` contains the sessions the client must keep.
 - `POST /v1/sessions/prune` accepts the same fields plus `"ids": [456, 789]` from the preview.
-  It rechecks age, archive state, exclusions, running work, and descendants on the harness mutation line.
+  It rechecks age, pin state, archive state, exclusions, running work, and descendants on the harness mutation line.
   It returns `{ "deleted": [456, 789] }`, which can be smaller than the preview. It never adds unconfirmed sessions.
 
 All fields are required. Unknown fields, invalid IDs, and nonpositive or fractional days return `400`.
 An empty confirmation list deletes nothing. Disabled conversation management returns `404`.
 A fork or delegated child must also qualify before its parent can be removed.
-Recent, archived, running, excluded, or unconfirmed descendants protect their ancestors from cascading deletion.
+Pinned, recent, archived, running, excluded, or unconfirmed descendants protect their ancestors from cascading deletion.
 Deletion uses the existing atomic hard purge, including messages, descendants, documents, metadata, and search entries.
 It is permanent. A failed purge leaves the selected sessions intact; the UI reports the error. A storage fault can require a daemon restart before retry.
