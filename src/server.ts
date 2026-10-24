@@ -1,3 +1,4 @@
+import { createGitStatusReader } from "./git-status.js";
 import { undoCommand } from "./undo.js";
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
 import { GENERAL_PROJECT, ProjectError } from "./projects.js";
@@ -654,6 +655,21 @@ export function createApp(opts: ServerOptions) {
       goal: goal?.goal ?? null,
       entries: page.items,
     });
+  });
+
+  const readGitStatus = createGitStatusReader();
+  app.get("/v1/sessions/:id/git", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const worker = (await harness.snapshot(ExecTarget, conv.id, context))?.worker ?? null;
+    const cwd = (await conv.agent(context)).cwd ?? undefined;
+    if (worker !== null && !opts.workers?.view(worker)?.online)
+      return c.json({ state: "unavailable", message: "Machine unavailable" });
+    const env = worker === null ? new NodeExecutionEnv({ cwd: cwd ?? opts.cwd ?? process.cwd() }) : opts.workers!.env(worker, cwd);
+    try {
+      const commandEnv = worker === null ? undefined : opts.workers!.reviewEnvironment(worker);
+      return c.json(await readGitStatus(`${worker ?? 'main'}:${env.cwd}`, env, commandEnv));
+    } catch { return c.json({ state: "unavailable", message: "Machine unavailable" }); }
   });
 
   app.get("/v1/sessions/:id/machine", async c => {
