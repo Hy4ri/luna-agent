@@ -1423,3 +1423,7 @@ the last processed ID. Usage ledgers are refreshed independently and remain the 
 of token and cost totals, including compaction. Structural history changes rebuild the
 affected summary. Deleted conversations are pruned from the cache at the next build.
 The first request after daemon startup still needs a full retained-history scan.
+
+### Workspace Git status
+
+`GET /v1/sessions/:id/git` reads the session execution machine and working directory. It returns `state` (`ok`, `not-repository`, `unavailable`, or `error`). Successful reads include `branch`, `upstream`, `ahead`, `behind`, `added`, `deleted`, `untracked`, `conflicts`, and `files` (path, two-character status, added/deleted counts, binary flag). Totals compare tracked staged and unstaged changes with HEAD; untracked contents are excluded. Ahead/behind uses local upstream information without fetching. Reads share a four-second workspace cache. The UI refreshes every five seconds while visible and on focus. This endpoint never changes Git state.

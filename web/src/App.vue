@@ -5,6 +5,7 @@ import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, 
 import { Menu, ScanEye, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import GitStatus from '@/components/chat/GitStatus.vue';
 import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
 import ReviewInspector from "@/components/chat/ReviewInspector.vue";
@@ -42,7 +43,7 @@ let railObserver: ResizeObserver | undefined;
 const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
 watch(() => chat.session, () => { selectedReview.value = null; });
-const railContent = computed(() => reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
+const railContent = computed(() => !!chat.session || reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
 const docked = computed(() => railRoom.value && railContent.value);
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
@@ -364,12 +365,14 @@ onUnmounted(() => {
           <div class="chat-body">
             <div class="chat-column">
               <Transcript />
+              <GitStatus v-if="!docked && chat.session" />
               <Extras v-if="!docked" />
               <div id="compose" class="mx-auto w-full max-w-4xl shrink-0 px-4 pb-3 pt-2 md:px-8">
                 <Composer />
               </div>
             </div>
             <aside v-if="docked" id="session-rail" aria-label="Session details">
+              <GitStatus v-if="chat.session" docked />
               <StatusBar docked />
               <Extras docked />
             </aside>
