@@ -9,6 +9,7 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { context } from "./luna.js";
 import { runReview, type ReviewActivity } from "./review.js";
+import { startSessionReview, finishSessionReview, newestInputBoundary } from "./session-status.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export type SideInput = string | ({ type: "text"; text: string } | { type: "image" | "audio"; data: string; mimeType: string })[];
@@ -122,6 +123,9 @@ export class SideCommands {
   }
 
   private async admit(source: Conversation, kind: "btw" | "bg" | "review", prompt: string, content: SideInput): Promise<SideJob> {
+    // Bind status to the input before taking the review snapshot. Admission can await credentials or workers.
+    const reviewBoundary = kind === "review"
+      ? await this.options.harness.commit(tx => newestInputBoundary(tx, source.id), context) : undefined;
     let messages: Message[] = [];
     if (kind === "btw" || kind === "review") {
       try { messages = structuredClone((await source.context(context)).messages) as Message[]; }
@@ -163,11 +167,13 @@ export class SideCommands {
       this.observingClose = true;
       void this.options.harness.closed.then(() => this.close()).catch(() => {});
     }
+    if (kind === "review") await this.options.harness.commit(tx => startSessionReview(tx, source.id, job.id, reviewBoundary!), context);
     this.jobs.set(job.id, job); this.notify(job);
     const controller = new AbortController(); this.controllers.add(controller);
     // Schedule work after admission; callers receive a receipt without waiting for the model.
     const task = Promise.resolve().then(async () => {
       try {
+        if (this.closing) controller.abort();
         if (controller.signal.aborted) throw new Error("side job stopped during shutdown");
         const text = kind === "review"
           ? await runReview({ models: models!, model, thinking: agent.thinkingLevel, messages, cwd: reviewCwd, env: reviewEnv, commandEnv: reviewCommandEnv,
@@ -181,10 +187,15 @@ export class SideCommands {
         if (!text.trim()) throw new Error("empty response");
         job.text = text; job.status = "complete";
       } catch (error) { job.status = "failed"; job.text = (error as Error).message ?? String(error); }
-      finally { this.notify(job); this.controllers.delete(controller); }
+      finally {
+        try {
+          if (kind === "review") await this.options.harness.commit(tx =>
+            finishSessionReview(tx, source.id, job.id, job.status === "failed" ? job.text : undefined), context);
+        } finally { this.notify(job); this.controllers.delete(controller); }
+      }
     });
     this.tasks.add(task);
-    void task.then(() => this.tasks.delete(task));
+    void task.then(() => this.tasks.delete(task), () => this.tasks.delete(task));
     return { ...job };
   }
 

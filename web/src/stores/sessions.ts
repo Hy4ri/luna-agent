@@ -40,7 +40,7 @@ export async function loadProjects() {
 }
 
 // Desktop notifications: a session that was running and now needs attention or has stopped.
-const NOTIFY_ON = new Set<SessionStatus>(["finished", "needs_input", "needs_approval", "failed", "limit_reached"]);
+const NOTIFY_ON = new Set<SessionStatus>(["finished", "review_finished", "needs_input", "needs_approval", "failed", "limit_reached"]);
 let seenStatus: Map<string, SessionStatus> | undefined;
 /** Forget the last snapshot (new daemon or login) so ids from another server never notify. */
 export function resetNotifications() { seenStatus = undefined; }
@@ -51,7 +51,7 @@ function notifyChanges(list: SessionMeta[]) {
   if (!prev || document.hasFocus()) return; // First load, or the user is looking at the app.
   for (const s of list) {
     const was = prev.get(String(s.id)), now = next.get(String(s.id))!;
-    if (was === "running" && NOTIFY_ON.has(now)) notify(sessionTitle(s), SESSION_STATUS_LABELS[now]);
+    if ((was === "running" || was === "reviewing") && NOTIFY_ON.has(now)) notify(sessionTitle(s), SESSION_STATUS_LABELS[now]);
   }
 }
 

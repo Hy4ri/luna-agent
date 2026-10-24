@@ -394,8 +394,8 @@ aside#side.collapsed #history-rail {
   font-weight: 400;
 }
 .session-state { color: var(--muted-foreground); }
-.session-state[data-status="running"] { color: #60a5fa; }
-.session-state[data-status="finished"] { color: #4ade80; }
+.session-state[data-status="running"], .session-state[data-status="reviewing"] { color: #60a5fa; }
+.session-state[data-status="finished"], .session-state[data-status="review_finished"] { color: #4ade80; }
 .session-state[data-status="needs_approval"] { color: #fbbf24; }
 .session-state[data-status="needs_input"] { color: #c084fc; }
 .session-state[data-status="limit_reached"] { color: #fb923c; }

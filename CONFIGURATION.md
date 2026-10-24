@@ -767,6 +767,13 @@ same report uses one request ID to prevent duplicate messages.
 }
 ```
 
+Session status is `reviewing` while a review runs, even when the main agent is idle. After all reviews
+finish, it becomes `review_finished` (Review finished), or `failed` with the review error. Foreground work
+keeps its own `running` flag; unresolved questions still show Needs input or Needs approval. Opening the
+session clears Review finished to Ready. New input or a newer main response supersedes an old report's
+completion status. Desktop notifications include review completion when the app has no focus.
+A daemon restart marks an unfinished review as failed rather than leaving Reviewing stuck.
+
 `auxiliary.review` is required. Without it, `/review` returns an error. It never uses the session model.
 Changes apply to the next review (**Settings → Models & accounts → Session review**).
 
@@ -831,7 +838,7 @@ The session's own model is never used, so a large session model does not change 
 - **Generate title** in the session menu replaces the current title on request, using the opening message and current
   details of its board references. It is unavailable without a route.
 - `session_search` shows stored titles (renames and generated titles) instead of the first message.
-- `session_search` shows each session's live status. Its `status` parameter (one value or a list: `ready`, `running`, `finished`,
+- `session_search` shows each session's live status. Its `status` parameter (one value or a list: `ready`, `running`, `reviewing`, `review_finished`, `finished`,
   `needs_approval`, `needs_input`, `limit_reached`, `failed`, `stopped`) keeps only matching sessions, alone or with `query`.
   `failed`, `limit_reached`, `needs_*` and `stopped` results include the reason (the error text for failures). A status filter
   checks the newest 300 sessions and returns up to 50 results.

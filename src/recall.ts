@@ -9,7 +9,7 @@ import { defineExtension, defineTool, type ConversationId, type EntryRecord, typ
 import { isRunning, readSessionStatus, type SessionState, type SessionStatus } from "./session-status.js";
 
 const HEAD = 6000, TAIL = 2000, PAGE = 200;
-const STATUSES = ["ready", "running", "finished", "needs_approval", "needs_input", "limit_reached", "failed", "stopped"] as const;
+const STATUSES = ["ready", "running", "reviewing", "review_finished", "finished", "needs_approval", "needs_input", "limit_reached", "failed", "stopped"] as const;
 /** A status filter checks the newest conversations only: each check reads tasks and entries. */
 const STATUS_SCAN = 300, STATUS_LIMIT = 50;
 
@@ -196,7 +196,7 @@ const DESCRIPTION = [
   "Search past Luna conversations with a local full-text index; returns snippets and message ids.",
   "- `query`: discover matches (BM25). Prefer distinctive identifiers or uncommon terms; multi-word queries are AND. Use OR/NOT for Boolean queries and quotes for exact phrases.",
   "- `sessionId` + `aroundMessageId`: scroll ±`window` messages around a hit. `sessionId` alone: read the conversation (head 20 + tail 10). No arguments: browse recent conversations.",
-  "- `status`: keep only sessions with this live status (or any of a list): ready, running, finished, needs_approval, needs_input, limit_reached, failed, stopped. Combine with `query`, or use it alone. Each result shows its status; failed and limit_reached results include the error text. Checks the newest 300 sessions; limit up to 50.",
+  "- `status`: keep only sessions with this live status (or any of a list): ready, running, reviewing, review_finished, finished, needs_approval, needs_input, limit_reached, failed, stopped. Combine with `query`, or use it alone. Each result shows its status; failed and limit_reached results include the error text. Checks the newest 300 sessions; limit up to 50.",
   "Use it only when the user asks about past conversations, earlier decisions, or repeated work not in the current conversation; not for the current conversation or ordinary file inspection.",
 ].join("\n");
 
