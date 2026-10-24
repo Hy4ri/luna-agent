@@ -55,9 +55,40 @@ export function originalUserText(m: ScanMessage): string {
   return m.text.replace(/```[\s\S]*?(?:```|$)/g, "").split("\n").filter(l => !/^\s*>/.test(l)).join("\n").trim();
 }
 
+/** The model-visible tool error without the harness wrapper lines. */
+const errorBody = (t: string) => t.replace(/<\/?harness>/g, "").replace(/^\s*\[error\]\s*/m, "").trim();
+
+/** Primary program of the last command in a shell line (`a && b | c` -> c), with a subcommand for git/gh/pm2/pnpm. */
+export function shellProgram(command: string): string {
+  const last = command.split(/&&|\|\||;|\||\n/).map(x => x.trim()).filter(Boolean).at(-1) ?? "";
+  const toks = last.split(/\s+/).filter(t => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
+  while (["sudo", "nohup", "time", "env", "setsid"].includes(toks[0] ?? "")) toks.shift();
+  if (toks[0] === "timeout") toks.splice(0, 2);
+  const prog = (toks[0] ?? "").split("/").at(-1) ?? "";
+  return ["git", "gh", "pm2", "pnpm", "npm", "cargo", "systemctl"].includes(prog) && toks[1] && !toks[1].startsWith("-") ? `${prog} ${toks[1]}` : prog;
+}
+
+/** Non-zero exits that report a result (no match, differences), signals that stop a process, and harness interruptions are not agent mistakes. */
+function expectedFailure(tool: string, command: string, body: string): boolean {
+  if (/was interrupted and may have partially run/.test(body)) return true;
+  const code = /^Command exited with code (\d+)$/.exec(body)?.[1];
+  if (tool !== "bash" || !code) return false;
+  if (code === "130" || code === "143") return true;
+  const prog = shellProgram(command);
+  return code === "1" && (["grep", "egrep", "fgrep", "rg", "diff", "cmp", "test", "[", "git grep", "pgrep"].includes(prog)
+    || (prog === "git diff" && /--quiet|--exit-code/.test(command)));
+}
+
+/** One failure cause per key: tool, program or target, and the message (a bare exit code stays its own cause). */
+function errorKey(tool: string, command: string, body: string): string {
+  const code = /^Command exited with code (\d+)$/.exec(body)?.[1];
+  const target = tool === "bash" ? shellProgram(command) || "shell" : "";
+  return [tool, target, code ? `exit ${code}` : signature(body) || "(empty error)"].filter(Boolean).join(":");
+}
+
 export function detectSignals(msgs: ScanMessage[]): DetectedSignal[] {
   const out: DetectedSignal[] = [], skills: string[] = [];
-  const pendingSkills = new Map<string, string>();
+  const pendingSkills = new Map<string, string>(), callsById = new Map<string, { name: string; args: Record<string, unknown> }>();
   let previous: ScanMessage | undefined, task: ScanMessage | undefined;
   const context = () => JSON.stringify({ task: task?.entry ?? null, action: previous?.entry ?? null,
     actionSummary: previous ? oneLine(redact(previous.text), 400) : null, tools: previous?.calls.map(c => c.name) ?? [] });
@@ -65,6 +96,7 @@ export function detectSignals(msgs: ScanMessage[]): DetectedSignal[] {
     const m = msgs[i]!;
     if (m.role === "assistant") {
       previous = m;
+      for (const c of m.calls) if (c.id) callsById.set(c.id, c);
       for (const c of m.calls) if (c.id && c.name === "skill_view" && typeof c.args.name === "string" && !c.args.file_path) pendingSkills.set(c.id, c.args.name);
     } else if (m.role === "user") {
       const t = originalUserText(m);
@@ -77,13 +109,19 @@ export function detectSignals(msgs: ScanMessage[]): DetectedSignal[] {
       const name = pendingSkills.get(m.toolCallId)!;
       if (!skills.includes(name)) skills.push(name);
     } else if (m.isError && m.toolName) {
+      const call = m.toolCallId ? callsById.get(m.toolCallId) : undefined;
+      const command = typeof call?.args.command === "string" ? call.args.command : "";
+      const body = errorBody(redact(m.text));
+      if (expectedFailure(m.toolName, command, body)) continue;
       let recovered = false;
       for (let j = i + 1; j < msgs.length && msgs[j]!.role !== "user"; j++) {
         if (msgs[j]!.role === "toolResult" && msgs[j]!.toolName === m.toolName && !msgs[j]!.isError) { recovered = true; break; }
       }
       const kind = recovered ? "recovery" : "tool_error";
-      out.push({ entry: m.entry, kind, key: `${m.toolName}:${signature(redact(m.text))}`, summary: oneLine(redact(m.text), 400),
-        skills: [...skills], ts: m.ts, context: context(), fingerprint: fingerprint(`${task?.text ?? ""}\n${m.toolName}\n${redact(m.text)}`) });
+      const detail = call ? oneLine(redact(JSON.stringify(call.args)), 300) : null;
+      out.push({ entry: m.entry, kind, key: errorKey(m.toolName, command, body), summary: oneLine(`${m.toolName}: ${body}`, 400),
+        skills: [...skills], ts: m.ts, context: JSON.stringify({ ...JSON.parse(context()), failedCall: detail }),
+        fingerprint: fingerprint(`${task?.text ?? ""}\n${m.toolName}\n${command}\n${body}`) });
     }
   }
   return out;
@@ -215,12 +253,12 @@ export class LearnStore {
   lesson(id: number) { return this.db.prepare("SELECT * FROM lessons WHERE id=?").get(id) as LessonRow | undefined; }
   unassigned(limit = 50, offset = 0, includeLegacy = false) {
     return this.db.prepare(`SELECT * FROM signals s WHERE lesson IS NULL AND disposition IS NULL AND (fingerprint IS NOT NULL OR ?=1)
-      AND (kind NOT IN ('recovery','tool_error') OR (SELECT COUNT(DISTINCT conv) FROM signals x WHERE x.key=s.key)>=2)
+      AND (kind NOT IN ('recovery','tool_error') OR (key NOT LIKE '%:<harness>' AND (SELECT COUNT(DISTINCT conv) FROM signals x WHERE x.key=s.key)>=2))
       ORDER BY id LIMIT ? OFFSET ?`).all(includeLegacy ? 1 : 0, Math.max(1, Math.min(limit, 100)), Math.max(0, offset)) as unknown as SignalRow[];
   }
   pendingCount() {
     return (this.db.prepare(`SELECT COUNT(*) n FROM signals s WHERE lesson IS NULL AND disposition IS NULL AND fingerprint IS NOT NULL
-      AND (kind NOT IN ('recovery','tool_error') OR (SELECT COUNT(DISTINCT conv) FROM signals x WHERE x.key=s.key)>=2)`).get() as { n: number }).n;
+      AND (kind NOT IN ('recovery','tool_error') OR (key NOT LIKE '%:<harness>' AND (SELECT COUNT(DISTINCT conv) FROM signals x WHERE x.key=s.key)>=2))`).get() as { n: number }).n;
   }
   assessments(lesson: number) { return this.db.prepare("SELECT a.* FROM assessments a JOIN signals s ON s.id=a.signal WHERE s.lesson=?").all(lesson); }
   observations(lesson: number) { return this.db.prepare("SELECT * FROM observations WHERE lesson=? ORDER BY id").all(lesson); }
