@@ -85,6 +85,7 @@ watch(open, (v) => {
         :empty-label="emptyLabel"
         @select="onSelect as any"
         @change="onSelect as any"
+        @close="open = false"
       />
     </PopoverContent>
   </Popover>

@@ -45,6 +45,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   select: [key: string, model: ModelInfo | null];
   change: [value: string | undefined];
+  close: [];
 }>();
 
 const query = ref("");
@@ -146,8 +147,15 @@ function onKeydown(e: KeyboardEvent) {
     const m = filtered.value[activeIndex.value];
     if (m) selectModel(m);
   } else if (e.key === "Escape") {
-    query.value = "";
-    providerFilter.value = "all";
+    if (query.value.trim() || providerFilter.value !== "all") {
+      e.preventDefault();
+      e.stopPropagation();
+      query.value = "";
+      providerFilter.value = "all";
+    } else {
+      e.preventDefault();
+      emit("close");
+    }
   }
 }
 
@@ -206,26 +214,26 @@ defineExpose({ focusSearch });
       >{{ p }}<span class="ms-chip-count">{{ models.list.filter(m=>m.provider===p).length }}</span></button>
     </div>
 
-    <div v-if="pinnedModels.length" class="ms-pinned" aria-label="Pinned models">
-      <div class="ms-section-label">Pinned</div>
-      <div class="ms-pinned-row">
-        <button
-          v-for="entry in pinnedModels"
-          :key="entry.key"
-          type="button"
-          class="ms-pinned-chip"
-          :data-selected="value === entry.key ? 'true' : undefined"
-          :title="entry.key"
-          @click="selectKey(entry.key)"
-        >
-          <span class="ms-pinned-name">{{ entry.model?.name || entry.id }}</span>
-          <small>{{ entry.provider }}</small>
-          <span v-if="value === entry.key" class="ms-check"><Check :size="12" /></span>
-        </button>
-      </div>
-    </div>
-
     <div ref="listRef" class="ms-list" role="listbox" :aria-label="emptyLabel">
+      <div v-if="pinnedModels.length" class="ms-pinned" aria-label="Pinned models">
+        <div class="ms-section-label">Pinned</div>
+        <div class="ms-pinned-row">
+          <button
+            v-for="entry in pinnedModels"
+            :key="entry.key"
+            type="button"
+            class="ms-pinned-chip"
+            :data-selected="value === entry.key ? 'true' : undefined"
+            :title="entry.key"
+            @click="selectKey(entry.key)"
+          >
+            <span class="ms-pinned-name">{{ entry.model?.name || entry.id }}</span>
+            <small>{{ entry.provider }}</small>
+            <span v-if="value === entry.key" class="ms-check"><Check :size="12" /></span>
+          </button>
+        </div>
+      </div>
+
       <button
         v-if="emptyLabel"
         type="button"
@@ -286,7 +294,7 @@ defineExpose({ focusSearch });
 </template>
 
 <style scoped>
-.model-selector { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.model-selector { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
 .ms-search { position: relative; display: flex; align-items: center; }
 .ms-search-icon { position: absolute; left: 10px; color: var(--muted-foreground); pointer-events: none; }
 .ms-search input { width: 100%; min-height: 38px; padding: 8px 36px 8px 32px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 14px; }

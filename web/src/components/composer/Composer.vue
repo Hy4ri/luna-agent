@@ -775,7 +775,6 @@ onUnmounted(() => {
             popovertarget="model-picker"
             :aria-expanded="pickerOpen ? 'true' : 'false'"
             aria-label="Model"
-            @click="pickerOpen = !pickerOpen"
           >
             {{ modelLabel }}
           </button>
@@ -811,7 +810,7 @@ onUnmounted(() => {
       </div>
     </form>
 
-    <ModelPicker @close="pickerOpen = false" />
+    <ModelPicker @open="pickerOpen = true" @close="pickerOpen = false" />
   </div>
 </template>
 

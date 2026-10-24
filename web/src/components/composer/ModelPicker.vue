@@ -5,7 +5,7 @@ import ModelSelector from "@/components/ModelSelector.vue";
 import type { ModelInfo } from "@/lib/types";
 
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["open", "close"]);
 const pickerRef = ref<HTMLElement | null>(null);
 const selectorRef = ref<InstanceType<typeof ModelSelector> | null>(null);
 
@@ -50,22 +50,39 @@ function handleBeforeToggle(e: Event) {
     } catch { /* keep */ }
     position();
     void nextTick(() => selectorRef.value?.focusSearch());
+    emit("open");
   } else {
     emit("close");
   }
 }
 
+function closePicker() {
+  (pickerRef.value as any)?.hidePopover?.();
+}
+
 function onResize() { if ((pickerRef.value as any)?.matches?.(":popover-open")) position(); }
+
+function onDocPointerDown(e: PointerEvent) {
+  const box = pickerRef.value;
+  if (!(box as any)?.matches?.(":popover-open")) return;
+  const t = e.target as Node | null;
+  if (!t) return;
+  if (box?.contains(t)) return;
+  if ((document.getElementById("model") as HTMLElement | null)?.contains(t as Node)) return;
+  closePicker();
+}
 
 watch(() => models.list.length, () => position());
 
 onMounted(() => {
   pickerRef.value?.addEventListener("beforetoggle", handleBeforeToggle as any);
   window.addEventListener("resize", onResize);
+  document.addEventListener("pointerdown", onDocPointerDown);
 });
 onUnmounted(() => {
   pickerRef.value?.removeEventListener("beforetoggle", handleBeforeToggle as any);
   window.removeEventListener("resize", onResize);
+  document.removeEventListener("pointerdown", onDocPointerDown);
 });
 </script>
 
@@ -89,6 +106,7 @@ onUnmounted(() => {
       empty-label=""
       autofocus
       @select="handleSelect"
+      @close="closePicker"
     />
 
     <p v-if="!models.list.length" class="muted mp-empty">No connected models — add a provider in Settings → Accounts &amp; connections.</p>
@@ -109,9 +127,12 @@ onUnmounted(() => {
   border-radius: 12px;
   box-shadow: 0 16px 48px rgb(0 0 0 / .5), 0 2px 12px rgb(0 0 0 / .35);
   overflow: hidden;
+  min-height: 0;
   max-height: min(560px, 70dvh);
   z-index: 30;
 }
+#model-picker :deep(.model-selector) { min-height: 0; }
+#model-picker :deep(.ms-list) { flex: 1; min-height: 120px; }
 #model-picker:popover-open { display: flex; }
 .mp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .mp-head h3 { font-size: 14px; font-weight: 650; letter-spacing: -.015em; }
