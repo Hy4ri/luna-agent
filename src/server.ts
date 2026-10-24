@@ -341,7 +341,15 @@ export function createApp(opts: ServerOptions) {
   app.get("/v1/projects", (c) => opts.conversations ? c.json({ projects: opts.conversations.projects.list() }) : err(c, 404, "projects disabled"));
   app.post("/v1/projects", async (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
-    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown };
+    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown; worker?: unknown; workerCwd?: unknown };
+    const hasWorker = b.worker !== undefined || b.workerCwd !== undefined;
+    if (hasWorker) {
+      const worker = b.worker as number;
+      if (worker !== undefined && worker !== null && !opts.workers?.store.get(worker as number)) return err(c, 404, "no such worker");
+      let hostCwd: unknown = b.cwd ?? ""; let workerCwd: unknown = b.workerCwd;
+      if (workerCwd === undefined && typeof hostCwd === "string" && hostCwd.trim() !== "") { workerCwd = hostCwd; hostCwd = ""; }
+      return c.json(opts.conversations.projects.create(b.name, hostCwd, { worker, workerCwd }), 201);
+    }
     return c.json(opts.conversations.projects.create(b.name, b.cwd), 201);
   });
   app.patch("/v1/projects/:id", async (c) => {

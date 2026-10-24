@@ -20,6 +20,8 @@ const selected = ref<number | "new" | null>(null);
 const showDetail = ref(false);
 const name = ref("");
 const cwd = ref("");
+const newWorker = ref<number | null>(null);
+const newWorkerCwd = ref("");
 const busy = ref(false);
 
 const visible = (s: SessionMeta) => !s.archived;
@@ -32,9 +34,13 @@ const filtered = computed(() => {
 });
 const current = computed<Project | null>(() => typeof selected.value === "number" ? history.projects.find(p => p.id === selected.value) ?? null : null);
 const recent = computed(() => current.value ? sessionsOf(current.value.id).slice(0, 5) : []);
-const dirty = computed(() => selected.value === "new"
-  ? !!name.value.trim() && !!cwd.value.trim()
-  : !!current.value && (name.value !== current.value.name || cwd.value.trim() !== current.value.cwd));
+const dirty = computed(() => {
+  if (selected.value === "new") {
+    const workerOnly = newWorker.value !== null && !!newWorkerCwd.value.trim();
+    return !!name.value.trim() && (!!cwd.value.trim() || workerOnly);
+  }
+  return !!current.value && (name.value !== current.value.name || cwd.value.trim() !== current.value.cwd);
+});
 
 /** Directory per machine for the selected project. Linking a machine makes it use this project's board. */
 const machineDirs = reactive<Record<number, string>>({});
@@ -72,6 +78,7 @@ function select(id: number | "new" | null) {
   const p = typeof id === "number" ? history.projects.find(x => x.id === id) : null;
   name.value = p?.name ?? "";
   cwd.value = p?.cwd ?? "";
+  if (id === "new") { newWorker.value = null; newWorkerCwd.value = ""; }
   syncMachineDirs();
   if (id !== null) showDetail.value = true;
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
@@ -89,7 +96,11 @@ async function run(action: () => Promise<void>) {
 
 const save = () => run(async () => {
   if (selected.value === "new") {
-    const created = await post<{ id: number }>("/v1/projects", { name: name.value.trim(), cwd: cwd.value.trim() });
+    const hostCwd = cwd.value.trim();
+    const payload: Record<string, unknown> = { name: name.value.trim(), cwd: hostCwd };
+    if (newWorker.value !== null && newWorkerCwd.value.trim()) { payload.worker = newWorker.value; payload.workerCwd = newWorkerCwd.value.trim(); }
+    if (!hostCwd && newWorker.value !== null && !newWorkerCwd.value.trim()) { notice.value = "Enter a directory on the selected worker"; return; }
+    const created = await post<{ id: number }>("/v1/projects", payload);
     await refresh();
     select(created.id);
     notice.value = "Project added";
@@ -176,6 +187,11 @@ onMounted(async () => {
           <h4 v-if="selected !== 'new'">Settings</h4>
           <label class="pw-field">Name<input dir="auto" id="project-name" v-model="name" aria-label="Project name" autocomplete="off" /></label>
           <label class="pw-field">Working directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>
+          <template v-if="selected === 'new' && workers.list.length">
+            <label class="pw-field">Create on worker (optional)<select v-model="newWorker" class="pw-input" aria-label="Worker for new project"><option :value="null">— Main host only —</option><option v-for="w in workers.list" :key="w.id" :value="w.id">{{ w.name }}{{ w.online ? "" : " · Offline" }}</option></select></label>
+            <label v-if="newWorker !== null" class="pw-field">Directory on {{ workers.list.find(w => w.id === newWorker)?.name ?? "worker" }}<input v-model="newWorkerCwd" class="pw-mono" :aria-label="'Directory on worker'" placeholder="/absolute path on this worker" autocomplete="off" spellcheck="false" /></label>
+            <p v-if="newWorker !== null && !cwd.trim()" class="pw-muted pw-small">With no host directory, the project exists only on the worker and uses its board there.</p>
+          </template>
           <div class="pw-row">
             <button type="submit" class="pw-btn pw-primary" :disabled="!dirty || busy">{{ selected === 'new' ? 'Add project' : 'Save' }}</button>
             <span v-if="notice" class="pw-muted" role="status">{{ notice }}</span>
@@ -238,8 +254,8 @@ onMounted(async () => {
 .pw-host { grid-template-columns: 120px minmax(0, 1fr) auto; }
 .pw-machine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .pw-field { display: grid; gap: 6px; font-size: 13px; color: var(--muted-foreground); }
-input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: var(--radius); padding: 8px 10px; font-size: 14px; outline: none; }
-input:focus { border-color: var(--ring); }
+input, select.pw-input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: var(--radius); padding: 8px 10px; font-size: 14px; outline: none; }
+input:focus, select.pw-input:focus { border-color: var(--ring); }
 .pw-mono { font-family: var(--mono); font-size: 13.5px; }
 .pw-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); border-radius: var(--radius); font-size: 14px; cursor: pointer; }
