@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onBeforeUnmount } from "vue";
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
 import { composer, pendingMessages, canRecoverPending, retryPending, dismissPending } from "@/stores/composer";
@@ -72,7 +72,21 @@ function handleScroll(event?: Event) {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(hideJumps, IDLE_MS);
 }
+// Layout changes outside the store (composer resize, pending row becoming a final message,
+// late-rendering content) move the bottom without a scroll event. Re-follow while pinned.
+let resizeObserver: ResizeObserver | undefined;
+let mutationObserver: MutationObserver | undefined;
+onMounted(() => {
+  const log = logRef.value;
+  if (!log) return;
+  resizeObserver = new ResizeObserver(() => scroll());
+  resizeObserver.observe(log);
+  mutationObserver = new MutationObserver(() => scroll());
+  mutationObserver.observe(log, { childList: true, subtree: true, characterData: true });
+});
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  mutationObserver?.disconnect();
   clearTimeout(idleTimer);
   if (scrollRaf !== undefined) cancelAnimationFrame(scrollRaf);
 });
