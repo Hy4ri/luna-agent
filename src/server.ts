@@ -1,3 +1,4 @@
+import { undoCommand } from "./undo.js";
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
 import { GENERAL_PROJECT, ProjectError } from "./projects.js";
 import { BoardError, MAX_ATTACHMENT_BYTES } from "./board.js";
@@ -844,7 +845,7 @@ export function createApp(opts: ServerOptions) {
     if (Array.isArray(content) && content.some(b => b.type === "audio")) return err(c, 400, "Audio attachments require /bg.");
     if (draining.has(String(conv.id))) return c.json({ command: true, notice: "The current turn is stopping. Send the message again after it stops." }, 409);
     const plain = typeof content === "string" ? content : content.every(block => block.type === "text") ? content.map(block => block.type === "text" ? block.text : "").join("\n") : undefined;
-    const slash = plain === undefined ? null : /^\/(queue|steer|redirect|stop|model|compress|compact|retry)(?:\s+([\s\S]*))?$/.exec(plain.trim());
+    const slash = plain === undefined ? null : /^\/(queue|steer|redirect|stop|model|compress|compact|retry|undo)(?:\s+([\s\S]*))?$/.exec(plain.trim());
     let input = content as Input;
     let override: BusyMode | undefined;
     const learn = plain === undefined ? null : /^\/learn(?:\s+([\s\S]*))?$/.exec(plain.trim());
@@ -855,6 +856,13 @@ export function createApp(opts: ServerOptions) {
     }
     if (slash) {
       const command = slash[1]!, args = (slash[2] ?? "").trim();
+      if (command === "undo") {
+        if (!/^[1-9]\d*$/.test(args) || !Number.isSafeInteger(Number(args))) return err(c, 400, "Usage: /undo <positive integer>");
+        return c.json(await serial(String(conv.id), () => harness.commit(async tx => {
+          if (draining.has(String(conv.id))) throw new BusyCommandError("The current turn is stopping. Try /undo after it stops.", 409);
+          return undoCommand(tx, conv.id, Number(args), body.requestId);
+        }, context)));
+      }
       if (command === "stop") {
         await stop(conv);
         return c.json({ command: true, notice: "Stopped." });

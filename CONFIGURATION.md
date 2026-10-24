@@ -614,6 +614,15 @@ Queue numbers start at 1. Each command applies atomically to the current queue. 
 `/stop` and the Stop button always hard-stop the current work and withdraw pending input. They do not become model messages.
 `/model`, `/compress`, `/compact`, and `/retry` are rejected while busy. Use session controls when idle.
 
+`/undo N` removes the last N active user messages and subsequent replies and tool results from model context only.
+N must be a positive integer and cannot exceed the remaining active user messages.
+Chat history stays visible. File changes, tool actions, and durable task state are not reversed.
+The command does not call the model. It persists across restarts and applies to subsequent history forks.
+Repeated request IDs return the original receipt without undoing more messages.
+The session must be idle, with no queued input or active compaction. Stop work or clear queued input first.
+Undo cannot reach messages already replaced by a compaction summary or excluded by a context reset.
+Peer messages and background completion reports do not count as user turns.
+
 The web composer also handles `/compact` (summarize context now) and `/models` (open the model picker) locally.
 Input sent while a stop is draining receives a notice and HTTP 409. Send it again after the stop finishes.
 
