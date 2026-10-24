@@ -35,6 +35,7 @@ export const ui = reactive({
   cronUnread: 0,
   /** Board edit form open: list-feed refreshes must not clobber it. */
   boardEditing: false,
+  boardTarget: null as { projectId: number; cardId: number } | null,
   /** Command palette open. */
   palette: false,
 });
@@ -107,6 +108,12 @@ function openPage(view: "analytics" | "github") {
   if (location.hash !== "#" + view) location.hash = view;
 }
 export const openAnalytics = () => openPage("analytics");
+export function openBoardCard(projectId: number, cardId: number) {
+  if (ui.boardEditing && !window.confirm('Discard unsaved card edits?')) return;
+  if (!leavePages()) return;
+  ui.boardTarget = { projectId, cardId };
+  openPanel('board');
+}
 export const openGitHub = () => openPage("github");
 /** "Back to chat" from any page. Focuses the composer. */
 export function backToChat() {

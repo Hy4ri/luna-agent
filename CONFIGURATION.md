@@ -1427,3 +1427,48 @@ The first request after daemon startup still needs a full retained-history scan.
 ### Workspace Git status
 
 `GET /v1/sessions/:id/git` reads the session execution machine and working directory. It returns `state` (`ok`, `not-repository`, `unavailable`, or `error`). Successful reads include `branch`, `upstream`, `ahead`, `behind`, `added`, `deleted`, `untracked`, `conflicts`, and `files` (path, two-character status, added/deleted counts, binary flag). Totals compare tracked staged and unstaged changes with HEAD; untracked contents are excluded. Ahead/behind uses local upstream information without fetching. Reads share a four-second workspace cache. The UI refreshes every five seconds while visible and on focus. This endpoint never changes Git state.
+
+## GitHub workspace
+
+Open **GitHub** from the sidebar, command palette, or `#github`. The page uses the main host's
+`gh` executable and GitHub login. Run `gh auth login` under the daemon account first. The daemon
+must receive the correct `HOME`, `GH_CONFIG_DIR`, or `XDG_CONFIG_HOME`. Tokens never reach the browser.
+Only github.com is supported. Workers do not run these commands.
+
+The repository selector reads each project's `origin` remote and also accepts `owner/repo`.
+Lists refresh on page open, manual refresh, and actions; there is no background polling.
+PR and issue bodies use the safe Markdown renderer, not executable assistant artifacts.
+
+All routes below use normal Luna API authentication. `:owner` and `:name` are repository parts;
+`:number` is a positive item number. JSON bodies reject unknown properties.
+
+| Method | Route | Body or query |
+|---|---|---|
+| GET | `/v1/github/status` | CLI/login status, authenticated GitHub login |
+| GET | `/v1/github/repos` | Repositories grouped with matching project ids and names |
+| GET | `/v1/github/repos/:owner/:name` | Repository permissions and allowed merge methods |
+| GET | `/v1/github/repos/:owner/:name/items` | `kind=pr\|issue`, `state=open\|closed\|all`, optional `q` (256 characters), `after` cursor; 30 items/page |
+| GET | `/v1/github/repos/:owner/:name/items/:number` | Description, up to 100 comments, PR checks and recent reviews, action capabilities |
+| POST | `/v1/github/repos/:owner/:name/items/:number/comments` | `{ "body": "comment" }`, 1–65536 characters |
+| POST | `/v1/github/repos/:owner/:name/items/:number/state` | `{ "kind": "issue", "state": "closed", "reason": "completed" }`; reason optional, `completed` or `not_planned`; state `open` or `closed` |
+| POST | `/v1/github/repos/:owner/:name/pulls/:number/merge` | `{ "method": "squash", "sha": "<40-character head SHA>" }`; method `merge`, `squash`, or `rebase` |
+| POST | `/v1/github/repos/:owner/:name/pulls/:number/delete-branch` | `{ "sha": "<40-character head SHA>" }` |
+| DELETE | `/v1/github/repos/:owner/:name/issues/:number` | `{ "confirm": 12 }`; must equal the issue number; permanent, requires GitHub deletion permission |
+| GET | `/v1/github/repos/:owner/:name/items/:number/cards` | Matching projects and linked active/archived board cards |
+| POST | `/v1/github/repos/:owner/:name/items/:number/card` | `{ "project": 1 }`; creates a todo/medium card (201), or returns an existing linked card (200) |
+
+The server checks action permissions again before submitting a write. GitHub also enforces repository
+rules. Merge submits the displayed SHA; a changed head is rejected. Branch deletion checks the current
+ref SHA first, but GitHub's ref-deletion API has no atomic SHA precondition: another push between that
+check and deletion remains possible. Default branches and branches without write permission cannot be deleted.
+A concurrent action on the same item returns 409; writes are not automatically retried.
+GitHub credential failures return 502, not Luna's login-triggering 401. Other errors include 400 (invalid
+input), 403 (permission), 404 (missing item), 409 (conflict), 422 (rejected action), 503 (missing CLI),
+and 504 (timeout).
+
+**Add to board** uses the project whose origin matches the repository. If several projects match, choose
+one. If none match, the button is disabled. The card starts with the canonical GitHub URL on its own
+line, followed by author/date and body (truncated at the board's 8000-character description limit).
+That URL links the item to the card: removing it removes the link. Existing archived cards are also
+reused. Opening a link selects the correct project and opens that card's editor. There is no automatic
+state synchronization between GitHub and board cards.

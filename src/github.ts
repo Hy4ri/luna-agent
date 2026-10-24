@@ -3,8 +3,10 @@ import { execFile, type ExecException } from "node:child_process";
 const PASS = ["PATH", "HOME", "XDG_CONFIG_HOME", "GH_CONFIG_DIR", "GH_TOKEN", "GH_HOST"] as const;
 
 export class GhError extends Error {
-  constructor(message: string, readonly status: number) {
+  readonly status: number;
+  constructor(message: string, status: number) {
     super(message);
+    this.status = status;
   }
 }
 
@@ -45,7 +47,8 @@ function failure(error: ExecException & { killed?: boolean }, stderr: string): G
 /** Runs `gh <args>`. `input` is sent as JSON on stdin (use with `--input -`). No shell is involved. */
 export function gh<T>(args: string[], input?: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
-    const child = execFile("gh", args, { env: env(), timeout: 20_000, maxBuffer: 8 << 20 }, (error, stdout, stderr) => {
+    const cliArgs = args[0] === "api" ? ["api", "--hostname", "github.com", ...args.slice(1)] : args;
+    const child = execFile("gh", cliArgs, { env: env(), timeout: 20_000, maxBuffer: 8 << 20 }, (error, stdout, stderr) => {
       if (error) {
         return reject(failure(error, stderr));
       }

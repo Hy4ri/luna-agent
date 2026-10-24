@@ -39,7 +39,7 @@ async function loadBoard(refreshProjects = false, background = false) {
       if (ticket !== generation || disposed) return;
       if (background && (busy.value || editing.value || drag.value)) { refreshQueued = true; return; }
       history.projects = data.projects;
-      let saved = selectedPid.value || (chat.session || chat.project !== null ? String(chat.project ?? data.projects.find(p => p.general)?.id ?? '') : '');
+      let saved = (ui.boardTarget ? String(ui.boardTarget.projectId) : selectedPid.value) || (chat.session || chat.project !== null ? String(chat.project ?? data.projects.find(p => p.general)?.id ?? '') : '');
       try { saved ||= localStorage.getItem('luna.project') || ''; } catch {}
       selectedPid.value = data.projects.some(p => String(p.id) === saved) ? saved : String(data.projects[0]?.id ?? '');
       if (selectedPid.value) rememberProject();
@@ -50,6 +50,22 @@ async function loadBoard(refreshProjects = false, background = false) {
     if (ticket !== generation || disposed) return;
     if (background && (busy.value || editing.value || drag.value)) { refreshQueued = true; return; }
     cards.value = data.cards;
+    const target = ui.boardTarget;
+    if (target && String(target.projectId) === pid) {
+      let found = cards.value.find(card => card.id === target.cardId);
+      if (!found) {
+        const opposite = await json<{ cards: Card[] }>(`/v1/projects/${pid}/board${isArchived ? '' : '?archived=1'}`, { signal: request.signal });
+        if (ticket !== generation || disposed || ui.boardTarget !== target) return;
+        found = opposite.cards.find(card => card.id === target.cardId);
+        if (found) { archived.value = !isArchived; cards.value = opposite.cards; }
+      }
+      if (ticket !== generation || disposed || ui.boardTarget !== target) return;
+      loading.value = false;
+      if (found) { openEditor(found); notice.value = ''; }
+      else notice.value = `Card #${target.cardId} no longer exists`;
+      ui.boardTarget = null;
+    }
+
   } catch (e) { if (ticket === generation && !disposed && !request.signal.aborted) error.value = message(e); }
   finally {
     if (ticket === generation && !disposed) {
@@ -230,6 +246,12 @@ function escapeEditor(event: KeyboardEvent) {
 watch(() => chat.project, project => {
   if (project === null || String(project) === selectedPid.value || !history.projects.some(p => p.id === project)) return;
   selectedPid.value = String(project); changeProject();
+});
+watch(() => ui.boardTarget, target => {
+  if (!target) return;
+  if (editing.value) closeEditor();
+  selectedPid.value = String(target.projectId);
+  void loadBoard(true);
 });
 watch(boardChanged, () => {
   if (loading.value || busy.value || editing.value || drag.value) refreshQueued = true;
