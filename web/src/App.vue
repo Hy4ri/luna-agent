@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import MachineStatus from "@/components/chat/MachineStatus.vue";
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { Menu, ScanEye, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -12,8 +12,8 @@ import StatusBar from '@/components/chat/StatusBar.vue';
 import Composer from '@/components/composer/Composer.vue';
 import PanelHost from '@/components/panels/PanelHost.vue';
 import CommandPalette from '@/components/CommandPalette.vue';
-import AnalyticsPage from '@/pages/AnalyticsPage.vue';
-import SettingsPage from '@/pages/SettingsPage.vue';
+const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
+const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate } from '@/stores/app';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';

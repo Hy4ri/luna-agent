@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted } from "vue";
 import { parseWidget, type Widget } from "@/lib/widgets/schema";
 import { compileExpr } from "@/lib/widgets/expr";
-import ChartWidget from "./ChartWidget.vue";
-import PlotWidget from "./PlotWidget.vue";
+const ChartWidget = defineAsyncComponent(() => import("./ChartWidget.vue"));
+const PlotWidget = defineAsyncComponent(() => import("./PlotWidget.vue"));
 import { copyToClipboard } from "@/lib/message";
 import { MAX_WIDGETS } from "@/lib/segments";
 

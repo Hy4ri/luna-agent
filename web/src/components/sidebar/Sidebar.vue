@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick } from "vue";
 import {
   Moon,
   PanelLeftClose,
@@ -35,7 +35,7 @@ import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
 
-import PruneSessionsDialog from "./PruneSessionsDialog.vue";
+const PruneSessionsDialog = defineAsyncComponent(() => import("./PruneSessionsDialog.vue"));
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 const pruneOpen = ref(false), pruneResult = ref("");
