@@ -17,6 +17,9 @@ interface PendingMessage {
 // Local transport state only. Never add an unconfirmed message to durable history.
 export const pendingMessages = reactive(new Map<string, PendingMessage>());
 function pendingMessage(sid: string | null, body: any) {
+  // Sending is explicit intent to follow, even when a retry adds no new pending row.
+  // A background submission must not move the currently open conversation.
+  if (chat.session === sid) chat.followTick++;
   // Commands can change or omit the model-visible input; only echo ordinary messages.
   const text = typeof body.content === "string" ? body.content : (body.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
   if (!body.requestId || text.trimStart().startsWith("/")) return;

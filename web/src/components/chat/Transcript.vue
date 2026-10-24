@@ -86,8 +86,8 @@ watch(() => chat.extras?.questions, (questions, previous) => {
     if (log && form) log.scrollTop += form.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
   });
 });
-watch(() => pending.value.length, (length, previous) => { if (length > previous) void nextTick(() => scroll(true)); });
-watch(() => chat.followTick, () => nextTick(() => scroll(true)));
+// Restore follow mode before DOM growth can emit a scroll event. The frame runs after Vue renders.
+watch(() => chat.followTick, () => scroll(true), { flush: "sync" });
 watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, chat.notices.length, activityLabel.value], () => nextTick(() => scroll()));
 // Merge side reports at their start time, rather than pinning them after every later turn.
 // Keep durable entry order, including entries that do not contribute model messages.
