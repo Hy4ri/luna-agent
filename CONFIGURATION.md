@@ -14,7 +14,7 @@ The page has eight task-based categories:
 - **Memory & skills:** extra skill directories, disabled skills, conversation learning, and links to saved memory, skills, and lessons.
 - **Media:** image analysis, image generation, and video analysis.
 - **Automation:** scheduled-run defaults, skill improvement, and a link to Cron jobs and reports.
-- **System:** data directory, working directory, HTTP server, and configuration-file information.
+- **System:** daemon LAN/Tailscale addresses, data directory, working directory, HTTP server, and configuration-file information.
 
 Desktop uses a category sidebar. Mobile uses a vertical category index and an **All settings** back action.
 Primary groups are visible. Advanced options expand within their relevant group.
@@ -37,6 +37,43 @@ Disabled tools and skills use searchable pickers. Saved disabled items remain av
 Field help shows defaults and readable units. Environment override names appear beside affected fields.
 The legacy `learn.schedule` field is preserved but not editable. The fixed image-generation model is not an editable setting.
 No JSON editing is required.
+
+## LAN and Tailscale addresses for one daemon
+
+Open **Settings → System → Connection addresses**. Luna discovers the daemon's
+non-loopback IPv4 interface addresses on the first connection. You can add or rename them in **Connection addresses**.
+Use **Save addresses**. If the connection fails, select **Switch to LAN** or **Switch to Tailscale** in the recovery popup. Bare hosts use HTTP
+and port 8787. Full URLs keep their normal or explicit port. Addresses and the disconnect-prompt
+preference are saved on this client, not in `luna.config.json`. All addresses use the existing server token.
+
+Both addresses must reach the same daemon. Before sending the token to an alternate address,
+Luna reads `/health` without credentials and checks its `daemonId`. It then authenticates and
+checks `GET /v1/connection`, which returns `{ id, addresses: [{ url, label }] }`.
+The daemon stores its stable ID in `<dataDir>/connection-id` with owner-only permissions.
+Keep that file when moving or backing up the daemon. Do not copy it into an independent daemon.
+The connection route requires the same authentication as other `/v1` routes.
+
+**Show a switch popup when disconnected** opens a modal after a stream or startup
+connection failure. On mobile, it opens as a bottom sheet with large address buttons. The popup
+shows the disconnected address, identity-check progress, inline errors, and a **Not now** action.
+The System address editor remains available even when daemon settings cannot load. The client does not switch automatically. It never retries message sends,
+commands, or other writes because an address failed. Any existing explicit **Retry send** action
+keeps its original request ID. Switching waits until current sends finish and settings edits are resolved.
+It reconnects the main view and all loaded split panes without reloading the application.
+Drafts, attachments, and unconfirmed-send state stay in memory.
+
+The daemon must listen on an address reachable through both networks, usually `server.host: "0.0.0.0"`.
+Non-loopback binding still requires `LUNA_TOKEN`. Tailscale must already be connected, and the firewall
+must allow the daemon port. This feature does not install or start Tailscale or change firewall rules.
+Discovery labels addresses in `100.64.0.0/10` as Tailscale; you can correct labels or enter addresses manually.
+
+CORS permits the desktop shell and this daemon's own IPv4 interface origins on its configured port.
+Known interface origins remain accepted for the life of the daemon, including after a network change.
+It does not allow arbitrary website origins. An HTTPS browser page cannot switch to an HTTP address;
+use HTTPS addresses or the desktop client. Custom proxy origins need separate proxy CORS configuration.
+The browser's address bar stays at the page's original origin. An already loaded page can switch API
+addresses; reopening that page still requires its original origin to be reachable. The desktop client
+loads its shell locally and does not have this browser limitation.
 
 ## Fields
 

@@ -383,8 +383,8 @@ function onSessionEvent(type: string, e: any, epoch: number) {
 }
 export const toolArgsText = (args: unknown) => (args ? "args: " + JSON.stringify(args, null, 1) + "\n" : "");
 
-export async function openSession(id: string | number) {
-  if (!leavePages() || routeSession(String(id))) return;
+export async function openSession(id: string | number, reattach = false) {
+  if (!reattach && (!leavePages() || routeSession(String(id)))) return;
   saveDraft(); detachView();
   setSession(String(id));
   const sid = chat.session!, epoch = chat.epoch;

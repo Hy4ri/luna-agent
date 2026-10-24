@@ -7,7 +7,7 @@ export const sections = [
   { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge and learning from conversations.', keys: ['skillDirs', 'disabledSkills', 'learn'] },
   { id: 'media', title: 'Media', description: 'Configure image analysis, image generation, and video analysis.', keys: ['vision', 'image_gen', 'video'] },
   { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill improvement behavior.', keys: ['cron', 'improve'] },
-  { id: 'system', title: 'System', description: 'Set storage paths, the working directory, and server access.', keys: ['dataDir', 'cwd', 'server'] },
+  { id: 'system', title: 'System', description: 'Set LAN and Tailscale addresses, storage paths, and server access.', keys: ['dataDir', 'cwd', 'server'] },
 ] as const
 
 export const aliases: Record<string, string> = { general: 'chat', context: 'memory', images: 'media', workspace: 'memory' }

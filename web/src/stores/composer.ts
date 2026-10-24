@@ -68,6 +68,10 @@ export const composer = reactive({
   /** Last failed submission per conversation, for "Retry send". */
   sendErrors: new Map<string, { body: any; message: string }>(),
 });
+// A route change must not interrupt a message whose delivery is still in flight.
+window.addEventListener("luna:can-switch-connection", event => {
+  if (composer.submitting.size) (event as CustomEvent).detail.error = "Wait for the current send to finish before switching addresses.";
+});
 const draftTextKey = (id: string | null) => `luna.draft.${id ?? "new"}`;
 let owner: string | null | undefined; // conversation the visible draft belongs to
 
