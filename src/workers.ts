@@ -11,7 +11,7 @@ import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import { ExecutionError, FileError, type ExecutionEnv, type Result, type ShellExecOptions } from "@earendil-works/pi-durable/env";
 import { CONNECT_PATH, PROTOCOL_VERSION, decodeResult, encode,
-  type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
+  type BrowserMethod, BROWSER_METHODS, type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 
 /** Where a session's file and shell tools run. `worker: null` is the main host. Forks keep their source's machine. */
 export const ExecTarget = defineDoc<{ worker: number | null }>({
@@ -63,8 +63,8 @@ export class WorkerStore {
   close() { this.db.close(); }
 }
 
-type Pending = { method: EnvMethod | "handle"; resolve: (r: Result<unknown, Error>) => void; onOutput?: ShellExecOptions["onOutput"]; context: Context };
-const failure = (method: EnvMethod | "handle", code: string, message: string): Result<never, Error> =>
+type Pending = { method: EnvMethod | "handle" | "browser" | "mcp"; resolve: (r: Result<unknown, Error>) => void; onOutput?: ShellExecOptions["onOutput"]; context: Context };
+const failure = (method: EnvMethod | "handle" | "browser" | "mcp", code: string, message: string): Result<never, Error> =>
   ({ ok: false, error: method === "exec" ? new ExecutionError(code as never, message) : new FileError(code as never, message) });
 
 class Link {
@@ -101,7 +101,7 @@ class Link {
       }
     });
   }
-  call(method: EnvMethod | "handle", message: (id: number) => MainMessage, context: Context, onOutput?: ShellExecOptions["onOutput"]): Promise<Result<unknown, Error>> {
+  call(method: EnvMethod | "handle" | "browser" | "mcp", message: (id: number) => MainMessage, context: Context, onOutput?: ShellExecOptions["onOutput"]): Promise<Result<unknown, Error>> {
     const signal = context.abortSignal;
     if (signal?.aborted) return Promise.resolve(failure(method, "aborted", "aborted"));
     const id = this.next++;
@@ -134,7 +134,11 @@ export interface WorkerView extends WorkerRow { online: boolean; connectedAt: nu
 export class WorkerHub {
   private links = new Map<number, Link>();
   private wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 * 1024 });
+  private connectListeners = new Set<(id: number) => void>();
+  private disconnectListeners = new Set<(id: number) => void>();
   constructor(readonly store: WorkerStore, private log: (m: string) => void = m => console.error(m)) {}
+  onConnect(fn: (id: number) => void) { this.connectListeners.add(fn); return () => this.connectListeners.delete(fn); }
+  onDisconnect(fn: (id: number) => void) { this.disconnectListeners.add(fn); return () => this.disconnectListeners.delete(fn); }
 
   /** Handle `GET /v1/workers/connect` upgrades on the daemon's HTTP server. Other upgrades are left alone. */
   attach(server: Pick<Server, "on">) { server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(req, socket, head)); }
@@ -166,9 +170,11 @@ export class WorkerHub {
       this.store.seen(worker.id, hello.capabilities);
       link.send({ t: "welcome", protocol: PROTOCOL_VERSION, workerId: worker.id, name: worker.name });
       this.log(`worker ${worker.name}: connected from ${hello.capabilities.hostname} (${hello.capabilities.platform}/${hello.capabilities.arch})`);
+      for (const fn of this.connectListeners) try { fn(worker.id); } catch {}
       ws.on("close", () => {
         if (this.links.get(worker.id) === link) { this.links.delete(worker.id); this.store.seen(worker.id); }
         link.drop(`Worker "${worker.name}" disconnected.`);
+        for (const fn of this.disconnectListeners) try { fn(worker.id); } catch {}
       });
     });
   }
@@ -197,6 +203,21 @@ export class WorkerHub {
     const link = this.links.get(workerId);
     if (!link) return Promise.resolve(failure("handle", "unknown", this.offline(workerId)));
     return link.call("handle", id => ({ t: "handle", id, handle, op, args: encode(args) as unknown[] }), context);
+  }
+  browserCall(workerId: number, method: BrowserMethod, args: unknown[], context: Context): Promise<Result<unknown, Error>> {
+    const link = this.links.get(workerId);
+    if (!link) return Promise.resolve(failure("browser", "unknown", this.offline(workerId)));
+    return link.call("browser", id => ({ t: "browser", id, method, args: encode(args) as unknown[] }), context);
+  }
+  mcpList(workerId: number, context: Context): Promise<Result<unknown, Error>> {
+    const link = this.links.get(workerId);
+    if (!link) return Promise.resolve(failure("mcp", "unknown", this.offline(workerId)));
+    return link.call("mcp", id => ({ t: "mcpList", id }), context);
+  }
+  mcpCall(workerId: number, server: string, tool: string, args: Record<string, unknown>, context: Context): Promise<Result<unknown, Error>> {
+    const link = this.links.get(workerId);
+    if (!link) return Promise.resolve(failure("mcp", "unknown", this.offline(workerId)));
+    return link.call("mcp", id => ({ t: "mcpCall", id, server, tool, args: encode(args) as unknown[] & Record<string, unknown> } as MainMessage), context);
   }
   connection(workerId: number) { return this.links.get(workerId); }
   /** Only the worker's executable search path and home may enter review commands. */

@@ -9,6 +9,9 @@ export const isWorkerEnv = (env: { id: string } | undefined): boolean => !!env &
 
 export const PROTOCOL_VERSION = 1;
 
+export const BROWSER_METHODS = ["open", "navigate", "close", "snapshot", "click", "type", "scroll", "screenshot"] as const;
+export type BrowserMethod = typeof BROWSER_METHODS[number];
+
 /** Worker-only operation: open once, check the policy on the opened file, read from it. Not an ExecutionEnv method. */
 export interface ConfinedReader {
   readConfined(path: string, policy: import("./confined-read.js").ConfinedReadPolicy, context: import("@earendil-works/chord").Context): Promise<Result<Uint8Array, Error>>;
@@ -35,6 +38,9 @@ export type MainMessage =
   | { t: "welcome"; protocol: number; workerId: number; name: string }
   | { t: "call"; id: number; cwd: string; method: EnvMethod; args: unknown[] }
   | { t: "handle"; id: number; handle: number; op: string; args: unknown[] }
+  | { t: "browser"; id: number; method: BrowserMethod; args: unknown[] }
+  | { t: "mcpList"; id: number }
+  | { t: "mcpCall"; id: number; server: string; tool: string; args: Record<string, unknown> }
   | { t: "abort"; id: number };
 export type WorkerMessage =
   | { t: "hello"; protocol: number; capabilities: Capabilities }
