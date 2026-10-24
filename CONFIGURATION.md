@@ -212,8 +212,14 @@ this feature is not an OS sandbox around those tools.
   and a normalized content fingerprint. Full transcripts stay in conversation storage.
 - Compaction entries, background notices, peer messages, delegated conversations, and scheduled prompts are
   not independent user statements. Quoted blocks are excluded from rule matching. Message length is not a filter.
-- Tool errors stay signals, not automatic lessons. Patterns from at least two conversations become visible for
-  review. A later success from the same tool is only a recovery heuristic; it does not prove the same problem was fixed.
+- Tool errors stay signals, not automatic lessons. A signal key is the tool, the program (for `bash`, the last
+  command of the line, plus the subcommand for `git`, `gh`, `pm2`, `pnpm`, `npm`, `cargo`, `systemctl`), and the
+  normalized message. A bare exit code is its own cause, so `grep` exit 1 and `node` exit 1 never share a key.
+  The failed call's arguments are stored in the signal context. Three kinds of failure create no signal: an
+  expected result exit (exit 1 from `grep`, `rg`, `diff`, `cmp`, `test`, `git grep`, `pgrep`, or `git diff --quiet`),
+  a stop signal (exit 130 or 143), and a harness interruption. Patterns from at least two conversations become
+  visible for review. Legacy signals whose key ends in `:<harness>` stay in the ledger but are hidden from the
+  queue. A later success from the same tool is only a recovery heuristic; it does not prove the same problem was fixed.
 - `lesson_capture { session, message, kind }` captures a source missed by the heuristic, including long corrections
   and tool outcomes. `kind` is `rule`, `correction`, or `outcome`. User statements and tool results are checked
   against the original transcript, not model-supplied source text.
