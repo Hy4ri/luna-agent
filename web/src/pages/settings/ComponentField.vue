@@ -2,6 +2,7 @@
 import { computed, inject, nextTick, ref } from 'vue'
 import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu'
+import ModelCombobox from '@/components/ModelCombobox.vue'
 import ChoiceField from './ChoiceField.vue'
 import DisabledItemsField from './DisabledItemsField.vue'
 import { isVisibleSetting } from './catalog'
@@ -110,7 +111,7 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
     <summary><ChevronRight :size="15" /><span>{{ text }}</span><small>{{ value ? value.provider + '/' + value.model : 'Use default' }}</small></summary>
     <div class="field-stack group-body">
       <p v-if="helpText" :id="descriptionId" class="field-help">{{ helpText }}</p>
-      <label class="field-label"><span>Model</span><ChoiceField :value="value ? value.provider + '/' + value.model : undefined" :options="modelChoices" empty-label="Use default" v-bind="attrs" @change="chooseOverride" /></label>
+      <div class="field-label"><span>Model</span><ModelCombobox :model-value="value ? value.provider + '/' + value.model : undefined" empty-label="Use default" :aria-label="text" :data-setting="full" @change="chooseOverride($event || '')" /></div>
       <details class="field-group subtle-group"><summary><ChevronRight :size="15" /><span>Custom provider and model IDs</span></summary><div class="field-stack group-body">
         <button v-if="value === undefined" type="button" class="field-button" @click="set(path, seed(safeSchema))">Set {{ text }}</button>
         <template v-else><ComponentField v-for="(schema, name) in safeSchema.properties" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /></template>

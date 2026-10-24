@@ -5,7 +5,7 @@ import { json, post } from "@/lib/api";
 import { composer, addAttachment, removeAttachment, saveDraft, restoreDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history, loadProjects } from "@/stores/sessions";
-import { modelLabel } from "@/stores/models";
+import { modelLabel, loadModels } from "@/stores/models";
 import { boardChanged, focusInput } from "@/stores/app";
 import ModelPicker from "./ModelPicker.vue";
 import ReportContext from "../chat/ReportContext.vue";
@@ -574,6 +574,7 @@ onMounted(() => {
   document.addEventListener("paste", handlePaste);
   document.addEventListener("pointerdown", handleOutsideClick);
   if (!history.projects.length) void loadProjects();
+  void loadModels();
   if (activeProjectId.value !== null) void fetchMentionCards(activeProjectId.value, true);
   restoreDraft();
   if (inputRef.value) {
