@@ -1,15 +1,4 @@
-import type { Component } from "vue";
-import WorkersPanel from "./WorkersPanel.vue";
-import ProjectsPanel from "./ProjectsPanel.vue";
-import BoardPanel from "./BoardPanel.vue";
-import SessionPanel from "./SessionPanel.vue";
-import AgentsPanel from "./AgentsPanel.vue";
-import MemoryPanel from "./MemoryPanel.vue";
-import SkillsPanel from "./SkillsPanel.vue";
-import ProvidersPanel from "./ProvidersPanel.vue";
-import McpPanel from "./McpPanel.vue";
-import LessonsPanel from "./LessonsPanel.vue";
-import CronPanel from "./CronPanel.vue";
+import { defineAsyncComponent, type Component } from "vue";
 
 export const TITLES: Record<string, string> = {
   projects: "Projects",
@@ -38,55 +27,59 @@ export const DESCRIPTIONS: Record<string, string> = {
 };
 
 export const PANELS: Record<string, { title: string; desc: string; component: Component }> = {
-  workers: { title: "Execution machines", desc: "Register machines for file and command execution.", component: WorkersPanel },
+  workers: {
+    title: "Execution machines",
+    desc: "Register machines for file and command execution.",
+    component: defineAsyncComponent(() => import("./WorkersPanel.vue")),
+  },
   projects: {
     title: TITLES.projects,
     desc: DESCRIPTIONS.projects,
-    component: ProjectsPanel,
+    component: defineAsyncComponent(() => import("./ProjectsPanel.vue")),
   },
   board: {
     title: TITLES.board,
     desc: DESCRIPTIONS.board,
-    component: BoardPanel,
+    component: defineAsyncComponent(() => import("./BoardPanel.vue")),
   },
   session: {
     title: TITLES.session,
     desc: DESCRIPTIONS.session,
-    component: SessionPanel,
+    component: defineAsyncComponent(() => import("./SessionPanel.vue")),
   },
   agents: {
     title: TITLES.agents,
     desc: DESCRIPTIONS.agents,
-    component: AgentsPanel,
+    component: defineAsyncComponent(() => import("./AgentsPanel.vue")),
   },
   cron: {
     title: TITLES.cron,
     desc: DESCRIPTIONS.cron,
-    component: CronPanel,
+    component: defineAsyncComponent(() => import("./CronPanel.vue")),
   },
   memory: {
     title: TITLES.memory,
     desc: DESCRIPTIONS.memory,
-    component: MemoryPanel,
+    component: defineAsyncComponent(() => import("./MemoryPanel.vue")),
   },
   skills: {
     title: TITLES.skills,
     desc: DESCRIPTIONS.skills,
-    component: SkillsPanel,
+    component: defineAsyncComponent(() => import("./SkillsPanel.vue")),
   },
   providers: {
     title: TITLES.providers,
     desc: DESCRIPTIONS.providers,
-    component: ProvidersPanel,
+    component: defineAsyncComponent(() => import("./ProvidersPanel.vue")),
   },
   mcp: {
     title: TITLES.mcp,
     desc: DESCRIPTIONS.mcp,
-    component: McpPanel,
+    component: defineAsyncComponent(() => import("./McpPanel.vue")),
   },
   lessons: {
     title: TITLES.lessons,
     desc: DESCRIPTIONS.lessons,
-    component: LessonsPanel,
+    component: defineAsyncComponent(() => import("./LessonsPanel.vue")),
   },
 };

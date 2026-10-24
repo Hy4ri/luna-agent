@@ -28,18 +28,30 @@ function hideJumps() {
   if (jumpRef.value) jumpRef.value.hidden = true;
   if (jumpTopRef.value) jumpTopRef.value.hidden = true;
 }
+// Shared so a programmatic follow leaves the jump buttons in the state a real jumper would see.
+function updateJumps(log: HTMLElement) {
+  if (jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
+  if (jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
+}
 // Follow new content only while the user sits at the bottom. Track this from user scrolls:
 // measuring after content grows would read a tall new block as "scrolled up".
 const BOTTOM_PX = 48;
 let pinned = true;
+// Coalesce follow-scrolls into one write per display frame. Streaming watchers call scroll()
+// many times per tick; each uncoalesced call forced a synchronous layout (scrollHeight read).
+let scrollRaf: number | undefined;
 function scroll(force = false) {
-  const log = logRef.value;
   if (force) pinned = true;
-  if (log && pinned) {
+  if (scrollRaf !== undefined || !logRef.value) return;
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = undefined;
+    const log = logRef.value;
+    if (!log || !pinned) return;
     programmaticAt = Date.now();
     log.scrollTop = log.scrollHeight;
     programmaticTop = log.scrollTop;
-  }
+    updateJumps(log);
+  });
 }
 function jumpToTop() {
   programmaticAt = Date.now();
@@ -55,12 +67,14 @@ function handleScroll(event?: Event) {
   if (!log) return;
   if (event?.type === "scroll" && Date.now() - programmaticAt < 150 && log.scrollTop === programmaticTop) return;
   if (event?.type === "scroll") pinned = log.scrollHeight - log.scrollTop - log.clientHeight < BOTTOM_PX;
-  if (jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
-  if (jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
+  updateJumps(log);
   clearTimeout(idleTimer);
   idleTimer = setTimeout(hideJumps, IDLE_MS);
 }
-onBeforeUnmount(() => clearTimeout(idleTimer));
+onBeforeUnmount(() => {
+  clearTimeout(idleTimer);
+  if (scrollRaf !== undefined) cancelAnimationFrame(scrollRaf);
+});
 // Show newly arrived clarifications at their start, without creating a second scroll area.
 watch(() => chat.extras?.questions, (questions, previous) => {
   const added = questions?.find(q => !previous?.some(old => old.callId === q.callId));
@@ -76,9 +90,11 @@ watch(() => chat.followTick, () => nextTick(() => scroll(true)));
 watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, chat.notices.length, activityLabel.value], () => nextTick(() => scroll()));
 // Merge side reports at their start time, rather than pinning them after every later turn.
 // Keep durable entry order, including entries that do not contribute model messages.
-const timeline = computed(() => {
+const timeline = computed((): { key: string; entry?: any; job?: any }[] => {
+  // Most turns have no side jobs. Return entries directly: no spread, filter, sort, or per-entry timestamp scan.
+  if (!chat.sideJobs.size) return entryList.value.map((entry: any) => ({ key: `entry:${entry.id}`, entry }));
   const jobs = [...chat.sideJobs.values()].filter(j => j.kind !== "review").sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  const rows: { key: string; entry?: any; job?: typeof jobs[number] }[] = [];
+  const rows: { key: string; entry?: any; job?: any }[] = [];
   let at = 0;
   for (const entry of entryList.value) {
     const timestamp = entry.model?.find((m: any) => Number.isFinite(m.timestamp))?.timestamp;
@@ -98,8 +114,25 @@ const results = computed(() => {
   }
   return map;
 });
-const calls = computed(() => new Set<string>(entryList.value.flatMap(e => (e.model || []).flatMap((m: any) => blocks(m.content).filter(c => c.type === 'toolCall').map(c => c.id)))));
-const durableResults = computed(() => new Set<string>(entryList.value.flatMap(e => (e.model || []).filter((m: any) => m.role === 'toolResult').map((m: any) => m.toolCallId))));
+const calls = computed(() => {
+  // Same membership as before, but direct loops instead of nested flatMap intermediate arrays.
+  const set = new Set<string>();
+  for (const entry of entryList.value) {
+    const model = entry.model;
+    if (!model) continue;
+    for (const message of model) for (const c of blocks(message.content)) if (c.type === "toolCall") set.add(c.id);
+  }
+  return set;
+});
+const durableResults = computed(() => {
+  const set = new Set<string>();
+  for (const entry of entryList.value) {
+    const model = entry.model;
+    if (!model) continue;
+    for (const m of model) if (m.role === "toolResult") set.add(m.toolCallId);
+  }
+  return set;
+});
 /** First media index of each assistant text block, numbered like the server's entry media route. */
 const mediaOffsets = computed(() => {
   const map = new Map<string, number>();
