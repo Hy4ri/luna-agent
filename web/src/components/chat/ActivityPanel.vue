@@ -6,7 +6,7 @@ import ReviewInspector from "./ReviewInspector.vue";
 import { json } from "@/lib/api";
 import { activityVisible, reviewJobs, chat, childLive, openSession, stopChild, stopProcess, type ChildRow, type ProcessRow } from "@/stores/chat";
 
-// Docked in the session rail: always expanded, no disclosure row.
+// Docked in the session rail: independently collapsible cards.
 const props = defineProps<{ docked?: boolean }>();
 
 const todos = computed(() => (chat.extras?.todos || []).filter((t: any) => t.status !== "deleted"));
@@ -34,10 +34,11 @@ const label = computed(() => {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 const open = ref(false);
+const collapsed = ref<Record<string, boolean>>({});
 const expanded = ref<string | null>(null);
 const output = ref<{ id: string; text: string; error?: string } | null>(null);
 let outputTimer: ReturnType<typeof setTimeout> | undefined;
-watch(() => chat.session, () => { selectedReview.value = null; open.value = false; expanded.value = null; output.value = null; clearTimeout(outputTimer); });
+watch(() => chat.session, () => { selectedReview.value = null; collapsed.value = {}; open.value = false; expanded.value = null; output.value = null; clearTimeout(outputTimer); });
 onUnmounted(() => clearTimeout(outputTimer));
 
 async function loadOutput(id: string) {
@@ -89,32 +90,48 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
     </summary>
     <div class="activity-body">
       <section v-if="todos.length" class="activity-section" aria-label="Tasks">
-        <h4>Tasks <span>{{ doneTasks }}/{{ todos.length }}</span></h4>
-        <div v-for="t in todos" :key="t.id" class="todo-item" :class="{ done: t.status === 'completed' }">
-          <Check v-if="t.status === 'completed'" :size="14" aria-label="Complete" />
-          <LoaderCircle v-else-if="t.status === 'in_progress'" :size="14" class="spin" aria-label="In progress" />
-          <Circle v-else :size="14" aria-label="Pending" />
-          <div><span dir="auto">{{ t.subject }}</span><small v-if="t.blockedBy?.length">Blocked by {{ t.blockedBy.map((i: number) => '#' + i).join(', ') }}</small></div>
+        <h4>
+          <button v-if="docked" type="button" class="activity-section-toggle" :aria-expanded="!collapsed.tasks" @click="collapsed.tasks = !collapsed.tasks">
+            <ChevronRight :size="13" :class="{ 'section-open': !collapsed.tasks }" aria-hidden="true" />
+            Tasks <span>{{ doneTasks }}/{{ todos.length }}</span>
+          </button>
+          <template v-else>Tasks <span>{{ doneTasks }}/{{ todos.length }}</span></template>
+        </h4>
+        <div v-show="!docked || !collapsed.tasks">
+          <div v-for="t in todos" :key="t.id" class="todo-item" :class="{ done: t.status === 'completed' }">
+            <Check v-if="t.status === 'completed'" :size="14" aria-label="Complete" />
+            <LoaderCircle v-else-if="t.status === 'in_progress'" :size="14" class="spin" aria-label="In progress" />
+            <Circle v-else :size="14" aria-label="Pending" />
+            <div><span dir="auto">{{ t.subject }}</span><small v-if="t.blockedBy?.length">Blocked by {{ t.blockedBy.map((i: number) => '#' + i).join(', ') }}</small></div>
+          </div>
         </div>
       </section>
 
       <section v-if="processes.length" class="activity-section" aria-label="Background processes">
-        <h4>Processes <span>{{ liveProcesses.length }} running</span></h4>
-        <div v-for="p in processes" :key="p.id" class="activity-row" :data-process="p.id" :data-status="p.status">
-          <div class="activity-line">
-            <LoaderCircle v-if="p.running" :size="14" class="spin" aria-label="Running" />
-            <CircleAlert v-else-if="bad(p.status)" :size="14" class="bad" :aria-label="p.status" />
-            <Check v-else :size="14" aria-label="Complete" />
-            <button type="button" class="activity-main" :aria-expanded="expanded === p.id" :title="p.command" @click="toggleOutput(p)">
-              <code>{{ p.command.split('\n')[0] }}</code>
-              <small>{{ processMeta(p) }}</small>
-            </button>
-            <button v-if="p.running" type="button" class="icon-button" aria-label="Stop process" title="Stop" @click="stopProcess(p.id)"><Square :size="13" /></button>
-          </div>
-          <div v-if="expanded === p.id" class="activity-output">
-            <span v-if="output?.error" class="bad">{{ output.error }}</span>
-            <pre v-else-if="output">{{ output.text || '(no output yet)' }}</pre>
-            <span v-else class="muted">Loading output…</span>
+        <h4>
+          <button v-if="docked" type="button" class="activity-section-toggle" :aria-expanded="!collapsed.processes" @click="collapsed.processes = !collapsed.processes">
+            <ChevronRight :size="13" :class="{ 'section-open': !collapsed.processes }" aria-hidden="true" />
+            Processes <span>{{ liveProcesses.length }} running</span>
+          </button>
+          <template v-else>Processes <span>{{ liveProcesses.length }} running</span></template>
+        </h4>
+        <div v-show="!docked || !collapsed.processes">
+          <div v-for="p in processes" :key="p.id" class="activity-row" :data-process="p.id" :data-status="p.status">
+            <div class="activity-line">
+              <LoaderCircle v-if="p.running" :size="14" class="spin" aria-label="Running" />
+              <CircleAlert v-else-if="bad(p.status)" :size="14" class="bad" :aria-label="p.status" />
+              <Check v-else :size="14" aria-label="Complete" />
+              <button type="button" class="activity-main" :aria-expanded="expanded === p.id" :title="p.command" @click="toggleOutput(p)">
+                <code>{{ p.command.split('\n')[0] }}</code>
+                <small>{{ processMeta(p) }}</small>
+              </button>
+              <button v-if="p.running" type="button" class="icon-button" aria-label="Stop process" title="Stop" @click="stopProcess(p.id)"><Square :size="13" /></button>
+            </div>
+            <div v-if="expanded === p.id" class="activity-output">
+              <span v-if="output?.error" class="bad">{{ output.error }}</span>
+              <pre v-else-if="output">{{ output.text || '(no output yet)' }}</pre>
+              <span v-else class="muted">Loading output…</span>
+            </div>
           </div>
         </div>
       </section>
@@ -136,18 +153,26 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
       </section>
 
       <section v-if="children.length" class="activity-section" aria-label="Subagents">
-        <h4>Subagents <span>{{ liveChildren.length }} running</span></h4>
-        <div v-for="c in children" :key="c.id" class="activity-row" :data-child="c.id" :data-status="c.status">
-          <div class="activity-line">
-            <LoaderCircle v-if="childLive(c)" :size="14" class="spin" aria-label="Running" />
-            <CircleAlert v-else-if="bad(c.status)" :size="14" class="bad" :aria-label="c.status" />
-            <Check v-else :size="14" aria-label="Done" />
-            <div class="activity-main static" :title="c.statusReason || c.task">
-              <span dir="auto">{{ c.task.split('\n')[0] }}</span>
-              <small>#{{ c.id }} · {{ childMeta(c) }}</small>
+        <h4>
+          <button v-if="docked" type="button" class="activity-section-toggle" :aria-expanded="!collapsed.children" @click="collapsed.children = !collapsed.children">
+            <ChevronRight :size="13" :class="{ 'section-open': !collapsed.children }" aria-hidden="true" />
+            Subagents <span>{{ liveChildren.length }} running</span>
+          </button>
+          <template v-else>Subagents <span>{{ liveChildren.length }} running</span></template>
+        </h4>
+        <div v-show="!docked || !collapsed.children">
+          <div v-for="c in children" :key="c.id" class="activity-row" :data-child="c.id" :data-status="c.status">
+            <div class="activity-line">
+              <LoaderCircle v-if="childLive(c)" :size="14" class="spin" aria-label="Running" />
+              <CircleAlert v-else-if="bad(c.status)" :size="14" class="bad" :aria-label="c.status" />
+              <Check v-else :size="14" aria-label="Done" />
+              <div class="activity-main static" :title="c.statusReason || c.task">
+                <span dir="auto">{{ c.task.split('\n')[0] }}</span>
+                <small>#{{ c.id }} · {{ childMeta(c) }}</small>
+              </div>
+              <button v-if="childLive(c)" type="button" class="icon-button" aria-label="Stop subagent" title="Stop" @click="stopChild(c.id)"><Square :size="13" /></button>
+              <button v-if="c.status !== 'deleted'" type="button" class="icon-button" aria-label="Open subagent conversation" title="Open" @click="openSession(c.id)"><ArrowUpRight :size="14" /></button>
             </div>
-            <button v-if="childLive(c)" type="button" class="icon-button" aria-label="Stop subagent" title="Stop" @click="stopChild(c.id)"><Square :size="13" /></button>
-            <button v-if="c.status !== 'deleted'" type="button" class="icon-button" aria-label="Open subagent conversation" title="Open" @click="openSession(c.id)"><ArrowUpRight :size="14" /></button>
           </div>
         </div>
       </section>
