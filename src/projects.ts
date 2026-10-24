@@ -95,7 +95,29 @@ export class ProjectStore {
     const row = this.db.prepare("SELECT id FROM luna_projects WHERE name=? COLLATE NOCASE").get(name) as { id: number } | undefined;
     if (row && row.id !== except) throw new ProjectError(409, "a project with that name exists");
   }
-  create(name: unknown, cwd: unknown): Project {
+  private cleanWorkerCwd(cwd: unknown): string {
+    if (typeof cwd !== "string" || !isAbsolute(cwd) || cwd.length > 4096 || cwd.includes("\0")) throw new ProjectError(400, "cwd must be an absolute path");
+    const t = cwd.trim(); if (!t || !isAbsolute(t)) throw new ProjectError(400, "cwd must be an absolute path"); return t;
+  }
+  create(name: unknown, cwd: unknown, opts?: { worker?: unknown; workerCwd?: unknown }): Project {
+    const hasWorker = opts !== undefined && (opts.worker !== undefined || opts.workerCwd !== undefined);
+    if (hasWorker) {
+      const cleanName = this.cleanName(name); this.taken(cleanName);
+      if (opts!.worker === undefined || opts!.workerCwd === undefined) throw new ProjectError(400, "worker and workerCwd required together");
+      if (!Number.isSafeInteger(opts!.worker) || (opts!.worker as number) < 1) throw new ProjectError(400, "invalid worker");
+      const workerCwd = this.cleanWorkerCwd(opts!.workerCwd);
+      if (cwd !== undefined && typeof cwd !== "string") throw new ProjectError(400, "cwd must be an absolute path");
+      let hostCwd = "";
+      if (typeof cwd === "string" && cwd.trim() !== "") hostCwd = this.clean(cleanName, cwd).cwd;
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const r = this.db.prepare("INSERT INTO luna_projects(name, cwd) VALUES (?,?)").run(cleanName, hostCwd);
+        const id = Number(r.lastInsertRowid);
+        this.db.prepare("INSERT INTO luna_project_worker_dirs(project_id, worker_id, cwd) VALUES (?,?,?)").run(id, opts!.worker as number, workerCwd);
+        this.db.exec("COMMIT");
+        return { id, name: cleanName, cwd: hostCwd, workerDirs: [{ worker: opts!.worker as number, cwd: workerCwd }] };
+      } catch (e) { try { this.db.exec("ROLLBACK"); } catch {} throw e; }
+    }
     const v = this.clean(name, cwd); this.taken(v.name);
     const r = this.db.prepare("INSERT INTO luna_projects(name, cwd) VALUES (?,?)").run(v.name, v.cwd);
     return { id: Number(r.lastInsertRowid), ...v, workerDirs: [] };

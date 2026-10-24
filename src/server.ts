@@ -341,7 +341,16 @@ export function createApp(opts: ServerOptions) {
   app.get("/v1/projects", (c) => opts.conversations ? c.json({ projects: opts.conversations.projects.list() }) : err(c, 404, "projects disabled"));
   app.post("/v1/projects", async (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
-    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown };
+    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown; worker?: unknown; workerCwd?: unknown };
+    const hasWorker = b.worker !== undefined || b.workerCwd !== undefined;
+    if (hasWorker) {
+      if (!Number.isSafeInteger(b.worker) || (b.worker as number) < 1) return err(c, 400, "invalid worker");
+      const worker = b.worker as number;
+      if (!opts.workers?.store.get(worker)) return err(c, 404, "no such worker");
+      let hostCwd: unknown = b.cwd ?? ""; let workerCwd: unknown = b.workerCwd;
+      if (workerCwd === undefined && typeof hostCwd === "string" && hostCwd.trim() !== "") { workerCwd = hostCwd; hostCwd = ""; }
+      return c.json(opts.conversations.projects.create(b.name, hostCwd, { worker, workerCwd }), 201);
+    }
     return c.json(opts.conversations.projects.create(b.name, b.cwd), 201);
   });
   app.patch("/v1/projects/:id", async (c) => {
@@ -479,7 +488,9 @@ export function createApp(opts: ServerOptions) {
       if (!project) return err(c, 400, "unknown project");
     }
     // A project has one directory per machine. Without one, a worker session uses the worker's default directory.
-    const cwd = b.cwd || (project ? opts.conversations?.projects.dirFor(project.id, worker) : undefined);
+    const projectCwd = project ? opts.conversations?.projects.dirFor(project.id, worker) : undefined;
+    if (project && !project.general && !projectCwd) return err(c, 400, "project is not linked to this machine");
+    const cwd = b.cwd || projectCwd;
     // The board is a default runtime extension, including existing unlinked sessions.
     const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
@@ -623,7 +634,10 @@ export function createApp(opts: ServerOptions) {
       worker = w ? Number(w) : null;
       if (worker !== null && (!Number.isSafeInteger(worker) || !opts.workers?.store.get(worker))) return err(c, 400, "unknown worker");
       const project = Number(c.req.query("project"));
-      cwd = c.req.query("cwd") || (Number.isSafeInteger(project) ? opts.conversations?.projects.dirFor(project, worker) : undefined);
+      const selectedProject = Number.isSafeInteger(project) ? opts.conversations?.projects.get(project) : undefined;
+      const projectCwd = selectedProject ? opts.conversations?.projects.dirFor(project, worker) : undefined;
+      if (selectedProject && !selectedProject.general && !projectCwd) return err(c, 400, "project is not linked to this machine");
+      cwd = c.req.query("cwd") || projectCwd;
     }
     let env, home: string | undefined;
     if (worker !== null) {
@@ -651,6 +665,7 @@ export function createApp(opts: ServerOptions) {
     if (b.cwd !== undefined && b.cwd !== null && (typeof b.cwd !== "string" || !b.cwd.trim())) return err(c, 400, "cwd must be a non-empty string");
     const project = opts.conversations?.projects.projectOf(Number(conv.id));
     const projectCwd = project === undefined ? undefined : opts.conversations?.projects.dirFor(project, worker) || undefined;
+    if (project !== undefined && project !== 0 && !projectCwd) return err(c, 400, "project is not linked to this machine");
     const cwd = (b.cwd as string | undefined)?.trim() || projectCwd || null;
     const moved = await harness.commit(async tx => {
       if (await isRunning(tx, conv.id)) return "busy";

@@ -20,6 +20,9 @@ const selected = ref<number | "new" | null>(null);
 const showDetail = ref(false);
 const name = ref("");
 const cwd = ref("");
+const createOn = ref<"host" | "worker" | "both">("host");
+const newWorker = ref<number | null>(null);
+const newWorkerCwd = ref("");
 const busy = ref(false);
 
 const visible = (s: SessionMeta) => !s.archived;
@@ -32,9 +35,13 @@ const filtered = computed(() => {
 });
 const current = computed<Project | null>(() => typeof selected.value === "number" ? history.projects.find(p => p.id === selected.value) ?? null : null);
 const recent = computed(() => current.value ? sessionsOf(current.value.id).slice(0, 5) : []);
-const dirty = computed(() => selected.value === "new"
-  ? !!name.value.trim() && !!cwd.value.trim()
-  : !!current.value && (name.value !== current.value.name || cwd.value.trim() !== current.value.cwd));
+const dirty = computed(() => {
+  if (selected.value === "new") {
+    const workerOnly = newWorker.value !== null && !!newWorkerCwd.value.trim();
+    return !!name.value.trim() && (createOn.value === "worker" || !!cwd.value.trim()) && (createOn.value === "host" || workerOnly);
+  }
+  return !!current.value && (name.value !== current.value.name || cwd.value.trim() !== current.value.cwd);
+});
 
 /** Directory per machine for the selected project. Linking a machine makes it use this project's board. */
 const machineDirs = reactive<Record<number, string>>({});
@@ -72,6 +79,7 @@ function select(id: number | "new" | null) {
   const p = typeof id === "number" ? history.projects.find(x => x.id === id) : null;
   name.value = p?.name ?? "";
   cwd.value = p?.cwd ?? "";
+  if (id === "new") { createOn.value = "host"; newWorker.value = null; newWorkerCwd.value = ""; }
   syncMachineDirs();
   if (id !== null) showDetail.value = true;
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
@@ -89,7 +97,12 @@ async function run(action: () => Promise<void>) {
 
 const save = () => run(async () => {
   if (selected.value === "new") {
-    const created = await post<{ id: number }>("/v1/projects", { name: name.value.trim(), cwd: cwd.value.trim() });
+    const hostCwd = createOn.value === "worker" ? "" : cwd.value.trim();
+    const payload: Record<string, unknown> = { name: name.value.trim(), cwd: hostCwd };
+    if (createOn.value !== "host" && newWorker.value !== null && newWorkerCwd.value.trim()) { payload.worker = newWorker.value; payload.workerCwd = newWorkerCwd.value.trim(); }
+    if (createOn.value !== "host" && (newWorker.value === null || !newWorkerCwd.value.trim())) { notice.value = "Select a worker and enter its directory"; return; }
+    if (createOn.value !== "worker" && !hostCwd) { notice.value = "Enter a main host directory"; return; }
+    const created = await post<{ id: number }>("/v1/projects", payload);
     await refresh();
     select(created.id);
     notice.value = "Project added";
@@ -175,7 +188,13 @@ onMounted(async () => {
         <form v-else class="pw-sec" @submit.prevent="save">
           <h4 v-if="selected !== 'new'">Settings</h4>
           <label class="pw-field">Name<input dir="auto" id="project-name" v-model="name" aria-label="Project name" autocomplete="off" /></label>
-          <label class="pw-field">Working directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>
+          <label v-if="selected === 'new'" class="pw-field">Create on<select v-model="createOn" class="pw-input" aria-label="Create project on"><option value="host">Host</option><option value="worker">Worker</option><option value="both">Both</option></select></label>
+          <label v-if="selected !== 'new' || createOn !== 'worker'" class="pw-field">Main host directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>
+          <template v-if="selected === 'new' && createOn !== 'host'">
+            <label class="pw-field">Worker<select v-model="newWorker" class="pw-input" aria-label="Worker for new project"><option :value="null" disabled>Select a worker</option><option v-for="w in workers.list" :key="w.id" :value="w.id">{{ w.name }}{{ w.online ? "" : " · Offline" }}</option></select></label>
+            <p v-if="!workers.list.length" class="pw-muted pw-small">Register a worker before creating a project on it.</p>
+            <label class="pw-field">Worker directory<input v-model="newWorkerCwd" class="pw-mono" aria-label="Directory on worker" placeholder="/absolute/path/on/worker" autocomplete="off" spellcheck="false" /></label>
+          </template>
           <div class="pw-row">
             <button type="submit" class="pw-btn pw-primary" :disabled="!dirty || busy">{{ selected === 'new' ? 'Add project' : 'Save' }}</button>
             <span v-if="notice" class="pw-muted" role="status">{{ notice }}</span>
@@ -238,8 +257,8 @@ onMounted(async () => {
 .pw-host { grid-template-columns: 120px minmax(0, 1fr) auto; }
 .pw-machine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .pw-field { display: grid; gap: 6px; font-size: 13px; color: var(--muted-foreground); }
-input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: var(--radius); padding: 8px 10px; font-size: 14px; outline: none; }
-input:focus { border-color: var(--ring); }
+input, select.pw-input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: var(--radius); padding: 8px 10px; font-size: 14px; outline: none; }
+input:focus, select.pw-input:focus { border-color: var(--ring); }
 .pw-mono { font-family: var(--mono); font-size: 13.5px; }
 .pw-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); border-radius: var(--radius); font-size: 14px; cursor: pointer; }
