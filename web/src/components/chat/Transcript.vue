@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onBeforeUnmount } from "vue";
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
 import { composer, pendingMessages, canRecoverPending, retryPending, dismissPending } from "@/stores/composer";
@@ -23,8 +23,6 @@ const jumpTopRef = ref<HTMLElement | null>(null);
 // The jump buttons show only while the user scrolls, then hide again.
 const IDLE_MS = 1500;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
-let programmaticAt = 0;
-let programmaticTop = -1;
 function hideJumps() {
   if (jumpRef.value) jumpRef.value.hidden = true;
   if (jumpTopRef.value) jumpTopRef.value.hidden = true;
@@ -34,12 +32,16 @@ function updateJumps(log: HTMLElement) {
   if (jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
   if (jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
 }
-// Follow new content only while the user sits at the bottom. Track this from user scrolls:
-// measuring after content grows would read a tall new block as "scrolled up".
+// Follow new content only while the user sits at the bottom.
+// Only user input can stop following. Scroll events also come from clamping, scroll anchoring,
+// and our own writes, and they fire after later content growth, so their position is unreliable.
 const BOTTOM_PX = 48;
+const INTENT_MS = 600;
 let pinned = true;
-// Coalesce follow-scrolls into one write per display frame. Streaming watchers call scroll()
-// many times per tick; each uncoalesced call forced a synchronous layout (scrollHeight read).
+let intentUntil = 0;
+let dragging = false;
+const distance = (log: HTMLElement) => log.scrollHeight - log.scrollTop - log.clientHeight;
+// Coalesce follow-scrolls into one write per display frame.
 let scrollRaf: number | undefined;
 function scroll(force = false) {
   if (force) pinned = true;
@@ -48,31 +50,64 @@ function scroll(force = false) {
     scrollRaf = undefined;
     const log = logRef.value;
     if (!log || !pinned) return;
-    programmaticAt = Date.now();
     log.scrollTop = log.scrollHeight;
-    programmaticTop = log.scrollTop;
     updateJumps(log);
   });
 }
 function jumpToTop() {
-  programmaticAt = Date.now();
-  if (logRef.value) logRef.value.scrollTop = programmaticTop = 0;
-  handleScroll();
+  pinned = false;
+  if (logRef.value) logRef.value.scrollTop = 0;
+  showJumps();
 }
 function jumpToBottom() {
   scroll(true);
-  handleScroll();
+  showJumps();
 }
-function handleScroll(event?: Event) {
-  const log = logRef.value;
-  if (!log) return;
-  if (event?.type === "scroll" && Date.now() - programmaticAt < 150 && log.scrollTop === programmaticTop) return;
-  if (event?.type === "scroll") pinned = log.scrollHeight - log.scrollTop - log.clientHeight < BOTTOM_PX;
-  updateJumps(log);
+function showJumps() {
+  if (logRef.value) updateJumps(logRef.value);
   clearTimeout(idleTimer);
   idleTimer = setTimeout(hideJumps, IDLE_MS);
 }
+function markIntent() { intentUntil = Date.now() + INTENT_MS; }
+const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+// Typing in the composer or any field never scrolls the log.
+function handleKey(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
+  if (SCROLL_KEYS.has(event.key)) markIntent();
+}
+// Scrollbar drags have no wheel or touch event. Pointer-down on the log itself, not its content.
+function handlePointerDown(event: PointerEvent) { if (event.target === logRef.value) dragging = true; }
+function handlePointerUp() { dragging = false; }
+function handleScroll() {
+  const log = logRef.value;
+  if (!log) return;
+  if (distance(log) < BOTTOM_PX) pinned = true;
+  else if (dragging || Date.now() < intentUntil) pinned = false;
+  if (dragging || Date.now() < intentUntil) showJumps();
+}
+// Follow every layout change while pinned: DOM changes, log resizes (composer, extras),
+// image loads, and disclosure toggles. None of these reliably emit a scroll event.
+let resizeObserver: ResizeObserver | undefined;
+let mutationObserver: MutationObserver | undefined;
+const follow = () => scroll();
+onMounted(() => {
+  const log = logRef.value;
+  if (!log) return;
+  resizeObserver = new ResizeObserver(follow);
+  resizeObserver.observe(log);
+  mutationObserver = new MutationObserver(follow);
+  mutationObserver.observe(log, { childList: true, subtree: true, characterData: true });
+  log.addEventListener("load", follow, true);
+  log.addEventListener("toggle", follow, true);
+  window.addEventListener("keydown", handleKey, true);
+  window.addEventListener("pointerup", handlePointerUp, true);
+});
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  mutationObserver?.disconnect();
+  window.removeEventListener("keydown", handleKey, true);
+  window.removeEventListener("pointerup", handlePointerUp, true);
   clearTimeout(idleTimer);
   if (scrollRaf !== undefined) cancelAnimationFrame(scrollRaf);
 });
@@ -83,12 +118,14 @@ watch(() => chat.extras?.questions, (questions, previous) => {
     const log = logRef.value;
     const form = added && document.querySelector<HTMLElement>(`[data-ask="${CSS.escape(added.callId)}"]`);
     // Scroll only the log. scrollIntoView also scrolls overflow:hidden ancestors and pushes the composer up.
-    if (log && form) log.scrollTop += form.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
+    if (!log || !form) return;
+    log.scrollTop += form.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
+    // Keep the question start in view; do not let the follow pull it away.
+    pinned = distance(log) < BOTTOM_PX;
   });
 });
-// Restore follow mode before DOM growth can emit a scroll event. The frame runs after Vue renders.
+// Sending or opening a conversation is explicit intent to follow. The frame runs after Vue renders.
 watch(() => chat.followTick, () => scroll(true), { flush: "sync" });
-watch(() => [chat.rev, chat.liveText, chat.liveThinking, chat.sideJobs.size, chat.notices.length, activityLabel.value], () => nextTick(() => scroll()));
 // Merge side reports at their start time, rather than pinning them after every later turn.
 // Keep durable entry order, including entries that do not contribute model messages.
 const timeline = computed((): { key: string; entry?: any; job?: any }[] => {
@@ -162,7 +199,7 @@ function backgroundReport(entry: any, message: any): boolean {
 </script>
 
 <template>
-  <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll" @wheel.passive="handleScroll" @touchmove.passive="handleScroll">
+  <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll" @wheel.passive="markIntent" @touchmove.passive="markIntent" @pointerdown="handlePointerDown">
     <Welcome v-if="!entryList.length && !pending.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
     <template v-for="row in timeline" :key="row.key">
       <SideJobCard v-if="row.job" :job="row.job" />
