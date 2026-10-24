@@ -1,11 +1,27 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue';
-import { GitBranch } from '@lucide/vue';
+import { GitBranch, FilePlus, FileMinus, FilePen, FileQuestion, FileSymlink, Files, FileWarning, File } from '@lucide/vue';
 import { chat } from '@/stores/chat';
 import { json, serverUrl } from '@/lib/api';
 import type { GitStatus } from '../../../../src/git-status';
 defineProps<{ docked?: boolean }>();
 const data = ref<GitStatus | null>(null);
+function fileStatus(status: string) {
+  if (status === '??') return { icon: FileQuestion, label: 'Untracked file' };
+  if (status.includes('U') || status === 'AA' || status === 'DD') return { icon: FileWarning, label: 'Merge conflict' };
+  if (status.includes('R')) return { icon: FileSymlink, label: 'Renamed file' };
+  if (status.includes('C')) return { icon: Files, label: 'Copied file' };
+  if (status.includes('D')) return { icon: FileMinus, label: 'Deleted file' };
+  if (status.includes('A')) return { icon: FilePlus, label: 'Added file' };
+  if (status.includes('M')) return { icon: FilePen, label: 'Modified file' };
+  if (status.includes('T')) return { icon: FilePen, label: 'File type changed' };
+  return { icon: File, label: 'Changed file' };
+}
+function statusTitle(status: string) {
+  const describe = (code: string) => ({ M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied', T: 'type changed', U: 'unmerged' })[code];
+  if (status === '??') return 'Untracked file';
+  return [fileStatus(status).label, describe(status[0]!) && `Staged: ${describe(status[0]!)}`, describe(status[1]!) && `Unstaged: ${describe(status[1]!)}`].filter(Boolean).join(' · ');
+}
 const root = ref<HTMLElement | null>(null);
 let visible = false, generation = 0;
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -45,9 +61,8 @@ onUnmounted(() => {
         <span class="git-branch"><GitBranch :size="14" aria-hidden="true" /><span class="truncate" :title="data?.state === 'ok' ? data.branch : 'Git'">{{ data?.state === 'ok' ? data.branch : 'Git' }}</span></span>
         <span v-if="data?.state === 'ok' && data.files.length" class="git-totals"><span class="git-added">+{{ data.added }}</span> <span class="git-deleted">−{{ data.deleted }}</span></span>
       </summary>
-      <p class="git-caption">Workspace changes · staged and unstaged</p>
       <ul v-if="data?.state === 'ok' && data.files.length" class="git-files">
-        <li v-for="file in data.files" :key="file.path"><code>{{ file.status }}</code><span class="git-path" :title="file.path">{{ file.path }}</span><span class="git-file-count">{{ file.binary ? 'Binary' : file.status === '??' ? 'Untracked' : `+${file.added} −${file.deleted}` }}</span></li>
+        <li v-for="file in data.files" :key="file.path"><span class="git-file-status" :title="statusTitle(file.status)" role="img" :aria-label="statusTitle(file.status)"><component :is="fileStatus(file.status).icon" :size="14" aria-hidden="true" /></span><span class="git-path" :title="file.path">{{ file.path }}</span><span class="git-file-count">{{ file.binary ? 'Binary' : file.status === '??' ? 'Untracked' : `+${file.added} −${file.deleted}` }}</span></li>
       </ul>
     </details>
     <template v-if="data?.state === 'ok'">
@@ -68,6 +83,7 @@ summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .git-caption { color: var(--muted-foreground); margin: 4px 0 0; }
 .git-files { max-height: 240px; overflow: auto; margin-top: 8px; }
 .git-files li { display: flex; gap: 6px; padding: 4px 0; align-items: baseline; }
+.git-file-status { display: inline-flex; flex-shrink: 0; align-self: center; color: var(--muted-foreground); }
 .git-path { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .git-file-count { color: var(--muted-foreground); }
 </style>
