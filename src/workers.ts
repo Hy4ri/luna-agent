@@ -217,7 +217,7 @@ export class WorkerHub {
   mcpCall(workerId: number, server: string, tool: string, args: Record<string, unknown>, context: Context): Promise<Result<unknown, Error>> {
     const link = this.links.get(workerId);
     if (!link) return Promise.resolve(failure("mcp", "unknown", this.offline(workerId)));
-    return link.call("mcp", id => ({ t: "mcpCall", id, server, tool, args: encode(args) as unknown[] & Record<string, unknown> } as MainMessage), context);
+    return link.call("mcp", id => ({ t: "mcpCall", id, server, tool, args: encode(args) as Record<string, unknown> } as MainMessage), context);
   }
   connection(workerId: number) { return this.links.get(workerId); }
   /** Only the worker's executable search path and home may enter review commands. */
