@@ -7,7 +7,7 @@ import { draftsKey } from "@/lib/pane";
 import { addErr, chat, createSession, entryList, putSideJob } from "./chat";
 import { loadSessions } from "./sessions";
 
-export interface Attachment { mimeType: string; data: string; url: string }
+export interface Attachment { mimeType: string; data: string; url: string; report?: { jobName: string; id: number; status: string } }
 interface Draft { text: string; attachments: Attachment[] }
 interface PendingMessage {
   requestId: string; session: string | null; epoch: number; content: any;
@@ -184,7 +184,7 @@ function randomId(): string {
 export async function send(text: string, atts: Attachment[]) {
   let sid = chat.session;
   if (sid && composer.submitting.has(sid)) return;
-  const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map(a => ({ type: a.mimeType.startsWith("audio/") ? "audio" : "image", data: a.data, mimeType: a.mimeType }))] : text;
+  const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map(a => a.report ? { type: "text", text: a.data } : ({ type: a.mimeType.startsWith("audio/") ? "audio" : "image", data: a.data, mimeType: a.mimeType }))] : text;
   for (const a of atts) URL.revokeObjectURL(a.url);
   const body = { content, requestId: randomId() };
   const pending = pendingMessage(sid, body);

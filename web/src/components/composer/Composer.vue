@@ -8,6 +8,7 @@ import { history, loadProjects } from "@/stores/sessions";
 import { modelLabel } from "@/stores/models";
 import { boardChanged, focusInput } from "@/stores/app";
 import ModelPicker from "./ModelPicker.vue";
+import ReportContext from "../chat/ReportContext.vue";
 import ReasoningControl from "./ReasoningControl.vue";
 import { searchMentions, type MentionItem } from "@/lib/mention-sources";
 
@@ -695,8 +696,14 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div id="atts" aria-label="Attached images">
-      <div v-for="(a, i) in composer.attachments" :key="i">
+    <div v-for="(a, i) in composer.attachments" :key="'report-' + i">
+      <div v-if="a.report" class="cron-context">
+        <ReportContext :text="a.data" />
+        <button type="button" aria-label="Remove attached Cron report" @click="removeAttachment(i)">×</button>
+      </div>
+    </div>
+    <div id="atts" aria-label="Attached media">
+      <template v-for="(a, i) in composer.attachments" :key="i"><div v-if="!a.report">
         <span v-if="a.mimeType.startsWith('audio/')">Audio attachment</span>
         <img v-else :src="a.url" alt="attachment" />
         <button
@@ -706,7 +713,7 @@ onUnmounted(() => {
         >
           ×
         </button>
-      </div>
+      </div></template>
     </div>
 
     <div
@@ -806,3 +813,8 @@ onUnmounted(() => {
     <ModelPicker @close="pickerOpen = false" />
   </div>
 </template>
+
+<style scoped>
+.cron-context { display: flex; align-items: start; gap: 8px; margin-bottom: 8px; }
+.cron-context > :first-child { flex: 1; }
+</style>

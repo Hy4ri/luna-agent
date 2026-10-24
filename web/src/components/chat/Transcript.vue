@@ -5,6 +5,7 @@ import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/st
 import { composer, pendingMessages, canRecoverPending, retryPending, dismissPending } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
+import ReportContext from "./ReportContext.vue";
 import AssistantText from "./AssistantText.vue";
 import { assistantTextBlocks, mediaDirectives } from "@/lib/media";
 import MessageFooter from "./MessageFooter.vue";
@@ -180,7 +181,7 @@ function backgroundReport(entry: any, message: any): boolean {
             <MessageFooter :text="peerMessage(entry, message)!.body" :timestamp="message.timestamp" :entry-id="entry.id" />
           </div>
           <div v-else-if="message.role === 'user'" class="msg user" :data-entry="entry.id">
-            <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
+            <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><ReportContext v-if="block.type === 'text'" :text="block.text" /><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
             <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" :entry-id="entry.id" />
           </div>
           <div v-else-if="message.role === 'assistant'" class="msg assistant" :data-entry="entry.id">
@@ -203,7 +204,7 @@ function backgroundReport(entry: any, message: any): boolean {
       <ToolCall v-if="!calls.has(id) && !durableResults.has(id)" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
     </template>
     <div v-for="message in pending" :key="message.requestId" class="msg user" :data-pending="message.requestId">
-      <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><span v-if="block.type === 'text'">{{ block.text }}</span><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
+      <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><ReportContext v-if="block.type === 'text'" :text="block.text" /><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
       <div class="message-footer">
         <span role="status">{{ message.status }}</span>
         <template v-if="canRecoverPending(message)">
