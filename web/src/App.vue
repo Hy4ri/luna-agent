@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { Menu, ScanEye, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
@@ -14,6 +15,7 @@ import PanelHost from '@/components/panels/PanelHost.vue';
 import CommandPalette from '@/components/CommandPalette.vue';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
+import { recoveryOpen } from '@/lib/connections';
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate } from '@/stores/app';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';
@@ -236,7 +238,8 @@ async function pinSession() {
 }
 const password = ref('');
 const serverInput = ref(serverUrl.value || 'localhost:8787');
-const blocked = computed(() => ui.login || !!ui.panel || (mobile.value && ui.drawer));
+const connectionDialogOpen = computed(() => !sessionPane && recoveryOpen.value);
+const blocked = computed(() => connectionDialogOpen.value || ui.login || !!ui.panel || (mobile.value && ui.drawer));
 
 const activeProject = computed(() => {
   if (chat.session) {
@@ -269,6 +272,8 @@ async function handleNewSession() {
 }
 
 function keyboard(e: KeyboardEvent) {
+  // The recovery dialog owns Escape and focus, including above the login form.
+  if (connectionDialogOpen.value) return;
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && !ui.login && !sessionPane) {
     e.preventDefault();
     setPalette(!ui.palette);
@@ -291,7 +296,7 @@ function keyboard(e: KeyboardEvent) {
   else if (!e.shiftKey && (document.activeElement === last || !root.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
 }
 watch(mobile, value => { if (!value && ui.drawer) setDrawer(false); });
-watch(() => ui.login, value => { if (value) void nextTick(() => document.getElementById('token')?.focus()); });
+watch(() => ui.login, value => { if (value) void nextTick(() => { if (!recoveryOpen.value) document.getElementById('token')?.focus(); }); });
 let stopViewport: (() => void) | undefined;
 onMounted(() => {
   if (mainRef.value && typeof ResizeObserver !== 'undefined') {
@@ -324,7 +329,7 @@ onUnmounted(() => {
     <div class="flex h-full min-h-0 w-full overflow-hidden bg-background text-foreground"
       @touchstart.passive="startNavigationSwipe" @touchmove.passive="moveNavigationSwipe"
       @touchend.passive="endNavigationSwipe" @touchcancel.passive="cancelNavigationSwipe">
-      <Sidebar v-if="!sessionPane" :inert="ui.login || !!ui.panel" />
+      <Sidebar v-if="!sessionPane" :inert="connectionDialogOpen || ui.login || !!ui.panel" />
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <div id="chat-workspace" :inert="blocked || ui.view !== 'chat'" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
         <main id="main" ref="mainRef" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -394,6 +399,7 @@ onUnmounted(() => {
       </div>
       <PanelHost />
       <CommandPalette v-if="!sessionPane" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
+      <ConnectionRecovery v-if="!sessionPane" />
       <div v-if="ui.login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" class="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-5">
         <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">
           <div class="flex items-center gap-3"><Moon :size="22" class="text-primary-text" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>

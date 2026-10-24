@@ -57,6 +57,7 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "ma
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
 export interface ServerOptions {
+  connection?: ReturnType<typeof import("./connection.js").daemonConnection>;
   harness: Harness;
   sideCommands?: SideCommands;
   /** Automatic and on-demand session titles. Absent: no title generation. */
@@ -166,16 +167,17 @@ export function createApp(opts: ServerOptions) {
 
   // The desktop shell (Tauri) loads the UI from its own origin and calls this daemon cross-origin. Bearer auth, no cookies.
   const desktopOrigins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
-  app.use("/health", cors({ origin: desktopOrigins }));
-  app.use("/v1/*", cors({ origin: desktopOrigins, allowHeaders: ["authorization", "content-type"], allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }));
+  const connectionOrigin = (origin: string) => desktopOrigins.includes(origin) || opts.connection?.allowsOrigin(origin) ? origin : undefined;
+  app.use("/health", cors({ origin: connectionOrigin }));
+  app.use("/v1/*", cors({ origin: connectionOrigin, allowHeaders: ["authorization", "content-type"], allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }));
 
   // ---- web UI + health (unauthenticated; the page holds no data, every /v1 call needs the token) ----
   const webApp = createWebApp(new URL("../dist/web/", import.meta.url));
   app.route("/", webApp);
   app.get("/health", async c => {
-    if (opts.token) return c.json({ ok: true, auth: true });
+    if (opts.token) return c.json({ ok: true, auth: true, daemonId: opts.connection?.id });
     const inspection = await harness.inspect(context);
-    return c.json({ ok: true, auth: false, uptimeMs: Date.now() - started, live: inspection as unknown });
+    return c.json({ ok: true, auth: false, daemonId: opts.connection?.id, uptimeMs: Date.now() - started, live: inspection as unknown });
   });
 
   // ---- auth ----
@@ -186,6 +188,8 @@ export function createApp(opts: ServerOptions) {
     }
     await next();
   });
+
+  app.get("/v1/connection", c => opts.connection ? c.json(opts.connection.info()) : c.json({ error: "Connection discovery unavailable" }, 404));
 
   const getConv = async (id: string) => harness.conversation(id as never, context);
   /** Agent choices for a new conversation; the default model comes from the provider manager when present. */

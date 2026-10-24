@@ -5,6 +5,7 @@ import { scheduleContext } from '@/stores/chat'
 import { loadModels, models } from '@/stores/models'
 import { json, post } from '@/lib/api'
 import { useMobile } from '@/lib/dom'
+import ConnectionRoutes from '@/components/ConnectionRoutes.vue'
 import ComponentField from './settings/ComponentField.vue'
 import SettingsGroup from './settings/SettingsGroup.vue'
 import SettingsSearch from './settings/SettingsSearch.vue'
@@ -265,6 +266,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
         <div id="settings-fields" class="settings-content" tabindex="-1">
           <button v-if="mobile" type="button" class="settings-button index-back" :disabled="disabled" @click="mobileIndex = true"><ArrowLeft :size="16" />All settings</button>
           <div class="section-heading"><h2 tabindex="-1" id="settings-category-title">{{ section.title }}</h2><p>{{ section.description }}</p></div>
+          <ConnectionRoutes v-if="activeTab === 'system'" :disabled="disabled || dirty || pendingForms.size > 0" />
           <div v-if="loading" class="settings-loading" role="status">Loading settings…</div>
           <div v-else-if="loadError" class="settings-error"><p role="alert"><AlertCircle :size="18" />{{ loadError }}</p><button class="settings-button" type="button" @click="loadSettings">Retry</button></div>
           <template v-else-if="saved && draft">

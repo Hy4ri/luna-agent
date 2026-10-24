@@ -1,4 +1,5 @@
 // Authenticated SSE with one owned connection, cancellable retries, and no message submission on reconnect.
+import { connectionFailure } from "./connections";
 import type { HttpError } from "./api";
 
 export interface FeedOptions {
@@ -55,6 +56,7 @@ export function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }: F
           const data = frame.split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).replace(/^ /, "")).join("\n");
           if (!type || !data || stopped || own !== generation) continue;
           const event = JSON.parse(data);
+          connectionFailure.value = false;
           connecting = false; lastEventAt = Date.now();
           arm(IDLE_TIMEOUT); delay = 500;
           await onEvent(type, event);
@@ -63,6 +65,7 @@ export function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }: F
     } catch (err) {
       if (stopped || own !== generation || (abort.signal.aborted && !timedOut)) return;
       connecting = false; lastEventAt = 0;
+      if (timedOut || (!(err as HttpError).status && (err as Error).message !== "unauthorized")) connectionFailure.value = true;
       const error = timedOut ? new Error("Connection timed out") : err as HttpError;
       if (onDisconnect?.(error) === false || error.message === "unauthorized") { stopped = true; return; }
       timer = setTimeout(connect, delay); delay = Math.min(delay * 2, 5000);

@@ -1,6 +1,7 @@
 // App shell state: auth, pages, panels, drawer, sidebar geometry. Port of vanilla shell.js + panels.js open/close.
 import { nextTick, reactive, ref } from "vue";
 import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, url } from "@/lib/api";
+import { connectionFailure, recoveryOpen, rememberConnection } from "@/lib/connections";
 import { isMobile } from "@/lib/dom";
 import { sections, resolveSettingsRoute } from "@/pages/settings/catalog";
 import { sessionPane } from "@/lib/pane";
@@ -178,7 +179,7 @@ export function showLogin(err = "") {
   chatStore.stopFeeds();
   closePanel(); ui.drawer = false;
   ui.login = true; ui.loginError = err;
-  void nextTick(() => document.getElementById("token")?.focus());
+  void nextTick(() => { if (!recoveryOpen.value) document.getElementById("token")?.focus(); });
 }
 onUnauthorized(showLogin);
 export function login(value: string, server?: string) {
@@ -190,29 +191,67 @@ export function login(value: string, server?: string) {
   void boot();
 }
 
+// Each split tile owns its feeds. Change every tile in the same task, without reloading the shell.
+window.addEventListener("luna:can-switch-connection", event => {
+  if (settingsDirty()) (event as CustomEvent).detail.error = "Save or discard settings before switching addresses.";
+});
+window.addEventListener("luna:switch-connection", event => {
+  composerStore.saveDraft();
+  chatStore.stopFeeds();
+  chatStore.chat.connected = false;
+  chatStore.chat.bootError = "";
+  setServerUrl((event as CustomEvent).detail.target);
+  ui.login = false; ui.loginError = "";
+  void boot();
+});
+export function changeConnection(target: string) {
+  const windows: Window[] = [window];
+  for (const frame of document.querySelectorAll<HTMLIFrameElement>("iframe[data-tile-session]")) {
+    if (frame.contentWindow) windows.push(frame.contentWindow);
+  }
+  const detail = { target, error: "" };
+  for (const pane of windows) pane.dispatchEvent(new CustomEvent("luna:can-switch-connection", { detail }));
+  if (detail.error) throw new Error(detail.error);
+  if (!closeSettings()) return;
+  // Verify persistence before changing live state. Keep drafts, attachments, and explicit retry IDs in memory.
+  localStorage.setItem("luna.server", target);
+  for (const pane of windows) pane.dispatchEvent(new CustomEvent("luna:switch-connection", { detail }));
+}
+
 // ---- boot ----
 /** Keeps the sidebar unread count current while the Cron panel is closed. */
+let bootGeneration = 0;
 let badgeTimer: ReturnType<typeof setInterval> | undefined;
 export async function boot() {
+  const own = ++bootGeneration;
+  // A tile can finish loading after the parent changes the route.
+  const savedServer = localStorage.getItem("luna.server") || "";
+  if (savedServer !== serverUrl.value) setServerUrl(savedServer);
   const chat = chatStore, models = modelsStore, sessions = sessionsStore, composer = composerStore;
   const badge = await import("@/pages/cron/badge");
+  if (own !== bootGeneration) return;
   chat.chat.booting = true;
   try {
     if (isDesktop && !serverUrl.value) return showLogin();
     let hl;
-    try { hl = await (await fetch(url("/health"))).json(); }
-    catch (e) { if (isDesktop) return showLogin(`Cannot reach ${serverUrl.value}. Check the address and that the daemon runs.`); throw e; }
+    try { hl = await (await fetch(url("/health"), { signal: AbortSignal.timeout(5000), cache: "no-store" })).json(); }
+    catch (e) { if (own !== bootGeneration) return; connectionFailure.value = true; if (isDesktop) return showLogin(`Cannot reach ${serverUrl.value}. Check the address and that the daemon runs.`); throw e; }
+    if (own !== bootGeneration) return;
     if (hl.auth && !token.value) return showLogin();
+    await rememberConnection();
+    if (own !== bootGeneration) return;
     // Independent reads: fetch in parallel so boot costs one round trip, not three.
     await Promise.all([models.loadModels(), sessions.loadProjects(), sessions.loadSessions()]);
-    if (chat.chat.session) await chat.openSession(chat.chat.session); else composer.restoreDraft();
+    if (own !== bootGeneration) return;
+    if (chat.chat.session) await chat.openSession(chat.chat.session, true); else composer.restoreDraft();
     chat.startListFeed();
     void badge.refreshCronBadge();
     badgeTimer ??= setInterval(() => { if (!document.hidden) void badge.refreshCronBadge(); }, 30_000);
     applyHash();
   } catch (e) {
+    if (own !== bootGeneration) return;
     if ((e as Error).message !== "unauthorized") chat.chat.bootError = String((e as Error).message || e);
-  } finally { chat.chat.booting = false; }
+  } finally { if (own === bootGeneration) chat.chat.booting = false; }
 }
 
 function applyHash() {

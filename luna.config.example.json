@@ -1,5 +1,9 @@
 {
   "dataDir": "~/.luna",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8787
+  },
   "provider": "anthropic",
   "model": "claude-sonnet-4-5",
   "instructions": "Keep interactive HTML replies self-contained. Do not request external resources from previews.",
@@ -74,10 +78,6 @@
     "idleMinutes": 30,
     "captureEnabled": true,
     "files": []
-  },
-  "server": {
-    "host": "127.0.0.1",
-    "port": 8787
   },
   "thinkingLevel": "medium",
   "providers": [],
