@@ -1,5 +1,5 @@
 import type { Models, Usage } from "@earendil-works/pi-ai";
-import { UsageDoc, type ConversationId } from "@earendil-works/pi-durable";
+import { UsageDoc, type ConversationId, type EntryId } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { isRunning, readSessionStatus, type SessionStatus } from "./session-status.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
@@ -79,6 +79,9 @@ function add(target: AnalyticsMetrics, usage: Partial<Usage>) {
 
 /** Storage-derived input of one conversation. Only its own entries count, so fork parents never change it. */
 interface ConversationPart {
+  generation: number;
+  lastEntryId?: EntryId;
+  fallbackTitle?: string | null;
   ledger: { models: [string, Partial<Usage>][]; tools: [string, Partial<Usage>][] };
   responses: { key: string; stopReason?: string; timestamp: unknown; usage?: Usage }[];
   userTurns: number;
@@ -90,7 +93,7 @@ interface ConversationPart {
   skillCounts: [string, number][];
   skillLastUsed: [string, number][];
 }
-/** Per-conversation cache. Each commit drops the parts of the conversations it touched. */
+/** Keep append-only history summaries; generations independently refresh usage ledgers. */
 export interface AnalyticsCache { parts: Map<string, ConversationPart>; generations: Map<string, number>; epoch: number }
 /** Returns undefined when commits cannot be observed: a cache without invalidation would serve stale data. */
 export function createAnalyticsCache(harness: Harness): AnalyticsCache | undefined {
@@ -101,10 +104,32 @@ export function createAnalyticsCache(harness: Harness): AnalyticsCache | undefin
         : change.type === "entry" || change.type === "task" || change.type === "submission" ? change.value.conversationId
         : change.conversationId;
       if (id === undefined) { cache.parts.clear(); cache.epoch++; continue; }
-      const k = String(id); cache.parts.delete(k); cache.generations.set(k, (cache.generations.get(k) ?? 0) + 1);
+      const k = String(id);
+      // Structural changes and retired documents take the conservative rebuild path.
+      if (change.type === "conversation" || (change.type === "document" && change.value === null) ||
+          (change.type === "entry" && (change.value.head !== undefined || change.value.edits !== undefined))) cache.parts.delete(k);
+      cache.generations.set(k, (cache.generations.get(k) ?? 0) + 1);
     }
   }); } catch { return undefined; }
   return cache;
+}
+
+/** One in-flight computation per daemon, with short-lived completed snapshot reuse. */
+export function createAnalyticsReader(harness: Harness, models?: Models) {
+  const parts = createAnalyticsCache(harness);
+  let snapshot: Awaited<ReturnType<typeof readAnalytics>> | undefined;
+  let expiresAt = 0;
+  let pending: Promise<Awaited<ReturnType<typeof readAnalytics>>> | undefined;
+  return (force = false) => {
+    if (pending) return pending;
+    if (!force && snapshot && Date.now() < expiresAt) return Promise.resolve(snapshot);
+    pending = readAnalytics(harness, models, parts).then(next => {
+      snapshot = next;
+      expiresAt = Date.now() + 3_000;
+      return next;
+    }).finally(() => { pending = undefined; });
+    return pending;
+  };
 }
 
 /** One consistent view of retained ledgers and their own dated response history.
@@ -113,6 +138,8 @@ export function createAnalyticsCache(harness: Harness): AnalyticsCache | undefin
  */
 export async function readAnalytics(harness: Harness, models?: Models, cache?: AnalyticsCache) {
   return harness.commit(async tx => {
+    const started = performance.now();
+    const timings = { scanMs: 0, aggregationMs: 0, metadataMs: 0, entriesScanned: 0, conversationsScanned: 0, cacheHits: 0 };
     const modelMap = new Map<string, AnalyticsModel>();
     const daily = new Map<string, Map<string, AnalyticsModel["daily"][number]>>();
     const toolMap = new Map<string, AnalyticsMetrics>();
@@ -121,6 +148,16 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
     const statusBreakdown: Record<string, number> = {};
     let metaDb: ReturnType<typeof conversationStorage>["db"] | undefined;
     try { metaDb = conversationStorage(harness).db; } catch { metaDb = undefined; }
+
+    const metadataStarted = performance.now();
+    const conversationMeta = new Map<number, { title: string | null; archived: number; pinned: number }>();
+    if (metaDb) {
+      try {
+        const rows = metaDb.prepare("SELECT id, title, archived, pinned FROM luna_conversations").all() as
+          { id: number; title: string | null; archived: number; pinned: number }[];
+        for (const row of rows) conversationMeta.set(row.id, row);
+      } catch {}
+    }
 
     // Project mapping
     const projectLinks = new Map<number, number>();
@@ -134,6 +171,8 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
         for (const r of linkRows) projectLinks.set(r.conversation_id, r.project_id);
       } catch {}
     }
+
+    timings.metadataMs = performance.now() - metadataStarted;
 
     // Global aggregates
     const toolCallsGlobal = new Map<string, number>();
@@ -160,11 +199,18 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
       }
       return row;
     };
-    const loadPart = async (id: ConversationId): Promise<ConversationPart> => {
+    const loadPart = async (id: ConversationId, previous?: ConversationPart): Promise<ConversationPart> => {
+      const scanStarted = performance.now();
+      timings.conversationsScanned++;
+      // Reusing an entry summary must never replace the authoritative usage ledger.
+      if (previous?.lastEntryId && !(await tx.entry(previous.lastEntryId))) previous = undefined;
       const usage = await tx.doc(UsageDoc, id);
       const part: ConversationPart = {
+        generation: cache?.generations.get(String(id)) ?? 0,
+        lastEntryId: previous?.lastEntryId,
+        fallbackTitle: previous?.fallbackTitle ?? undefined,
         ledger: JSON.parse(JSON.stringify({ models: Object.entries(usage.models), tools: Object.entries(usage.tools) })),
-        responses: [],
+        responses: previous ? previous.responses.slice() : [],
         userTurns: 0,
         assistantTurns: 0,
         toolCalls: [],
@@ -174,15 +220,18 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
         skillCounts: [],
         skillLastUsed: [],
       };
-      const callMap = new Map<string, number>();
-      const errMap = new Map<string, number>();
-      const skillMap = new Map<string, number>();
-      const skillLast = new Map<string, number>();
-      let userTurns = 0, assistantTurns = 0;
+      const callMap = new Map<string, number>(previous?.toolCalls);
+      const errMap = new Map<string, number>(previous?.toolErrors);
+      const skillMap = new Map<string, number>(previous?.skillCounts);
+      const skillLast = new Map<string, number>(previous?.skillLastUsed);
+      let userTurns = previous?.userTurns ?? 0, assistantTurns = previous?.assistantTurns ?? 0;
       let cursor;
       do {
-        const page = await tx.scanEntries({ conversationId: id, order: "ascending" }, 200, cursor);
+        const page = await tx.scanEntries({ conversationId: id, minEntryId: previous?.lastEntryId, order: "ascending" }, 200, cursor);
         for (const entry of page.items) {
+          timings.entriesScanned++;
+          if (previous?.lastEntryId !== undefined && entry.id <= previous.lastEntryId) continue;
+          part.lastEntryId = entry.id;
           if (entry.conversationId !== id) continue;
           for (const message of entry.model ?? []) {
             const role = (message as unknown as { role?: string }).role;
@@ -238,6 +287,7 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
       part.toolErrors = [...errMap.entries()];
       part.skillCounts = [...skillMap.entries()];
       part.skillLastUsed = [...skillLast.entries()];
+      timings.scanMs += performance.now() - scanStarted;
       return part;
     };
 
@@ -249,6 +299,13 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
       for (const conversation of page.items) { sessions++; conversationList.push({ id: conversation.id, parent: (conversation as unknown as { parent?: unknown }).parent ?? null }); }
       cursor = page.next;
     } while (cursor);
+
+    // Purges can run through raw SQL and have no conversation publication.
+    if (cache) {
+      const retained = new Set(conversationList.map(c => String(c.id)));
+      for (const id of cache.parts.keys()) if (!retained.has(id)) cache.parts.delete(id);
+      for (const id of cache.generations.keys()) if (!retained.has(id)) cache.generations.delete(id);
+    }
 
     // Build parent id map for fork depth
     const parentIdMap = new Map<string, string | null>();
@@ -284,11 +341,11 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
     const readConversation = async (id: ConversationId, parent: unknown) => {
       const k = String(id);
       let part = cache?.parts.get(k);
-      if (!part) {
+      if (!part || part.generation !== (cache?.generations.get(k) ?? 0)) {
         const gen = cache?.generations.get(k) ?? 0, at = cache?.epoch;
-        part = await loadPart(id);
+        part = await loadPart(id, part);
         if (cache && (cache.generations.get(k) ?? 0) === gen && cache.epoch === at) cache.parts.set(k, part);
-      }
+      } else { timings.cacheHits++; }
       for (const [key, metrics] of part.ledger.models) {
         const row = getModel(key); row.sessions++;
         add(row.usage, metrics); add(totals, metrics);
@@ -380,18 +437,23 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
       let title: string | null = null, archived = false, pinned = false;
       if (metaDb) {
         try {
-          const row = metaDb.prepare("SELECT title, archived, pinned FROM luna_conversations WHERE id=?").get(Number(id)) as { title?: string | null; archived?: number; pinned?: number } | undefined;
+          const row = conversationMeta.get(Number(id));
           if (row) { title = row.title ?? null; archived = !!row.archived; pinned = !!row.pinned; }
         } catch {}
-        if (!title) {
+        if (!title && part.fallbackTitle === undefined) {
           try {
-            const first = (await tx.scanEntries({ conversationId: id, order: "ascending" }, 30)).items.find(e => e.kind === "pi.user");
+            const titleScanStarted = performance.now();
+            const titleEntries = await tx.scanEntries({ conversationId: id, order: "ascending" }, 30);
+            timings.entriesScanned += titleEntries.items.length;
+            timings.scanMs += performance.now() - titleScanStarted;
+            const first = titleEntries.items.find(e => e.kind === "pi.user");
             const txt = (first as unknown as { model?: Array<{ content?: unknown }> })?.model?.[0]?.content ?? "";
             const t = typeof txt === "string" ? txt : Array.isArray(txt) ? (txt as Array<{ text?: string }>).map((b) => b.text || "").join(" ") : "";
-            title = t.replace(/\s+/g, " ").slice(0, 60) || null;
+            part.fallbackTitle = t.replace(/\s+/g, " ").slice(0, 60) || null;
           } catch {}
         }
       }
+      title ??= part.fallbackTitle ?? null;
       statusBreakdown[status] = (statusBreakdown[status] ?? 0) + 1;
       const pid = projectLinks.get(Number(id)) ?? 0;
       const pname = projectNames.get(pid) ?? null;
@@ -474,7 +536,9 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
       boards: toolCallsGlobal.get("board") ?? 0,
     };
 
+    timings.aggregationMs = Math.max(0, performance.now() - started - timings.scanMs - timings.metadataMs);
     return {
+      performance: timings,
       generatedAt: new Date().toISOString(),
       scope: "All retained conversations, including archived sessions and subagents. Deleted conversations are excluded. Fork history is counted only at its original owner.",
       totals, sessions,
@@ -497,7 +561,7 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
         "Reasoning tokens are part of output. One-hour cache writes are part of cache writes. Optional counters sum reported values only.",
         "Daily charts and response counts use retained assistant messages. Undated compaction attempts are excluded, so chart sums can differ from ledger totals.",
         "Tool-reported usage is shown separately and is not added to model totals because it can overlap.",
-        "Per-session status is live. Filter and sort the sessions table to find active, failed, or waiting sessions.",
+        "Per-session status reflects the snapshot time. Refresh to update active, failed, or waiting sessions.",
         "Tool calls and skill invocations are counted from retained entries. Fork parents do not duplicate child tool history.",
         "Project and worker breakdowns use luna_session_projects and ExecTarget. General holds sessions without a project.",
       ],

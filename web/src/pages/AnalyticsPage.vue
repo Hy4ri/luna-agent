@@ -28,7 +28,7 @@
           </option>
         </select>
       </label>
-      <Button type="button" variant="outline" size="sm" class="h-8 px-3 text-xs font-medium text-foreground bg-card border-border hover:bg-accent" :disabled="refreshing" @click="load">
+      <Button type="button" variant="outline" size="sm" class="h-8 px-3 text-xs font-medium text-foreground bg-card border-border hover:bg-accent" :disabled="refreshing" @click="load(true)">
         Refresh
       </Button>
       <span class="text-muted-foreground text-xs ml-auto self-center a-updated font-mono">{{ updatedText }}</span>
@@ -407,8 +407,6 @@
     <SessionsConsoleDialog
       v-if="snapshot"
       v-model:open="sessionsConsoleOpen"
-      :sessions="snapshot.sessionsList || []"
-      :status-breakdown="snapshot.statusBreakdown"
       @inspect="inspectSession"
     />
 
@@ -420,15 +418,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from "vue"
+import { ref, computed, watch, onUnmounted, nextTick } from "vue"
 import { Menu, X } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { ui, setDrawer, navigate } from "@/stores/app"
-import { json } from "@/lib/api"
+import { serverUrl, token } from "@/lib/api"
+import { analyticsSnapshot as snapshot, loadAnalytics } from "@/stores/analytics"
 import { SESSION_STATUS_LABELS } from "@/lib/session-status"
 import type { SessionStatus } from "@/lib/types"
 
-import type { AnalyticsSnapshot, ModelItem, DailyItem, AnalyticsSession } from "./analytics/types"
+import type { ModelItem, DailyItem, AnalyticsSession } from "./analytics/types"
 import { full, compact, usd, pct, when, COLORS, FIELDS } from "./analytics/formatters"
 
 import DailyValuesDialog from "./analytics/DailyValuesDialog.vue"
@@ -440,7 +439,6 @@ import SessionInspectDialog from "./analytics/SessionInspectDialog.vue"
 const opened = ref(false)
 const generation = ref(0)
 const selected = ref("")
-const snapshot = ref<AnalyticsSnapshot | null>(null)
 const refreshing = ref(false)
 const busy = ref(false)
 const statusText = ref("")
@@ -613,23 +611,34 @@ function getRectSize(day: DailyItem, fieldIndex: number) {
   return (val / max) * chartHeight
 }
 
-async function load() {
-  if (!opened.value) return
+async function load(force = false) {
+  if (!opened.value || refreshing.value) return
   const own = ++generation.value
   refreshing.value = true
   busy.value = true
   statusIsError.value = false
   statusText.value = snapshot.value ? "Updating usage…" : "Loading usage…"
 
+  const loadStarted = performance.now()
   try {
-    const next = await json<AnalyticsSnapshot>("/v1/analytics")
+    const next = await loadAnalytics(force)
+    const requestFinished = performance.now()
+
     if (!opened.value || own !== generation.value) return
-    snapshot.value = next
     if (selected.value && !next.models.some((m) => m.key === selected.value)) {
       selected.value = ""
     }
     updatedText.value = "Updated " + when(next.generatedAt)
     statusText.value = ""
+
+    await nextTick()
+    if (!opened.value || own !== generation.value) return
+    performance.clearMeasures("analytics-request")
+    performance.clearMeasures("analytics-render")
+    performance.clearMeasures("analytics-request-to-render")
+    performance.measure("analytics-request", { start: loadStarted, end: requestFinished })
+    performance.measure("analytics-render", { start: requestFinished, end: performance.now() })
+    performance.measure("analytics-request-to-render", { start: loadStarted, end: performance.now() })
   } catch (error: any) {
     if (opened.value && own === generation.value) {
       statusIsError.value = true
@@ -644,8 +653,11 @@ async function load() {
 }
 
 watch(
-  () => ui.view,
-  (newView) => {
+  () => [ui.view, serverUrl.value, token.value] as const,
+  ([newView]) => {
+    generation.value++
+    refreshing.value = false
+    updatedText.value = snapshot.value ? "Updated " + when(snapshot.value.generatedAt) : ""
     if (newView === "analytics") {
       opened.value = true
       load()
@@ -658,13 +670,6 @@ watch(
   },
   { immediate: true },
 )
-
-onMounted(() => {
-  if (ui.view === "analytics") {
-    opened.value = true
-    load()
-  }
-})
 
 onUnmounted(() => {
   opened.value = false
