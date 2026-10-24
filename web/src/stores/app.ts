@@ -10,7 +10,7 @@ import * as modelsStore from "./models";
 import * as sessionsStore from "./sessions";
 import * as composerStore from "./composer";
 
-export type View = "chat" | "analytics" | "settings";
+export type View = "chat" | "analytics" | "github" | "settings";
 export const SETTINGS_TABS: readonly string[] = sections.map(section => section.id);
 export const SIDE_MIN = 200, SIDE_MAX = 480, SIDE_DEFAULT = 264;
 
@@ -68,7 +68,7 @@ export function closeSettings(force = false): boolean {
   setDrawer(false);
   return true;
 }
-function closePage(view: "analytics") {
+function closePage(view: "analytics" | "github") {
   if (ui.view !== view) return;
   ui.view = "chat";
   if (location.hash === "#" + view) clearHash();
@@ -85,7 +85,7 @@ export function openSettings(route?: string) {
   ui.settingsTab = category;
   ui.settingsTarget = target;
   ui.settingsNavigation++;
-  if (ui.view !== "settings") { closePanel(); closePage("analytics"); ui.view = "settings"; }
+  if (ui.view !== "settings") { closePanel(); closePage("analytics"); closePage("github"); ui.view = "settings"; }
   setDrawer(false);
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
@@ -99,7 +99,7 @@ export function setSettingsTab(route: string) {
   ui.settingsNavigation++;
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
-function openPage(view: "analytics") {
+function openPage(view: "analytics" | "github") {
   if (!closeSettings()) return;
   if (ui.login) return;
   closePanel(); setDrawer(false);
@@ -107,6 +107,7 @@ function openPage(view: "analytics") {
   if (location.hash !== "#" + view) location.hash = view;
 }
 export const openAnalytics = () => openPage("analytics");
+export const openGitHub = () => openPage("github");
 /** "Back to chat" from any page. Focuses the composer. */
 export function backToChat() {
   if (ui.view === "settings") { if (!closeSettings()) return; }
@@ -117,11 +118,13 @@ export function backToChat() {
 export function leavePages(): boolean {
   if (!closeSettings()) return false;
   if (ui.view === "analytics") closePage("analytics");
+  if (ui.view === "github") closePage("github");
   return true;
 }
 export function navigate(view: View, tab?: string) {
   if (view === "settings") openSettings(tab);
   else if (view === "analytics") openAnalytics();
+  else if (view === "github") openGitHub();
   else backToChat();
 }
 
@@ -130,6 +133,7 @@ let returnFocus: Element | null = null;
 export function openPanel(name: string, options?: { keepSettings?: boolean }) {
   if (name === "settings") { closePanel(); return openSettings(); }
   if (name === "analytics") { closePanel(); return openAnalytics(); }
+  if (name === "github") { closePanel(); return openGitHub(); }
   if (!options?.keepSettings && !closeSettings()) return;
   returnFocus = document.activeElement;
   setDrawer(false);
@@ -145,6 +149,7 @@ export function closePanel() {
     if (el?.isConnected && !el.closest("[inert]") && el.offsetParent !== null) el.focus();
     else if (ui.view === "settings") document.getElementById("settings-menu")?.focus();
     else if (ui.view === "analytics") document.getElementById("analytics-menu")?.focus();
+    else if (ui.view === "github") document.getElementById("github-menu")?.focus();
     else {
       const menu = document.getElementById("menu");
       (menu?.offsetParent ? menu : document.getElementById("more"))?.focus();
@@ -258,14 +263,15 @@ function applyHash() {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) openSettings();
   else if (h === "#analytics") { if (ui.view !== "analytics") openAnalytics(); }
+  else if (h === "#github") { if (ui.view !== "github") openGitHub(); }
   else if (h === "#cron") { history.replaceState(null, "", location.pathname + location.search); openPanel("cron"); }
 }
 window.addEventListener("hashchange", () => {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) { openSettings(); return; }
   if (!closeSettings()) return;
-  if (h === "#analytics" || h === "#cron") applyHash();
-  else { closePage("analytics"); }
+  if (h === "#analytics" || h === "#github" || h === "#cron") applyHash();
+  else { closePage("analytics"); closePage("github"); }
 });
 window.addEventListener("beforeunload", e => {
   if (ui.view === "settings" && guard?.isDirty()) { e.preventDefault(); e.returnValue = ""; }
