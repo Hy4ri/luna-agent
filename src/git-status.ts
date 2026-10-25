@@ -7,7 +7,7 @@ export type GitStatus = { state: 'ok'; branch: string; upstream: string | null; 
 // Cache pending reads too: sessions sharing a workspace must not start duplicate Git processes.
 export function createGitStatusReader() {
   const cache = new Map<string, { until: number; value: Promise<GitStatus> }>();
-  return (key: string, env: ExecutionEnv, commandEnv?: Record<string, string>): Promise<GitStatus> => {
+  const read = (key: string, env: ExecutionEnv, commandEnv?: Record<string, string>): Promise<GitStatus> => {
     const now = Date.now();
     for (const [k, v] of cache) if (v.until < now) cache.delete(k);
     const previous = cache.get(key);
@@ -17,6 +17,7 @@ export function createGitStatusReader() {
     cache.set(key, entry);
     return entry.value;
   };
+  return Object.assign(read, { invalidate: () => cache.clear() });
 }
 
 async function readGitStatus(env: ExecutionEnv, supplied?: Record<string, string>): Promise<GitStatus> {

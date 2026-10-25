@@ -1,15 +1,27 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { ui, backToChat, setDrawer } from "@/stores/app";
 import { chat } from "@/stores/chat";
 import { history } from "@/stores/sessions";
-import { serverUrl } from "@/lib/api";
+import { serverUrl, json } from "@/lib/api";
 import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo } from "./github/client";
+import ChangesTab from "./source-control/ChangesTab.vue";
 import ItemList from "./github/ItemList.vue";
 import ItemDetail from "./github/ItemDetail.vue";
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo } from "../../../src/github";
 import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu } from "@lucide/vue";
 
+const section = ref<'changes' | 'pr' | 'issue'>('changes');
+const sourceProjects = ref<{id:number;name:string;cwd:string;general?:boolean}[]>([]);
+const sourceProject = ref<number | null>(chat.project);
+const selector = computed(() => chat.session ? { session: String(chat.session) } : sourceProject.value !== null ? { project: sourceProject.value } : null);
+async function loadSourceProjects() {
+  try { sourceProjects.value = (await json<{projects: typeof sourceProjects.value}>('/v1/projects')).projects.filter(p => !p.general && p.cwd);
+    if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
+  } catch (e) { listError.value = (e as Error).message; }
+}
+function setSection(value: 'changes' | 'pr' | 'issue') { section.value = value; if (value !== 'changes') { if (kind.value === value) void loadList(); else kind.value = value; } }
+function followRepo(repo: string | null) { if (repo) selectedRepo.value = repo; }
 const status = ref<GhStatus | null>(null);
 const repos = ref<{ repo: string; projects: { id: number; name: string }[] }[]>([]);
 const selectedRepo = ref<string>("");
@@ -215,6 +227,7 @@ watch([kind, stateFilter], () => {
 
 watch(serverUrl, () => { loadGeneration++; detailGeneration++; selectedRepo.value = ""; detail.value = null; items.value = []; repoInfo.value = null; void init(); });
 onMounted(() => {
+  void loadSourceProjects();
   void init();
 });
 </script>
@@ -226,7 +239,7 @@ onMounted(() => {
       <div class="flex items-center gap-3 min-w-0">
         <button
           type="button"
-          id="github-menu"
+          id="source-control-menu"
           @click="setDrawer(true)"
           class="p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors"
           title="Open menu"
@@ -235,11 +248,11 @@ onMounted(() => {
         </button>
         <div class="flex items-center gap-2">
           <GitPullRequest class="w-5 h-5 text-primary" />
-          <h1 tabindex="-1" class="font-semibold text-base">GitHub</h1>
+          <h1 tabindex="-1" class="font-semibold text-base">Source Control</h1>
         </div>
       </div>
 
-      <div v-if="status?.state === 'ok'" class="flex flex-wrap items-center gap-2 min-w-0">
+      <div v-if="section !== 'changes' && status?.state === 'ok'" class="flex flex-wrap items-center gap-2 min-w-0">
         <!-- Repo Selector -->
         <select
           :value="showCustomRepo ? '__custom__' : selectedRepo"
@@ -288,8 +301,20 @@ onMounted(() => {
       </div>
     </header>
 
+    <div role="tablist" aria-label="Source Control sections" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border">
+      <button v-for="tab in ([{id:'changes',label:'Changes'},{id:'pr',label:'Pull requests'},{id:'issue',label:'Issues'}] as const)" :key="tab.id" type="button" role="tab" :aria-selected="section === tab.id" class="px-3 py-1.5 rounded text-xs" :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="setSection(tab.id)">{{ tab.label }}</button>
+      <button v-if="section === 'changes'" type="button" class="ml-auto text-xs px-2" @click="backToChat">Close</button>
+    </div>
+    <template v-if="section === 'changes'">
+      <div v-if="!chat.session" class="px-3 py-2 border-b border-border text-xs">
+        <label>Project <select v-model="sourceProject" aria-label="Source Control project" class="bg-secondary border border-border rounded px-2 py-1"><option v-for="project in sourceProjects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
+      </div>
+      <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
+      <ChangesTab v-if="selector" v-bind="selector" @repo="followRepo" />
+      <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on this host to use source control.</p>
+    </template>
     <!-- Main Content Area -->
-    <div class="flex-1 min-h-0 overflow-hidden min-w-0">
+    <div v-else class="flex-1 min-h-0 overflow-hidden min-w-0">
       <!-- Status Checks -->
       <div v-if="!status" class="flex items-center justify-center h-full text-muted-foreground text-sm">
         Checking GitHub status…
@@ -309,30 +334,6 @@ onMounted(() => {
         >
           <!-- Controls Bar -->
           <div class="p-3 border-b border-border space-y-2 shrink-0">
-            <!-- Tabs -->
-            <div role="tablist" class="flex bg-muted rounded p-0.5 text-xs font-medium">
-              <button
-                type="button"
-                role="tab"
-                :aria-selected="kind === 'pr'"
-                @click="kind = 'pr'"
-                class="flex-1 py-1 rounded transition-colors"
-                :class="kind === 'pr' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-              >
-                Pull Requests
-              </button>
-              <button
-                type="button"
-                role="tab"
-                :aria-selected="kind === 'issue'"
-                @click="kind = 'issue'"
-                class="flex-1 py-1 rounded transition-colors"
-                :class="kind === 'issue' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-              >
-                Issues
-              </button>
-            </div>
-
             <!-- Search & State Filter -->
             <div class="flex gap-2">
               <div class="relative flex-1">

@@ -15,7 +15,7 @@ import Composer from '@/components/composer/Composer.vue';
 import PanelHost from '@/components/panels/PanelHost.vue';
 import CommandPalette from '@/components/CommandPalette.vue';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
-const GitHubPage = defineAsyncComponent(() => import('@/pages/GitHubPage.vue'));
+const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
 import { recoveryOpen } from '@/lib/connections';
 import { isDesktop, serverUrl } from '@/lib/api';
@@ -399,8 +399,8 @@ onUnmounted(() => {
       <div v-if="ui.view === 'analytics'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window"><AnalyticsPage :inert="blocked" /></div>
       </div>
-      <div v-if="ui.view === 'github'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
-        <div class="settings-window"><GitHubPage :inert="blocked" /></div>
+      <div v-if="ui.view === 'source-control'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+        <div class="settings-window"><SourceControlPage :inert="blocked" /></div>
       </div>
       <div v-if="ui.view === 'settings'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window"><SettingsPage :inert="blocked" /></div>
