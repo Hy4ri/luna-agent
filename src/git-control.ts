@@ -101,7 +101,7 @@ export function createGitControl() {
       let args: string[] = [], network = false;
       if (action === 'stage' || action === 'unstage') {
         const selected = await paths(w, s, body.paths as string[], action === 'unstage');
-        args = action === 'stage' ? ['add', '--', ...selected] : s.unborn ? ['rm', '--cached', '-r', '--', ...selected] : ['restore', '--staged', '--', ...selected];
+        args = action === 'stage' ? ['add', '--', ...selected] : s.unborn ? ['rm', '--cached', '-r', '-f', '--', ...selected] : ['restore', '--staged', '--', ...selected];
       } else if (action === 'commit') {
         if (s.files.some(f => f.conflict)) throw new GitError('Resolve conflicts before committing', 409);
         if (!s.files.some(f => f.staged)) throw new GitError('Nothing is staged', 400);

@@ -21,7 +21,8 @@ async function loadSourceProjects() {
   } catch (e) { listError.value = (e as Error).message; }
 }
 function setSection(value: 'changes' | 'pr' | 'issue') { section.value = value; if (value !== 'changes') { if (kind.value === value) void loadList(); else kind.value = value; } }
-function followRepo(repo: string | null) { if (repo) selectedRepo.value = repo; }
+let followedWorkspace = false;
+function followRepo(repo: string | null) { if (repo) { followedWorkspace = true; selectedRepo.value = repo; } }
 const status = ref<GhStatus | null>(null);
 const repos = ref<{ repo: string; projects: { id: number; name: string }[] }[]>([]);
 const selectedRepo = ref<string>("");
@@ -77,6 +78,9 @@ async function init() {
     repos.value = res.repos;
     if (!res.repos.length) showCustomRepo.value = true;
 
+    // The workspace origin from Changes wins over the saved/fallback repo.
+    // Its watcher ran before status was ok, so load the list here.
+    if (followedWorkspace || selectedRepo.value) { void loadList(); return; }
     const saved = localStorage.getItem(storageKey());
     if (saved && (repos.value.some((r) => r.repo === saved) || REPO_REGEX.test(saved))) {
       selectedRepo.value = saved;
