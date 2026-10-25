@@ -264,7 +264,8 @@ async function handleNewSession() {
   if (newSessionPending.value) return;
   newSessionPending.value = true;
   try {
-    await newSession(activeProject.value);
+    const worker = chat.session ? chat.machine?.id ?? null : chat.draftOpen ? chat.draftWorker : undefined;
+    await newSession(activeProject.value, worker);
   } catch (e: any) {
     addErr(e?.message || 'Failed to create new session');
   } finally {
