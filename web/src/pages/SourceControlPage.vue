@@ -321,7 +321,7 @@ onMounted(() => {
         <label>Project <select v-model="sourceProject" aria-label="Source Control project" class="bg-secondary border border-border rounded px-2 py-1"><option v-for="project in sourceProjects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
       </div>
       <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
-      <ChangesTab v-if="selector" v-bind="selector" @repo="followRepo" />
+      <ChangesTab v-if="selector" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
       <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on this host to use source control.</p>
     </template>
     <!-- Main Content Area -->

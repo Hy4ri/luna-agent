@@ -1503,6 +1503,10 @@ Mutation results contain `{ changes, summary, sha }`. Paths must be current chan
 relative and literal; absolute paths, traversal, and escaping parent symlinks are rejected. Up to 500
 paths are accepted. Commit messages must contain 1–10000 characters. Unknown body fields are rejected.
 
+With more than 5000 untracked files (for example an unignored build folder), untracked folders are
+listed as single entries ending in `/` and `untrackedCollapsed` is `true`; staging such an entry adds
+the whole folder. `/v1/git/branches` lists an `origin/<name>` branch only when no local `<name>` exists.
+
 Stage and unstage work on whole files. A partially staged file appears in both Staged and Changes.
 Commit uses only the index, the repository's Git identity, and its normal hooks. No author overrides
 or generated trailers are added. Conflicts block commits. Branch switching never forces away changes:

@@ -21,6 +21,7 @@ export type Changes = {
   detached: boolean;
   unborn: boolean;
   files: ChangeFile[];
+  untrackedCollapsed: boolean;
   repo: string | null;
   busy: boolean;
 };
@@ -34,6 +35,7 @@ export type Branches = {
 export type DiffResult = {
   path: string;
   binary: boolean;
+  directory: boolean;
   text: string;
   truncated: boolean;
 };
