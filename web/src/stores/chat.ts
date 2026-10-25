@@ -411,12 +411,14 @@ export async function openSession(id: string | number, reattach = false) {
   });
 }
 /** Starts an empty, local-only conversation. The server session is created on the first message (see `createSession`). */
-export async function newSession(project?: number | string | null): Promise<boolean> {
+export async function newSession(project?: number | string | null, worker?: number | null): Promise<boolean> {
   if (!leavePages()) return false;
   clearConversation();
   chat.project = project !== undefined && project !== null ? Number(project) : null;
   const selectedProject = history.projects.find(p => p.id === chat.project);
-  if (selectedProject && !selectedProject.general && !selectedProject.cwd) {
+  if (worker !== undefined) {
+    chat.draftWorker = worker;
+  } else if (selectedProject && !selectedProject.general && !selectedProject.cwd) {
     chat.draftWorker = selectedProject.workerDirs?.[0]?.worker ?? null;
   }
   chat.draftOpen = true;

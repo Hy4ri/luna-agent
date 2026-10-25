@@ -2,6 +2,7 @@
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick } from "vue";
 import {
   Moon,
+  Plus,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -138,9 +139,8 @@ function isGroupCollapsed(key: string): boolean {
 
 async function handleNewChat(projectId?: number | string | null, worker?: number | null) {
   try {
-    const id = await newSession(projectId);
+    const id = await newSession(projectId, worker);
     if (id) {
-      if (worker !== undefined && worker !== null) chat.draftWorker = worker;
       setDrawer(false);
       nextTick(() => document.querySelector<HTMLInputElement>("#input")?.focus());
     }
