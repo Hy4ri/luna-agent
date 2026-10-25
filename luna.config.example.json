@@ -2,7 +2,8 @@
   "dataDir": "~/.luna",
   "server": {
     "host": "127.0.0.1",
-    "port": 8787
+    "port": 8787,
+    "publicUrls": []
   },
   "provider": "anthropic",
   "model": "claude-sonnet-4-5",
