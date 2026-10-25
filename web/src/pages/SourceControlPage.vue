@@ -22,7 +22,14 @@ async function loadSourceProjects() {
 }
 function setSection(value: 'changes' | 'pr' | 'issue') { section.value = value; if (value !== 'changes') { if (kind.value === value) void loadList(); else kind.value = value; } }
 let followedWorkspace = false;
-function followRepo(repo: string | null) { if (repo) { followedWorkspace = true; selectedRepo.value = repo; } }
+// Follow the workspace origin only when it changes, so a reload, remount, or
+// Git action does not replace a repository the user chose.
+let lastWorkspaceRepo: string | null = null;
+function followRepo(repo: string | null) {
+  if (repo === lastWorkspaceRepo) return;
+  lastWorkspaceRepo = repo;
+  if (repo) { followedWorkspace = true; selectedRepo.value = repo; }
+}
 const status = ref<GhStatus | null>(null);
 const repos = ref<{ repo: string; projects: { id: number; name: string }[] }[]>([]);
 const selectedRepo = ref<string>("");
