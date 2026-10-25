@@ -67,7 +67,11 @@ Non-loopback binding still requires `LUNA_TOKEN`. Tailscale must already be conn
 must allow the daemon port. This feature does not install or start Tailscale or change firewall rules.
 Discovery labels addresses in `100.64.0.0/10` as Tailscale; you can correct labels or enter addresses manually.
 
-CORS permits the desktop shell and this daemon's own IPv4 interface origins on its configured port.
+CORS permits the desktop shell, this daemon's own IPv4 interface origins on its configured port, and every origin in `server.publicUrls`.
+
+## Public HTTPS address
+
+To reach the daemon through a tunnel or reverse proxy, list its HTTPS origin in `server.publicUrls`, for example `["https://luna.example.com"]`. Use an origin only: no path, query, or credentials. Luna advertises each entry as a **Public** address in `GET /v1/connection` and allows it for CORS. The proxy must forward to the daemon port. The server token is still required for `/v1`, so always set `LUNA_TOKEN` before you expose the daemon. Restart Luna after you change `server`.
 Known interface origins remain accepted for the life of the daemon, including after a network change.
 It does not allow arbitrary website origins. An HTTPS browser page cannot switch to an HTTP address;
 use HTTPS addresses or the desktop client. Custom proxy origins need separate proxy CORS configuration.

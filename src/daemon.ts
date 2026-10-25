@@ -8,7 +8,7 @@ import { createApp } from "./server.js";
 
 let cfg;
 try { cfg = loadConfig(); } catch (e) { console.error((e as Error).message); process.exit(1); }
-const { host, port } = cfg.server;
+const { host, port, publicUrls } = cfg.server;
 const token = process.env.LUNA_TOKEN;
 if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1" && !token) {
   console.error("refusing to bind non-loopback host without LUNA_TOKEN");
@@ -17,7 +17,7 @@ if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1" && !token) {
 
 const rt = await startRuntime(cfg);
 const app = createApp({
-  connection: daemonConnection(cfg.dataDir, host, port),
+  connection: daemonConnection(cfg.dataDir, host, port, publicUrls),
   harness: rt.harness, sideCommands: rt.sideCommands, titler: rt.titler, limitContinuer: rt.limitContinuer, token, agent: { model: rt.model },
   settings: rt.settings, busyInput: rt.busyInput, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,

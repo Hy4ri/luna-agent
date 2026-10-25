@@ -146,7 +146,9 @@ export const ConfigSchema = z
       /** User-enrolled project files. Identity files remain separately protected. */
       files: z.array(z.strictObject({ path: z.string().min(1).refine(isAbsolute, "learning file path must be absolute"), domain: z.string().min(1).refine(s => s !== "global", "project domain cannot be global") })).default([]),
     }).prefault({}),
-    server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787) }).prefault({}),
+    server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787),
+      /** Public HTTPS origins that reach this daemon (tunnel or reverse proxy). Advertised to clients and allowed for CORS. */
+      publicUrls: z.array(z.url().refine(u => { const p = new URL(u); return p.protocol === "https:" && p.pathname === "/" && !p.search && !p.hash && !p.username; }, "Use an HTTPS origin without a path")).default([]) }).prefault({}),
   })
   .superRefine((c, ctx) => {
     if (!!c.subagents.provider !== !!c.subagents.model) ctx.addIssue({ code: "custom", path: ["subagents"], message: "provider and model must be set together" });

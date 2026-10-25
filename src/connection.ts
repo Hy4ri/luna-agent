@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 
-export function daemonConnection(dataDir: string, host: string, port: number) {
+export function daemonConnection(dataDir: string, host: string, port: number, publicUrls: string[] = []) {
   mkdirSync(dataDir, { recursive: true });
   const file = join(dataDir, "connection-id");
   try { writeFileSync(file, randomUUID(), { flag: "wx", mode: 0o600 }); }
@@ -13,7 +13,8 @@ export function daemonConnection(dataDir: string, host: string, port: number) {
   if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error("Invalid daemon connection-id");
   const addresses = () => Object.values(networkInterfaces()).flatMap(rows => rows ?? [])
     .filter(row => !row.internal && row.family === "IPv4" && (host === "0.0.0.0" || host === "::" || host === row.address))
-    .map(row => ({ url: `http://${row.address}:${port}`, label: /^100\./.test(row.address) && Number(row.address.split(".")[1]) >= 64 && Number(row.address.split(".")[1]) <= 127 ? "Tailscale" : "LAN" }));
+    .map(row => ({ url: `http://${row.address}:${port}`, label: /^100\./.test(row.address) && Number(row.address.split(".")[1]) >= 64 && Number(row.address.split(".")[1]) <= 127 ? "Tailscale" : "LAN" }))
+    .concat(publicUrls.map(url => ({ url: new URL(url).origin, label: "Public" })));
   const origins = new Set<string>();
   const rememberOrigins = () => {
     for (const address of addresses()) origins.add(address.url);
