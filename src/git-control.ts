@@ -15,7 +15,29 @@ const UNTRACKED_LIMIT = 5000;
 function countUntracked(out: string) { let n = 0; for (const record of out.split('\0')) if (record.startsWith('? ')) n++; return n; }
 export function redact(text: string) { return text.replace(/(https?:\/\/)[^\s/@]+@/gi, '$1***@').replace(/\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g, '[redacted]'); }
 
+function parseStatus(out: string) {
+  let headOid: string | null = null;
+  let branch = '', upstream: string | null = null, ahead = 0, behind = 0, unborn = false;
+  const files: ChangeFile[] = [], records = out.split('\0');
+  for (let i = 0; i < records.length; i++) {
+    const line = records[i]!;
+    if (line.startsWith('# branch.head ')) branch = line.slice(14);
+    else if (line.startsWith('# branch.oid ')) { unborn = line.slice(13) === '(initial)'; headOid = unborn ? null : line.slice(13); }
+    else if (line.startsWith('# branch.upstream ')) upstream = line.slice(18);
+    else if (line.startsWith('# branch.ab ')) { const m = /\+(\d+) -(\d+)/.exec(line); if (m) { ahead = Number(m[1]); behind = Number(m[2]); } }
+    else if (line.startsWith('? ')) files.push({ path: line.slice(2), index: '?', worktree: '?', staged: false, untracked: true, conflict: false });
+    else if (/^[12u] /.test(line)) {
+      const path = line.split(' ').slice(line[0] === '1' ? 8 : line[0] === '2' ? 9 : 10).join(' ');
+      const x = line[2]!, y = line[3]!;
+      files.push({ path, ...(line[0] === '2' ? { original: records[++i]! } : {}), index: x, worktree: y, staged: x !== '.', untracked: false, conflict: line[0] === 'u' });
+    }
+  }
+  return { headOid, branch, upstream, ahead, behind, unborn, files };
+}
+
 export function createGitControl() {
+  const roots = new Map<string, { until: number; result: Promise<string> }>();
+  const workspaceKey = (w: Workspace) => JSON.stringify([w.machine, w.env.cwd]);
   async function run(w: Workspace, args: string[], options: { cwd?: string; network?: boolean; read?: boolean; limit?: number; truncate?: boolean } = {}) {
     const source = w.commandEnv ?? process.env;
     const safe: Record<string, string> = {};
@@ -29,45 +51,42 @@ export function createGitControl() {
     }, ctx);
     if (!result.ok) throw new GitError(redact(`Git execution failed; refresh to check the result: ${result.error.message}`), /time.?out|timed out/i.test(result.error.message) ? 504 : 503);
     if (overflow && !options.truncate) throw new GitError('Git output exceeds the size limit', 422);
+    if (/not a git repository/i.test(error)) roots.delete(workspaceKey(w));
     return { out, error: redact(error), code: result.value.exitCode, truncated: overflow };
   }
   function check(r: { code: number; error: string }) {
     if (r.code !== 0) throw new GitError(r.error.trim().slice(0, 2000) || 'Git command failed', /would be overwritten|diverg|not possible to fast-forward|index.lock|conflict/i.test(r.error) ? 409 : /timed? ?out/i.test(r.error) ? 504 : 422);
   }
   async function root(w: Workspace) {
-    const r = await run(w, ['rev-parse', '--show-toplevel'], { read: true });
-    if (r.code !== 0) throw new GitError('Not a Git repository', 400);
-    return r.out.trim();
+    const key = workspaceKey(w), cached = roots.get(key);
+    if (cached && cached.until > Date.now()) return cached.result;
+    const entry = { until: Infinity, result: Promise.resolve('') };
+    entry.result = (async () => {
+      const r = await run(w, ['rev-parse', '--show-toplevel'], { read: true });
+      if (r.code !== 0) throw new GitError('Not a Git repository', 400);
+      return r.out.trim();
+    })().then(value => { entry.until = Date.now() + 60_000; return value; }, error => {
+      if (roots.get(key) === entry) roots.delete(key);
+      throw error;
+    });
+    roots.delete(key); roots.set(key, entry);
+    while (roots.size > 200) roots.delete(roots.keys().next().value!);
+    return entry.result;
   }
   async function changes(w: Workspace): Promise<Changes> {
     const cwd = await root(w);
     const status = (mode: string) => run(w, ['status', '--porcelain=v2', '--branch', '-z', `--untracked-files=${mode}`], { cwd, read: true, truncate: true });
-    let r = await status('all'), untrackedCollapsed = false;
+    const [initial, remote] = await Promise.all([status('all'), run(w, ['remote', 'get-url', 'origin'], { cwd, read: true })]);
+    let r = initial, untrackedCollapsed = false;
     // Thousands of untracked files (an unignored build folder) would flood the list or
     // exceed the output limit; list untracked folders as single entries instead.
     if (r.truncated || (r.code === 0 && countUntracked(r.out) > UNTRACKED_LIMIT)) { r = await status('normal'); untrackedCollapsed = true; }
     if (r.truncated) throw new GitError('Git output exceeds the size limit', 422);
     check(r);
-    let headOid: string | null = null;
-    let branch = '', upstream: string | null = null, ahead = 0, behind = 0, unborn = false;
-    const files: ChangeFile[] = [], records = r.out.split('\0');
-    for (let i = 0; i < records.length; i++) {
-      const line = records[i]!;
-      if (line.startsWith('# branch.head ')) branch = line.slice(14);
-      else if (line.startsWith('# branch.oid ')) { unborn = line.slice(13) === '(initial)'; headOid = unborn ? null : line.slice(13); }
-      else if (line.startsWith('# branch.upstream ')) upstream = line.slice(18);
-      else if (line.startsWith('# branch.ab ')) { const m = /\+(\d+) -(\d+)/.exec(line); if (m) { ahead = Number(m[1]); behind = Number(m[2]); } }
-      else if (line.startsWith('? ')) files.push({ path: line.slice(2), index: '?', worktree: '?', staged: false, untracked: true, conflict: false });
-      else if (/^[12u] /.test(line)) {
-        const path = line.split(' ').slice(line[0] === '1' ? 8 : line[0] === '2' ? 9 : 10).join(' ');
-        const x = line[2]!, y = line[3]!;
-        files.push({ path, ...(line[0] === '2' ? { original: records[++i]! } : {}), index: x, worktree: y, staged: x !== '.', untracked: false, conflict: line[0] === 'u' });
-      }
-    }
-    const remote = await run(w, ['remote', 'get-url', 'origin'], { cwd, read: true });
+    const { headOid, branch, upstream, ahead, behind, unborn, files } = parseStatus(r.out);
     return { cwd, machine: w.machine, branch, upstream, ahead, behind, headOid, detached: branch === '(detached)', unborn, files, untrackedCollapsed, repo: remote.code ? null : parseRemote(remote.out.trim()), busy: active.has(`${w.machine}:${cwd}`) };
   }
-  async function paths(w: Workspace, s: Changes, requested: string[], expandRename = false) {
+  async function paths(w: Workspace, s: Pick<Changes, 'cwd' | 'files'>, requested: string[], expandRename = false) {
     const allowed = new Set(s.files.flatMap(f => [f.path, ...(f.original ? [f.original] : [])]));
     for (const path of requested) {
       if (!path || path.startsWith('/') || path.split('/').includes('..') || path.includes('\0') || !allowed.has(path)) throw new GitError('Path is not a current repository change', 400);
@@ -80,7 +99,12 @@ export function createGitControl() {
     return [...new Set(requested.flatMap(path => { const f = s.files.find(f => f.path === path); return expandRename && f?.original ? [path, f.original] : [path]; }))];
   }
   async function diff(w: Workspace, path: string, staged: boolean) {
-    const s = await changes(w); await paths(w, s, [path]);
+    if (!path || path.startsWith('/') || path.split('/').includes('..') || path.includes('\0')) throw new GitError('Invalid diff path', 400);
+    const cwd = await root(w);
+    const status = await run(w, ['status', '--porcelain=v2', '-z', `--untracked-files=${path.endsWith('/') ? 'normal' : 'all'}`, '--', path], { cwd, read: true });
+    check(status);
+    const s = { cwd, files: parseStatus(status.out).files };
+    await paths(w, s, [path]);
     const file = s.files.find(f => f.path === path); if (!file) throw new GitError('File not found', 404);
     if (file.untracked && path.endsWith('/')) return { path, binary: false, directory: true, text: '', truncated: false };
     let args: string[];

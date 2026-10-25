@@ -20,6 +20,10 @@ type DetailGraphQLResponse = {
           viewerCanDelete: boolean;
           comments: {
             totalCount: number;
+            pageInfo: {
+              hasPreviousPage: boolean;
+              startCursor: string | null;
+            };
             nodes: Array<{
               id: string;
               author: { login: string } | null;
@@ -65,6 +69,10 @@ type DetailGraphQLResponse = {
           reviewDecision: string | null;
           comments: {
             totalCount: number;
+            pageInfo: {
+              hasPreviousPage: boolean;
+              startCursor: string | null;
+            };
             nodes: Array<{
               id: string;
               author: { login: string } | null;
@@ -113,6 +121,89 @@ type DetailGraphQLResponse = {
   } | null;
 };
 
+export async function commentsPage(
+  owner: string,
+  name: string,
+  number: number,
+  before?: string | null
+): Promise<{ comments: Comment[]; before: string | null }> {
+  const query = `
+    query($owner: String!, $name: String!, $n: Int!, $before: String) {
+      repository(owner: $owner, name: $name) {
+        issueOrPullRequest(number: $n) {
+          __typename
+          ... on Issue {
+            comments(last: 30, before: $before) {
+              pageInfo {
+                hasPreviousPage
+                startCursor
+              }
+              nodes {
+                id
+                author {
+                  login
+                }
+                body
+                createdAt
+                url
+              }
+            }
+          }
+          ... on PullRequest {
+            comments(last: 30, before: $before) {
+              pageInfo {
+                hasPreviousPage
+                startCursor
+              }
+              nodes {
+                id
+                author {
+                  login
+                }
+                body
+                createdAt
+                url
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await graphql<DetailGraphQLResponse>(query, { owner, name, n: number, before: before || null });
+  const repoData = data?.repository;
+  if (!repoData) {
+    throw new GhError(`Repository ${owner}/${name} not found`, 404);
+  }
+  const node = repoData.issueOrPullRequest;
+  if (!node) {
+    throw new GhError(`Item #${number} not found in ${owner}/${name}`, 404);
+  }
+
+  const commentsConn = node.comments;
+  const commentsList: Comment[] = [];
+  for (const c of commentsConn.nodes) {
+    if (c) {
+      commentsList.push({
+        id: c.id,
+        author: c.author?.login ?? null,
+        body: c.body,
+        createdAt: c.createdAt,
+        url: c.url,
+      });
+    }
+  }
+
+  const hasPrevious = commentsConn.pageInfo.hasPreviousPage;
+  const startCursor = commentsConn.pageInfo.startCursor;
+
+  return {
+    comments: commentsList,
+    before: hasPrevious ? startCursor : null,
+  };
+}
+
 export async function detail(owner: string, name: string, number: number): Promise<Detail> {
   const query = `
     query($owner: String!, $name: String!, $n: Int!) {
@@ -135,8 +226,12 @@ export async function detail(owner: string, name: string, number: number): Promi
             viewerCanUpdate
             locked
             viewerCanDelete
-            comments(first: 100) {
+            comments(last: 30) {
               totalCount
+              pageInfo {
+                hasPreviousPage
+                startCursor
+              }
               nodes {
                 id
                 author {
@@ -183,8 +278,12 @@ export async function detail(owner: string, name: string, number: number): Promi
             mergeable
             mergeStateStatus
             reviewDecision
-            comments(first: 100) {
+            comments(last: 30) {
               totalCount
+              pageInfo {
+                hasPreviousPage
+                startCursor
+              }
               nodes {
                 id
                 author {
@@ -265,6 +364,9 @@ export async function detail(owner: string, name: string, number: number): Promi
       }
     }
 
+    const hasPrevious = node.comments.pageInfo.hasPreviousPage;
+    const startCursor = node.comments.pageInfo.startCursor;
+
     return {
       kind: "issue",
       id: node.id,
@@ -277,6 +379,7 @@ export async function detail(owner: string, name: string, number: number): Promi
       body: node.body,
       comments: commentsList,
       commentTotal: node.comments.totalCount,
+      commentsBefore: hasPrevious ? startCursor : null,
       can: {
         comment: canComment,
         close: !repoData.isArchived && node.viewerCanUpdate,
@@ -369,6 +472,9 @@ export async function detail(owner: string, name: string, number: number): Promi
       ["ADMIN", "MAINTAIN", "WRITE"].includes(perm ?? "") &&
       node.mergeable !== "CONFLICTING";
 
+    const hasPrevious = node.comments.pageInfo.hasPreviousPage;
+    const startCursor = node.comments.pageInfo.startCursor;
+
     return {
       kind: "pr",
       id: node.id,
@@ -381,6 +487,7 @@ export async function detail(owner: string, name: string, number: number): Promi
       body: node.body,
       comments: commentsList,
       commentTotal: node.comments.totalCount,
+      commentsBefore: hasPrevious ? startCursor : null,
       can: {
         comment: canComment,
         close: !repoData.isArchived && node.viewerCanUpdate && node.state !== "MERGED",

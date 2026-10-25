@@ -46,7 +46,8 @@ import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
 import { entryMedia } from "./media-directives.js";
 import { GhError, REPO_PART, ghStatus, projectRepos } from "./github.js";
 import { repoInfo, listItems } from "./github-list.js";
-import { detail } from "./github-detail.js";
+import { detail, commentsPage } from "./github-detail.js";
+import { createGithubCache } from "./github-cache.js";
 import * as ghActions from "./github-actions.js";
 import { cardInput, itemUrl, linked } from "./github-board.js";
 import { z } from "zod";
@@ -717,6 +718,12 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- GitHub endpoints ----
+  const githubCache = createGithubCache();
+  const freshGithub = (c: HonoContext) => c.req.query("fresh") === "1";
+  const readDetail = (repo: string, n: number, fresh = false) => {
+    const [owner, name] = repo.split("/");
+    return githubCache.read(`${repo.toLowerCase()}|detail|${n}`, 15_000, () => detail(owner!, name!, n), fresh);
+  };
   const ghFail = (c: HonoContext, e: unknown) => e instanceof GhError ? err(c, (e.status === 401 ? 502 : e.status) as 400 | 403 | 404 | 409 | 422 | 500 | 502 | 503 | 504, e.message) : err(c, 500, "GitHub request failed");
   const repoOfParam = (c: HonoContext) => {
     const o = c.req.param("owner") ?? "";
@@ -726,7 +733,7 @@ export function createApp(opts: ServerOptions) {
 
   app.get("/v1/github/status", async (c) => {
     try {
-      return c.json(await ghStatus());
+      return c.json(await githubCache.read("status", 300_000, ghStatus, freshGithub(c), value => value.state === "ok"));
     } catch (e) {
       return ghFail(c, e);
     }
@@ -745,7 +752,7 @@ export function createApp(opts: ServerOptions) {
     if (!repo) return err(c, 400, "invalid repository name");
     const [owner, name] = repo.split("/");
     try {
-      return c.json(await repoInfo(owner!, name!));
+      return c.json(await githubCache.read(`${repo.toLowerCase()}|info`, 600_000, () => repoInfo(owner!, name!), freshGithub(c)));
     } catch (e) {
       return ghFail(c, e);
     }
@@ -764,7 +771,8 @@ export function createApp(opts: ServerOptions) {
     if (after && after.length > 1000) return err(c, 400, "invalid cursor");
 
     try {
-      return c.json(await listItems(repo, kind, state as "open" | "closed" | "all", q, after));
+      return c.json(await githubCache.read(`${repo.toLowerCase()}|list|${JSON.stringify([kind, state, q, after ?? null])}`, 30_000,
+        () => listItems(repo, kind, state as "open" | "closed" | "all", q, after), freshGithub(c)));
     } catch (e) {
       return ghFail(c, e);
     }
@@ -777,8 +785,7 @@ export function createApp(opts: ServerOptions) {
     const n = Number(numStr);
     if (!Number.isSafeInteger(n) || n < 1) return err(c, 400, "invalid item number");
     try {
-      const [owner, name] = repo.split("/");
-      return c.json(await detail(owner!, name!, n));
+      return c.json(await readDetail(repo, n, freshGithub(c)));
     } catch (e) {
       return ghFail(c, e);
     }
@@ -797,28 +804,41 @@ export function createApp(opts: ServerOptions) {
     if (!result.success) throw new GhError(result.error.issues.map(i => i.message).join("; ").slice(0, 300), 400);
     return result.data;
   };
+  app.get("/v1/github/repos/:owner/:name/items/:number/comments", async c => {
+    try {
+      const repo = ghRepo(c), n = ghNumber(c), before = c.req.query("before");
+      if (!before || before.length > 1000) throw new GhError("Invalid comments cursor", 400);
+      const [owner, name] = repo.split("/");
+      return c.json(await commentsPage(owner!, name!, n, before));
+    } catch (e) { return ghFail(c, e); }
+  });
+  const githubWrite = async <T,>(c: HonoContext, action: () => Promise<T>): Promise<T> => {
+    const repo = ghRepo(c);
+    try { return await action(); }
+    finally { githubCache.invalidateRepo(repo); }
+  };
   const commentBody = z.strictObject({ body: z.string().trim().min(1).max(65536) });
   const stateBody = z.strictObject({ kind: z.enum(["pr", "issue"]), state: z.enum(["open", "closed"]), reason: z.enum(["completed", "not_planned"]).optional() });
   const shaBody = z.strictObject({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
   const mergeBody = shaBody.extend({ method: z.enum(["merge", "squash", "rebase"]) });
   app.post("/v1/github/repos/:owner/:name/items/:number/comments", async c => {
-    try { const b = await ghBody(c, commentBody); return c.json(await ghActions.comment(ghRepo(c), ghNumber(c), b.body)); }
+    try { const b = await ghBody(c, commentBody); return await githubWrite(c, async () => c.json(await ghActions.comment(ghRepo(c), ghNumber(c), b.body))); }
     catch (e) { return ghFail(c, e); }
   });
   app.post("/v1/github/repos/:owner/:name/items/:number/state", async c => {
-    try { const b = await ghBody(c, stateBody); return c.json(await ghActions.setState(ghRepo(c), b.kind, ghNumber(c), b.state, b.reason)); }
+    try { const b = await ghBody(c, stateBody); return await githubWrite(c, async () => c.json(await ghActions.setState(ghRepo(c), b.kind, ghNumber(c), b.state, b.reason))); }
     catch (e) { return ghFail(c, e); }
   });
   app.post("/v1/github/repos/:owner/:name/pulls/:number/merge", async c => {
-    try { const b = await ghBody(c, mergeBody); return c.json(await ghActions.merge(ghRepo(c), ghNumber(c), b.method, b.sha)); }
+    try { const b = await ghBody(c, mergeBody); return await githubWrite(c, async () => c.json(await ghActions.merge(ghRepo(c), ghNumber(c), b.method, b.sha))); }
     catch (e) { return ghFail(c, e); }
   });
   app.post("/v1/github/repos/:owner/:name/pulls/:number/delete-branch", async c => {
-    try { const b = await ghBody(c, shaBody); return c.json(await ghActions.deleteBranch(ghRepo(c), ghNumber(c), b.sha)); }
+    try { const b = await ghBody(c, shaBody); return await githubWrite(c, async () => c.json(await ghActions.deleteBranch(ghRepo(c), ghNumber(c), b.sha))); }
     catch (e) { return ghFail(c, e); }
   });
   app.delete("/v1/github/repos/:owner/:name/issues/:number", async c => {
-    try { const b = await ghBody(c, z.strictObject({ confirm: z.number().int().positive() })); return c.json(await ghActions.deleteIssue(ghRepo(c), ghNumber(c), b.confirm)); }
+    try { const b = await ghBody(c, z.strictObject({ confirm: z.number().int().positive() })); return await githubWrite(c, async () => c.json(await ghActions.deleteIssue(ghRepo(c), ghNumber(c), b.confirm))); }
     catch (e) { return ghFail(c, e); }
   });
   const ghProjects = async (repo: string) => {
@@ -828,8 +848,9 @@ export function createApp(opts: ServerOptions) {
   };
   app.get("/v1/github/repos/:owner/:name/items/:number/cards", async c => {
     try {
-      const repo = ghRepo(c), n = ghNumber(c), [owner, name] = repo.split("/");
-      const d = await detail(owner!, name!, n), projects = await ghProjects(repo), url = itemUrl(repo, d.kind, n);
+      const repo = ghRepo(c), n = ghNumber(c), kind = c.req.query("kind");
+      if (kind !== "pr" && kind !== "issue") throw new GhError("kind must be pr or issue", 400);
+      const projects = await ghProjects(repo), url = itemUrl(repo, kind, n);
       const cards = projects.flatMap(p => [false, true].flatMap(archived => opts.conversations!.board.list(p.id, { archived })
         .filter(card => linked(card.description, url)).map(card => ({ project: p.id, id: card.id, status: card.status, archived: card.archived }))));
       return c.json({ projects, cards });
@@ -838,17 +859,17 @@ export function createApp(opts: ServerOptions) {
   app.post("/v1/github/repos/:owner/:name/items/:number/card", async c => {
     try {
       const repo = ghRepo(c), n = ghNumber(c), b = await ghBody(c, z.strictObject({ project: z.number().int().positive() }));
-      return await ghActions.withItemLock(repo, n, async () => {
+      return await githubWrite(c, () => ghActions.withItemLock(repo, n, async () => {
         const projects = await ghProjects(repo);
         if (!projects.some(p => p.id === b.project)) throw new GhError("Project does not use this repository", 400);
-        const [owner, name] = repo.split("/"), d = await detail(owner!, name!, n), url = itemUrl(repo, d.kind, n), conv = opts.conversations!;
+        const d = await readDetail(repo, n), url = itemUrl(repo, d.kind, n), conv = opts.conversations!;
         // Deduplication and creation share the serialized harness transaction.
         const result = await write(conv, () => {
           const existing = [false, true].flatMap(archived => conv.board.list(b.project, { archived })).find(card => linked(card.description, url));
           return existing ? { card: existing, created: false } : { card: conv.board.create(b.project, cardInput(repo, d)), created: true };
         });
         return c.json(result.card, result.created ? 201 : 200);
-      });
+      }));
     } catch (e) { return ghFail(c, e); }
   });
 

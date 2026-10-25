@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue';
 import { SquareKanban } from '@lucide/vue';
-import { json, post } from '@/lib/api';
+import { json, post, serverUrl, token } from '@/lib/api';
 import { openBoardCard } from '@/stores/app';
-const props = defineProps<{ repo: string; number: number }>();
+const props = defineProps<{ repo: string; number: number; kind: "pr" | "issue" }>();
 type Links = { projects: { id: number; name: string }[]; cards: { project: number; id: number; archived: boolean; status: string }[] };
 const links = ref<Links>({ projects: [], cards: [] });
 const selected = ref<number>(0), loading = ref(false), busy = ref(false), error = ref('');
 let generation = 0, disposed = false;
 const path = () => `/v1/github/repos/${props.repo}/items/${props.number}`;
-watch(() => [props.repo, props.number], async () => {
+watch(() => [props.repo, props.number, props.kind, serverUrl.value, token.value], async () => {
   const ticket = ++generation; links.value = { projects: [], cards: [] }; selected.value = 0; loading.value = true; error.value = '';
-  try { const result = await json<Links>(path() + '/cards'); if (ticket !== generation || disposed) return; links.value = result; selected.value = result.projects[0]?.id ?? 0; }
+  try { const result = await json<Links>(path() + '/cards?kind=' + props.kind); if (ticket !== generation || disposed) return; links.value = result; selected.value = result.projects[0]?.id ?? 0; }
   catch (e) { if (ticket === generation && !disposed) error.value = (e as Error).message; }
   finally { if (ticket === generation && !disposed) loading.value = false; }
 }, { immediate: true });

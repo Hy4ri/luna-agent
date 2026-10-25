@@ -1430,14 +1430,34 @@ The first request after daemon startup still needs a full retained-history scan.
 
 ## GitHub workspace
 
-Open **GitHub** from the sidebar, command palette, or `#github`. The page uses the main host's
-`gh` executable and GitHub login. Run `gh auth login` under the daemon account first. The daemon
-must receive the correct `HOME`, `GH_CONFIG_DIR`, or `XDG_CONFIG_HOME`. Tokens never reach the browser.
-Only github.com is supported. Workers do not run these commands.
+Open **Source Control** from the sidebar, command palette, or `#source-control`. Old `#github`
+links still work. The page uses the main host's GitHub login. The daemon calls `api.github.com`
+directly over reusable HTTP connections; it does not start `gh` for each API request.
+`GH_TOKEN` takes precedence over `GITHUB_TOKEN`. Without either variable, run `gh auth login`
+under the daemon account first. The daemon reads the token once with `gh auth token --hostname github.com`
+and keeps it in memory. It must receive the correct `HOME`, `GH_CONFIG_DIR`, or `XDG_CONFIG_HOME`.
+Tokens never reach the browser. Only github.com is supported. Workers do not run GitHub requests.
+A credential rejection clears the saved token. Read requests may reload it and retry once;
+write requests are never retried automatically. Restart the daemon after switching the stored GitHub account.
 
 The repository selector reads each project's `origin` remote and also accepts `owner/repo`.
-Lists refresh on page open, manual refresh, and actions; there is no background polling.
+Project discovery runs at most four Git commands at a time and caches the mapping for 30 seconds.
+Lists refresh on page open, tab changes, manual refresh, and actions; there is no background polling.
+Empty searches use repository connections; text searches use GitHub search. Both return 30 items per page.
 PR and issue bodies use the safe Markdown renderer, not executable assistant artifacts.
+
+GitHub reads use a bounded, per-daemon memory cache: status 5 minutes, repository metadata 10 minutes,
+list pages 30 seconds, and item detail 15 seconds. Identical pending reads share one request.
+Failed reads are not cached. GitHub writes clear the affected repository's cached reads, even on failure.
+Write permission, mergeability, branch, and SHA checks always read fresh GitHub data.
+Add `fresh=1` to status, repository metadata, list, or detail GET requests to bypass the cache.
+The UI Refresh button uses this flag. These policies need no configuration fields.
+
+The browser keeps up to 100 read entries in memory. A loaded list or item appears immediately on return,
+while a background request updates it. The displayed update time refers to the last successful list fetch.
+Changing the daemon address or Luna login token clears this browser cache. Actions invalidate the affected
+repository. The other list tab is prefetched for empty searches; desktop hover and keyboard focus can
+prefetch item detail after 150 milliseconds. Prefetch failures do not replace the selected item.
 
 All routes below use normal Luna API authentication. `:owner` and `:name` are repository parts;
 `:number` is a positive item number. JSON bodies reject unknown properties.
@@ -1448,14 +1468,17 @@ All routes below use normal Luna API authentication. `:owner` and `:name` are re
 | GET | `/v1/github/repos` | Repositories grouped with matching project ids and names |
 | GET | `/v1/github/repos/:owner/:name` | Repository permissions and allowed merge methods |
 | GET | `/v1/github/repos/:owner/:name/items` | `kind=pr\|issue`, `state=open\|closed\|all`, optional `q` (256 characters), `after` cursor; 30 items/page |
-| GET | `/v1/github/repos/:owner/:name/items/:number` | Description, up to 100 comments, PR checks and recent reviews, action capabilities |
+| GET | `/v1/github/repos/:owner/:name/items/:number` | Description, latest 30 comments, `commentTotal`, `commentsBefore` cursor (or null), PR checks and recent reviews, action capabilities |
+| GET | `/v1/github/repos/:owner/:name/items/:number/comments` | Required `before` cursor (max 1000 characters); returns earlier 30 comments and `before` cursor (or null) |
 | POST | `/v1/github/repos/:owner/:name/items/:number/comments` | `{ "body": "comment" }`, 1–65536 characters |
 | POST | `/v1/github/repos/:owner/:name/items/:number/state` | `{ "kind": "issue", "state": "closed", "reason": "completed" }`; reason optional, `completed` or `not_planned`; state `open` or `closed` |
 | POST | `/v1/github/repos/:owner/:name/pulls/:number/merge` | `{ "method": "squash", "sha": "<40-character head SHA>" }`; method `merge`, `squash`, or `rebase` |
 | POST | `/v1/github/repos/:owner/:name/pulls/:number/delete-branch` | `{ "sha": "<40-character head SHA>" }` |
 | DELETE | `/v1/github/repos/:owner/:name/issues/:number` | `{ "confirm": 12 }`; must equal the issue number; permanent, requires GitHub deletion permission |
-| GET | `/v1/github/repos/:owner/:name/items/:number/cards` | Matching projects and linked active/archived board cards |
+| GET | `/v1/github/repos/:owner/:name/items/:number/cards` | Required `kind=pr\|issue`; matching projects and linked active/archived board cards; no GitHub detail request |
 | POST | `/v1/github/repos/:owner/:name/items/:number/card` | `{ "project": 1 }`; creates a todo/medium card (201), or returns an existing linked card (200) |
+
+Use **Load earlier comments** in item detail to prepend older comments without reloading the item.
 
 The server checks action permissions again before submitting a write. GitHub also enforces repository
 rules. Merge submits the displayed SHA; a changed head is rejected. Branch deletion checks the current
@@ -1498,6 +1521,11 @@ main host; General and projects without a host directory are rejected.
 | POST | `/v1/git/fetch` | `{}`; fetches and prunes origin |
 | POST | `/v1/git/pull` | `{}`; requires an upstream and uses `--ff-only` |
 | POST | `/v1/git/push` | `{ "expectedBranch": "feature", "expectedHead": "<40-character SHA>", "setUpstream": true }` to publish; optional `confirmDefault: true` only after explicit default-branch confirmation |
+
+Repository-root lookup is cached per machine and working directory for 60 seconds (at most 200 entries).
+Status and origin lookup run together. Diff requests check only the selected path's current status;
+they retain repository membership and parent-path safety checks. Writes still scan fresh Git status
+before and after the action. No Git change or diff results are cached.
 
 Mutation results contain `{ changes, summary, sha }`. Paths must be current changes in the repository,
 relative and literal; absolute paths, traversal, and escaping parent symlinks are rejected. Up to 500
