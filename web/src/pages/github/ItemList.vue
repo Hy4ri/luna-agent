@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { onUnmounted, watch } from "vue";
 import StatusIcon from "./StatusIcon.vue";
 import type { ListItem } from "../../../../src/github";
 import { MessageSquare, CircleCheck, CircleX, AlertCircle } from "@lucide/vue";
 
-defineProps<{
+const props = defineProps<{
   items: ListItem[];
   selectedNumber: number | null;
   loading: boolean;
@@ -11,11 +12,21 @@ defineProps<{
   loadingMore: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "select", item: ListItem): void;
   (e: "loadMore"): void;
+  (e: "prefetch", item: ListItem): void;
 }>();
 
+let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+function cancelPrefetch() { clearTimeout(hoverTimer); hoverTimer = undefined; }
+function schedulePrefetch(item: ListItem, keyboard = false) {
+  cancelPrefetch();
+  if (!keyboard && !window.matchMedia('(hover: hover)').matches) return;
+  hoverTimer = setTimeout(() => { hoverTimer = undefined; emit('prefetch', item); }, 150);
+}
+watch(() => props.items, cancelPrefetch);
+onUnmounted(cancelPrefetch);
 function formatTime(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
@@ -41,6 +52,8 @@ function formatTime(iso: string): string {
       :key="item.number"
       type="button"
       @click="$emit('select', item)"
+      @pointerenter="schedulePrefetch(item)" @pointerleave="cancelPrefetch"
+      @focus="schedulePrefetch(item, true)" @blur="cancelPrefetch"
       class="flex items-start gap-3 p-3 text-left hover:bg-accent/60 transition-colors w-full relative"
       :class="{ 'bg-accent/80': selectedNumber === item.number }"
     >

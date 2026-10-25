@@ -1,4 +1,4 @@
-import { gh, graphql, GhError } from "./github.js";
+import { api, graphql, GhError } from "./github.js";
 import { repoInfo } from "./github-list.js";
 import { detail } from "./github-detail.js";
 import type { Kind, Detail, Comment } from "./github.js";
@@ -27,14 +27,14 @@ export async function comment(repo: string, number: number, body: string): Promi
       throw new GhError("Permission denied to comment on this item", 403);
     }
 
-    const res = await gh<{
+    const res = await api<{
       id: string;
       node_id: string;
       user: { login: string } | null;
       body: string;
       created_at: string;
       html_url: string;
-    }>(["api", "--method", "POST", `repos/${repo}/issues/${number}/comments`, "--input", "-"], { body });
+    }>(`repos/${repo}/issues/${number}/comments`, { method: "POST", body: { body } });
 
     return {
       id: res.node_id ?? String(res.id),
@@ -74,7 +74,7 @@ export async function setState(
       payload.state_reason = reason;
     }
 
-    await gh(["api", "--method", "PATCH", endpoint, "--input", "-"], payload);
+    await api(endpoint, { method: "PATCH", body: payload });
     return await detail(owner, name, number);
   });
 }
@@ -102,9 +102,9 @@ export async function merge(
       throw new GhError(`Merge method '${method}' is not allowed for this repository`, 422);
     }
 
-    const res = await gh<{ merged: boolean; message: string }>(
-      ["api", "--method", "PUT", `repos/${repo}/pulls/${number}/merge`, "--input", "-"],
-      { merge_method: method, sha }
+    const res = await api<{ merged: boolean; message: string }>(
+      `repos/${repo}/pulls/${number}/merge`,
+      { method: "PUT", body: { merge_method: method, sha } }
     );
 
     if (!res.merged) {
@@ -133,13 +133,13 @@ export async function deleteBranch(repo: string, number: number, sha: string): P
     const headRef = itemDetail.pr.head;
     const headRepo = itemDetail.pr.headRepo;
 
-    const refRes = await gh<{ object?: { sha: string } }>(["api", `repos/${headRepo}/git/ref/heads/${refEncode(headRef)}`]);
+    const refRes = await api<{ object?: { sha: string } }>(`repos/${headRepo}/git/ref/heads/${refEncode(headRef)}`);
     const currentSha = refRes?.object?.sha;
     if (!currentSha || currentSha !== sha) {
       throw new GhError("Branch has new commits or SHA mismatch", 409);
     }
 
-    await gh(["api", "--method", "DELETE", `repos/${headRepo}/git/refs/heads/${refEncode(headRef)}`]);
+    await api(`repos/${headRepo}/git/refs/heads/${refEncode(headRef)}`, { method: "DELETE" });
 
     return await detail(owner, name, number);
   });

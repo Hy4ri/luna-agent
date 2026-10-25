@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import { ref, watch, onUnmounted } from "vue";
+import { serverUrl, token } from "@/lib/api";
+import { fetchComments } from "./client";
 import StatusIcon from "./StatusIcon.vue";
-import type { RepoInfo, Detail } from "../../../../src/github";
+import type { RepoInfo, Detail, Comment } from "../../../../src/github";
 import Markdown from "@/components/chat/Markdown.vue";
 import BoardLink from "./BoardLink.vue";
 import ItemActions from "./ItemActions.vue";
 import { ExternalLink, MessageSquare, CheckCircle2, XCircle, Clock } from "@lucide/vue";
 
-defineProps<{
+const props = defineProps<{
   repo: string;
   detail: Detail | null;
   info: RepoInfo | null;
@@ -19,6 +22,27 @@ const emit = defineEmits<{
   (e: "deleted"): void;
 }>();
 
+const earlier = ref<Comment[]>([]), before = ref<string | null>(null), loadingEarlier = ref(false), commentsError = ref('');
+let commentsGeneration = 0;
+watch(() => [props.repo, props.detail, serverUrl.value, token.value], () => {
+  commentsGeneration++; earlier.value = []; before.value = props.detail?.commentsBefore ?? null;
+  loadingEarlier.value = false; commentsError.value = '';
+}, { immediate: true, flush: 'sync' });
+onUnmounted(() => { commentsGeneration++; });
+async function loadEarlier() {
+  const item = props.detail, cursor = before.value, gen = commentsGeneration, [owner, name] = props.repo.split('/');
+  if (!item || !cursor || loadingEarlier.value || !owner || !name) return;
+  loadingEarlier.value = true; commentsError.value = '';
+  try {
+    const page = await fetchComments(owner, name, item.number, cursor);
+    if (gen !== commentsGeneration) return;
+    const seen = new Set([...earlier.value, ...item.comments].map(comment => comment.id));
+    earlier.value = [...page.comments.filter(comment => !seen.has(comment.id)), ...earlier.value];
+    before.value = page.before;
+  } catch (e) { if (gen === commentsGeneration) commentsError.value = (e as Error).message; }
+  finally { if (gen === commentsGeneration) loadingEarlier.value = false; }
+}
+
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString();
@@ -30,14 +54,15 @@ function formatTime(iso: string): string {
     <div v-if="loading && !detail" class="text-center text-muted-foreground text-sm py-12">
       Loading detail…
     </div>
-    <div v-else-if="error" class="text-center text-destructive text-sm py-12">
+    <div v-else-if="error && !detail" class="text-center text-destructive text-sm py-12">
       {{ error }}
     </div>
     <div v-else-if="!detail" class="text-center text-muted-foreground text-sm py-12">
       Select an item to view details.
     </div>
     <div v-else class="space-y-6 max-w-4xl mx-auto w-full">
-      <BoardLink :repo="repo" :number="detail.number" />
+      <p v-if="error" role="alert" class="text-xs text-destructive">{{ error }}</p>
+      <BoardLink :repo="repo" :number="detail.number" :kind="detail.kind" />
       <!-- Header -->
       <div class="space-y-2 border-b border-border/40 pb-4">
         <div class="flex items-center gap-2 text-xs text-muted-foreground">
@@ -100,7 +125,9 @@ function formatTime(iso: string): string {
           <MessageSquare class="w-4 h-4" />
           <span>Comments ({{ detail.commentTotal }})</span>
         </h3>
-        <div v-for="c in detail.comments" :key="c.id" class="bg-card border border-border rounded-lg p-4 space-y-2 text-sm">
+        <button v-if="before" type="button" :disabled="loadingEarlier" @click="loadEarlier" class="px-3 py-1.5 text-xs border border-border rounded disabled:opacity-50">{{ loadingEarlier ? 'Loading…' : 'Load earlier comments' }}</button>
+        <p v-if="commentsError" role="alert" class="text-xs text-destructive">{{ commentsError }}</p>
+        <div v-for="c in [...earlier, ...detail.comments]" :key="c.id" class="bg-card border border-border rounded-lg p-4 space-y-2 text-sm">
           <div class="flex items-center gap-2 text-xs text-muted-foreground border-b border-border/40 pb-2">
             <span class="font-medium text-foreground">@{{ c.author ?? 'ghost' }}</span>
             <span>commented on {{ formatTime(c.createdAt) }}</span>
@@ -111,8 +138,8 @@ function formatTime(iso: string): string {
           </div>
           <Markdown :content="c.body" />
         </div>
-        <div v-if="detail.commentTotal > detail.comments.length" class="text-xs text-muted-foreground text-center py-2">
-          {{ detail.commentTotal - detail.comments.length }} more comments on GitHub.
+        <div v-if="detail.commentTotal > detail.comments.length + earlier.length" class="text-xs text-muted-foreground text-center py-2">
+          {{ detail.commentTotal - detail.comments.length - earlier.length }} more comments on GitHub.
         </div>
       </div>
 
