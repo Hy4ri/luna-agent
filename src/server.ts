@@ -1,3 +1,4 @@
+import { createGitControl, GitError, type Workspace } from "./git-control.js";
 import { createGitStatusReader } from "./git-status.js";
 import { undoCommand } from "./undo.js";
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode, type BusyPolicy } from "./busy-input.js";
@@ -43,6 +44,12 @@ import { REVIEW_DEFAULT_PROMPT } from "./review.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
 import { entryMedia } from "./media-directives.js";
+import { GhError, REPO_PART, ghStatus, projectRepos } from "./github.js";
+import { repoInfo, listItems } from "./github-list.js";
+import { detail } from "./github-detail.js";
+import * as ghActions from "./github-actions.js";
+import { cardInput, itemUrl, linked } from "./github-board.js";
+import { z } from "zod";
 import { activeContextTokens } from "./context-usage.js";
 
 // Carry placement identity with its entry so viewers can replace local pending input atomically.
@@ -154,7 +161,7 @@ export function createApp(opts: ServerOptions) {
     try { await work; }
     finally { draining.delete(id); stops.delete(id); }
   };
-  const err = (c: HonoContext, status: 400 | 401 | 404 | 409 | 500, message: string) => c.json({ error: message }, status);
+  const err = (c: HonoContext, status: 400 | 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503 | 504, message: string) => c.json({ error: message }, status);
 
   app.onError((e, c) => {
     if (e instanceof BusyCommandError) return err(c, e.status, e.message);
@@ -658,19 +665,193 @@ export function createApp(opts: ServerOptions) {
   });
 
   const readGitStatus = createGitStatusReader();
-  app.get("/v1/sessions/:id/git", async c => {
-    const conv = await getConv(c.req.param("id"));
-    if (!conv) return err(c, 404, "no such session");
+  const gitControl = createGitControl();
+  const sessionEnv = async (id: string): Promise<Workspace> => {
+    const conv = await getConv(id);
+    if (!conv) throw new GitError("No such session", 404);
     const worker = (await harness.snapshot(ExecTarget, conv.id, context))?.worker ?? null;
     const cwd = (await conv.agent(context)).cwd ?? undefined;
-    if (worker !== null && !opts.workers?.view(worker)?.online)
-      return c.json({ state: "unavailable", message: "Machine unavailable" });
-    const env = worker === null ? new NodeExecutionEnv({ cwd: cwd ?? opts.cwd ?? process.cwd() }) : opts.workers!.env(worker, cwd);
-    try {
-      const commandEnv = worker === null ? undefined : opts.workers!.reviewEnvironment(worker);
-      return c.json(await readGitStatus(`${worker ?? 'main'}:${env.cwd}`, env, commandEnv));
-    } catch { return c.json({ state: "unavailable", message: "Machine unavailable" }); }
+    if (worker !== null && !opts.workers?.view(worker)?.online) throw new GitError("Machine unavailable", 503);
+    return { machine: worker === null ? 'main' : String(worker),
+      env: worker === null ? new NodeExecutionEnv({ cwd: cwd ?? opts.cwd ?? process.cwd() }) : opts.workers!.env(worker, cwd),
+      commandEnv: worker === null ? undefined : opts.workers!.reviewEnvironment(worker) };
+  };
+  app.get("/v1/sessions/:id/git", async c => {
+    try { const w = await sessionEnv(c.req.param('id')); return c.json(await readGitStatus(`${w.machine}:${w.env.cwd}`, w.env, w.commandEnv)); }
+    catch (e) { if (e instanceof GitError && e.status === 404) return err(c, 404, e.message); return c.json({ state: 'unavailable', message: 'Machine unavailable' }); }
   });
+  const gitWorkspace = async (c: HonoContext): Promise<Workspace> => {
+    const session = c.req.query('session'), project = c.req.query('project');
+    if (session && project) throw new GitError('Select either a session or a project', 400);
+    if (session) return sessionEnv(session);
+    if (!project || !/^\d+$/.test(project)) throw new GitError('Select a session or a project', 400);
+    const p = opts.conversations?.projects.get(Number(project));
+    if (!p || p.general || !p.cwd) throw new GitError('Project has no main-host directory', 400);
+    return { machine: 'main', env: new NodeExecutionEnv({ cwd: p.cwd }) };
+  };
+  const gitFail = (c: HonoContext, e: unknown) => e instanceof GitError ? err(c, e.status, e.message) : err(c, 500, 'Git operation failed');
+  app.get('/v1/git/changes', async c => { try { return c.json(await gitControl.changes(await gitWorkspace(c))); } catch (e) { return gitFail(c, e); } });
+  app.get('/v1/git/branches', async c => { try { return c.json(await gitControl.branches(await gitWorkspace(c))); } catch (e) { return gitFail(c, e); } });
+  app.get('/v1/git/diff', async c => {
+    try { const path = c.req.query('path'), staged = c.req.query('staged') ?? '0';
+      if (!path || !['0','1'].includes(staged)) throw new GitError('Invalid diff selection', 400);
+      return c.json(await gitControl.diff(await gitWorkspace(c), path, staged === '1'));
+    } catch (e) { return gitFail(c, e); }
+  });
+  const gitPaths = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).min(1).max(500) });
+  const gitSchemas = {
+    stage: gitPaths, unstage: gitPaths,
+    commit: z.strictObject({ message: z.string().trim().min(1).max(10000) }),
+    switch: z.strictObject({ branch: z.string().min(1).max(255), create: z.boolean().optional(), from: z.string().min(1).max(255).optional() }),
+    fetch: z.strictObject({}), pull: z.strictObject({}),
+    push: z.strictObject({ expectedBranch: z.string().min(1).max(255), expectedHead: z.string().regex(/^[0-9a-f]{40}$/), setUpstream: z.boolean().optional(), confirmDefault: z.boolean().optional() }),
+  };
+  for (const action of Object.keys(gitSchemas) as (keyof typeof gitSchemas)[]) app.post(`/v1/git/${action}`, async c => {
+    try {
+      const b = gitSchemas[action].safeParse(await c.req.json().catch(() => null));
+      if (!b.success) throw new GitError(b.error.issues.map(i => i.message).join('; ').slice(0, 300), 400);
+      const w = await gitWorkspace(c);
+      try { const r = await gitControl.mutate(w, action, b.data); r.changes.busy = false; return c.json(r); }
+      finally { readGitStatus.invalidate(); }
+    } catch (e) { return gitFail(c, e); }
+  });
+
+  // ---- GitHub endpoints ----
+  const ghFail = (c: HonoContext, e: unknown) => e instanceof GhError ? err(c, (e.status === 401 ? 502 : e.status) as 400 | 403 | 404 | 409 | 422 | 500 | 502 | 503 | 504, e.message) : err(c, 500, "GitHub request failed");
+  const repoOfParam = (c: HonoContext) => {
+    const o = c.req.param("owner") ?? "";
+    const n = c.req.param("name") ?? "";
+    return REPO_PART.test(o) && REPO_PART.test(n) && ![".", ".."].includes(o) && ![".", ".."].includes(n) ? `${o}/${n}` : null;
+  };
+
+  app.get("/v1/github/status", async (c) => {
+    try {
+      return c.json(await ghStatus());
+    } catch (e) {
+      return ghFail(c, e);
+    }
+  });
+
+  app.get("/v1/github/repos", async (c) => {
+    try {
+      return c.json({ repos: await projectRepos(opts.conversations?.projects.list() ?? []) });
+    } catch (e) {
+      return ghFail(c, e);
+    }
+  });
+
+  app.get("/v1/github/repos/:owner/:name", async (c) => {
+    const repo = repoOfParam(c);
+    if (!repo) return err(c, 400, "invalid repository name");
+    const [owner, name] = repo.split("/");
+    try {
+      return c.json(await repoInfo(owner!, name!));
+    } catch (e) {
+      return ghFail(c, e);
+    }
+  });
+
+  app.get("/v1/github/repos/:owner/:name/items", async (c) => {
+    const repo = repoOfParam(c);
+    if (!repo) return err(c, 400, "invalid repository name");
+    const kind = c.req.query("kind");
+    if (kind !== "pr" && kind !== "issue") return err(c, 400, "kind must be pr or issue");
+    const state = c.req.query("state") ?? "open";
+    if (!["open", "closed", "all"].includes(state)) return err(c, 400, "invalid state");
+    const q = c.req.query("q") ?? "";
+    if (q.length > 256) return err(c, 400, "query too long (max 256 chars)");
+    const after = c.req.query("after");
+    if (after && after.length > 1000) return err(c, 400, "invalid cursor");
+
+    try {
+      return c.json(await listItems(repo, kind, state as "open" | "closed" | "all", q, after));
+    } catch (e) {
+      return ghFail(c, e);
+    }
+  });
+
+  app.get("/v1/github/repos/:owner/:name/items/:number", async (c) => {
+    const repo = repoOfParam(c);
+    if (!repo) return err(c, 400, "invalid repository name");
+    const numStr = c.req.param("number");
+    const n = Number(numStr);
+    if (!Number.isSafeInteger(n) || n < 1) return err(c, 400, "invalid item number");
+    try {
+      const [owner, name] = repo.split("/");
+      return c.json(await detail(owner!, name!, n));
+    } catch (e) {
+      return ghFail(c, e);
+    }
+  });
+
+
+  const ghNumber = (c: HonoContext) => {
+    const raw = c.req.param("number") ?? "";
+    const n = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(n) || n < 1) throw new GhError("invalid item number", 400);
+    return n;
+  };
+  const ghRepo = (c: HonoContext) => { const repo = repoOfParam(c); if (!repo) throw new GhError("invalid repository name", 400); return repo; };
+  const ghBody = async <T,>(c: HonoContext, schema: z.ZodType<T>): Promise<T> => {
+    const result = schema.safeParse(await c.req.json().catch(() => null));
+    if (!result.success) throw new GhError(result.error.issues.map(i => i.message).join("; ").slice(0, 300), 400);
+    return result.data;
+  };
+  const commentBody = z.strictObject({ body: z.string().trim().min(1).max(65536) });
+  const stateBody = z.strictObject({ kind: z.enum(["pr", "issue"]), state: z.enum(["open", "closed"]), reason: z.enum(["completed", "not_planned"]).optional() });
+  const shaBody = z.strictObject({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
+  const mergeBody = shaBody.extend({ method: z.enum(["merge", "squash", "rebase"]) });
+  app.post("/v1/github/repos/:owner/:name/items/:number/comments", async c => {
+    try { const b = await ghBody(c, commentBody); return c.json(await ghActions.comment(ghRepo(c), ghNumber(c), b.body)); }
+    catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/items/:number/state", async c => {
+    try { const b = await ghBody(c, stateBody); return c.json(await ghActions.setState(ghRepo(c), b.kind, ghNumber(c), b.state, b.reason)); }
+    catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/pulls/:number/merge", async c => {
+    try { const b = await ghBody(c, mergeBody); return c.json(await ghActions.merge(ghRepo(c), ghNumber(c), b.method, b.sha)); }
+    catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/pulls/:number/delete-branch", async c => {
+    try { const b = await ghBody(c, shaBody); return c.json(await ghActions.deleteBranch(ghRepo(c), ghNumber(c), b.sha)); }
+    catch (e) { return ghFail(c, e); }
+  });
+  app.delete("/v1/github/repos/:owner/:name/issues/:number", async c => {
+    try { const b = await ghBody(c, z.strictObject({ confirm: z.number().int().positive() })); return c.json(await ghActions.deleteIssue(ghRepo(c), ghNumber(c), b.confirm)); }
+    catch (e) { return ghFail(c, e); }
+  });
+  const ghProjects = async (repo: string) => {
+    if (!opts.conversations) throw new GhError("projects disabled", 404);
+    const repos = await projectRepos(opts.conversations.projects.list());
+    return repos.find(r => r.repo.toLowerCase() === repo.toLowerCase())?.projects ?? [];
+  };
+  app.get("/v1/github/repos/:owner/:name/items/:number/cards", async c => {
+    try {
+      const repo = ghRepo(c), n = ghNumber(c), [owner, name] = repo.split("/");
+      const d = await detail(owner!, name!, n), projects = await ghProjects(repo), url = itemUrl(repo, d.kind, n);
+      const cards = projects.flatMap(p => [false, true].flatMap(archived => opts.conversations!.board.list(p.id, { archived })
+        .filter(card => linked(card.description, url)).map(card => ({ project: p.id, id: card.id, status: card.status, archived: card.archived }))));
+      return c.json({ projects, cards });
+    } catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/items/:number/card", async c => {
+    try {
+      const repo = ghRepo(c), n = ghNumber(c), b = await ghBody(c, z.strictObject({ project: z.number().int().positive() }));
+      return await ghActions.withItemLock(repo, n, async () => {
+        const projects = await ghProjects(repo);
+        if (!projects.some(p => p.id === b.project)) throw new GhError("Project does not use this repository", 400);
+        const [owner, name] = repo.split("/"), d = await detail(owner!, name!, n), url = itemUrl(repo, d.kind, n), conv = opts.conversations!;
+        // Deduplication and creation share the serialized harness transaction.
+        const result = await write(conv, () => {
+          const existing = [false, true].flatMap(archived => conv.board.list(b.project, { archived })).find(card => linked(card.description, url));
+          return existing ? { card: existing, created: false } : { card: conv.board.create(b.project, cardInput(repo, d)), created: true };
+        });
+        return c.json(result.card, result.created ? 201 : 200);
+      });
+    } catch (e) { return ghFail(c, e); }
+  });
+
 
   app.get("/v1/sessions/:id/machine", async c => {
     const conv = await getConv(c.req.param("id"));

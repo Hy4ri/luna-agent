@@ -25,9 +25,10 @@ import {
   LoaderCircle,
   Monitor,
   ChartNoAxesColumn,
+  GitBranch,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
-import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics } from "@/stores/app";
+import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSourceControl } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
@@ -367,6 +368,7 @@ onMounted(() => {
         <span class="side-label">Board</span>
       </button>
       <button class="side-item" title="Analytics" :aria-current="ui.view === 'analytics' ? 'page' : undefined" @click="openAnalytics"><ChartNoAxesColumn :size="16" /><span class="side-label">Analytics</span></button>
+      <button class="side-item" title="Source Control" :aria-current="ui.view === 'source-control' ? 'page' : undefined" @click="openSourceControl"><GitBranch :size="16" /><span class="side-label">Source Control</span></button>
     </nav>
 
     <!-- History Section -->

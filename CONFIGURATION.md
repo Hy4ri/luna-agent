@@ -1427,3 +1427,104 @@ The first request after daemon startup still needs a full retained-history scan.
 ### Workspace Git status
 
 `GET /v1/sessions/:id/git` reads the session execution machine and working directory. It returns `state` (`ok`, `not-repository`, `unavailable`, or `error`). Successful reads include `branch`, `upstream`, `ahead`, `behind`, `added`, `deleted`, `untracked`, `conflicts`, and `files` (path, two-character status, added/deleted counts, binary flag). Totals compare tracked staged and unstaged changes with HEAD; untracked contents are excluded. Ahead/behind uses local upstream information without fetching. Reads share a four-second workspace cache. The UI refreshes every five seconds while visible and on focus. This endpoint never changes Git state.
+
+## GitHub workspace
+
+Open **GitHub** from the sidebar, command palette, or `#github`. The page uses the main host's
+`gh` executable and GitHub login. Run `gh auth login` under the daemon account first. The daemon
+must receive the correct `HOME`, `GH_CONFIG_DIR`, or `XDG_CONFIG_HOME`. Tokens never reach the browser.
+Only github.com is supported. Workers do not run these commands.
+
+The repository selector reads each project's `origin` remote and also accepts `owner/repo`.
+Lists refresh on page open, manual refresh, and actions; there is no background polling.
+PR and issue bodies use the safe Markdown renderer, not executable assistant artifacts.
+
+All routes below use normal Luna API authentication. `:owner` and `:name` are repository parts;
+`:number` is a positive item number. JSON bodies reject unknown properties.
+
+| Method | Route | Body or query |
+|---|---|---|
+| GET | `/v1/github/status` | CLI/login status, authenticated GitHub login |
+| GET | `/v1/github/repos` | Repositories grouped with matching project ids and names |
+| GET | `/v1/github/repos/:owner/:name` | Repository permissions and allowed merge methods |
+| GET | `/v1/github/repos/:owner/:name/items` | `kind=pr\|issue`, `state=open\|closed\|all`, optional `q` (256 characters), `after` cursor; 30 items/page |
+| GET | `/v1/github/repos/:owner/:name/items/:number` | Description, up to 100 comments, PR checks and recent reviews, action capabilities |
+| POST | `/v1/github/repos/:owner/:name/items/:number/comments` | `{ "body": "comment" }`, 1–65536 characters |
+| POST | `/v1/github/repos/:owner/:name/items/:number/state` | `{ "kind": "issue", "state": "closed", "reason": "completed" }`; reason optional, `completed` or `not_planned`; state `open` or `closed` |
+| POST | `/v1/github/repos/:owner/:name/pulls/:number/merge` | `{ "method": "squash", "sha": "<40-character head SHA>" }`; method `merge`, `squash`, or `rebase` |
+| POST | `/v1/github/repos/:owner/:name/pulls/:number/delete-branch` | `{ "sha": "<40-character head SHA>" }` |
+| DELETE | `/v1/github/repos/:owner/:name/issues/:number` | `{ "confirm": 12 }`; must equal the issue number; permanent, requires GitHub deletion permission |
+| GET | `/v1/github/repos/:owner/:name/items/:number/cards` | Matching projects and linked active/archived board cards |
+| POST | `/v1/github/repos/:owner/:name/items/:number/card` | `{ "project": 1 }`; creates a todo/medium card (201), or returns an existing linked card (200) |
+
+The server checks action permissions again before submitting a write. GitHub also enforces repository
+rules. Merge submits the displayed SHA; a changed head is rejected. Branch deletion checks the current
+ref SHA first, but GitHub's ref-deletion API has no atomic SHA precondition: another push between that
+check and deletion remains possible. Default branches and branches without write permission cannot be deleted.
+A concurrent action on the same item returns 409; writes are not automatically retried.
+GitHub credential failures return 502, not Luna's login-triggering 401. Other errors include 400 (invalid
+input), 403 (permission), 404 (missing item), 409 (conflict), 422 (rejected action), 503 (missing CLI),
+and 504 (timeout).
+
+**Add to board** uses the project whose origin matches the repository. If several projects match, choose
+one. If none match, the button is disabled. The card starts with the canonical GitHub URL on its own
+line, followed by author/date and body (truncated at the board's 8000-character description limit).
+That URL links the item to the card: removing it removes the link. Existing archived cards are also
+reused. Opening a link selects the correct project and opens that card's editor. There is no automatic
+state synchronization between GitHub and board cards.
+
+## Source Control: local Git
+
+The former **GitHub** page is now **Source Control** (`#source-control`). Old `#github` links redirect.
+The page has **Changes**, **Pull requests**, and **Issues** tabs. The existing GitHub routes do not change.
+
+Changes uses the active session's machine and working directory. Without a session, choose a project
+with a main-host directory. Git commands run on that machine, not in the browser. The displayed cwd is
+the repository root. The GitHub tabs follow the workspace's github.com `origin` remote when available.
+
+Every `/v1/git/*` request requires exactly one query selector: `session=<id>` or `project=<id>`.
+It uses the normal Luna API authentication. Offline workers return 503. Project selection runs on the
+main host; General and projects without a host directory are rejected.
+
+| Method | Route | Body / extra query |
+|---|---|---|
+| GET | `/v1/git/changes` | Branch, upstream, ahead/behind, detached/unborn state, files, cwd, machine, GitHub repo |
+| GET | `/v1/git/branches` | Current branch, local names/upstreams/counts, origin remote branch names |
+| GET | `/v1/git/diff` | `path=<relative path>&staged=0` or `staged=1`; plain diff text, binary/truncated flags |
+| POST | `/v1/git/stage` | `{ "paths": ["file.txt"] }` |
+| POST | `/v1/git/unstage` | `{ "paths": ["file.txt"] }` |
+| POST | `/v1/git/commit` | `{ "message": "Commit message" }` |
+| POST | `/v1/git/switch` | `{ "branch": "feature" }`, or `{ "branch": "feature", "create": true, "from": "HEAD" }`; remote branch: `origin/feature` |
+| POST | `/v1/git/fetch` | `{}`; fetches and prunes origin |
+| POST | `/v1/git/pull` | `{}`; requires an upstream and uses `--ff-only` |
+| POST | `/v1/git/push` | `{ "expectedBranch": "feature", "expectedHead": "<40-character SHA>", "setUpstream": true }` to publish; optional `confirmDefault: true` only after explicit default-branch confirmation |
+
+Mutation results contain `{ changes, summary, sha }`. Paths must be current changes in the repository,
+relative and literal; absolute paths, traversal, and escaping parent symlinks are rejected. Up to 500
+paths are accepted. Commit messages must contain 1–10000 characters. Unknown body fields are rejected.
+
+With more than 5000 untracked files (for example an unignored build folder), untracked folders are
+listed as single entries ending in `/` and `untrackedCollapsed` is `true`; staging such an entry adds
+the whole folder. `/v1/git/branches` lists an `origin/<name>` branch only when no local `<name>` exists.
+
+Stage and unstage work on whole files. A partially staged file appears in both Staged and Changes.
+Commit uses only the index, the repository's Git identity, and its normal hooks. No author overrides
+or generated trailers are added. Conflicts block commits. Branch switching never forces away changes:
+Git refuses switches that would overwrite them. There is no discard/reset/stash/rebase/force-push UI.
+
+Push supports origin only. It targets the current branch's origin upstream (or the same branch name
+when publishing). The server reads origin's actual default ref before a push. A push to that branch,
+or an unknown default, returns 409 `confirm-default:` until the user explicitly confirms. The displayed branch and head SHA are required and rechecked. Push sends the pinned SHA, not a moving HEAD. No force flag
+is used. Repository branch rules still apply. After a successful GitHub push, the UI offers a compare
+link to open a PR. Opening the Pull requests tab refreshes its list.
+
+A per-machine/repository mutation lock rejects overlapping actions with 409. External Git processes
+and agents can still change files; refresh after such changes. The UI warns when the session is active.
+Commands are argument arrays, not shell strings. Prompts are disabled, including SSH batch mode. The
+main host can use its SSH agent; workers currently supply PATH and HOME only, so use a credential helper
+or noninteractive SSH key there. Missing worker agent forwarding is not silently replaced by host auth.
+
+Local commands have a 15-second deadline; fetch/pull/push have 120 seconds. A failed or timed-out write
+can have partial effects: refresh and inspect the result before retrying. Output is capped at 4 MiB;
+diffs return a `truncated` flag after 512 KiB. Error/summary text and diffs redact URL credentials and
+common GitHub token formats. Git authentication errors are not Luna login failures (never HTTP401).
