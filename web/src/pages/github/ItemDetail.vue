@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import StatusIcon from "./StatusIcon.vue";
 import type { RepoInfo, Detail } from "../../../../src/github";
 import Markdown from "@/components/chat/Markdown.vue";
 import BoardLink from "./BoardLink.vue";
 import ItemActions from "./ItemActions.vue";
-import { ExternalLink, GitPullRequest, CircleDot, MessageSquare, CheckCircle2, XCircle, Clock } from "@lucide/vue";
+import { ExternalLink, MessageSquare, CheckCircle2, XCircle, Clock } from "@lucide/vue";
 
 defineProps<{
   repo: string;
@@ -40,8 +41,7 @@ function formatTime(iso: string): string {
       <!-- Header -->
       <div class="space-y-2 border-b border-border/40 pb-4">
         <div class="flex items-center gap-2 text-xs text-muted-foreground">
-          <GitPullRequest v-if="detail.kind === 'pr'" class="w-4 h-4 text-purple-400" />
-          <CircleDot v-else class="w-4 h-4 text-green-400" />
+          <StatusIcon :kind="detail.kind" :state="detail.state" :draft="detail.pr?.draft" />
           <span class="uppercase tracking-wide font-medium">{{ detail.kind === 'pr' ? 'Pull Request' : 'Issue' }}</span>
           <span>#{{ detail.number }}</span>
           <span v-if="detail.state === 'MERGED'" class="text-purple-400 font-medium ml-2">Merged</span>

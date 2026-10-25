@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import StatusIcon from "./StatusIcon.vue";
 import type { ListItem } from "../../../../src/github";
-import { MessageSquare, GitPullRequest, CircleDot, CircleCheck, CircleX, AlertCircle } from "@lucide/vue";
+import { MessageSquare, CircleCheck, CircleX, AlertCircle } from "@lucide/vue";
 
 defineProps<{
   items: ListItem[];
@@ -44,8 +45,7 @@ function formatTime(iso: string): string {
       :class="{ 'bg-accent/80': selectedNumber === item.number }"
     >
       <div class="mt-0.5 shrink-0">
-        <GitPullRequest v-if="item.kind === 'pr'" class="w-4 h-4 text-purple-400" />
-        <CircleDot v-else class="w-4 h-4 text-green-400" />
+        <StatusIcon :kind="item.kind" :state="item.state" :draft="item.draft" />
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
