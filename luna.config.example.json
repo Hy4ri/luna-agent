@@ -81,7 +81,16 @@
     "files": []
   },
   "thinkingLevel": "medium",
-  "providers": [],
+  "providers": [
+    {
+      "id": "cli-proxy-api",
+      "name": "CLIProxyAPI",
+      "api": "openai-completions",
+      "baseUrl": "http://127.0.0.1:8317/v1",
+      "models": [{ "id": "gemini-3.8-flash-high", "contextWindow": 1000000, "reasoning": true }],
+      "compat": { "supportsMidConvoSystemMessages": true, "sendSessionAffinityHeaders": true }
+    }
+  ],
   "subagents": {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",

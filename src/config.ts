@@ -34,6 +34,11 @@ export const CustomProviderSchema = z.strictObject({
     contextWindow: z.number().int().min(1000).optional(), maxTokens: z.number().int().min(1000).optional(),
     reasoning: z.boolean().optional(), vision: z.boolean().optional(),
   })).min(1),
+  /** pi-ai compatibility overrides that keep the prompt cache prefix stable. Applied to every model of the provider. */
+  compat: z.strictObject({
+    supportsMidConvoSystemMessages: z.boolean().optional(),
+    sendSessionAffinityHeaders: z.boolean().optional(),
+  }).optional(),
 });
 const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const cronExpr = z.string().refine((e) => { try { parseCron(e); return true; } catch { return false; } }, "invalid cron expression");

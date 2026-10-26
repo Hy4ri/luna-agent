@@ -113,6 +113,12 @@ loads its shell locally and does not have this browser limitation.
 - `sessionTalk`: messages between sessions. `enabled` defaults to `true`; `maxHops` (1 through 20) defaults to `3`.
   Edit it under **Settings → Chat**. Changes apply live. See **Sessions talk with each other**.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.
+  Optional `compat` applies to every model of a provider and helps keep the prompt cache:
+  `supportsMidConvoSystemMessages: true` sends a later system-prompt section update (board, skills, memory) as a
+  message at its position, so the leading prompt and its cache stay fixed. Enable it only when the endpoint accepts
+  system messages after the first user message; CLIProxyAPI does. `sendSessionAffinityHeaders: true` sends the
+  conversation ID as `session_id`, `x-client-request-id`, and `x-session-affinity`, so a multi-account proxy with
+  session affinity keeps one conversation on one upstream account. Claude CLI always sends section updates in place.
 - `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` defaults, plus named `profiles`.
   Set both provider and model, or omit both to inherit the parent model. A selected profile can override provider/model and thinking.
   Profiles apply to new children only. Each profile has an exact `tools` allowlist, optional `instructions`, and `context` (`fresh` by default, or `fork`).
