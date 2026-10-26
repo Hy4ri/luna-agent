@@ -671,6 +671,10 @@ Queue numbers start at 1. Each command applies atomically to the current queue. 
 `/stop` and the Stop button always hard-stop the current work and withdraw pending input. They do not become model messages.
 `/model`, `/compress`, `/compact`, and `/retry` are rejected while busy. Use session controls when idle.
 
+`/usage` (alias `/cost`) returns recorded model token totals and cost for the current Luna conversation, plus Claude plan usage from the daemon host's Claude Code login. It does not submit a model prompt, change the conversation, or scan local transcripts. Tool-reported usage is excluded because it can overlap model usage. Recorded model cost is not the subscription bill; providers that do not report cost can show zero. The report appears in command feedback, not model context.
+
+Claude plan data uses the experimental Claude Code `get_usage` control API. It includes available usage windows, reset times (UTC), and extra-usage utilization. Missing limits display as unavailable, never as zero. Unsupported CLI versions, login failures, and timeouts preserve Luna's session totals with an error notice. Requests have a 20-second timeout and terminate their child process group. Executable selection and OAuth-only environment validation follow the Claude native transport, including `LUNA_CLAUDE_EXECUTABLE` and `CLAUDE_CONFIG_DIR`. Remote-worker sessions still report the **daemon host's** Claude account, not the worker's account. No new configuration fields are required.
+
 `/undo N` removes the last N active user messages and subsequent replies and tool results from model context only.
 N must be a positive integer and cannot exceed the remaining active user messages.
 Chat history stays visible. File changes, tool actions, and durable task state are not reversed.

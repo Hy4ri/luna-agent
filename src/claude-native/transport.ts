@@ -84,6 +84,14 @@ function childEnvironment(explicit?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.assign(env, QUIET_ENV);
 }
 
+/** Resolve control-only requests with the same OAuth-only environment as generations. */
+export function claudeControlOptions() {
+  const env = childEnvironment();
+  const executable = resolveClaude(process.env.LUNA_CLAUDE_EXECUTABLE ?? "claude", env);
+  if (!executable) throw new Error(INSTALL_HINT);
+  return { executable, env };
+}
+
 function privateDir(path: string): boolean {
   const info = lstatSync(path);
   return info.isDirectory() && info.uid === process.getuid!() && !(info.mode & 0o077);
