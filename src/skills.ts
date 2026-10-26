@@ -139,7 +139,7 @@ export function createSkillsExtension(opts: SkillsOptions) {
     name: "skill_view",
     description:
       "Load a skill by name: returns its instructions and the list of linked files. " +
-      "Pass file_path (relative to the skill) to read a linked file instead. Loading a skill may also enable its tools.",
+      "Pass file_path (relative to the skill) to read a linked file instead. Loading a skill may also enable its tools within the conversation tool limits.",
     parameters: Type.Object({
       name: Type.String({ description: "Skill name from the skills list." }),
       file_path: Type.Optional(Type.String({ description: "Linked file, relative to the skill directory." })),
@@ -170,7 +170,7 @@ export function createSkillsExtension(opts: SkillsOptions) {
       const text =
         `# Skill: ${skill.name}\n\n${skill.body}\n` +
         (files.length ? `\n## Linked files (read with skill_view file_path)\n${files.map((f) => `- ${f}`).join("\n")}\n` : "") +
-        (skill.tools.length ? `\n## Tools enabled\n${skill.tools.map((t) => `- ${t}`).join("\n")}\n` : "");
+        (skill.tools.length ? `\n## Tools requested (subject to conversation tool limits)\n${skill.tools.map((t) => `- ${t}`).join("\n")}\n` : "");
       return {
         output: [{ type: "text", text }],
         details: { skill: skill.name, files, tools: skill.tools },

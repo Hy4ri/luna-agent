@@ -224,7 +224,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               const agent: AgentChange = {
                 ...(model ? { model } : {}), thinkingLevel: profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel,
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board" || e.name === "ask-user")] },
-                tools, modelTools: tools,
+                tools, modelTools: tools, toolAllowlist: tools.map(tool => tool.name),
                 ...(cwd ? { cwd } : {}),
                 instructions: [parent.instructions, profile?.instructions].filter(Boolean).join("\n\n") || null,
               };
