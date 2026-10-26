@@ -2,7 +2,7 @@
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
-import { composer, pendingMessages, canRecoverPending, retryPending, dismissPending } from "@/stores/composer";
+import { composer, pendingMessages, canRecoverPending, sendPendingNow, retryPending, dismissPending } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
 import ReportContext from "./ReportContext.vue";
@@ -244,6 +244,7 @@ function backgroundReport(entry: any, message: any): boolean {
       <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><ReportContext v-if="block.type === 'text'" :text="block.text" /><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
       <div class="message-footer">
         <span role="status">{{ message.status }}</span>
+        <button v-if="message.status === 'Queued' && message.submissionId" type="button" class="send-now" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="sendPendingNow(message.requestId)">Send now</button>
         <template v-if="canRecoverPending(message)">
           <button type="button" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="retryPending(message.requestId)">Retry send</button>
           <button type="button" :disabled="!!message.session && composer.submitting.has(message.session)" title="Remove local message; this does not cancel delivery" @click="dismissPending(message.requestId)">Dismiss</button>
@@ -266,3 +267,8 @@ function backgroundReport(entry: any, message: any): boolean {
     <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="jumpToBottom"><ArrowDown :size="18" aria-hidden="true" /></button>
   </div>
 </template>
+
+<style scoped>
+.send-now { border: 1px solid var(--border); padding: 3px 8px; border-radius: 1px; cursor: pointer; }
+.send-now:disabled { opacity: 0.5; cursor: default; }
+</style>

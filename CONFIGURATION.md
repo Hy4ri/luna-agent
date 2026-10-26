@@ -1699,3 +1699,5 @@ Local commands have a 15-second deadline; fetch/pull/push have 120 seconds. A fa
 can have partial effects: refresh and inspect the result before retrying. Output is capped at 4 MiB;
 diffs return a `truncated` flag after 512 KiB. Error/summary text and diffs redact URL credentials and
 common GitHub token formats. Git authentication errors are not Luna login failures (never HTTP401).
+
+`POST /v1/sessions/:id/submissions/:submission/send-now` accepts `{ content }`. It withdraws only the selected queued input and submits a redirect with a stable replacement request ID. Retries do not duplicate delivery. Already placed messages return 409. Busy-input safety guards still apply, so blocked redirects remain queued.

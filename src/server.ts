@@ -1609,6 +1609,28 @@ export function createApp(opts: ServerOptions) {
     return c.json({ accepted: true, submissionId: sub.id }, 202); // fire-and-forget; poll GET /v1/submissions/:id
   });
 
+  // Withdraw only this queued input before admitting its redirect replacement.
+  app.post("/v1/sessions/:id/submissions/:submission/send-now", async (c) => {
+    const sid = c.req.param("id"), submissionId = c.req.param("submission");
+    const body = await c.req.json();
+    {
+      const sub = await harness.submission(submissionId as never, context);
+      if (!sub) return err(c, 404, "no such submission");
+      const record = await sub.status(context);
+      if (String(record.conversationId) !== sid || record.type !== "input") return err(c, 404, "no such input submission");
+      // Validate before withdrawing. The client keeps the content for safe retries.
+      const content = parseInput(body.content);
+      if (typeof content === "string" && (typeof body.content !== "string" || !content.trim())) return err(c, 400, "content required");
+      if (Array.isArray(content) && content.some(block => block.type === "audio")) return err(c, 400, "Audio attachments require /bg.");
+      if (record.status === "queued") {
+        if (await sub.abort(context) !== "aborted") return err(c, 409, "Message is already being delivered.");
+      } else if (record.status !== "unanswered" || record.reason !== "aborted" || record.entry !== undefined) {
+        return err(c, 409, "Message is already being delivered.");
+      }
+      return send(c, sid, { content: body.content, requestId: `send-now:${submissionId}`, whenBusy: "redirect" }, true);
+    }
+  });
+
   app.get("/v1/submissions/:id", async (c) => {
     const sub = await harness.submission(c.req.param("id") as never, context);
     if (!sub) return err(c, 404, "no such submission");
