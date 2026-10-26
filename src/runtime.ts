@@ -1,4 +1,6 @@
 import { createImageGenExtension, ImageGenManager, type ImageGenProvider } from "./image-gen.js";
+import { ensureGeneratedDirectories, generatedDirectories, generatedFilesInstructions, generatedRoot, workerGeneratedRoot } from "./generated-files.js";
+import { isWorkerEnv, WORKER_ENV_PREFIX } from "./worker-protocol.js";
 import { createOpenAICodexImageProvider } from "./plugins/image_gen/openai-codex.js";
 import { createCodexImageAuth } from "./codex-image-auth.js";
 import { createVideoExtension } from "./video.js";
@@ -43,7 +45,7 @@ import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
 import { LimitContinuer } from "./limit-continue.js";
 import { SubagentNotifier } from "./subagent-notify.js";
-import { createWorkersExtension, WorkerHub, WorkerStore } from "./workers.js";
+import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./workers.js";
 import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
@@ -85,6 +87,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const log = o.log ?? ((m: string) => console.error(m));
   const on = (e: LunaConfig["extensions"][number]) => cfg.extensions.includes(e);
   mkdirSync(join(cfg.dataDir, "skills"), { recursive: true });
+  const outputRoot = generatedRoot(cfg.dataDir);
+  ensureGeneratedDirectories(outputRoot);
 
   const built = o.models ? { models: o.models, model: o.model! } : buildModels(cfg);
   // Register built-in and configured providers. File-backed runtimes share one settings store.
@@ -111,16 +115,33 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // Workers hub early so browser tools can proxy to the session's worker.
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
+  const workerOutput = (id: number) => {
+    const caps = workers.store.get(id)?.capabilities;
+    if (!caps?.generatedFiles) return undefined;
+    try { return { root: workerGeneratedRoot(caps.home, caps.platform), platform: caps.platform }; }
+    catch { return undefined; }
+  };
+  extensions.push(defineExtension({ name: "generated-files", sections: [section("generated-files", async ({ conversationId, read }, ctx) => {
+    const target = await read.snapshot(ExecTarget, conversationId, ctx);
+    if (!target?.worker) return generatedFilesInstructions(outputRoot);
+    const output = workerOutput(target.worker);
+    return output ? generatedFilesInstructions(output.root, output.platform)
+      : "Generated storage is unavailable on this execution worker. Update the worker to the same Luna version and ensure it reports its home directory. Do not save unrelated generated files in the project or on the main host as a fallback.";
+  })] }));
   // Per-worker MCP: worker-only tools appear as w<id>_<server>__* and proxy via WorkerHub.mcpCall. Main MCP stays available.
   new WorkerMcpProxy(workers, registry, log).attach();
   const imageGenConfig = () => (settings?.resolved() ?? cfg).image_gen;
   const imageGen = new ImageGenManager({ config: imageGenConfig, providers: o.imageGenProviders ?? new Map([
     ["openai-codex", createOpenAICodexImageProvider({ config: () => imageGenConfig()["openai-codex"],
       auth: createCodexImageAuth({ config: () => imageGenConfig()["openai-codex"] }),
-      outputDir: join(cfg.dataDir, "generated-images"), fetch: o.fetch })],
+      outputDir: generatedDirectories(outputRoot).images, fetch: o.fetch })],
   ]) });
   extensions.push(createToggleExtension(() => live().disabledTools));
-  extensions.push(createImageGenExtension(imageGen, cfg.cwd));
+  extensions.push(createImageGenExtension(imageGen, cfg.cwd, env => {
+    if (!isWorkerEnv(env)) return generatedDirectories(outputRoot).images;
+    const output = workerOutput(Number(env!.id.slice(WORKER_ENV_PREFIX.length)));
+    return output ? generatedDirectories(output.root, output.platform).images : undefined;
+  }));
   extensions.push(createVisionExtension({ config: () => settings?.resolved() ?? cfg, models: built.models, defaultModel: () => providers.defaultModel(),
     history: async (id, ctx) => (await (await harnessRef!.conversation(id, ctx))!.context(ctx)) }));
   extensions.push(createVideoExtension({ config: () => settings?.resolved() ?? cfg, models: built.models,

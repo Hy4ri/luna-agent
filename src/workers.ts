@@ -278,6 +278,9 @@ class RemoteExecutionEnv {
   readConfined(path: string, policy: import("./confined-read.js").ConfinedReadPolicy, c: Context) {
     return this.call("readConfined", [path, policy], c) as Promise<Result<Uint8Array, Error>>;
   }
+  writeGeneratedImage(bytes: Uint8Array, c: Context) {
+    return this.call("writeGeneratedImage", [bytes], c) as Promise<Result<string, Error>>;
+  }
   absolutePath(path: string, c: Context) { return this.call("absolutePath", [path], c); }
   joinPath(parts: string[], c: Context) { return this.call("joinPath", [parts], c); }
   readTextFile(path: string, c: Context) { return this.call("readTextFile", [path], c); }

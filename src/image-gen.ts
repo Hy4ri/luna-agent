@@ -1,11 +1,10 @@
 // Provider-neutral image generation. Source pixels are validated before provider dispatch.
-import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { Type, type TSchema } from "typebox";
 import { loadVisionImage, fitVisionImage } from "./vision-images.js";
-import { confinedReader, isWorkerEnv } from "./worker-protocol.js";
+import { confinedReader, generatedImageWriter, isWorkerEnv } from "./worker-protocol.js";
+import { confinedRead } from "./confined-read.js";
 
 export type AspectRatio = "landscape" | "square" | "portrait";
 export type CreativeControl = "creativity" | "intensity" | "complexity" | "movement";
@@ -37,50 +36,46 @@ function schema(caps: ImageGenCapabilities) {
   for (const control of caps.controls ?? []) properties[control] = Type.Optional(Type.Number());
   return Type.Object(properties, { additionalProperties: false });
 }
-async function source(value: unknown, cwd: string, signal: AbortSignal, env?: import("@earendil-works/pi-durable/env").ExecutionEnv): Promise<ImageGenSource> {
+async function source(value: unknown, cwd: string, signal: AbortSignal, env?: ExecutionEnv, generatedImages?: string): Promise<ImageGenSource> {
   if (typeof value !== "string" || !value.trim()) throw new Error("Image sources must be nonempty strings.");
   let input = value;
+  const outside = generatedImages ? "Source image is outside the conversation working directory and generated images directory."
+    : "Source image is outside the conversation working directory.";
   if (!/^https?:|^data:/i.test(value)) {
+    // Worker sessions can inherit the worker cwd while agent.cwd is unset. Never allow the host default as a worker root.
+    const sourceCwd = isWorkerEnv(env) ? env!.cwd : env?.cwd || cwd;
+    if (!sourceCwd) throw new Error("The execution machine's working directory is unavailable.");
+    const policy = generatedImages ? { roots: [sourceCwd, generatedImages], maxBytes: 32 * 1024 * 1024 } : { root: sourceCwd, maxBytes: 32 * 1024 * 1024 };
+    let bytes: Buffer;
     if (env && isWorkerEnv(env)) {
       // One worker-side open: confinement is checked on the opened file and the bytes come from it.
       const reader = confinedReader(env);
       if (!reader) throw new Error("This execution machine cannot read source images safely. Update the worker.");
       const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
-      const read = await reader.readConfined(value, { root: env.cwd || cwd, maxBytes: 32 * 1024 * 1024 }, withAbortSignal(signal, BACKGROUND_CONTEXT));
-      if (!read.ok) throw new Error(/outside the conversation working directory/.test(read.error.message)
-        ? "Source image is outside the conversation working directory." : `Source image read failed on worker: ${read.error.message}`);
-      const bytes = Buffer.from(read.value);
-      const sharp = (await import("sharp")).default;
-      const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata();
-      const mime = metadata.format === "jpeg" ? "image/jpeg" : `image/${metadata.format}`;
-      input = `data:${mime};base64,${bytes.toString("base64")}`;
-    } else {
-    // Inspect the open descriptor, not just the pathname. A symlink swap cannot change what gets uploaded.
-    const root = await realpath(cwd);
-    const file = await open(resolve(root, value), constants.O_RDONLY | constants.O_NONBLOCK);
-    try {
-      const actual = await realpath(`/proc/self/fd/${file.fd}`), rel = relative(root, actual);
-      if (rel === ".." || rel.startsWith("../") || isAbsolute(rel)) throw new Error("Source image is outside the conversation working directory.");
-      const stat = await file.stat();
-      if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error("Source must be a regular image file of at most 32 MiB.");
-      signal.throwIfAborted();
-      const buffer = Buffer.alloc(32 * 1024 * 1024 + 1);
-      let length = 0;
-      while (length < buffer.length) {
-        signal.throwIfAborted();
-        const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
-        if (!bytesRead) break;
-        length += bytesRead;
+      const read = await reader.readConfined(value, policy, withAbortSignal(signal, BACKGROUND_CONTEXT));
+      if (!read.ok) {
+        const msg = read.error.message;
+        if (/outside the conversation working directory/.test(msg) || /outside the allowed source directories/.test(msg)) {
+          throw new Error(outside);
+        }
+        throw new Error(`Source image read failed on worker: ${msg}`);
       }
-      if (length === buffer.length) throw new Error("Source image exceeds 32 MiB.");
-      const bytes = buffer.subarray(0, length);
-      // Let the image decoder determine the type, without trusting the file extension.
-      const sharp = (await import("sharp")).default;
-      const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata();
-      const mime = metadata.format === "jpeg" ? "image/jpeg" : `image/${metadata.format}`;
-      input = `data:${mime};base64,${bytes.toString("base64")}`;
-    } finally { await file.close(); }
+      bytes = Buffer.from(read.value);
+    } else {
+      try {
+        const data = await confinedRead(value, policy, { cwd: sourceCwd, signal });
+        bytes = Buffer.from(data);
+      } catch (error) {
+        if (error instanceof Error && (/outside the conversation working directory/.test(error.message) || /outside the allowed source directories/.test(error.message))) {
+          throw new Error(outside);
+        }
+        throw error instanceof Error ? error : new Error(String(error));
+      }
     }
+    const sharp = (await import("sharp")).default;
+    const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata();
+    const mime = metadata.format === "jpeg" ? "image/jpeg" : `image/${metadata.format}`;
+    input = `data:${mime};base64,${bytes.toString("base64")}`;
   }
   const loaded = await loadVisionImage(input, undefined, { cwd, signal });
   try { return { bytes: loaded.bytes, mimeType: loaded.mimeType }; } finally { await loaded.cleanup(); }
@@ -96,20 +91,25 @@ export class ImageGenManager {
     try { return !!this.selected()?.is_available(); } catch { return false; }
   }
   parameters() { return schema(this.selected()?.capabilities() ?? {}); }
-  async generate(args: Record<string, unknown>, execution: { cwd: string; signal: AbortSignal; backend?: string; env?: import("@earendil-works/pi-durable/env").ExecutionEnv }): Promise<ImageGenResult> {
-    const { signal, cwd } = execution;
+  async generate(args: Record<string, unknown>, execution: { cwd: string; signal: AbortSignal; backend?: string; env?: ExecutionEnv; generatedImages?: string }): Promise<ImageGenResult> {
+    const { signal, cwd, generatedImages } = execution;
     try {
       signal.throwIfAborted();
       if (typeof args.prompt !== "string" || !args.prompt.trim()) return fail("invalid_prompt", "Prompt must not be empty.");
       const aspect = args.aspect_ratio ?? "landscape";
       if (!["landscape", "square", "portrait"].includes(aspect as string)) return fail("invalid_arguments", "Invalid aspect ratio.");
       if (execution.backend && execution.backend !== "local") return fail("backend_unsupported", "Remote image synchronization is not implemented.");
+      if (execution.env && isWorkerEnv(execution.env) && !generatedImages) {
+        return fail("worker_generated_storage_unavailable", "Worker execution environment does not have generated image storage available.");
+      }
       let sources: ImageGenSource[];
       try {
         if (args.reference_image_urls !== undefined && !Array.isArray(args.reference_image_urls)) throw new Error("reference_image_urls must be an array.");
         const refs = (args.reference_image_urls ?? []) as unknown[];
         sources = [];
-        for (const value of [...(args.image_url !== undefined ? [args.image_url] : []), ...refs]) sources.push(await source(value, cwd, signal, execution.env));
+        for (const value of [...(args.image_url !== undefined ? [args.image_url] : []), ...refs]) {
+          sources.push(await source(value, cwd, signal, execution.env, generatedImages));
+        }
       } catch (error) {
         if (signal.aborted) throw error;
         return fail("source_rejected", error instanceof Error ? error.message : "Invalid source image.");
@@ -137,28 +137,26 @@ export class ImageGenManager {
       signal.throwIfAborted();
       // JS TypeError is not Python's unexpected-keyword exception. Modalities are checked above.
       const result = await provider.generate(request, signal);
+      if (signal.aborted && result.success && result.image) return { ...result, success: false, error_type: "interrupted",
+        error: `Image generated and saved on the main host at ${result.image}, but the call was interrupted. Do not regenerate automatically.` };
       signal.throwIfAborted();
       if (result.success && result.image && execution.env && isWorkerEnv(execution.env)) {
+        // The provider already charged for this image. Preserve the main path even if delivery is interrupted.
+        const delivery = (detail: string): ImageGenResult => ({ ...result, success: false, error_type: "worker_delivery_failed",
+          error: `Image generated and saved on the main host at ${result.image}, but delivery to the execution machine failed: ${detail}. Do not regenerate automatically.` });
         try {
           const { readFile } = await import("node:fs/promises");
-          const { basename } = await import("node:path");
           const bytes = await readFile(result.image);
-          const filename = basename(result.image);
           const { withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
           const ctx = withAbortSignal(signal, BACKGROUND_CONTEXT);
-          const targetDir = execution.env.cwd || execution.cwd;
-          const target = await execution.env.joinPath([targetDir, filename], ctx);
-          // The provider already charged for this image. Report delivery failure distinctly and keep the main copy.
-          const delivery = (detail: string): ImageGenResult => ({ ...result, success: false, error_type: "worker_delivery_failed",
-            error: `Image generated and saved on the main host at ${result.image}, but delivery to the execution machine failed: ${detail}. Do not regenerate automatically.` });
-          if (!target.ok) return delivery(target.error.message);
-          const written = await execution.env.writeFile(target.value, new Uint8Array(bytes), ctx);
+          const writer = generatedImageWriter(execution.env);
+          if (!writer) return delivery("Worker execution machine does not support generated image writing.");
+          const written = await writer.writeGeneratedImage(new Uint8Array(bytes), ctx);
           if (!written.ok) return delivery(written.error.message);
-          result.image = target.value;
+          result.image = written.value;
         } catch (e) {
-          if (signal.aborted) throw e;
-          return { ...result, success: false, error_type: "worker_delivery_failed",
-            error: `Image generated and saved on the main host at ${result.image}, but delivery to the execution machine failed: ${e instanceof Error ? e.message : String(e)}. Do not regenerate automatically.` };
+          return delivery(signal.aborted ? "Delivery interrupted; the worker copy may be incomplete."
+            : e instanceof Error ? e.message : String(e));
         }
       }
       return result;
@@ -168,7 +166,7 @@ export class ImageGenManager {
     }
   }
 }
-export function createImageGenExtension(manager: ImageGenManager, defaultCwd = process.cwd()) {
+export function createImageGenExtension(manager: ImageGenManager, defaultCwd = process.cwd(), generatedImagesDir?: (env: ExecutionEnv | undefined) => string | undefined) {
   return defineExtension({ name: "image-gen", get tools() {
     // The registry resolves this getter for each tool listing, including existing conversations.
     if (!manager.available()) return [];
@@ -178,7 +176,8 @@ export function createImageGenExtension(manager: ImageGenManager, defaultCwd = p
       parameters: manager.parameters(),
       async execute(args, api, context) {
         const agent = await api.agent(context), signal = context.abortSignal ?? new AbortController().signal;
-        const result = await manager.generate(args, { cwd: agent.cwd ?? defaultCwd, signal, env: api.env });
+        const generatedImages = generatedImagesDir ? generatedImagesDir(api.env) : undefined;
+        const result = await manager.generate(args, { cwd: api.env?.cwd || agent.cwd || defaultCwd, signal, env: api.env, generatedImages });
         const output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [{ type: "text", text: JSON.stringify(result) }];
         if (result.success && result.image) {
           try {

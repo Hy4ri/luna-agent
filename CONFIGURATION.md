@@ -1048,6 +1048,44 @@ Transport safety limits are 32 MiB per source and 40 million decoded pixels.
 An interruption returns `Interrupted`.
 
 
+## Generated file storage
+
+Persistent generated outputs that are not part of a project belong under `<dataDir>/generated/` on main.
+The existing `dataDir` setting controls this root; there is no separate generated-output configuration field.
+Luna creates these type directories at startup:
+
+| Directory | Outputs |
+| --- | --- |
+| `images/` | PNG, JPEG, SVG, and other pictures |
+| `documents/` | PDF, Word, plain text, Markdown, and other documents |
+| `html/` | Standalone HTML pages and page bundles |
+| `data/` | CSV, JSON, YAML, spreadsheets, and other data exports |
+| `audio/` | Generated audio |
+| `video/` | Generated video |
+| `other/` | Archives and unclassified outputs |
+
+An HTML page can keep its required assets together under `html/<unique-name>/`.
+Use descriptive filenames with a unique suffix; do not overwrite unrelated results.
+Generated HTML remains a downloadable file or an isolated chat preview. It is not served as an application-origin page.
+
+Project source, tests, documentation, and required assets stay in the project.
+An explicit user destination takes precedence. Temporary processing files keep their existing temporary/cache locations.
+The session working directory and ordinary relative file-tool paths do not change.
+Every runtime conversation, including children and scheduled runs, receives the machine-specific generated paths and these ownership rules.
+General file tools and shell generators follow these instructions; this feature does not infer file purpose or sandbox arbitrary shell writes.
+Built-in image generation and worker image delivery use the generated image directory directly.
+
+Workers create the same type directories under `<worker home>/.luna/generated/` on their own machine.
+Their generated files are not automatically synchronized to main. Update workers to the same Luna version as main.
+A missing or incompatible worker has no fallback generated destination in a project directory or on main.
+Storage errors do not authorize writing unrelated outputs into a project directory.
+Directories are created with mode `0700`; built-in image files use exclusive writes with mode `0600`.
+Existing directories are not chmodded. Files written through generic shell or file tools keep those tools' permission behavior.
+
+Existing scattered files and legacy `<dataDir>/generated-images/` files are not moved or deleted.
+There is no automatic cleanup or retention deletion. Deleting a conversation does not remove its generated outputs.
+Answer-linked downloads continue to resolve files on the machine that produced the answer.
+
 ## Image generation (ChatGPT subscription)
 
 Image generation uses the ChatGPT subscription saved by the Codex CLI. It does not use an OpenAI API key.
@@ -1101,8 +1139,10 @@ The subscription backend can ignore size or quality. The result records `request
 The tool accepts `image_url` and `reference_image_urls`. At most 16 source images are allowed in total.
 Sources select editing; no sources select text-to-image. Upscaling and creative controls are not advertised for Codex.
 The schema includes only the selected adapter's supported fields and is rebuilt for every listing.
-Local sources must resolve inside the conversation working directory (or configured `cwd`).
-The file descriptor is checked after opening, so symlinks cannot escape that directory.
+Local sources must resolve inside the conversation working directory (or configured `cwd`),
+or inside the generated `images/` directory on the session's execution machine.
+The file descriptor is checked after opening, so symlinks cannot escape these allowed source directories.
+Only the generated image directory is added, not the whole data directory with credentials and databases.
 This is source-file confinement, not an operating-system sandbox.
 HTTP(S) sources use the existing vision loader, with public-address checks, pinned DNS, redirect checks, and byte/pixel limits.
 Data URLs are also accepted. Sources are decoded before provider dispatch; adapters receive pixels, not unchecked paths or URLs.
@@ -1110,12 +1150,13 @@ The Codex adapter normalizes edit sources to PNG and applies a 25 MiB per-image 
 
 Each generation call makes one image submission. There is no automatic generation retry, provider fallback, or interrupted-call recovery replay.
 Cancellation cannot restore quota already consumed by a submitted request.
-Generated PNG files remain in `<dataDir>/generated-images/` with private file permissions. There is no automatic retention cleanup.
+Generated PNG files remain in `<dataDir>/generated/images/` with private file permissions. There is no automatic retention cleanup.
+Legacy files under `<dataDir>/generated-images/` remain untouched.
 Success results include `success`, `image`, `model`, `prompt`, `aspect_ratio`, `modality`, `provider`, and `upscaled`.
 Errors include `success: false`, `error`, and `error_type`. Server error bodies and credentials are not exposed.
 The tool returns a bounded image preview for chat delivery. If preview delivery fails, the successful file path is retained.
 Use `vision_analyze` on the returned local path to inspect the original.
-To edit a generated file outside the conversation directory, copy it into that directory first.
+Generated images in the session machine's generated `images/` directory can be edited directly without copying them into the project.
 
 Provider adapters implement `ImageGenProvider` in `src/image-gen.ts`.
 The current adapter is `src/plugins/image_gen/openai-codex.ts`; authentication is in `src/codex-image-auth.ts`.
@@ -1295,11 +1336,13 @@ A worker runs file, shell, browser, and MCP operations for sessions that explici
 Opening or sending instructions to a session never changes its execution machine.
 Web, image generation, vision, and video tools run on main. In a worker session, they read local file paths from the worker.
 `video_analyze` applies the credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
-`image_generate` source images must be inside the worker's working directory.
+`image_generate` source images must be inside the worker's working directory or its generated `images/` directory.
 The worker opens each protected file once. It checks the opened file and reads from it, so a symlink swap cannot redirect the read.
 These protected reads need a Linux worker at the same Luna version as main. Other workers refuse them.
-A generated image is copied into the worker's working directory.
-If that copy fails, the tool reports `worker_delivery_failed` and gives the path of the copy on main. Do not regenerate the image.
+A generated image is copied into `<worker home>/.luna/generated/images/` with a unique filename and private permissions.
+The worker selects the destination; the daemon cannot supply a destination for this delivery operation.
+Known missing generated-storage support is refused before an image submission.
+If delivery fails after generation, the tool reports `worker_delivery_failed` and gives the path of the original on main. Do not regenerate the image.
 
 ### Register and connect
 

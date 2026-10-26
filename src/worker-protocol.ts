@@ -18,6 +18,13 @@ export interface ConfinedReader {
 }
 export const confinedReader = (env: unknown): ConfinedReader | undefined =>
   isWorkerEnv(env as { id: string }) && typeof (env as Partial<ConfinedReader>).readConfined === "function" ? env as ConfinedReader : undefined;
+
+/** Worker-only operation: write a generated image into worker-managed generated storage. Not an ExecutionEnv method. */
+export interface GeneratedImageWriter {
+  writeGeneratedImage(bytes: Uint8Array, context: import("@earendil-works/chord").Context): Promise<Result<string, Error>>;
+}
+export const generatedImageWriter = (env: unknown): GeneratedImageWriter | undefined =>
+  isWorkerEnv(env as { id: string }) && typeof (env as Partial<GeneratedImageWriter>).writeGeneratedImage === "function" ? env as GeneratedImageWriter : undefined;
 export const CONNECT_PATH = "/v1/workers/connect";
 
 /** ExecutionEnv methods a worker serves. Anything else is refused on both sides. */
@@ -25,7 +32,7 @@ export const ENV_METHODS = [
   "absolutePath", "joinPath", "readTextFile", "readTextLines", "readBinaryFile", "writeFile", "appendFile", "truncateFile",
   "flushFile", "renameFile", "fileInfo", "listDir", "listFiles", "canonicalPath", "exists", "createDir", "remove",
   "createTempDir", "createTempFile", "exec", "openBinaryReader", "openTextLineReader", "openDirReader",
-  "readConfined",
+  "readConfined", "writeGeneratedImage",
 ] as const;
 export type EnvMethod = typeof ENV_METHODS[number];
 /** Methods that return a reader object; the worker keeps it and main gets a handle. */
@@ -34,7 +41,18 @@ export const HANDLE_OPS = new Set(["info", "read", "scanLines", "readLine", "nex
 
 export interface BrowserCapability { provider: "disabled" | "chromium" | "camofox"; configured: boolean; reason?: string }
 
-export interface Capabilities { browser?: BrowserCapability; hostname: string; platform: string; arch: string; node: string; user: string; home: string; cwd: string; path?: string }
+export interface Capabilities {
+  browser?: BrowserCapability;
+  hostname: string;
+  platform: string;
+  arch: string;
+  node: string;
+  user: string;
+  home: string;
+  cwd: string;
+  path?: string;
+  generatedFiles?: boolean;
+}
 
 export type MainMessage =
   | { t: "welcome"; protocol: number; workerId: number; name: string }
