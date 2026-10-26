@@ -1472,7 +1472,7 @@ It accepts these optional query parameters:
 | --- | --- | --- |
 | `search` | empty | Case-insensitive title substring or session ID substring. |
 | `status` | empty | Exact session status; empty includes every status. |
-| `sort` | `tokensDesc` | `tokensDesc`, `tokensAsc`, `costDesc`, `responsesDesc`, `durationDesc`, or `activityDesc`. |
+| `sort` | `tokensDesc` | Column name (`title`, `status`, `tokens`, `cost`, `hitRate`, `responses`, `duration`, or `activity`) followed by `Asc` or `Desc`. Sorting applies before pagination; unreported values stay last in both directions. |
 | `page` | `0` | Nonnegative integer page index. Out-of-range pages clamp to the last page. |
 | `limit` | `20` | Integer page size, from 1 to 100. |
 | `refresh` | `false` | `true` bypasses snapshot reuse; concurrent refreshes share one computation. |

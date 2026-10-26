@@ -1,7 +1,7 @@
 <template>
   <Dialog :open="open" @update:open="(val) => emit('update:open', val)">
-    <DialogContent class="max-w-[1150px] w-[95vw] max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
-      <DialogHeader class="p-4 border-b border-border bg-sidebar">
+    <DialogContent class="analytics-dialog sm:max-w-[1150px] w-[calc(100vw-2rem)] max-h-[90dvh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
+      <DialogHeader class="shrink-0 p-4 pr-12 border-b border-border bg-sidebar">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <DialogTitle class="text-[15px] font-semibold">Sessions Explorer</DialogTitle>
@@ -20,27 +20,18 @@
           <input
             v-model="searchQuery"
             type="text"
+            aria-label="Search sessions"
             placeholder="Search title or ID..."
             class="h-8 px-2.5 text-xs text-foreground bg-secondary border border-border rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring w-[190px]"
           />
 
-          <select
-            v-model="sortField"
-            class="h-8 px-2 text-xs text-foreground bg-secondary border border-border rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="tokensDesc">Tokens · High to Low</option>
-            <option value="tokensAsc">Tokens · Low to High</option>
-            <option value="costDesc">Cost · High to Low</option>
-            <option value="responsesDesc">Responses · High to Low</option>
-            <option value="durationDesc">Duration · Long to Short</option>
-            <option value="activityDesc">Last Activity · Newest</option>
-          </select>
 
           <!-- Status Chips Filter -->
           <div class="flex items-center gap-1.5 flex-wrap ml-auto">
             <button
               type="button"
-              class="h-6 px-2 rounded-full border text-[11px] font-medium transition-colors"
+              :aria-pressed="activeStatusFilter === ''"
+              class="min-h-8 px-2 rounded-full border text-[11px] font-medium transition-colors"
               :class="activeStatusFilter === '' ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary text-foreground border-border hover:bg-accent'"
               @click="activeStatusFilter = ''"
             >
@@ -50,7 +41,8 @@
               v-for="(count, st) in statusBreakdown"
               :key="st"
               type="button"
-              class="h-6 px-2 rounded-full border text-[11px] font-medium transition-colors"
+              :aria-pressed="activeStatusFilter === st"
+              class="min-h-8 px-2 rounded-full border text-[11px] font-medium transition-colors"
               :class="activeStatusFilter === st ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary text-foreground border-border hover:bg-accent'"
               @click="activeStatusFilter = st"
             >
@@ -58,10 +50,11 @@
             </button>
           </div>
         </div>
+        <p class="text-xs text-muted-foreground m-0">Select a column header to sort; select it again to reverse. <span class="sm:hidden">Scroll the table sideways for more columns.</span></p>
       </DialogHeader>
 
       <!-- Table Content -->
-      <div class="p-4 overflow-auto flex-1 max-h-[calc(90vh-140px)]" :aria-busy="loading">
+      <div class="p-4 overflow-auto min-h-0 min-w-0 flex-1" role="region" tabindex="0" aria-label="Session usage table" :aria-busy="loading">
         <p v-if="loading" role="status" class="mb-3 text-muted-foreground">Loading sessions…</p>
         <div v-if="errorMessage" role="alert" class="mb-3 text-destructive">
           {{ errorMessage }}
@@ -70,14 +63,14 @@
         <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
           <thead class="sticky top-0 bg-secondary/80 backdrop-blur z-10">
             <tr class="border-b border-border">
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-left">Session</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-left">Status</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Tokens</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Cost</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Hit Rate</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Responses</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Duration</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-left">Last Activity</th>
+              <SortHeader label="Session" :active="sortField.startsWith('title')" :descending="sortField.endsWith('Desc')" align="left" @sort="sortBy('title')" />
+              <SortHeader label="Status" :active="sortField.startsWith('status')" :descending="sortField.endsWith('Desc')" align="left" @sort="sortBy('status')" />
+              <SortHeader label="Tokens" :active="sortField.startsWith('tokens')" :descending="sortField.endsWith('Desc')" align="right" @sort="sortBy('tokens')" />
+              <SortHeader label="Cost" :active="sortField.startsWith('cost')" :descending="sortField.endsWith('Desc')" align="right" @sort="sortBy('cost')" />
+              <SortHeader label="Hit Rate" :active="sortField.startsWith('hitRate')" :descending="sortField.endsWith('Desc')" align="right" @sort="sortBy('hitRate')" />
+              <SortHeader label="Responses" :active="sortField.startsWith('responses')" :descending="sortField.endsWith('Desc')" align="right" @sort="sortBy('responses')" />
+              <SortHeader label="Duration" :active="sortField.startsWith('duration')" :descending="sortField.endsWith('Desc')" align="right" @sort="sortBy('duration')" />
+              <SortHeader label="Last Activity" :active="sortField.startsWith('activity')" :descending="sortField.endsWith('Desc')" align="left" @sort="sortBy('activity')" />
               <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Action</th>
             </tr>
           </thead>
@@ -92,20 +85,20 @@
               @click="emit('inspect', s)"
             >
               <td class="p-2.5 text-left max-w-[260px] truncate">
-                <span class="font-medium text-foreground text-[13px] block truncate">{{ s.title || 'Untitled Session' }}</span>
-                <span class="text-muted-foreground font-mono text-[10px] block">#{{ s.id }} <span v-if="s.subagentCount">· {{ s.subagentCount }} subagents</span></span>
+                <span class="font-medium text-foreground text-[13px] block truncate" :title="s.title || 'Untitled session'">{{ s.title || 'Untitled session' }}</span>
+                <span class="text-muted-foreground text-[10px] block">#{{ s.id }} <span v-if="s.subagentCount">· {{ s.subagentCount }} subagents</span></span>
               </td>
               <td class="p-2.5 text-left">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-medium" :class="statusChipClass(s.status)">
                   {{ statusLabel(s.status) }}
                 </span>
               </td>
-              <td class="p-2.5 text-right font-mono font-medium">{{ compact(s.usage.totalTokens) }}</td>
-              <td class="p-2.5 text-right font-mono text-primary-text font-medium">{{ usd(s.usage.cost?.total) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ pct(s.usage.cacheHitRate) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(s.responses) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ durationFormat(s.durationMs) }}</td>
-              <td class="p-2.5 text-left text-muted-foreground text-[11px] font-mono">{{ when(s.lastActivity) }}</td>
+              <td class="p-2.5 text-right font-medium">{{ compact(s.usage.totalTokens) }}</td>
+              <td class="p-2.5 text-right text-primary-text font-medium">{{ usd(s.usage.cost?.total) }}</td>
+              <td class="p-2.5 text-right">{{ pct(s.usage.cacheHitRate) }}</td>
+              <td class="p-2.5 text-right">{{ full(s.responses) }}</td>
+              <td class="p-2.5 text-right">{{ durationFormat(s.durationMs) }}</td>
+              <td class="p-2.5 text-left text-muted-foreground text-[11px]">{{ when(s.lastActivity) }}</td>
               <td class="p-2.5 text-right" @click.stop>
                 <Button type="button" variant="outline" size="sm" class="h-6 px-2 text-[11px]" @click="emit('inspect', s)">
                   Inspect
@@ -117,12 +110,12 @@
       </div>
 
       <!-- Pagination Footer -->
-      <div v-if="!loading && !errorMessage" class="p-3 border-t border-border bg-sidebar flex items-center justify-between text-xs text-muted-foreground">
+      <div v-if="!loading && !errorMessage" class="p-3 border-t border-border bg-sidebar shrink-0 flex flex-wrap gap-3 items-center justify-between text-xs text-muted-foreground">
         <span>Showing {{ totalSessions ? startIdx + 1 : 0 }}–{{ Math.min(startIdx + pageSize, totalSessions) }} of {{ full(totalSessions) }} sessions</span>
         <div class="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage === 0" @click="currentPage = 0">First</Button>
           <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage === 0" @click="currentPage--">Prev</Button>
-          <span class="px-1 font-mono">Page {{ currentPage + 1 }} of {{ totalPages }}</span>
+          <span class="px-1">Page {{ currentPage + 1 }} of {{ totalPages }}</span>
           <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage >= totalPages - 1" @click="currentPage++">Next</Button>
         </div>
       </div>
@@ -131,6 +124,7 @@
 </template>
 
 <script setup lang="ts">
+import SortHeader from "./SortHeader.vue"
 import { ref, computed, watch, onUnmounted } from "vue"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -153,6 +147,12 @@ const emit = defineEmits<{
 
 const searchQuery = ref("")
 const sortField = ref("tokensDesc")
+function sortBy(key: string) {
+  const direction = sortField.value === key + "Desc" ? "Asc"
+    : sortField.value === key + "Asc" ? "Desc"
+    : key === "title" || key === "status" ? "Asc" : "Desc"
+  sortField.value = key + direction
+}
 const activeStatusFilter = ref<string>("")
 const currentPage = ref(0)
 const pageSize = 20

@@ -1,48 +1,50 @@
 <template>
   <Dialog :open="open" @update:open="(val) => emit('update:open', val)">
-    <DialogContent class="max-w-[1050px] w-[95vw] max-h-[88vh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
-      <DialogHeader class="p-4 border-b border-border bg-sidebar">
-        <DialogTitle class="text-[15px] font-semibold">Models Catalog & Rates</DialogTitle>
+    <DialogContent class="analytics-dialog sm:max-w-[1050px] w-[calc(100vw-2rem)] max-h-[88dvh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
+      <DialogHeader class="shrink-0 p-4 pr-12 border-b border-border bg-sidebar">
+        <DialogTitle class="text-[15px] font-semibold">Model usage</DialogTitle>
         <DialogDescription class="text-xs text-muted-foreground">
-          Detailed ledger usage, token composition, hit rate, and current catalog rates across all {{ models.length }} models.
+          Recorded usage, token composition, and cache hit rate across all {{ models.length }} models.
         </DialogDescription>
+        <p class="text-xs text-muted-foreground m-0">Select a column header to sort; select it again to reverse. <span class="sm:hidden">Scroll the table sideways for more columns.</span></p>
       </DialogHeader>
 
-      <div class="p-4 overflow-auto flex-1 max-h-[calc(88vh-80px)]">
+      <div class="p-4 overflow-auto min-h-0 min-w-0 flex-1" role="region" tabindex="0" aria-label="Model usage table">
         <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
           <thead class="sticky top-0 bg-secondary/80 backdrop-blur z-10">
             <tr class="border-b border-border">
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-left">Model & Provider</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Total Tokens</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Input</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Output</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Cache Read</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Hit Rate</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Cost · USD</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Responses</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Sessions</th>
+              <SortHeader label="Model &amp; Provider" :active="sortKey === 'model'" :descending="descending" align="left" @sort="sortBy('model')" />
+              <SortHeader label="Total Tokens" :active="sortKey === 'tokens'" :descending="descending" align="right" @sort="sortBy('tokens')" />
+              <SortHeader label="Input" :active="sortKey === 'input'" :descending="descending" align="right" @sort="sortBy('input')" />
+              <SortHeader label="Output" :active="sortKey === 'output'" :descending="descending" align="right" @sort="sortBy('output')" />
+              <SortHeader label="Cache Read" :active="sortKey === 'cacheRead'" :descending="descending" align="right" @sort="sortBy('cacheRead')" />
+              <SortHeader label="Hit Rate" :active="sortKey === 'hitRate'" :descending="descending" align="right" @sort="sortBy('hitRate')" />
+              <SortHeader label="Cost · USD" :active="sortKey === 'cost'" :descending="descending" align="right" @sort="sortBy('cost')" />
+              <SortHeader label="Responses" :active="sortKey === 'responses'" :descending="descending" align="right" @sort="sortBy('responses')" />
+              <SortHeader label="Sessions" :active="sortKey === 'sessions'" :descending="descending" align="right" @sort="sortBy('sessions')" />
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!sortedRows.length"><td colspan="9" class="p-6 text-center text-muted-foreground">No models recorded.</td></tr>
             <tr
-              v-for="m in models"
+              v-for="m in sortedRows"
               :key="m.key"
               class="border-b border-border last:border-0 hover:bg-accent/30 cursor-pointer"
               :class="{ 'bg-primary/10 border-l-2 border-l-primary-text': selectedKey === m.key }"
               @click="emit('select', m.key)"
             >
               <td class="p-2.5 text-left">
-                <span class="font-medium text-foreground text-[13px] block">{{ m.model }}</span>
+                <button type="button" class="font-medium text-foreground text-[13px] block text-left underline-offset-4 hover:underline focus-visible:underline" :aria-pressed="selectedKey === m.key" @click.stop="emit('select', m.key)">{{ m.model }}</button>
                 <span class="text-muted-foreground text-[11px] block">{{ m.provider }}</span>
               </td>
-              <td class="p-2.5 text-right font-mono font-medium">{{ full(m.usage.totalTokens) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ compact(m.usage.input) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ compact(m.usage.output) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ compact(m.usage.cacheRead) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ pct(m.usage.cacheHitRate) }}</td>
-              <td class="p-2.5 text-right font-mono text-primary-text font-medium">{{ usd(m.usage.cost.total) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(m.responses) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(m.sessions) }}</td>
+              <td class="p-2.5 text-right font-medium">{{ full(m.usage.totalTokens) }}</td>
+              <td class="p-2.5 text-right">{{ compact(m.usage.input) }}</td>
+              <td class="p-2.5 text-right">{{ compact(m.usage.output) }}</td>
+              <td class="p-2.5 text-right">{{ compact(m.usage.cacheRead) }}</td>
+              <td class="p-2.5 text-right">{{ pct(m.usage.cacheHitRate) }}</td>
+              <td class="p-2.5 text-right text-primary-text font-medium">{{ usd(m.usage.cost.total) }}</td>
+              <td class="p-2.5 text-right">{{ full(m.responses) }}</td>
+              <td class="p-2.5 text-right">{{ full(m.sessions) }}</td>
             </tr>
           </tbody>
         </table>
@@ -52,11 +54,13 @@
 </template>
 
 <script setup lang="ts">
+import SortHeader from "./SortHeader.vue"
+import { useTableSort } from "./useTableSort"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { ModelItem } from "./types"
 import { full, compact, usd, pct } from "./formatters"
 
-defineProps<{
+const props = defineProps<{
   open: boolean
   models: ModelItem[]
   selectedKey?: string
@@ -66,4 +70,16 @@ const emit = defineEmits<{
   (e: "update:open", val: boolean): void
   (e: "select", key: string): void
 }>()
+
+const { sortKey, descending, sortBy, sortedRows } = useTableSort(() => props.models, {
+  model: (r: ModelItem) => r.model + " · " + r.provider,
+  tokens: (r: ModelItem) => r.usage.totalTokens,
+  input: (r: ModelItem) => r.usage.input,
+  output: (r: ModelItem) => r.usage.output,
+  cacheRead: (r: ModelItem) => r.usage.cacheRead,
+  hitRate: (r: ModelItem) => r.usage.cacheHitRate,
+  cost: (r: ModelItem) => r.usage.cost.total,
+  responses: (r: ModelItem) => r.responses,
+  sessions: (r: ModelItem) => r.sessions,
+}, "tokens", true)
 </script>
