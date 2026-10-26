@@ -2,12 +2,12 @@
 import { computed, ref, watch } from 'vue';
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription } from 'reka-ui';
 import { ArrowRightLeft, LoaderCircle } from '@lucide/vue';
-import { activeAddress, checkAddress, connection, recoveryDismissed, recoveryOpen } from '@/lib/connections';
+import { activeAddress, checkAddress, connection, connectionFailure, preferredAddress, recoveryDismissed, recoveryOpen } from '@/lib/connections';
 import { changeConnection } from '@/stores/app';
 const busy = ref('');
 const error = ref('');
 let attempt = 0;
-const alternatives = computed(() => connection.value?.addresses.filter(a => a.url !== activeAddress()) ?? []);
+const alternatives = computed(() => connection.value?.addresses.filter(a => a.url !== activeAddress() && (connectionFailure.value || a.url === preferredAddress.value)) ?? []);
 watch(recoveryOpen, open => {
   if (open) error.value = '';
   else { attempt++; busy.value = ''; }
@@ -19,7 +19,7 @@ async function connect(address: string) {
   try {
     const target = await checkAddress(address);
     if (own !== attempt || !recoveryOpen.value) return;
-    changeConnection(target);
+    changeConnection(target, !connectionFailure.value);
   }
   catch (e) { if (own !== attempt) return; error.value = (e as Error).message === 'Failed to fetch' ? 'Cannot reach this address. Check Wi-Fi or Tailscale, then try again.' : (e as Error).message; }
   finally { if (own === attempt) busy.value = ''; }
@@ -34,9 +34,9 @@ function updateOpen(open: boolean) {
     <DialogPortal>
       <DialogOverlay class="recovery-overlay" />
       <DialogContent class="connection-recovery" data-connection-recovery @interact-outside.prevent>
-        <div class="recovery-title"><ArrowRightLeft :size="20" aria-hidden="true" /><DialogTitle>Connection lost</DialogTitle></div>
-        <DialogDescription class="recovery-description">Choose another address for this daemon. Your draft stays here. Messages are not resent.</DialogDescription>
-        <p class="current-address">Disconnected from <span>{{ activeAddress() }}</span></p>
+        <div class="recovery-title"><ArrowRightLeft :size="20" aria-hidden="true" /><DialogTitle>{{ connectionFailure ? 'Connection lost' : 'Preferred address available' }}</DialogTitle></div>
+        <DialogDescription class="recovery-description">Choose an address for this daemon. Your draft stays here. Messages are not resent.</DialogDescription>
+        <p class="current-address">{{ connectionFailure ? 'Disconnected from' : 'Current address' }} <span>{{ activeAddress() }}</span></p>
         <div class="recovery-addresses" :aria-busy="!!busy">
           <button v-for="address in alternatives" :key="address.url" type="button" class="address-button" :disabled="!!busy" @click="connect(address.url)">
             <span><strong>{{ busy === address.url ? 'Checking daemon…' : 'Switch to ' + address.label }}</strong><small>{{ address.url }}</small></span>

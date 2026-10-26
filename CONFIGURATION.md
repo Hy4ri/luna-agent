@@ -42,7 +42,7 @@ No JSON editing is required.
 
 Open **Settings → System → Connection addresses**. Luna discovers the daemon's
 non-loopback IPv4 interface addresses on the first connection. You can add or rename them in **Connection addresses**.
-Use **Save addresses**. If the connection fails, select **Switch to LAN** or **Switch to Tailscale** in the recovery popup. Bare hosts use HTTP
+Use **Save addresses**. Move addresses up or down to set their preference order. Place LAN first if you prefer it at home. Bare hosts use HTTP
 and port 8787. Full URLs keep their normal or explicit port. Addresses and the disconnect-prompt
 preference are saved on this client, not in `luna.config.json`. All addresses use the existing server token.
 
@@ -53,14 +53,31 @@ The daemon stores its stable ID in `<dataDir>/connection-id` with owner-only per
 Keep that file when moving or backing up the daemon. Do not copy it into an independent daemon.
 The connection route requires the same authentication as other `/v1` routes.
 
-**Show a switch popup when disconnected** opens a modal after a stream or startup
-connection failure. On mobile, it opens as a bottom sheet with large address buttons. The popup
-shows the disconnected address, identity-check progress, inline errors, and a **Not now** action.
-The System address editor remains available even when daemon settings cannot load. The client does not switch automatically. It never retries message sends,
-commands, or other writes because an address failed. Any existing explicit **Retry send** action
-keeps its original request ID. Switching waits until current sends finish and settings edits are resolved.
-It reconnects the main view and all loaded split panes without reloading the application.
-Drafts, attachments, and unconfirmed-send state stay in memory.
+**Ask before switching addresses** requires confirmation before using another route. When disabled,
+Luna probes saved alternatives concurrently after a connection failure and uses the first validated route.
+Existing prompt preferences are preserved; disabling the former popup setting now enables automatic switching.
+Each recovery probe has a three-second total deadline, including both identity and authenticated checks.
+When you return to the app, Luna checks higher-priority addresses with two-second deadlines.
+Preferred-route changes wait until every loaded pane is between turns. With confirmation enabled,
+the dialog says **Preferred address available**, not **Connection lost**, for a healthy current route.
+A **Not now** action dismisses the dialog until recovery or an address/preference change.
+Dismissing a healthy-route suggestion does not suppress a later connection-loss dialog.
+
+Startup failures remain in the shell with **Reconnecting…**, retrying from one second up to fifteen seconds.
+Network-up, window-focus, and visible-page events also retry startup. Missing credentials and rejected tokens
+still open login. Stream recovery waits for three consecutive failures or eight seconds of failed retries
+before showing the recovery dialog; a successful event resets this count.
+Ordinary API requests have a fifteen-second deadline, including JSON response bodies.
+A send timeout means **delivery not confirmed**, not that the server rejected or missed the message.
+Any explicit **Retry send** action keeps its original request ID. Luna never retries message sends,
+commands, or other writes merely because an address failed.
+
+Switching waits until current sends finish and settings edits are resolved. It reconnects the main view
+and all loaded split panes without reloading the application. Drafts, attachments, and unconfirmed-send
+state stay in memory. The first session attachment reads up to 500 history entries; subsequent feed
+reconnects read the latest 100 and retain earlier loaded rows. Hydration has its own thirty-second budget,
+separate from the ten-second stream-connection deadline. The stream's atomic snapshot still reconciles
+current run state. Inline images and large snapshot payloads are unchanged.
 
 The daemon must listen on an address reachable through both networks, usually `server.host: "0.0.0.0"`.
 Non-loopback binding still requires `LUNA_TOKEN`. Tailscale must already be connected, and the firewall
