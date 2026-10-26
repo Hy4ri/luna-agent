@@ -1,6 +1,6 @@
 // Model list, selection, pins, and thinking level. Port of vanilla models.js state.
 import { computed, reactive } from "vue";
-import { json, post } from "@/lib/api";
+import { json, post, serverUrl, token } from "@/lib/api";
 import type { ModelInfo } from "@/lib/types";
 import { addErr, chat } from "./chat";
 
@@ -22,7 +22,7 @@ export const models = reactive({
   selected: null as ModelRef | null,
   thinking: "off",
   draft: {} as { model?: ModelRef; thinkingLevel?: string },
-  pins: readPins(),
+  pins: [] as string[],
   loaded: false,
   refresh: null as { checkedAt: number | null; refreshing: boolean; intervalMs: number; errors: Record<string, string> } | null,
 });
@@ -37,28 +37,36 @@ export const modelLabel = computed(() => {
 
 export function setSelectedModel(m: ModelRef | null | undefined) { models.selected = m ? { provider: m.provider, modelId: m.modelId } : null; }
 
-/** Returns false when the browser refused to store the pins. */
-export function togglePin(key: string): boolean {
-  const next = new Set(readPins());
-  if (next.has(key)) next.delete(key); else next.add(key);
-  try { localStorage.setItem(PIN_KEY, JSON.stringify([...next])); } catch { return false; }
-  models.pins = [...next];
-  return true;
+let pinQueue: Promise<unknown> = Promise.resolve();
+function pinOperation(body?: object): Promise<boolean> {
+  const origin = serverUrl.value, credential = token.value;
+  const operation = pinQueue.then(async () => {
+    if (origin !== serverUrl.value || credential !== token.value) return false;
+    // Remove legacy data only after the server has saved it. Failed imports can retry.
+    const legacy = readPins();
+    if (legacy.length) {
+      const imported = await post<{ pins: string[] }>("/v1/models/pins", { action: "import", pins: legacy });
+      models.pins = imported.pins;
+      localStorage.removeItem(PIN_KEY);
+    }
+    const result = body
+      ? await post<{ pins: string[] }>("/v1/models/pins", body)
+      : await json<{ pins: string[] }>("/v1/models/pins");
+    models.pins = result.pins;
+    return true;
+  }).catch(e => { addErr((e as Error).message); return false; });
+  pinQueue = operation;
+  return operation;
 }
-
-/** Moves a pin without changing the order of other pins. */
-export function movePin(key: string, direction: -1 | 1): boolean {
-  const next = readPins();
-  const index = next.indexOf(key);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= next.length) return false;
-  [next[index], next[target]] = [next[target]!, next[index]!];
-  try { localStorage.setItem(PIN_KEY, JSON.stringify(next)); } catch { return false; }
-  models.pins = next;
-  return true;
+export function togglePin(key: string): Promise<boolean> {
+  return pinOperation({ action: "toggle", key });
+}
+export function movePin(key: string, direction: -1 | 1): Promise<boolean> {
+  return pinOperation({ action: "move", key, direction });
 }
 
 export async function loadModels() {
+  await pinOperation();
   try {
     const r = await json<{ models: ModelInfo[]; default: ModelRef | null; refresh: typeof models.refresh }>("/v1/models");
     models.list = r.models; models.defaultModel = r.default; models.refresh = r.refresh;

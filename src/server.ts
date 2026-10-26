@@ -213,6 +213,27 @@ export function createApp(opts: ServerOptions) {
   };
 
   app.get("/v1/settings", c => opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"));
+  app.get("/v1/models/pins", c => opts.settings ? c.json({ pins: opts.settings.read().pinnedModels }) : err(c, 404, "settings disabled"));
+  app.post("/v1/models/pins", async c => {
+    if (!opts.settings) return err(c, 404, "settings disabled");
+    const body = await c.req.json().catch(() => null);
+    if (!body || !["import", "toggle", "move"].includes(body.action)) return err(c, 400, "Invalid pin action");
+    if (body.action === "import" ? !Array.isArray(body.pins) || !body.pins.every((p: unknown) => typeof p === "string" && p.length > 0)
+      : typeof body.key !== "string" || !body.key.length || (body.action === "move" && body.direction !== -1 && body.direction !== 1)) return err(c, 400, "Invalid pins");
+    opts.settings.update(settings => {
+      const pins = settings.pinnedModels;
+      if (body.action === "import") settings.pinnedModels = [...new Set([...pins, ...body.pins])];
+      else {
+        const index = pins.indexOf(body.key);
+        if (body.action === "toggle") { if (index < 0) pins.push(body.key); else pins.splice(index, 1); }
+        else {
+          const target = index + body.direction;
+          if (index >= 0 && target >= 0 && target < pins.length) [pins[index], pins[target]] = [pins[target]!, pins[index]!];
+        }
+      }
+    });
+    return c.json({ pins: opts.settings.read().pinnedModels });
+  });
   const analytics = createAnalyticsReader(harness, opts.models);
   app.get("/v1/analytics", async c => {
     const started = performance.now();

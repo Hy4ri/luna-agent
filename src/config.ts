@@ -103,6 +103,7 @@ export const ConfigSchema = z
         codexHome: z.string().min(1).optional(), codexCommand: z.string().min(1).optional(),
       }).prefault({}),
     }).prefault({}),
+    pinnedModels: z.array(z.string().min(1)).refine(value => new Set(value).size === value.length, "Duplicate pinned models").default([]),
     providers: z.array(CustomProviderSchema).default([]),
     // Agent-facing web tools use a common interface; options belong to each provider.
     web: z.strictObject({
