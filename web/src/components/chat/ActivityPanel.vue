@@ -16,8 +16,6 @@ const liveReviews = computed(() => reviews.value.filter(j => j.status === "runni
 const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviews.value.find(j => j.id === selectedReview.value) || null);
 const children = computed(() => chat.extras?.children || []);
-const delegationUsage = computed(() => chat.extras?.delegationUsage);
-const usd = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 4 }).format(value);
 const doneTasks = computed(() => todos.value.filter((t: any) => t.status === "completed").length);
 const activeTask = computed(() => todos.value.find((t: any) => t.status === "in_progress"));
 const liveProcesses = computed(() => processes.value.filter(p => p.running));
@@ -163,12 +161,6 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
           <template v-else>Subagents <span>{{ liveChildren.length }} running</span></template>
         </h4>
         <div v-show="!docked || !collapsed.children">
-          <p v-if="delegationUsage" class="muted text-xs mb-2" :title="delegationUsage.note">
-            Recorded estimates: parent {{ usd(delegationUsage.parent.costUsd) }} · children {{ usd(delegationUsage.childTotal.costUsd) }} · total {{ usd(delegationUsage.total.costUsd) }}
-            <span v-if="delegationUsage.total.missingCost || delegationUsage.unavailableChildren"> (partial)</span>
-            <span v-if="delegationUsage.total.zeroCostModels.length"> · zero costs may be unpriced</span>
-            <br>{{ delegationUsage.total.totalTokens.toLocaleString() }} tokens · not invoice charges
-          </p>
           <div v-for="c in children" :key="c.id" class="activity-row" :data-child="c.id" :data-status="c.status">
             <div class="activity-line">
               <LoaderCircle v-if="childLive(c)" :size="14" class="spin" aria-label="Running" />
