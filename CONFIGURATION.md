@@ -116,9 +116,10 @@ loads its shell locally and does not have this browser limitation.
 - `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` defaults, plus named `profiles`.
   Set both provider and model, or omit both to inherit the parent model. A selected profile can override provider/model and thinking.
   Profiles apply to new children only. Each profile has an exact `tools` allowlist, optional `instructions`, and `context` (`fresh` by default, or `fork`).
-  An explicit `spawn.fork` overrides the profile context. Without a profile, children retain the parent's enabled tools except delegation, board, and hidden questionnaires.
+  An explicit `spawn.fork` overrides the profile context. Without a profile, children retain the parent's currently model-offered tools except delegation, board, and hidden questionnaires.
   The built-in profiles are `scout`, `reviewer`, and `worker`. Scout and reviewer can read files, list directories with `delegate_files`, load existing skills with `skill_view`, and hand off; they have no shell or write tools.
-  Worker can read, write, edit, run bash, load existing skills, and hand off. Requested profile tools must already be enabled for the parent; profiles do not install tools.
+  Worker can read, write, edit, run bash, load existing skills, and hand off. Profiles can select the parent's currently model-offered tools and enabled, model-callable deferred tools; profiles do not install tools or restore disabled tools.
+  Every selected tool is offered directly to the child, including deferred tools. The parent does not need to load `delegate_files` or other selected deferred tools first.
   The runtime adds `delegate_result` to every new child for result reporting. Tool restrictions are enforced by the native agent tool selection, not just instructions; they are not an operating-system sandbox.
   Supplying `profiles` replaces the profile map; omit it to keep the built-ins. Unknown profiles, duplicate tool names, incomplete model pairs, and unavailable selected tools fail explicitly.
   Child profiles cannot include `delegate_task`, `ask_user_question`, `board`, or `tool_search`. Children cannot delegate further.

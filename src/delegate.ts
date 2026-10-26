@@ -16,7 +16,6 @@ import { Children, ChildResult, childRequests, childNotificationId, readChildRep
 import { withChildControl } from "./delegate-control.js";
 import { DelegateDeadline } from "./delegate-deadline.js";
 import { compileResultSchema, delegateResultTool, RECEIPT_SCHEMA } from "./delegate-results.js";
-import { delegateFilesTool } from "./delegate-files.js";
 import { prepareDelegateWorktree } from "./delegate-worktree.js";
 import { readDelegationUsage } from "./delegate-usage.js";
 import type { DelegateProfile } from "./delegate-profiles.js";
@@ -178,7 +177,8 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               const model = profile?.provider && profile.model ? { provider: profile.provider, modelId: profile.model }
                 : defaults.provider && defaults.model ? { provider: defaults.provider, modelId: defaults.model } : parent.model;
               if (model && !api.models.getModel(model.provider, model.modelId)) return text(`Unknown child model ${model.provider}/${model.modelId}.`, true);
-              const available = new Map(parent.tools.map(tool => [tool.name, tool]));
+              // Both lists already enforce the parent's enabled tools and model-caller restrictions.
+              const available = new Map([...parent.tools, ...parent.deferred].map(tool => [tool.name, tool]));
               const requested = profile?.tools ?? parent.tools.map(tool => tool.name);
               const forbidden = new Set(["delegate_task", "ask_user_question", "board"]);
               const missing = requested.filter(name => !forbidden.has(name) && !available.has(name));
@@ -224,7 +224,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               const agent: AgentChange = {
                 ...(model ? { model } : {}), thinkingLevel: profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel,
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board" || e.name === "ask-user")] },
-                tools, modelTools: { add: [delegateResultTool, ...(tools.some(tool => tool.name === delegateFilesTool.name) ? [delegateFilesTool] : [])] },
+                tools, modelTools: tools,
                 ...(cwd ? { cwd } : {}),
                 instructions: [parent.instructions, profile?.instructions].filter(Boolean).join("\n\n") || null,
               };
