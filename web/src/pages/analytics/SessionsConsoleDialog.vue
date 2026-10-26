@@ -1,7 +1,7 @@
 <template>
   <Dialog :open="open" @update:open="(val) => emit('update:open', val)">
-    <DialogContent class="max-w-[1150px] w-[95vw] max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
-      <DialogHeader class="p-4 border-b border-border bg-sidebar">
+    <DialogContent class="analytics-dialog sm:max-w-[1150px] w-[calc(100vw-2rem)] max-h-[90dvh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
+      <DialogHeader class="shrink-0 p-4 pr-12 border-b border-border bg-sidebar">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <DialogTitle class="text-[15px] font-semibold">Sessions Explorer</DialogTitle>
@@ -20,12 +20,14 @@
           <input
             v-model="searchQuery"
             type="text"
+            aria-label="Search sessions"
             placeholder="Search title or ID..."
             class="h-8 px-2.5 text-xs text-foreground bg-secondary border border-border rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring w-[190px]"
           />
 
           <select
             v-model="sortField"
+            aria-label="Sort sessions"
             class="h-8 px-2 text-xs text-foreground bg-secondary border border-border rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring"
           >
             <option value="tokensDesc">Tokens · High to Low</option>
@@ -40,7 +42,8 @@
           <div class="flex items-center gap-1.5 flex-wrap ml-auto">
             <button
               type="button"
-              class="h-6 px-2 rounded-full border text-[11px] font-medium transition-colors"
+               :aria-pressed="activeStatusFilter === ''"
+              class="min-h-8 px-2 rounded-full border text-[11px] font-medium transition-colors"
               :class="activeStatusFilter === '' ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary text-foreground border-border hover:bg-accent'"
               @click="activeStatusFilter = ''"
             >
@@ -50,7 +53,8 @@
               v-for="(count, st) in statusBreakdown"
               :key="st"
               type="button"
-              class="h-6 px-2 rounded-full border text-[11px] font-medium transition-colors"
+              :aria-pressed="activeStatusFilter === st"
+              class="min-h-8 px-2 rounded-full border text-[11px] font-medium transition-colors"
               :class="activeStatusFilter === st ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary text-foreground border-border hover:bg-accent'"
               @click="activeStatusFilter = st"
             >
@@ -61,7 +65,7 @@
       </DialogHeader>
 
       <!-- Table Content -->
-      <div class="p-4 overflow-auto flex-1 max-h-[calc(90vh-140px)]" :aria-busy="loading">
+      <div class="p-4 overflow-auto min-h-0 min-w-0 flex-1" :aria-busy="loading">
         <p v-if="loading" role="status" class="mb-3 text-muted-foreground">Loading sessions…</p>
         <div v-if="errorMessage" role="alert" class="mb-3 text-destructive">
           {{ errorMessage }}
@@ -117,7 +121,7 @@
       </div>
 
       <!-- Pagination Footer -->
-      <div v-if="!loading && !errorMessage" class="p-3 border-t border-border bg-sidebar flex items-center justify-between text-xs text-muted-foreground">
+      <div v-if="!loading && !errorMessage" class="p-3 border-t border-border bg-sidebar shrink-0 flex flex-wrap gap-3 items-center justify-between text-xs text-muted-foreground">
         <span>Showing {{ totalSessions ? startIdx + 1 : 0 }}–{{ Math.min(startIdx + pageSize, totalSessions) }} of {{ full(totalSessions) }} sessions</span>
         <div class="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage === 0" @click="currentPage = 0">First</Button>

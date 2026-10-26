@@ -1,7 +1,7 @@
 <template>
   <Dialog :open="open" @update:open="(val) => emit('update:open', val)">
-    <DialogContent class="max-w-[750px] w-[95vw] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
-      <DialogHeader class="p-4 border-b border-border bg-sidebar">
+    <DialogContent class="analytics-dialog sm:max-w-[750px] w-[calc(100vw-2rem)] max-h-[85dvh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
+      <DialogHeader class="shrink-0 p-4 pr-12 border-b border-border bg-sidebar">
         <div class="flex items-center gap-2">
           <DialogTitle class="text-[15px] font-semibold flex-1 truncate">
             {{ session?.title || 'Untitled Session' }}
@@ -16,7 +16,7 @@
         </DialogDescription>
       </DialogHeader>
 
-      <div v-if="session" class="p-4 overflow-auto flex-1 space-y-4">
+      <div v-if="session" class="p-4 overflow-auto min-h-0 min-w-0 flex-1 space-y-4">
         <!-- Top Metrics Cards -->
         <div class="grid grid-cols-3 max-[600px]:grid-cols-1 gap-3">
           <div class="border border-border rounded-[var(--radius)] p-3 bg-secondary/50">
@@ -73,8 +73,8 @@
             <div><span class="text-muted-foreground">Subagents:</span> <strong class="font-mono">{{ full(session.subagentCount) }} (Depth: {{ session.forkDepth }})</strong></div>
             <div><span class="text-muted-foreground">Project:</span> <strong class="text-primary-text">{{ session.projectName || 'General' }} (#{{ session.projectId }})</strong></div>
             <div><span class="text-muted-foreground">Last Activity:</span> <span class="font-mono">{{ when(session.lastActivity) }}</span></div>
-            <div class="col-span-2"><span class="text-muted-foreground">Models:</span> <span>{{ (session.models || []).join(', ') || '—' }}</span></div>
-            <div class="col-span-2" v-if="session.skills?.length"><span class="text-muted-foreground">Skills:</span> <span>{{ session.skills.join(', ') }}</span></div>
+            <div class="col-span-2 max-[600px]:col-span-1"><span class="text-muted-foreground">Models:</span> <span>{{ (session.models || []).join(', ') || '—' }}</span></div>
+            <div class="col-span-2 max-[600px]:col-span-1" v-if="session.skills?.length"><span class="text-muted-foreground">Skills:</span> <span>{{ session.skills.join(', ') }}</span></div>
           </div>
         </div>
       </div>

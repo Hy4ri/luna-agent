@@ -1,14 +1,14 @@
 <template>
   <Dialog :open="open" @update:open="(val) => emit('update:open', val)">
-    <DialogContent class="max-w-[900px] w-[95vw] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
-      <DialogHeader class="p-4 border-b border-border bg-sidebar">
+    <DialogContent class="analytics-dialog sm:max-w-[900px] w-[calc(100vw-2rem)] max-h-[85dvh] flex flex-col p-0 gap-0 overflow-hidden bg-card border-border">
+      <DialogHeader class="shrink-0 p-4 pr-12 border-b border-border bg-sidebar">
         <DialogTitle class="text-[15px] font-semibold">Tools Execution & Error Rates</DialogTitle>
         <DialogDescription class="text-xs text-muted-foreground">
           Tracked calls, error rates, and tool-reported token costs across all {{ tools.length }} tools.
         </DialogDescription>
       </DialogHeader>
 
-      <div class="p-4 overflow-auto flex-1 max-h-[calc(85vh-80px)]">
+      <div class="p-4 overflow-auto min-h-0 min-w-0 flex-1">
         <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
           <thead class="sticky top-0 bg-secondary/80 backdrop-blur z-10">
             <tr class="border-b border-border">

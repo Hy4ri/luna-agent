@@ -8,7 +8,7 @@
       <div class="flex-1 a-heading">
         <div class="eyebrow text-xs uppercase tracking-wider text-muted-foreground">Workspace / Usage</div>
         <h1 tabindex="-1" class="m-0 text-[22px] font-semibold tracking-tight leading-[1.3]">Analytics</h1>
-        <p class="m-0 text-xs text-muted-foreground">Executive Bento overview of model telemetry, token consumption, and recorded cost.</p>
+        <p class="m-0 text-xs text-muted-foreground">Model usage, token consumption, and recorded cost.</p>
       </div>
       <button type="button" class="icon-button" aria-label="Close analytics" @click="navigate('chat')"><X :size="18" /></button>
     </header>
@@ -42,7 +42,7 @@
     <div data-analytics-content class="max-w-[1475px] mx-auto">
       <template v-if="snapshot">
         <!-- 4 Top KPI Cards -->
-        <div class="grid grid-cols-4 max-[1100px]:grid-cols-2 max-[550px]:grid-cols-1 gap-3 my-3 mb-5">
+        <div class="a-kpis grid gap-3 my-3 mb-5">
           <div class="border border-border rounded-[var(--radius)] p-4 bg-card a-kpi">
             <span class="eyebrow text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">Total tokens</span>
             <strong class="block text-[26px] font-semibold leading-tight tracking-tight tabular-nums font-mono a-value" :title="full(activeUsage.totalTokens)">
@@ -87,9 +87,9 @@
         </template>
         <template v-else>
           <!-- 12-Column Responsive Bento Grid -->
-          <div class="grid grid-cols-12 gap-4 mb-6">
+          <div class="a-grid grid gap-4 mb-6">
             <!-- TILE 1: Daily Token Activity (Col Span 8) -->
-            <section class="col-span-8 max-[1000px]:col-span-12 border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
+            <section class="a-timeline border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between gap-3 mb-1">
                   <h2 class="m-0 text-[15px] font-semibold">Daily Token Activity</h2>
@@ -104,8 +104,8 @@
                 <p class="py-8 text-center text-muted-foreground text-xs">No dated response history is available.</p>
               </template>
               <template v-else>
-                <div class="relative w-full h-[180px]">
-                  <svg viewBox="0 0 640 200" class="w-full h-full block overflow-visible" role="img" aria-label="Daily token activity timeline">
+                <div class="relative w-full overflow-x-auto" tabindex="0" aria-label="Daily token chart, scroll horizontally on small screens">
+                  <svg viewBox="0 0 640 200" class="w-full min-w-[480px] h-auto block" role="img" aria-label="Daily token activity timeline">
                     <g v-for="r in [0, 0.5, 1]" :key="r">
                       <line :x1="leftMargin" :y1="topMargin + chartHeight * (1 - r)" :x2="632" :y2="topMargin + chartHeight * (1 - r)" stroke="var(--border)" stroke-dasharray="3 4" />
                       <text :x="leftMargin - 8" :y="topMargin + chartHeight * (1 - r) + 4" text-anchor="end" class="fill-muted-foreground text-[10px] font-mono">{{ compact(maxTimeline * r) }}</text>
@@ -143,7 +143,7 @@
             </section>
 
             <!-- TILE 2: Token Composition & Spend (Col Span 4) -->
-            <section class="col-span-4 max-[1000px]:col-span-12 border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
+            <section class="a-tile border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between gap-2 mb-1">
                   <h2 class="m-0 text-[15px] font-semibold">Composition & Spend</h2>
@@ -183,13 +183,13 @@
                   <strong class="font-mono text-foreground">{{ activeUsage.cacheWrite1h == null ? "Not reported" : compact(activeUsage.cacheWrite1h) }}</strong>
                 </div>
                 <div class="mt-1 text-[11px] text-emerald-400">
-                  Cache hit saved {{ compact(activeUsage.cacheRead) }} input tokens
+                  {{ compact(activeUsage.cacheRead) }} tokens served from cache
                 </div>
               </div>
             </section>
 
             <!-- TILE 3: Models Leaderboard (Col Span 4) -->
-            <section class="col-span-4 max-[1000px]:col-span-12 border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
+            <section class="a-tile border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between gap-2 mb-1">
                   <h2 class="m-0 text-[15px] font-semibold">Top Models Leaderboard</h2>
@@ -200,10 +200,12 @@
                 <p class="text-muted-foreground text-xs mb-3">Highest token consumption models</p>
 
                 <div class="flex flex-col gap-2.5">
-                  <div
+                  <button
+                    type="button"
+                    :aria-pressed="selected === m.key"
                     v-for="m in topModels"
                     :key="m.key"
-                    class="p-2 rounded-[var(--radius)] border border-border/60 bg-secondary/30 hover:bg-accent/40 cursor-pointer transition-colors"
+                    class="a-card-action p-2 rounded-[var(--radius)] border border-border/60 bg-secondary/30 hover:bg-accent/40 transition-colors"
                     :class="{ 'border-primary-text bg-primary/10': selected === m.key }"
                     @click="selected = (selected === m.key ? '' : m.key)"
                   >
@@ -220,17 +222,17 @@
                     <div class="h-1 bg-secondary rounded-[1px] overflow-hidden">
                       <div class="h-full bg-primary-text" :style="`width:${topModelMaxTokens ? (m.usage.totalTokens / topModelMaxTokens * 100) : 0}%`"></div>
                     </div>
-                  </div>
+                  </button>
                 </div>
               </div>
 
               <div class="mt-3 pt-2 text-[11px] text-muted-foreground text-center">
-                Click any model card to isolate its telemetry across the dashboard
+                Click any model card to isolate its usage in the token charts and totals
               </div>
             </section>
 
             <!-- TILE 4: Tool Health & Operations (Col Span 4) -->
-            <section class="col-span-4 max-[1000px]:col-span-12 border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
+            <section class="a-tile border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between gap-2 mb-1">
                   <h2 class="m-0 text-[15px] font-semibold">Tool Health & Operations</h2>
@@ -276,7 +278,7 @@
             </section>
 
             <!-- TILE 5: Active & Recent Sessions (Col Span 4) -->
-            <section class="col-span-4 max-[1000px]:col-span-12 border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
+            <section class="a-tile border border-border rounded-[var(--radius)] p-4 bg-card flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between gap-2 mb-1">
                   <h2 class="m-0 text-[15px] font-semibold">Active & Recent Sessions</h2>
@@ -287,10 +289,11 @@
                 <p class="text-muted-foreground text-xs mb-3">Live status and activity</p>
 
                 <div class="flex flex-col gap-2">
-                  <div
+                  <button
+                    type="button"
                     v-for="s in recentSessions"
                     :key="s.id"
-                    class="p-2 rounded-[var(--radius)] border border-border/60 bg-secondary/30 hover:bg-accent/40 cursor-pointer transition-colors"
+                    class="a-card-action p-2 rounded-[var(--radius)] border border-border/60 bg-secondary/30 hover:bg-accent/40 transition-colors"
                     @click="inspectSession(s)"
                   >
                     <div class="flex items-center justify-between gap-2">
@@ -303,7 +306,7 @@
                       <span>#{{ s.id }} · {{ compact(s.usage.totalTokens) }} tokens</span>
                       <span>{{ when(s.lastActivity) }}</span>
                     </div>
-                  </div>
+                  </button>
                 </div>
               </div>
 
@@ -313,7 +316,7 @@
             </section>
 
             <!-- TILE 6: Projects, Workers & Reliability (Col Span 12) -->
-            <section class="col-span-12 border border-border rounded-[var(--radius)] p-4 bg-card">
+            <section class="a-footprint border border-border rounded-[var(--radius)] p-4 bg-card">
               <div class="flex items-center justify-between gap-3 mb-3">
                 <div>
                   <h2 class="m-0 text-[15px] font-semibold">System Footprint & Projects</h2>
@@ -321,7 +324,7 @@
                 </div>
               </div>
 
-              <div class="grid grid-cols-3 max-[1000px]:grid-cols-1 gap-4">
+              <div class="a-system grid gap-4">
                 <!-- Projects Column -->
                 <div class="border border-border/60 rounded-[var(--radius)] p-3 bg-secondary/20">
                   <span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-2">Projects ({{ snapshot.projects?.length || 0 }})</span>
@@ -676,3 +679,46 @@ onUnmounted(() => {
   generation.value++
 })
 </script>
+
+<style scoped>
+/* Respond to the content width, not the window behind the sidebar. */
+#analytics-screen { container-type: inline-size; }
+.a-heading { min-width: 0; }
+#analytics-screen :is(button, select) { font-size: 13px; }
+#analytics-screen .font-mono, :global(.analytics-dialog .font-mono) {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+:global(.analytics-dialog) { font-family: system-ui, sans-serif; }
+:global(.analytics-dialog button), :global(.analytics-dialog input), :global(.analytics-dialog select) { font-size: 13px; }
+:global(.analytics-dialog [data-slot="dialog-header"]) { overflow-y: auto; max-height: 50dvh; }
+:global(.analytics-dialog button:focus-visible) { outline: 2px solid var(--ring); outline-offset: 2px; }
+.a-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.a-grid, .a-system { grid-template-columns: minmax(0, 1fr); }
+.a-grid > section, .a-kpi, .a-system > div { min-width: 0; }
+.a-grid h2 { line-height: 1.5; }
+.a-grid section > div > .flex:first-child { flex-wrap: wrap; }
+.a-grid section > div > .flex:first-child > button { white-space: normal; height: auto; min-height: 32px; text-align: left; }
+.a-card-action { display: block; width: 100%; min-width: 0; text-align: left; cursor: pointer; }
+.a-card-action:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.a-card-action .truncate { max-width: none; min-width: 0; flex: 1; }
+.a-card-action .text-right, .a-card-action span.rounded-full { flex-shrink: 0; }
+.a-grid code { overflow-wrap: anywhere; min-width: 0; }
+.a-grid code + div { flex-shrink: 0; }
+.a-grid .justify-between { gap: 8px; }
+.a-grid .text-\[9px\], .a-grid .text-\[10px\] { font-size: 12px; }
+@container (min-width: 720px) {
+  .a-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .a-timeline, .a-footprint { grid-column: 1 / -1; }
+}
+@container (min-width: 1120px) {
+  .a-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .a-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .a-timeline { grid-column: span 2; }
+  .a-system { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container (max-width: 420px) {
+  .a-kpis { grid-template-columns: minmax(0, 1fr); }
+  .a-updated { margin-left: 0; width: 100%; }
+}
+</style>
