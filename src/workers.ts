@@ -162,6 +162,12 @@ export class WorkerHub {
         typeof (hello.capabilities as unknown as Record<string, unknown>)[k] !== "string")) {
         ws.close(4000, "invalid capabilities"); return;
       }
+      const browser = hello.capabilities.browser;
+      if (browser !== undefined && (!browser || typeof browser !== "object" ||
+        !["disabled", "chromium", "camofox"].includes(browser.provider) || typeof browser.configured !== "boolean" ||
+        (browser.reason !== undefined && typeof browser.reason !== "string"))) {
+        ws.close(4000, "invalid browser capability"); return;
+      }
       if (!this.store.get(worker.id)) { ws.close(4001, "worker removed"); return; }
       // Never let a second process take over a live execution machine. Heartbeats remove a stale link first.
       if (this.links.has(worker.id)) { ws.close(4009, "worker already connected"); return; }
@@ -323,6 +329,10 @@ export function createWorkersExtension(hub: () => WorkerHub | undefined): Extens
       workingDirectory + authority +
       " All paths in those tools are paths on that machine." +
       " Browser tools and worker-specific MCP tools (w<id>_<server>__*) run on that worker; main MCP servers remain available." +
+      (c?.browser ? c.browser.configured
+        ? ` Browser provider: ${c.browser.provider}, configured on this worker; runtime availability is checked when called.`
+        : ` Browser tools are unavailable: ${c.browser.reason ?? "not configured"} Do not call browser tools until the worker configuration changes and it reconnects.`
+        : " Browser availability is unknown; this worker does not report browser capabilities.") +
       " Vision reads remote files through the worker link.";
   })] });
 }

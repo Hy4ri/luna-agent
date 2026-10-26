@@ -32,7 +32,9 @@ export type EnvMethod = typeof ENV_METHODS[number];
 export const HANDLE_METHODS = new Set<EnvMethod>(["openBinaryReader", "openTextLineReader", "openDirReader"]);
 export const HANDLE_OPS = new Set(["info", "read", "scanLines", "readLine", "next", "close"]);
 
-export interface Capabilities { hostname: string; platform: string; arch: string; node: string; user: string; home: string; cwd: string; path?: string }
+export interface BrowserCapability { provider: "disabled" | "chromium" | "camofox"; configured: boolean; reason?: string }
+
+export interface Capabilities { browser?: BrowserCapability; hostname: string; platform: string; arch: string; node: string; user: string; home: string; cwd: string; path?: string }
 
 export type MainMessage =
   | { t: "welcome"; protocol: number; workerId: number; name: string }

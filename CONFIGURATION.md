@@ -1373,6 +1373,27 @@ For sessions created through the API, existing answer attachments keep their sou
 In a worker session, `browser_*` tools drive the worker's browser. Main MCP servers stay available.
 The worker reads `browser` and `mcpServers` from its own `luna.config.json` (`LUNA_CONFIG`, or the file in the directory where it starts).
 A worker without `browser.provider` set reports that browser tools are not enabled. It never fakes a page.
+Workers report their browser provider, configuration status, and configuration error in their connection capabilities.
+The agent sees this status in its machine instructions. Calls to a worker with an unconfigured browser fail before dispatch.
+Configuration status checks executable access or the Camofox MCP configuration; it does not prove a successful browser launch or MCP connection.
+Older workers without this capability report availability as unknown and retain call-time checks.
+There is no automatic fallback to the host browser. Restart the worker after changing browser configuration.
+
+For Helium on a NixOS desktop, merge this into the worker's own configuration:
+
+```json
+{
+  "browser": {
+    "provider": "chromium",
+    "providers": {
+      "chromium": {
+        "executablePath": "/run/current-system/sw/bin/helium",
+        "headless": true
+      }
+    }
+  }
+}
+```
 Each MCP server on the worker appears as deferred tools named `w<workerId>_<server>__<tool>`.
 Only sessions on that worker can find or call them. Main sessions and sessions on other workers cannot.
 The worker starts its MCP servers when it connects. Restart the worker to apply config changes.
