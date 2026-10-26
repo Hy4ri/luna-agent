@@ -1476,6 +1476,23 @@ Native background processes use that environment and retain their output central
 Files named by an assistant `MEDIA:` directive are fetched on demand from the source worker.
 For sessions created through the API, existing answer attachments keep their source after execution transfers.
 
+### Session image transport
+
+Session detail responses and both SSE streams replace embedded PNG, JPEG, GIF, and WebP
+base64 image blocks in committed entries with `{ type: "image", mimeType, data: "", url }`.
+Stored entries and model history stay unchanged. Upload references still use `/v1/uploads/:id`.
+
+`GET /v1/sessions/:id/entries/:entryId/images/:index` returns the original image bytes.
+The zero-based index follows array order and object-key order through the entry.
+The route requires normal bearer authentication and checks entry visibility through the session's
+fork lineage. Parent entries after the fork point and unrelated entries return 404.
+Historical images remain available after reset or undo, like historical transcript entries.
+Responses use a raster MIME allowlist, `Cache-Control: private, no-store`, and `X-Content-Type-Options: nosniff`.
+The web UI uses authenticated blob requests; tokens are not included in image URLs.
+
+Live partials and nested tool results without committed entry IDs remain inline.
+This transport needs no configuration changes; `luna.config.example.json` stays unchanged.
+
 ### Browser and MCP on a worker
 
 In a worker session, `browser_*` tools drive the worker's browser. Main MCP servers stay available.

@@ -14,6 +14,7 @@ import SideJobCard from "./SideJobCard.vue";
 import Welcome from "./Welcome.vue";
 import Questions from "./Questions.vue";
 import UploadAttachment from "./UploadAttachment.vue";
+import SessionImage from "./SessionImage.vue";
 
 const pending = computed(() => [...pendingMessages.values()].filter(p =>
   p.session === chat.session && (p.session !== null || p.epoch === chat.epoch) &&
@@ -229,10 +230,10 @@ function backgroundReport(entry: any, message: any): boolean {
                   :size="block.attachment.size"
                 />
                 <ReportContext v-else-if="block.type === 'text'" :text="block.text" />
-                <img
+                <SessionImage
                   v-else-if="block.type === 'image' && !block.data?.startsWith('luna-upload:')"
                   class="att"
-                  :src="`data:${block.mimeType};base64,${block.data}`"
+                  :image="block"
                   alt="attachment"
                 />
               </template>
@@ -269,10 +270,10 @@ function backgroundReport(entry: any, message: any): boolean {
             :size="block.attachment?.size"
           />
           <ReportContext v-else-if="block.type === 'text'" :text="block.text" />
-          <img
+          <SessionImage
             v-else-if="block.type === 'image' && !block.data?.startsWith('luna-upload:')"
             class="att"
-            :src="`data:${block.mimeType};base64,${block.data}`"
+            :image="block"
             alt="attachment"
           />
         </template>

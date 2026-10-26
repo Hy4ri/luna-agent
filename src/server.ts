@@ -1,3 +1,4 @@
+import { getImageBlockAt, projectAgentEvent, projectEntryImages, projectSnapshotImages } from "./session-images.js";
 import { readClaudeUsage, usageNotice } from "./claude-usage.js";
 import { createGitControl, GitError, type Workspace } from "./git-control.js";
 import { createGitStatusReader } from "./git-status.js";
@@ -741,7 +742,7 @@ export function createApp(opts: ServerOptions) {
       todos: (todo?.tasks ?? []).filter((t) => t.status !== "deleted"),
       questions: ask?.pending ?? [],
       goal: goal?.goal ?? null,
-      entries: page.items,
+      entries: page.items.map(entry => projectEntryImages(entry, conv.id)),
     });
   });
 
@@ -1177,6 +1178,28 @@ export function createApp(opts: ServerOptions) {
     return mediaResponse(c, resolveMedia(directive, cwd));
   });
 
+  // Base64 images embedded in entry model blocks or tool results of this conversation/session.
+  // The entry must be visible in conv.entries (lineage-aware fork history and reset-safe).
+  // The index is the deterministic traversal index over all supported base64 image blocks.
+  app.get("/v1/sessions/:id/entries/:entryId/images/:index", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const entryId = Number(c.req.param("entryId")), index = Number(c.req.param("index"));
+    if (!Number.isSafeInteger(entryId) || !Number.isSafeInteger(index) || index < 0) return err(c, 404, "no such image");
+    const page = await conv.entries({ minEntryId: entryId as never, maxEntryId: entryId as never }, 1, undefined, context).catch(() => undefined);
+    const entry = page?.items[0];
+    if (!entry || entry.id !== entryId) return err(c, 404, "no such image");
+    const block = getImageBlockAt(entry, index);
+    if (!block) return err(c, 404, "no such image");
+    const bytes = Buffer.from(block.data, "base64");
+    return c.body(bytes, 200, {
+      "content-type": block.mimeType,
+      "content-length": String(bytes.byteLength),
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+    });
+  });
+
   // ---- messages ----
   // Non-streaming (default): waits for the answer and returns it.
   // Streaming (?stream=1 or Accept: text/event-stream): SSE of agent events until the submission settles.
@@ -1289,10 +1312,13 @@ export function createApp(opts: ServerOptions) {
       const ev = await watchEvents(harness, conv.id, context);
       let closed = false;
       const done = new Promise<void>((r) => stream.onAbort(() => { closed = true; r(); }));
-      await stream.writeSSE({ event: "snapshot", data: JSON.stringify(ev.snapshot) });
+      await stream.writeSSE({ event: "snapshot", data: JSON.stringify(projectSnapshotImages(ev.snapshot, conv.id)) });
       ev.start(async (events) => {
         if (closed) return;
-        for (const e of withSubmissions(events)) await stream.writeSSE({ event: (e as { type: string }).type, data: JSON.stringify(e) });
+        for (const e of withSubmissions(events)) {
+          const projected = projectAgentEvent(e, conv.id);
+          await stream.writeSSE({ event: (projected as { type: string }).type, data: JSON.stringify(projected) });
+        }
       });
       try {
         const { sub, ...receipt } = await submit();
@@ -1336,9 +1362,14 @@ export function createApp(opts: ServerOptions) {
       const ping = setInterval(() => { void stream.writeSSE({ event: "ping", data: "{}" }).catch(finish); }, 15000);
       try {
         await stream.writeSSE({ event: "side_jobs", data: JSON.stringify({ jobs: sideCommands.list(String(conv.id)).map(jobView) }) });
-        await stream.writeSSE({ event: "snapshot", data: JSON.stringify(ev.snapshot) });
+        await stream.writeSSE({ event: "snapshot", data: JSON.stringify(projectSnapshotImages(ev.snapshot, conv.id)) });
         ev.start(async events => {
-          try { for (const event of withSubmissions(events)) await stream.writeSSE({ event: event.type, data: JSON.stringify(event) }); }
+          try {
+            for (const event of withSubmissions(events)) {
+              const projected = projectAgentEvent(event, conv.id);
+              await stream.writeSSE({ event: projected.type, data: JSON.stringify(projected) });
+            }
+          }
           catch { finish(); }
         });
         await Promise.race([done, ev.closed, harness.closed]);

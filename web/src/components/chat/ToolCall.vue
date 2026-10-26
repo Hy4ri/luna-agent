@@ -5,6 +5,7 @@ import { chat, openSession, toolArgsText } from '@/stores/chat';
 import { formatTime, formatDateIso } from '@/lib/message';
 import { toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits } from '@/lib/tool-view';
 import Markdown from './Markdown.vue';
+import SessionImage from './SessionImage.vue';
 import DiffView from './tool/DiffView.vue';
 import CodeView from './tool/CodeView.vue';
 import TerminalView from './tool/TerminalView.vue';
@@ -20,7 +21,7 @@ const output = computed(() => {
   return content !== undefined ? JSON.stringify(content, null, 2) : '';
 });
 const argumentsText = computed(() => props.args === undefined ? '' : JSON.stringify(props.args, null, 2));
-const images = computed(() => (Array.isArray(result.value?.content) ? result.value.content : []).filter((b: any) => b.type === 'image' && ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(b.mimeType) && typeof b.data === 'string'));
+const images = computed(() => (Array.isArray(result.value?.content) ? result.value.content : []).filter((b: any) => b.type === 'image' && ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(b.mimeType) && (typeof b.url === 'string' || typeof b.data === 'string')));
 const child = computed(() => /spawned child (\d+)/.exec(output.value)?.[1]);
 const timestamp = computed(() => result.value?.timestamp ?? chat.toolStarts[props.id]?.timestamp ?? props.timestamp);
 const fullDate = computed(() => formatDateIso(timestamp.value) ? new Date(timestamp.value).toLocaleString() : '');
@@ -147,7 +148,7 @@ const hasBody = computed(() => {
         <ul v-if="notes.length && state !== 'failed' && view !== 'bash'" class="tool-notes"><li v-for="(n, i) in notes" :key="i">{{ n }}</li></ul>
         <details v-if="argumentsText" class="tool-raw"><summary>Raw arguments</summary><pre>{{ argumentsText }}</pre></details>
       </template>
-      <img v-for="(image, i) in images" :key="i" class="tool-image" :src="`data:${image.mimeType};base64,${image.data}`" :alt="name + ' result'" />
+      <SessionImage v-for="(image, i) in images" :key="i" class="tool-image" :image="image" :alt="name + ' result'" />
     </details>
     <div v-if="state === 'failed' && view === 'bash' && split.exit !== undefined" class="tool-error"><span class="tool-section-label">Exited with code {{ split.exit }}</span><TerminalView :text="body" /></div>
     <div v-else-if="state === 'failed'" class="tool-error"><span class="tool-section-label">Error</span><pre>{{ output || 'The tool failed without error details.' }}</pre></div>
