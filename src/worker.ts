@@ -10,6 +10,7 @@ import { FileError } from "@earendil-works/pi-durable/env";
 import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, PROTOCOL_VERSION, decode, encode, encodeResult,
   type BrowserMethod, type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 import { WorkerServices } from "./worker-services.js";
+import { ensureGeneratedDirectories, saveGeneratedImage, workerGeneratedRoot } from "./generated-files.js";
 
 export interface WorkerOptions {
   url: string; token: string; cwd?: string;
@@ -18,12 +19,34 @@ export interface WorkerOptions {
   onUnauthorized?: () => void;
 }
 
+// Matches the image adapter's response byte ceiling. Buffer is also a Uint8Array.
+const MAX_IMAGE_BYTES = 48 * 1024 * 1024;
+
+function validateImageBytes(bytes: unknown): Uint8Array {
+  if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(`Generated image must contain 1-${MAX_IMAGE_BYTES} bytes.`);
+  }
+  return bytes;
+}
+
 export function startWorker(o: WorkerOptions) {
   const log = o.log ?? ((m: string) => console.error(m));
   const cwd = o.cwd ?? homedir();
   const services = new WorkerServices();
+  const workerHome = homedir();
+  let generatedRootPath: string | undefined;
+  try {
+    const root = workerGeneratedRoot(workerHome, process.platform);
+    ensureGeneratedDirectories(root);
+    generatedRootPath = root;
+  } catch (err) {
+    log(`worker: failed to initialize generated directories under home: ${err instanceof Error ? err.message : String(err)}`);
+    // Do not advertise generated storage or fall back to cwd/main after a startup failure.
+  }
+
   const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
-    user: userInfo().username, home: homedir(), cwd, path: process.env.PATH, browser: services.browserCapability() };
+    user: userInfo().username, home: workerHome, cwd, path: process.env.PATH, browser: services.browserCapability(),
+    generatedFiles: generatedRootPath !== undefined };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
   let socket: WebSocket | undefined, stopped = false, delay = 1000, retry: ReturnType<typeof setTimeout> | undefined;
   let connected: (() => void) | undefined;
@@ -100,6 +123,17 @@ export function startWorker(o: WorkerOptions) {
               if (controller.signal.aborted) throw error;
               const code = error instanceof ConfinedReadError ? "permission_denied" : (error as { code?: string }).code === "ENOENT" ? "not_found" : "invalid";
               result = { ok: false, error: new FileError(code as never, error instanceof Error ? error.message : String(error), args[0] as string) };
+            }
+          } else if (m.method === "writeGeneratedImage") {
+            try {
+              if (controller.signal.aborted) throw controller.signal.reason ?? new Error("aborted");
+              const bytes = validateImageBytes(args[0]);
+              if (!generatedRootPath) throw new Error("Generated image storage is unavailable on this worker.");
+              const path = await saveGeneratedImage(generatedRootPath, bytes, controller.signal);
+              result = { ok: true, value: path };
+            } catch (error) {
+              if (controller.signal.aborted) throw error;
+              result = { ok: false, error: new FileError("invalid", error instanceof Error ? error.message : String(error)) };
             }
           } else if (m.method === "exec") {
             const options = { ...(args[1] as object | undefined), onOutput: (text: string, _c: unknown, info: unknown) => send({ t: "output", id: m.id, text, info }) };

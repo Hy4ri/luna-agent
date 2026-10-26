@@ -8,6 +8,8 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 export interface ConfinedReadPolicy {
   /** The opened file must be inside this directory (resolved against cwd, then canonicalized). */
   root?: string;
+  /** Alternative allowed directories. Used for image sources in cwd or generated/images; root takes precedence. */
+  roots?: string[];
   /** The opened file must not be inside, or a hard-link alias of, these paths (resolved against cwd). */
   blocked?: string[];
   /** Refuse files whose canonical path has a credential component (.ssh, .env, auth.json, ...). */
@@ -29,9 +31,23 @@ export async function confinedRead(path: string, policy: ConfinedReadPolicy, opt
   if (process.platform !== "linux") throw new ConfinedReadError("Protected media reads need a Linux execution machine.");
   const target = resolve(options.cwd, path);
   // Resolve the policy paths first. Then a later swap of these paths cannot widen the check.
-  const root = policy.root === undefined ? undefined : await realpath(resolve(options.cwd, policy.root)).catch(() => {
-    throw new ConfinedReadError("The working directory is not available on the execution machine.");
-  });
+  let roots: string[] | undefined;
+  if (policy.root !== undefined) {
+    roots = [await realpath(resolve(options.cwd, policy.root)).catch(() => {
+      throw new ConfinedReadError("The working directory is not available on the execution machine.");
+    })];
+  } else if (policy.roots !== undefined) {
+    // An unused generated directory may not exist yet. Missing directories grant no access.
+    roots = [];
+    for (const root of policy.roots) {
+      const canonical = await realpath(resolve(options.cwd, root)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (canonical !== undefined) roots.push(canonical);
+    }
+    if (!roots.length) throw new ConfinedReadError("No allowed image directory is available on the execution machine.");
+  }
   const blocked: string[] = [];
   for (const value of policy.blocked ?? []) {
     const abs = resolve(options.cwd, value);
@@ -43,10 +59,11 @@ export async function confinedRead(path: string, policy: ConfinedReadPolicy, opt
     // /proc/self/fd names the opened file, not the path it was opened by.
     // A file deleted after open has no path to check. Refuse it.
     const actual = await realpath(`/proc/self/fd/${file.fd}`).catch(() => { throw new ConfinedReadError("Source changed while it was opened."); });
-    if (root !== undefined) {
+    if (roots !== undefined && !roots.some(root => {
       const rel = relative(root, actual);
-      if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new ConfinedReadError("Source is outside the conversation working directory.");
-    }
+      return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+    })) throw new ConfinedReadError(policy.root !== undefined
+      ? "Source is outside the conversation working directory." : "Source is outside the allowed source directories.");
     if (policy.credentials && credentialPath(actual)) throw new ConfinedReadError("Read blocked: credential file.");
     if (blocked.some(dir => within(actual, dir))) throw new ConfinedReadError("Read blocked: protected credential or blocked path.");
     const stat = await file.stat();

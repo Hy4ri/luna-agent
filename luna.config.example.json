@@ -7,7 +7,7 @@
   },
   "provider": "anthropic",
   "model": "claude-sonnet-4-5",
-  "instructions": "Keep interactive HTML replies self-contained. Do not request external resources from previews.",
+  "instructions": "Keep interactive HTML replies self-contained. Do not request external resources from previews. Save non-project outputs in the machine-specific generated type directories provided by the runtime; keep project files in their intended project paths.",
   "extensions": [
     "coding",
     "memory",
