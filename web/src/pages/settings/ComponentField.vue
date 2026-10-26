@@ -44,9 +44,10 @@ const isConst = computed(() => safeSchema.value.const !== undefined || safeSchem
 const isModelOverride = computed(() => !props.required && safeSchema.value.type === 'object' && safeSchema.value.properties?.provider && safeSchema.value.properties?.model)
 const variants = computed<any[]>(() => safeSchema.value.anyOf || safeSchema.value.oneOf || [])
 const selectedVariant = computed(() => variants.value.find(item => item.properties.transport.const === (value.value?.transport || variants.value[0]?.properties.transport.const)))
-const nestedObject = computed(() => props.path.length > 1 && !(props.path.length === 2 && props.path[0] === 'providers') && !['web.providers', 'browser.providers'].includes(full.value) && !(props.path[0] === 'vision' && props.path[1] === 'profiles' && props.path.length === 3))
-const isProfiles = computed(() => full.value === 'vision.profiles')
-const itemName = computed(() => ({ mcpServers: 'MCP server', providers: 'provider', models: 'model', skillDirs: 'skill directory', args: 'argument' }[key.value] || 'item'))
+const nestedObject = computed(() => props.path.length > 1 && !(props.path.length === 2 && props.path[0] === 'providers') && !['web.providers', 'browser.providers'].includes(full.value) && !(['vision', 'subagents'].includes(String(props.path[0])) && props.path[1] === 'profiles' && props.path.length === 3))
+const isProfiles = computed(() => ['vision.profiles', 'subagents.profiles'].includes(full.value))
+const profileLabel = computed(() => full.value === 'subagents.profiles' ? 'role profile' : 'vision profile')
+const itemName = computed(() => ({ mcpServers: 'MCP server', providers: 'provider', models: 'model', skillDirs: 'skill directory', args: 'argument', tools: 'tool' }[key.value] || 'item'))
 const optionLabels: Record<string, string> = { disabled: 'Disabled', ddgs: 'DDGS', camofox: 'Camofox', chromium: 'Chromium (local)', interrupt: 'Interrupt', queue: 'Queue', steer: 'Steer', native: 'Active model', auxiliary: 'Auxiliary model', on: 'On', moderate: 'Moderate', off: 'Off', low: 'Low', medium: 'Medium', high: 'High', 'openai-completions': 'OpenAI-compatible chat completions', 'openai-responses': 'OpenAI Responses', 'anthropic-messages': 'Anthropic-compatible messages' }
 const keyError = ref('')
 const expandedKeys = ref<Record<string, boolean>>({})
@@ -66,9 +67,13 @@ function chooseTransport(transport: string) {
   props.set(props.path, next)
 }
 function chooseOverride(selected?: string) {
-  if (!selected) return props.set(props.path, undefined)
-  const slash = selected.indexOf('/')
-  props.set(props.path, { provider: selected.slice(0, slash), model: selected.slice(slash + 1) })
+  const next = { ...(value.value || {}) }
+  delete next.provider; delete next.model
+  if (selected) {
+    const slash = selected.indexOf('/')
+    next.provider = selected.slice(0, slash); next.model = selected.slice(slash + 1)
+  }
+  props.set(props.path, Object.keys(next).length ? next : undefined)
 }
 function addItem() { props.set(props.path, [...(value.value || []), props.seed(safeSchema.value.items)]) }
 function removeItem(index: number) { const next = [...(value.value || [])]; next.splice(index, 1); props.set(props.path, next) }
@@ -108,10 +113,10 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
     <template v-for="(schema, name) in selectedVariant.properties" :key="name"><ComponentField v-if="name !== 'transport'" :schema="schema" :path="[...path, name]" :required="(selectedVariant.required || []).includes(name)" v-bind="recursive" /></template>
   </div>
   <details v-else-if="isModelOverride" class="field-group" :data-section="full">
-    <summary><ChevronRight :size="15" /><span>{{ text }}</span><small>{{ value ? value.provider + '/' + value.model : 'Use default' }}</small></summary>
+    <summary><ChevronRight :size="15" /><span>{{ text }}</span><small>{{ value?.provider && value?.model ? value.provider + '/' + value.model : 'Use default' }}</small></summary>
     <div class="field-stack group-body">
       <p v-if="helpText" :id="descriptionId" class="field-help">{{ helpText }}</p>
-      <div class="field-label"><span>Model</span><ModelCombobox :model-value="value ? value.provider + '/' + value.model : undefined" empty-label="Use default" :aria-label="text" :data-setting="full" @change="chooseOverride($event || '')" /></div>
+      <div class="field-label"><span>Model</span><ModelCombobox :model-value="value?.provider && value?.model ? value.provider + '/' + value.model : undefined" empty-label="Use default" :aria-label="text" :data-setting="full" @change="chooseOverride($event || '')" /></div>
       <details class="field-group subtle-group"><summary><ChevronRight :size="15" /><span>Custom provider and model IDs</span></summary><div class="field-stack group-body">
         <button v-if="value === undefined" type="button" class="field-button" @click="set(path, seed(safeSchema))">Set {{ text }}</button>
         <template v-else><ComponentField v-for="(schema, name) in safeSchema.properties" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /></template>
@@ -125,12 +130,12 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
   <component :is="path.length > 1 ? 'details' : 'div'" v-else-if="safeSchema.type === 'object'" :class="path.length > 1 ? 'field-group' : 'field-stack'" :data-field-group="full">
     <summary v-if="path.length > 1"><ChevronRight :size="15" /><span>{{ text }}</span><small>{{ Object.keys(value || {}).length }} entries</small></summary>
     <div class="field-stack" :class="{ 'group-body': path.length > 1 }">
-      <div class="field-toolbar"><span class="field-help">{{ helpText }}</span><button type="button" class="field-button" @click="addEntry"><Plus :size="14" />{{ isProfiles ? 'Add vision profile' : key === 'headers' ? 'Add header' : key === 'env' ? 'Add environment variable' : 'Add item' }}</button></div>
+      <div class="field-toolbar"><span class="field-help">{{ helpText }}</span><button type="button" class="field-button" @click="addEntry"><Plus :size="14" />{{ isProfiles ? 'Add ' + profileLabel : key === 'headers' ? 'Add header' : key === 'env' ? 'Add environment variable' : 'Add item' }}</button></div>
       <p v-if="keyError" role="alert" class="field-error">{{ keyError }}</p><p v-if="!Object.keys(value || {}).length" class="empty-value">No entries configured.</p>
       <details v-for="(item, name) in (value || {})" :key="name" class="field-group" :open="expandedKeys[String(name)] || false" @toggle="expandedKeys[String(name)] = ($event.target as HTMLDetailsElement).open">
         <summary><ChevronRight :size="15" /><span>{{ name }}</span></summary>
         <div class="field-stack group-body">
-          <label class="field-label"><span>{{ isProfiles ? 'Vision profiles key' : 'Key' }}</span><input class="input" :value="name" :aria-label="isProfiles ? 'Vision profiles key' : text + ' key'" autocomplete="off" @change="renameEntry(String(name), $event.target as HTMLInputElement)" /></label>
+          <label class="field-label"><span>{{ isProfiles ? profileLabel + ' key' : 'Key' }}</span><input class="input" :value="name" :aria-label="isProfiles ? profileLabel + ' key' : text + ' key'" autocomplete="off" @change="renameEntry(String(name), $event.target as HTMLInputElement)" /></label>
           <ComponentField v-if="isProfiles" :schema="safeSchema.additionalProperties" :path="[...path, String(name)]" :required="true" v-bind="recursive" />
           <label v-else class="field-label"><span>Value</span><input class="input" type="password" :value="item" :data-setting="full + '.' + name" :aria-label="text + ' value'" autocomplete="new-password" @input="set([...path, name], ($event.target as HTMLInputElement).value)" /></label>
           <div class="field-actions"><button type="button" class="field-button danger" @click="removeEntry(String(name))"><Trash2 :size="14" />Remove {{ name }}</button></div>

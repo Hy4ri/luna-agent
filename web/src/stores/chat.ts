@@ -19,8 +19,10 @@ export interface ContextValue {
   compacting?: boolean;
 }
 export interface ProcessRow { id: string; running: boolean; status: string; command: string; createdAt: number; finishedAt?: number; exitCode: number | null; error?: string }
-export interface ChildRow { id: number; task: string; status: string; statusReason?: string | null }
-export interface Extras { goal?: any; todos?: any[]; questions: any[]; processes: ProcessRow[]; children: ChildRow[] }
+export interface ChildRow { id: number; task: string; status: string; statusReason?: string | null; profile?: string | null; cwd?: string | null; resultStatus?: "valid" | "missing" | "not_requested" }
+export interface DelegateUsage { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number; missingCost: boolean; zeroCostModels: string[] }
+export interface DelegationUsage { parent: DelegateUsage; childTotal: DelegateUsage; total: DelegateUsage; unavailableChildren: number; note: string }
+export interface Extras { goal?: any; todos?: any[]; questions: any[]; processes: ProcessRow[]; children: ChildRow[]; delegationUsage?: DelegationUsage | null }
 const LIVE_CHILD = new Set(["running", "needs_input", "needs_approval"]);
 export const childLive = (c: ChildRow) => LIVE_CHILD.has(c.status);
 
@@ -178,7 +180,7 @@ async function loadExtras(retries: number, sid: string | null, epoch: number) {
 // Processes and subagents change outside this conversation's event feed. Poll only while one is live.
 let activityTimer: ReturnType<typeof setTimeout> | undefined;
 function setExtras(s: any) {
-  chat.extras = markRaw({ goal: s.goal, todos: s.todos || [], questions: s.questions || [], processes: s.processes || [], children: s.children || [] });
+  chat.extras = markRaw({ goal: s.goal, todos: s.todos || [], questions: s.questions || [], processes: s.processes || [], children: s.children || [], delegationUsage: s.delegationUsage ?? null });
   clearTimeout(activityTimer);
   if (chat.extras.processes.some(p => p.running) || chat.extras.children.some(childLive)) {
     const sid = chat.session, epoch = chat.epoch;

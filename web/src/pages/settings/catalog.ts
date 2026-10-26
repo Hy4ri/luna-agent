@@ -59,11 +59,15 @@ export const fieldTitles: Record<string, string> = {
   dataDir: 'Data directory', cwd: 'Working directory', server: 'HTTP server', host: 'Listen address', port: 'Port',
 }
 
-const additions: Record<string, string> = { providers: 'provider', models: 'model', mcpServers: 'MCP server', skillDirs: 'skill directory', args: 'argument' }
+const additions: Record<string, string> = { providers: 'provider', models: 'model', mcpServers: 'MCP server', skillDirs: 'skill directory', args: 'argument', tools: 'tool' }
 export function labelFor(path: (string | number)[]): string {
   const key = path.at(-1)!
   const full = path.join('.')
   if (typeof key === 'number') return `${additions[String(path.at(-2))] || 'Item'} ${key + 1}`
+  if (full === 'subagents.profiles') return 'Child role profiles'
+  if (full.startsWith('subagents.profiles.') && path.length === 3) return String(key)
+  if (full.startsWith('subagents.profiles.') && key === 'tools') return 'Allowed tools'
+  if (full.startsWith('subagents.profiles.') && key === 'context') return 'Starting context'
   if (full === 'thinkingLevel') return 'Main thinking level'
   if (full === 'subagents.thinkingLevel') return 'Subagent thinking level'
   if (full === 'providers' || /providers\.\d+\.models\.\d+\.vision$/.test(full)) return full === 'providers' ? fieldTitles.providers! : 'Supports images'
@@ -92,6 +96,7 @@ const fieldHelp: Record<string, string> = {
   'model': 'Exact model ID. Keep any slashes that are part of the ID. New defaults must be available in the catalog or defined in Accounts & connections.',
   'thinkingLevel': 'Applies to new sessions. The selected model can restrict the supported levels.',
   'subagents.cwd': 'Leave blank to use the parent conversation’s working directory.',
+  'subagents.profiles': 'Named child roles with exact tool allowlists, context defaults, and optional model overrides. Changes affect new children only. Supplying a map replaces the built-ins.',
   'auxiliary.side_question': 'Override the model used for /btw side questions. Leave unset to use the normal default.',
   'auxiliary.review': 'Model used by /review. Required: /review does not fall back to the session model. It reads code and cannot run tests.',
   'auxiliary.session_title': 'Override the model used to name new conversations.',

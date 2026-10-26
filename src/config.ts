@@ -7,12 +7,13 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { parseCron } from "./cron-expr.js";
+import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
 export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /** Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live. */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
-  coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate"],
+  coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate", "delegate-results"],
   cron: ["cron"], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
   recall: ["recall"], goal: ["goal"], learn: ["learn"],
 };
@@ -126,6 +127,12 @@ export const ConfigSchema = z
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
       thinkingLevel: thinking.optional(), cwd: z.string().optional(),
+      profiles: z.record(z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/), z.strictObject({
+        provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
+        thinkingLevel: thinking.optional(), context: z.enum(["fresh", "fork"]).default("fresh"),
+        tools: z.array(z.string().min(1)).refine(tools => new Set(tools).size === tools.length, "duplicate tool name"),
+        instructions: z.string().optional(),
+      })).default(DEFAULT_DELEGATE_PROFILES),
     }).prefault({}),
     extensions: z.array(z.enum(BUILTIN_EXTENSIONS)).default([...BUILTIN_EXTENSIONS]),
     /** Tool names hidden from the model and refused when called. Applies to the next model request. */
@@ -152,6 +159,11 @@ export const ConfigSchema = z
   })
   .superRefine((c, ctx) => {
     if (!!c.subagents.provider !== !!c.subagents.model) ctx.addIssue({ code: "custom", path: ["subagents"], message: "provider and model must be set together" });
+    for (const [role, profile] of Object.entries(c.subagents.profiles)) {
+      if (!!profile.provider !== !!profile.model) ctx.addIssue({ code: "custom", path: ["subagents", "profiles", role], message: "provider and model must be set together" });
+      if (profile.tools.some(tool => ["delegate_task", "ask_user_question", "board", "tool_search"].includes(tool)))
+        ctx.addIssue({ code: "custom", path: ["subagents", "profiles", role, "tools"], message: "Child profiles cannot delegate, ask a hidden questionnaire, mutate a board, or load additional tools." });
+    }
     if (new Set(c.providers.map(p => p.id)).size !== c.providers.length) ctx.addIssue({ code: "custom", path: ["providers"], message: "duplicate provider id" });
     const builtinProviders = ["faux", "claude-cli", "opencode-cli", "anthropic", "openai", "github-copilot", "openrouter", "google", "xai", "deepseek", "groq", "mistral"];
     if (c.providers.some(p => builtinProviders.includes(p.id))) ctx.addIssue({ code: "custom", path: ["providers"], message: "custom provider id conflicts with a built-in provider" });

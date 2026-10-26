@@ -23,7 +23,8 @@ import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import { AskDoc, checkAnswer } from "./ask.js";
 import { isRunning, readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
-import { Children } from "./delegate.js";
+import { Children, readChildReport, type ChildRow } from "./delegate-state.js";
+import { readDelegationUsage } from "./delegate-usage.js";
 import { GoalDoc } from "./goal.js";
 import { LEARN_USAGE, learnPrompt, parseLearn } from "./learn-command.js";
 import type { McpManager } from "./mcp.js";
@@ -264,7 +265,10 @@ export function createApp(opts: ServerOptions) {
       if (!b || typeof b !== "object" || !b.config || typeof b.revision !== "string") return err(c, 400, "config and revision required");
       // Main and child defaults must name an available model when changed.
       const old = opts.settings.read();
-      for (const [next, prev] of [[b.config, old], [b.config.subagents ?? {}, old.subagents]]) {
+      const roles = b.config.subagents?.profiles ?? {};
+      const defaults = [[b.config, old], [b.config.subagents ?? {}, old.subagents],
+        ...Object.entries(roles).map(([name, profile]) => [profile, old.subagents.profiles[name] ?? {}])];
+      for (const [next, prev] of defaults as [Record<string, any>, Record<string, any>][]) {
         if (old.providers.some(p => p.id === next.provider) && !b.config.providers?.some((p: { id: string }) => p.id === next.provider)) return err(c, 400, "Select another default before removing its provider");
         if (next.provider && next.model && (next.provider !== prev.provider || next.model !== prev.model) && !opts.models?.getModel(next.provider, next.model)) {
           const custom = b.config.providers?.find((p: {id: string}) => p.id === next.provider);
@@ -604,15 +608,13 @@ export function createApp(opts: ServerOptions) {
   // ---- session activity: background processes and subagents owned by one conversation ----
   const processOwner = async (id: ConversationId) => (await harness.snapshot(ProcessOwner, id, context).catch(() => undefined))?.token ?? "legacy";
   const processesOf = async (id: ConversationId) => harness.busyTools ? harness.busyTools.sessionProcesses(id, await processOwner(id)) : [];
-  const childViews = (rows: { id: number; task: string }[]) => Promise.all(rows.map(async row => {
-    const child = await harness.conversation(row.id as never, context).catch(() => undefined);
-    if (!child) return { id: row.id, task: row.task, status: "deleted" as const, statusReason: null };
-    const { status, statusReason } = await harness.commit(async tx => {
-      const running = await isRunning(tx, child.id);
-      return readSessionStatus(tx, child.id, running);
-    }, context);
-    return { id: row.id, task: row.task, status, statusReason };
-  }));
+  const childViews = (parent: ConversationId, rows: ChildRow[]) => harness.commit(async tx => Promise.all(rows.map(async row => {
+    if (!await tx.conversation(row.id as ConversationId)) return { id: row.id, task: row.task, status: "deleted" as const, statusReason: null };
+    const report = await readChildReport(tx, parent, row.id);
+    const status = report.state === "done" ? "finished" : report.state === "idle" ? "ready" : report.state === "unanswered" ? "failed" : report.state;
+    return { id: row.id, task: row.task, status, statusReason: report.reason ?? null,
+      profile: row.profile ?? null, cwd: row.cwd ?? null, resultStatus: report.resultStatus };
+  })), context);
   app.get("/v1/sessions/:id/processes/:pid", async c => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
@@ -656,7 +658,8 @@ export function createApp(opts: ServerOptions) {
       machine: await machineOf(conv.id),
       usage: usage ?? null,
       contextUsage: await contextUsage(conv),
-      children: await childViews(kids?.children ?? []),
+      children: await childViews(conv.id, kids?.children ?? []),
+      delegationUsage: kids?.children.length ? await harness.commit(tx => readDelegationUsage(tx, conv.id), context) : null,
       processes: await processesOf(conv.id),
       todos: (todo?.tasks ?? []).filter((t) => t.status !== "deleted"),
       questions: ask?.pending ?? [],
