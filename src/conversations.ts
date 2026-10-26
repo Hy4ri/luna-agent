@@ -4,6 +4,7 @@ import { defineDoc, defineDocFamily, type ConversationRecord, type DocumentRecor
 import { conversationStorage } from "./conversation-storage.js";
 import { context } from "./luna.js";
 import type { RecallIndex } from "./recall.js";
+import type { UploadStore } from "./uploads.js";
 import { ProjectStore } from "./projects.js";
 import { BoardStore } from "./board.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
@@ -19,7 +20,7 @@ export class ConversationStore {
   readonly projects: ProjectStore;
   readonly board: BoardStore;
   private readonly boardListeners = new Set<() => void>();
-  constructor(private readonly harness: Harness, private readonly recall?: RecallIndex) {
+  constructor(private readonly harness: Harness, private readonly recall?: RecallIndex, uploads?: UploadStore) {
     this.db = conversationStorage(harness).db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_conversations (
         id INTEGER PRIMARY KEY, title TEXT, archived INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0
@@ -28,7 +29,7 @@ export class ConversationStore {
     const cols = this.db.prepare("PRAGMA table_info(luna_conversations)").all() as { name: string }[];
     if (!cols.some(c => c.name === "title_source")) this.db.exec("ALTER TABLE luna_conversations ADD COLUMN title_source TEXT");
     this.projects = new ProjectStore(this.db, id => this.board.deleteProject(id));
-    this.board = new BoardStore(this.db);
+    this.board = new BoardStore(this.db, uploads);
   }
   subscribeChanges(cb: () => void): () => void {
     this.listeners.add(cb);

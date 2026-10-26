@@ -1,6 +1,9 @@
 import { createImageGenExtension, ImageGenManager, type ImageGenProvider } from "./image-gen.js";
 import { ensureGeneratedDirectories, generatedDirectories, generatedFilesInstructions, generatedRoot, workerGeneratedRoot } from "./generated-files.js";
 import { isWorkerEnv, WORKER_ENV_PREFIX } from "./worker-protocol.js";
+import { UploadStore, workerUploadRoot } from "./uploads.js";
+import { withUploadModels } from "./upload-models.js";
+import { conversationStorage } from "./conversation-storage.js";
 import { createOpenAICodexImageProvider } from "./plugins/image_gen/openai-codex.js";
 import { createCodexImageAuth } from "./codex-image-auth.js";
 import { createVideoExtension } from "./video.js";
@@ -90,7 +93,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const outputRoot = generatedRoot(cfg.dataDir);
   ensureGeneratedDirectories(outputRoot);
 
+  const uploadRoot = join(cfg.dataDir, "uploads");
+  const uploads = new UploadStore(uploadRoot);
   const built = o.models ? { models: o.models, model: o.model! } : buildModels(cfg);
+  built.models = withUploadModels(built.models, uploads);
   // Register built-in and configured providers. File-backed runtimes share one settings store.
   const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch, settings });
   if (!o.models) {
@@ -141,9 +147,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     if (!isWorkerEnv(env)) return generatedDirectories(outputRoot).images;
     const output = workerOutput(Number(env!.id.slice(WORKER_ENV_PREFIX.length)));
     return output ? generatedDirectories(output.root, output.platform).images : undefined;
+  }, env => {
+    if (!isWorkerEnv(env)) return uploadRoot;
+    const caps = workers.store.get(Number(env!.id.slice(WORKER_ENV_PREFIX.length)))?.capabilities;
+    if (!caps?.uploadFiles) return undefined;
+    try { return workerUploadRoot(caps.home, caps.platform); } catch { return undefined; }
   }));
   extensions.push(createVisionExtension({ config: () => settings?.resolved() ?? cfg, models: built.models, defaultModel: () => providers.defaultModel(),
-    history: async (id, ctx) => (await (await harnessRef!.conversation(id, ctx))!.context(ctx)) }));
+    history: async (id, ctx) => {
+      const view = await (await harnessRef!.conversation(id, ctx))!.context(ctx);
+      return { ...view, messages: uploads.hydrate(view.messages) };
+    } }));
   extensions.push(createVideoExtension({ config: () => settings?.resolved() ?? cfg, models: built.models,
     defaultModel: () => providers.defaultModel(), fetch: o.fetch }));
   // Read per call so Settings changes apply to the next tool call.
@@ -248,7 +262,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     hiddenExtensions: () => new Set(BUILTIN_EXTENSIONS.filter(e => !live().extensions.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e])),
     extensions,
   });
-  const conversations = new ConversationStore(harness, recall);
+  uploads.bind(conversationStorage(harness).db);
+  const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
   harnessRef = harness;
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
@@ -324,6 +339,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   await limitContinuer.start();
 
   return {
+    uploads,
     sideCommands,
     titler,
     limitContinuer,

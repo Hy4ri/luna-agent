@@ -258,7 +258,8 @@ export class SideCommands {
       if (signal.aborted) throw new Error("side job stopped during shutdown");
       const blocks: Exclude<import("@earendil-works/pi-durable").UserInput, string> = [{ type: "text", text: job.prompt }];
       for (const block of typeof content === "string" ? [] : content) {
-        if (block.type === "image") blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
+        if (block.type === "text" && "attachment" in block) blocks.push(block);
+        else if (block.type === "image") blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
         else if (block.type === "audio") {
           const extension = ({ "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/wav": "wav", "audio/x-wav": "wav", "audio/ogg": "ogg",
             "audio/webm": "webm", "audio/mp4": "m4a", "audio/flac": "flac" } as Record<string, string>)[block.mimeType];
