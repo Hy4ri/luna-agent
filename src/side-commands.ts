@@ -245,6 +245,7 @@ export class SideCommands {
       (await tx.doc(ExecTarget, id)).worker = worker;
       await tx.appendEntry(id, { kind: "luna.execution", data: { worker, cwd: agent.cwd ?? null } });
       const doc = await tx.doc(AgentDoc, id);
+      if (state?.toolAllowlist !== undefined) doc.toolAllowlist = [...state.toolAllowlist];
       if (state?.tools !== undefined) doc.tools = structuredClone(state.tools);
       if (state?.modelTools !== undefined) doc.modelTools = structuredClone(state.modelTools);
       await tx.appendEntry(id, { kind: "delegate.child", data: { task: job.prompt, parent: source.id, backgroundTask: job.id } });

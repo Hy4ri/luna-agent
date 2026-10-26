@@ -164,7 +164,7 @@ settings:
 
 patchedDependencies:
   '@earendil-works/pi-ai@1.4.0': 5f7c6a6132a5a158508f4bf4fe2c80ab7f55ac5ba50097ab68215304c5ce0cb4
-  '@earendil-works/pi-durable@1.4.0': 5c6ce86801dc9da8198db337fe9476bdf5e83d650c09af78b8e7d8d0b0f465b9
+  '@earendil-works/pi-durable@1.4.0': f7cea8d41e1f3f13ce4b41e832ac2c7731347e1734478a006fbbae6f89798b3b
 
 importers:
 
@@ -181,7 +181,7 @@ importers:
         version: 1.4.0(patch_hash=5f7c6a6132a5a158508f4bf4fe2c80ab7f55ac5ba50097ab68215304c5ce0cb4)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
       '@earendil-works/pi-durable':
         specifier: 1.4.0
-        version: 1.4.0(patch_hash=5c6ce86801dc9da8198db337fe9476bdf5e83d650c09af78b8e7d8d0b0f465b9)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
+        version: 1.4.0(patch_hash=f7cea8d41e1f3f13ce4b41e832ac2c7731347e1734478a006fbbae6f89798b3b)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
@@ -2491,7 +2491,7 @@ snapshots:
     dependencies:
       quickjs-wasi: 3.6.2
 
-  '@earendil-works/pi-durable@1.4.0(patch_hash=5c6ce86801dc9da8198db337fe9476bdf5e83d650c09af78b8e7d8d0b0f465b9)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)':
+  '@earendil-works/pi-durable@1.4.0(patch_hash=f7cea8d41e1f3f13ce4b41e832ac2c7731347e1734478a006fbbae6f89798b3b)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)':
     dependencies:
       '@earendil-works/chord': 1.4.0
       '@earendil-works/pi-ai': 1.4.0(patch_hash=5f7c6a6132a5a158508f4bf4fe2c80ab7f55ac5ba50097ab68215304c5ce0cb4)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)

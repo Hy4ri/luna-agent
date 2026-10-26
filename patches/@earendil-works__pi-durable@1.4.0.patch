@@ -1,5 +1,41 @@
+diff --git a/dist/harness/agent.js b/dist/harness/agent.js
+index 29cfac73c912687706e7d205225a297233f2bfa6..778631c11685e1d94b589ddf71fc480a3182926e 100644
+--- a/dist/harness/agent.js
++++ b/dist/harness/agent.js
+@@ -73,6 +73,10 @@ export async function configure(tx, conversationId, change) {
+  */
+ export async function addTools(tx, conversationId, added) {
+     const state = await tx.doc(AgentDoc, conversationId);
++    if (state.toolAllowlist !== undefined) {
++        const allowed = new Set(state.toolAllowlist);
++        added = added.filter((name) => allowed.has(name));
++    }
+     const tools = state.tools;
+     if (Array.isArray(tools)) {
+         for (const name of added)
+@@ -117,6 +121,8 @@ function applyChange(state, change) {
+                 ...(extensions.add === undefined ? {} : { add: names(extensions.add) }),
+                 ...(extensions.remove === undefined ? {} : { remove: names(extensions.remove) }),
+             });
++    set("toolAllowlist", change.toolAllowlist === undefined || change.toolAllowlist === null
++        ? change.toolAllowlist : [...change.toolAllowlist]);
+     const tools = change.tools;
+     set("tools", tools === undefined || tools === null ? tools : isList(tools) ? names(tools) : { remove: names(tools.remove) });
+     const modelTools = change.modelTools;
+@@ -210,7 +216,10 @@ report) {
+                 applyWrap(sections, wrap.section, (section) => wrap.wrap(section), (section) => section.key, wrapReport);
+         }
+     }
+-    const enabled = filterTools([...composed.values()], state?.tools);
++    // Apply the persistent ceiling before selecting model-callable or tool-callable tools.
++    const allowed = state?.toolAllowlist === undefined ? undefined : new Set(state.toolAllowlist);
++    const enabled = filterTools([...composed.values()], state?.tools)
++        .filter((tool) => allowed === undefined || allowed.has(tool.name));
+     const callableBy = (caller) => (tool) => tool.callers === undefined || tool.callers.includes(caller);
+     const modelCallable = enabled.filter(callableBy("model"));
+     const tools = offeredTools(modelCallable, state?.modelTools);
 diff --git a/dist/harness/generation.js b/dist/harness/generation.js
-index d046232..0b54833 100644
+index d046232b140f91542879ecd60d05f5796449bf31..0b54833181cf598539977e8b6e812168ef7e417b 100644
 --- a/dist/harness/generation.js
 +++ b/dist/harness/generation.js
 @@ -6,7 +6,7 @@ import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.j
@@ -159,7 +195,7 @@ index d046232..0b54833 100644
              const user = { role: "user", content: continuation, timestamp: runtime.now() };
              await tx.appendEntry(UserEntry, conversationId, { model: [user] });
 diff --git a/dist/harness/harness.js b/dist/harness/harness.js
-index 29ef22e..8a8cc74 100644
+index 29ef22e06d97ad482c0286c0f67f3e37f8fc39bf..8a8cc740123c70bb0afafb062af2798726aa36a6 100644
 --- a/dist/harness/harness.js
 +++ b/dist/harness/harness.js
 @@ -121,7 +121,9 @@ class HarnessImpl extends SessionImpl {
@@ -182,7 +218,7 @@ index 29ef22e..8a8cc74 100644
              blocked: (record) => this.#tasks.blockedReason(record),
              subscribeBlocked: (listener) => this.#tasks.subscribeBlocked(listener),
 diff --git a/dist/harness/inbox.d.ts b/dist/harness/inbox.d.ts
-index 553a165..e641a0f 100644
+index 553a1655c75da4bc08e7051c41375aef701882a9..e641a0fe75a7d7213245aa79406c9fd4becd8fdf 100644
 --- a/dist/harness/inbox.d.ts
 +++ b/dist/harness/inbox.d.ts
 @@ -6,6 +6,7 @@ export type InboxItem = {
@@ -202,7 +238,7 @@ index 553a165..e641a0f 100644
  /**
   * Read what a boundary needs. Table reads must precede the commit's first table write, so callers prepare the
 diff --git a/dist/harness/inbox.js b/dist/harness/inbox.js
-index 5ef33aa..e5fa8e3 100644
+index 5ef33aa67d8435deecfb92dcbae0a987e8332976..e5fa8e310ac837e33abeed8a8409b01cbce616f3 100644
 --- a/dist/harness/inbox.js
 +++ b/dist/harness/inbox.js
 @@ -42,7 +42,8 @@ export async function applyBoundary(tx, boundary, at, now) {
@@ -242,7 +278,7 @@ index 5ef33aa..e5fa8e3 100644
  /** Append the entry an input is placed as: `entry`'s kind and data, or `pi.user`, with the user message of `content`. */
  export function appendInput(tx, conversationId, content, entry, now) {
 diff --git a/dist/harness/scheduler.js b/dist/harness/scheduler.js
-index ba7a016..87ea304 100644
+index ba7a0169b9bc54cd3123a4cc770d8d7a5c61b63d..87ea304fe38c691a076cb45db43ce1049eebaa2a 100644
 --- a/dist/harness/scheduler.js
 +++ b/dist/harness/scheduler.js
 @@ -80,6 +80,7 @@ export class TaskScheduler {
@@ -270,7 +306,7 @@ index ba7a016..87ea304 100644
              get settings() {
                  return settings();
 diff --git a/dist/harness/submissions.js b/dist/harness/submissions.js
-index 8496124..ba24a4e 100644
+index 8496124ee10b4814b27b4b6316f27d2023bcf8e4..ba24a4e48723d2ff877edcb93c3935f6925a2834 100644
 --- a/dist/harness/submissions.js
 +++ b/dist/harness/submissions.js
 @@ -19,7 +19,9 @@ export class Submissions {
@@ -348,7 +384,7 @@ index 8496124..ba24a4e 100644
      if (draft.type === "write" &&
          isDisplayOnly(draft.entry) &&
 diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
-index 192a9cc..84e7978 100644
+index 192a9cce35ad4729009d2e3f75f475c8dffa16c8..99bcea8c8d74dd1657f32363049aa6dacd0314db 100644
 --- a/dist/harness/types.d.ts
 +++ b/dist/harness/types.d.ts
 @@ -26,7 +26,11 @@ export type SubmissionDraft = {
@@ -372,3 +408,21 @@ index 192a9cc..84e7978 100644
      readonly id: SubmissionId;
      status(context: Context): Promise<SubmissionRecord>;
      wait(context: Context): Promise<SettledSubmissionRecord>;
+@@ -356,6 +361,8 @@ export type AgentState = {
+         add?: string[];
+         remove?: string[];
+     };
++    /** Persistent ceiling for all enabled tools, including dynamic discovery. Unset means unrestricted. */
++    toolAllowlist?: string[];
+     /** Filters the selected extensions' tools: the enabled tools. An array enables exactly these, in order. */
+     tools?: string[] | {
+         remove: string[];
+@@ -386,6 +393,8 @@ export type AgentChange = {
+         readonly add?: readonly Extension[];
+         readonly remove?: readonly Extension[];
+     } | null;
++    /** Replaces the persistent tool ceiling; null clears it. Names survive replay and forks. */
++    readonly toolAllowlist?: readonly string[] | null;
+     readonly tools?: readonly ToolRegistration[] | {
+         readonly remove: readonly ToolRegistration[];
+     } | null;
