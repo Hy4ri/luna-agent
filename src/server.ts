@@ -1,3 +1,4 @@
+import { readClaudeUsage, usageNotice } from "./claude-usage.js";
 import { createGitControl, GitError, type Workspace } from "./git-control.js";
 import { createGitStatusReader } from "./git-status.js";
 import { undoCommand } from "./undo.js";
@@ -1145,7 +1146,7 @@ export function createApp(opts: ServerOptions) {
     if (Array.isArray(content) && content.some(b => b.type === "audio")) return err(c, 400, "Audio attachments require /bg.");
     if (draining.has(String(conv.id))) return c.json({ command: true, notice: "The current turn is stopping. Send the message again after it stops." }, 409);
     const plain = typeof content === "string" ? content : content.every(block => block.type === "text") ? content.map(block => block.type === "text" ? block.text : "").join("\n") : undefined;
-    const slash = plain === undefined ? null : /^\/(queue|steer|redirect|stop|model|compress|compact|retry|undo)(?:\s+([\s\S]*))?$/.exec(plain.trim());
+    const slash = plain === undefined ? null : /^\/(usage|cost|queue|steer|redirect|stop|model|compress|compact|retry|undo)(?:\s+([\s\S]*))?$/.exec(plain.trim());
     let input = content as Input;
     let override: BusyMode | undefined;
     const learn = plain === undefined ? null : /^\/learn(?:\s+([\s\S]*))?$/.exec(plain.trim());
@@ -1156,6 +1157,17 @@ export function createApp(opts: ServerOptions) {
     }
     if (slash) {
       const command = slash[1]!, args = (slash[2] ?? "").trim();
+      if (command === "usage" || command === "cost") {
+        if (args) return err(c, 400, `Usage: /${command}`);
+        const usage = await harness.snapshot(UsageDoc, conv.id, context) ?? { models: {}, tools: {} };
+        try {
+          const report = await readClaudeUsage(c.req.raw.signal);
+          return c.json({ command: true, notice: usageNotice(usage, report) });
+        } catch (error) {
+          // Keep recorded session totals usable when login, network, or CLI support is absent.
+          return c.json({ command: true, notice: `${usageNotice(usage)}\n${(error as Error).message}` });
+        }
+      }
       if (command === "undo") {
         if (!/^[1-9]\d*$/.test(args) || !Number.isSafeInteger(Number(args))) return err(c, 400, "Usage: /undo <positive integer>");
         return c.json(await serial(String(conv.id), () => harness.commit(async tx => {

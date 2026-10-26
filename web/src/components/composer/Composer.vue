@@ -55,6 +55,8 @@ const COMMAND_CATEGORY_LABEL: Record<CommandCategory, string> = {
 };
 
 const SLASH_COMMANDS: SlashCommandItem[] = [
+  { id: "usage", insert: "/usage", label: "/usage", description: "Show recorded session totals and Claude plan usage", category: "session" },
+  { id: "cost", insert: "/cost", label: "/cost", description: "Alias for /usage", category: "session" },
   { id: "undo", insert: "/undo ", label: "/undo", args: "<N>", description: "Remove the last N user messages and replies from model context; keep chat history", category: "session" },
   { id: "btw", insert: "/btw ", label: "/btw", args: "<question>", description: "Ask a side question without tools or main history", category: "side" },
   { id: "bg", insert: "/bg ", label: "/bg", args: "<prompt>", description: "Run a background task with tools in a side conversation", category: "side" },
@@ -720,7 +722,7 @@ onUnmounted(() => {
 
     <div
       id="busyFeedback"
-      class="muted"
+      class="muted whitespace-pre-line"
       role="status"
       aria-live="polite"
       v-show="chat.busyFeedback"
