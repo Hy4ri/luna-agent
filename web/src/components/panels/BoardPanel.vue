@@ -17,7 +17,7 @@ const cards = ref<Card[]>([]), selectedPid = ref(''), archived = ref(false);
 const loading = ref(true), busy = ref(false), error = ref(''), notice = ref('');
 const search = ref(''), priority = ref('');
 const editing = ref(false), editingId = ref<number | null>(null), editingArchived = ref(false);
-const form = reactive({ subject: '', description: '', priority: 'medium' as Priority, status: 'backlog' as Status, owner: '', labels: '', blockedBy: '' });
+const form = reactive({ subject: '', description: '', priority: 'medium' as Priority, status: 'backlog' as Status, owner: '', labels: '', blockedBy: '', project: '' });
 const answer = ref(''), activity = ref<{ id: number; at: number; by: string; text: string }[]>([]);
 const board = ref<HTMLElement>(), editorTitle = ref<HTMLInputElement>(), fileInput = ref<HTMLInputElement>();
 let generation = 0, disposed = false, controller: AbortController | undefined, refreshQueued = false;
@@ -80,7 +80,7 @@ function openEditor(c?: Card, status: Status = 'backlog') {
   if (busy.value || loading.value || drag.value) return;
   editorReturn = document.activeElement as HTMLElement | null;
   editingId.value = c?.id ?? null; editingArchived.value = c?.archived ?? false;
-  Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: c?.labels.join(', ') || '', blockedBy: c?.blockedBy.map(id => '#' + id).join(', ') || '' });
+  Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: c?.labels.join(', ') || '', blockedBy: c?.blockedBy.map(id => '#' + id).join(', ') || '', project: String(c?.project ?? selectedPid.value) });
   answer.value = ''; activity.value = [];
   if (c) void json<{ activity: typeof activity.value }>(`/v1/projects/${selectedPid.value}/cards/${c.id}/activity`).then(d => { if (editingId.value === c.id) activity.value = d.activity; }).catch(() => {});
   error.value = ''; editing.value = true; ui.boardEditing = true;
@@ -92,7 +92,7 @@ function closeEditor() {
   void loadBoard();
   void nextTick(() => { if (editorReturn?.isConnected) editorReturn.focus(); else board.value?.focus(); });
 }
-async function mutate(action: () => Promise<unknown>, success: string, close = false) {
+async function mutate(action: () => Promise<unknown>, success: string, close = false, settle?: () => void) {
   if (busy.value || disposed) return;
   busy.value = true; error.value = ''; notice.value = '';
   try {
@@ -100,6 +100,7 @@ async function mutate(action: () => Promise<unknown>, success: string, close = f
     if (disposed) return;
     if (close) { editing.value = false; ui.boardEditing = false; }
     notice.value = success;
+    if (settle) { settle(); rememberProject(); }
     await loadBoard();
     if (close) void nextTick(() => { if (editorReturn?.isConnected) editorReturn.focus(); else board.value?.focus(); });
   } catch (e) { if (!disposed) error.value = message(e); }
@@ -109,9 +110,17 @@ function saveCard() {
   if (!form.subject.trim()) { error.value = 'Enter a card title.'; return; }
   const deps = form.blockedBy.split(',').map(s => s.trim()).filter(Boolean);
   if (deps.some(s => !/^#?[1-9]\d*$/.test(s) || !Number.isSafeInteger(Number(s.replace('#', ''))))) { error.value = 'Dependencies must be positive card IDs, separated by commas.'; return; }
-  const data = { subject: form.subject.trim(), description: form.description, status: form.status, priority: form.priority, owner: form.owner.trim() || null, labels: form.labels.split(',').map(s => s.trim()).filter(Boolean), blockedBy: deps.map(s => Number(s.replace('#', ''))) };
+  const target = editingId.value !== null && form.project !== selectedPid.value ? Number(form.project) : undefined;
+  if (target !== undefined && !history.projects.some(p => p.id === target)) { error.value = 'Select a project.'; return; }
+  const data: Record<string, unknown> = { subject: form.subject.trim(), description: form.description, status: form.status, priority: form.priority, owner: form.owner.trim() || null, labels: form.labels.split(',').map(s => s.trim()).filter(Boolean), blockedBy: deps.map(s => Number(s.replace('#', ''))) };
+  if (target !== undefined) data.project = target;
   const path = `/v1/projects/${selectedPid.value}/cards${editingId.value === null ? '' : '/' + editingId.value}`;
-  void mutate(() => post(path, data, editingId.value === null ? 'POST' : 'PATCH'), 'Card saved.', true);
+  void mutate(() => post(path, data, editingId.value === null ? 'POST' : 'PATCH'), target === undefined ? 'Card saved.' : `Card #${editingId.value} moved to ${history.projects.find(p => p.id === target)?.name ?? 'another project'}.`, true, target === undefined ? undefined : () => { selectedPid.value = String(target); cards.value = []; });
+}
+function moveDraft() {
+  if (form.project === selectedPid.value) return;
+  form.blockedBy = '';
+  if (/^session \d+$/.test(form.owner.trim())) form.owner = '';
 }
 function sendAnswer() {
   if (editingId.value === null || !answer.value.trim()) return;
@@ -330,6 +339,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
           <label>Title<input dir="auto" ref="editorTitle" v-model="form.subject" aria-label="Card title" maxlength="200" required :disabled="busy" /></label>
           <label>Description<textarea dir="auto" v-model="form.description" aria-label="Description" rows="4" maxlength="8000" :disabled="busy"></textarea></label>
           <div class="kb-editor-pair"><label>Priority<select v-model="form.priority" aria-label="Priority" :disabled="busy"><option v-for="p in priorities" :key="p" :value="p">{{ p }}</option></select></label><label>Column<select v-model="form.status" aria-label="Column" :disabled="busy"><option v-for="[s, title] in columns" :key="s" :value="s">{{ title }}</option></select></label></div>
+          <label v-if="editingId !== null && history.projects.length > 1">Project<select v-model="form.project" aria-label="Project" :disabled="busy" @change="moveDraft"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select><small>Moving drops this project's dependencies and releases the session owner.</small></label>
           <label>Owner<input dir="auto" v-model="form.owner" aria-label="Owner" maxlength="100" :disabled="busy" /></label>
           <label>Labels<input dir="auto" v-model="form.labels" aria-label="Labels" placeholder="web, runtime" :disabled="busy" /><small>Comma separated. Up to 20 labels, 40 characters each.</small></label>
           <label>Waits on card IDs<input v-model="form.blockedBy" aria-label="Dependencies" placeholder="#12, #18" :disabled="busy" /><small>Comma separated. Dependencies must belong to this project.</small></label>

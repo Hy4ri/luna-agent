@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { detectCycle } from "./todo.js";
-import { deliverCardEvents, wakeEvents } from "./board-events.js";
+import { deliverCardEvents, ownerSession, wakeEvents } from "./board-events.js";
 
 export const STATUSES = ["backlog", "todo", "in_progress", "review", "done"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
@@ -194,6 +194,28 @@ export class BoardStore {
     if (cur.owner !== f.owner) this.log(id, by, `owner ${cur.owner ?? "none"} -> ${f.owner ?? "none"}`);
     if (cur.blocked !== f.blocked) this.log(id, by, f.blocked ? `blocked: ${f.blocked}` : "unblocked");
     return this.need(project, id);
+  }
+  /**
+   * User-only: move a card to another project. The card id, attachments, and activity stay with it.
+   * Dependencies that point at cards outside the target project are dropped, the old project stops waiting on it,
+   * and a session owner is released because that session reads another board.
+   */
+  move(project: number, id: number, target: number): Card {
+    const cur = this.need(project, id);
+    if (target === project) return cur;
+    const keep = new Set([...this.list(target), ...this.list(target, { archived: true })].map(c => c.id));
+    const blocked = cur.blockedBy.filter(d => keep.has(d));
+    const released = ownerSession(cur.owner) !== undefined;
+    const now = Date.now();
+    this.db.prepare("UPDATE luna_board_cards SET project_id=?,blocked_by=?,owner=?,updated=? WHERE id=? AND project_id=?")
+      .run(target, JSON.stringify(blocked), released ? null : cur.owner, now, id, project);
+    for (const c of [...this.list(project), ...this.list(project, { archived: true })]) {
+      if (!c.blockedBy.includes(id)) continue;
+      this.db.prepare("UPDATE luna_board_cards SET blocked_by=?,updated=? WHERE id=?").run(JSON.stringify(c.blockedBy.filter(d => d !== id)), now, c.id);
+    }
+    const notes = [released ? `owner ${cur.owner} released` : "", blocked.length < cur.blockedBy.length ? `${cur.blockedBy.length - blocked.length} dependency reference(s) cleared` : ""].filter(Boolean);
+    this.log(id, "user", `moved from project #${project} to #${target}${notes.length ? `; ${notes.join("; ")}` : ""}`);
+    return this.need(target, id);
   }
   /** Drop an owner whose session no longer exists. */
   clearOwner(project: number, id: number, owner: string) {

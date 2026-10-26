@@ -461,11 +461,21 @@ export function createApp(opts: ServerOptions) {
     const before = conv.board.get(id, cid);
     const answer = typeof b.answer === "string" && b.answer.trim() ? b.answer : undefined;
     if (b.answer !== undefined && typeof b.answer !== "string") throw new BoardError(400, "answer must be text");
+    // `project` moves the card; the rest of the body applies as usual.
+    const target = b.project;
+    if (target !== undefined) {
+      if (!Number.isSafeInteger(target) || (target as number) < 0) throw new BoardError(400, "project must be a project id");
+      if (!conv.projects.get(target as number)) throw new BoardError(404, "no such project");
+      delete b.project;
+    }
     // Answering a blocked card unblocks it, unless the same request sets the reason.
     if (answer && before?.blocked && b.blocked === undefined) b.blocked = null;
-    const card = await write(conv, () => conv.board.update(id, cid, b));
+    const card = await write(conv, () => {
+      const updated = conv.board.update(id, cid, b);
+      return target === undefined || target === id ? updated : conv.board.move(id, cid, target as number);
+    });
     if (before) {
-      const events = [...cardEvents(before, card), ...wakeEvents(conv.board, id, before, card), ...(answer ? answerEvent({ ...card, blocked: before.blocked }, answer) : [])];
+      const events = [...cardEvents(before, card), ...wakeEvents(conv.board, target === undefined ? id : target as number, before, card), ...(answer ? answerEvent({ ...card, blocked: before.blocked }, answer) : [])];
       if (answer) conv.board.log(cid, "user", `answer: ${answer.trim().slice(0, 200)}`);
       const dead = await deliverCardEvents(harness, events);
       if (dead.length) {
