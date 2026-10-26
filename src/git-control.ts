@@ -116,7 +116,11 @@ export function createGitControl() {
   }
   async function branches(w: Workspace): Promise<Branches> {
     const cwd = await root(w);
-    const r = await run(w, ['for-each-ref', '--format=%(HEAD)%00%(refname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes/origin'], { cwd, read: true }); check(r);
+    const [r, defaultRef] = await Promise.all([
+      run(w, ['for-each-ref', '--sort=refname', '--sort=-committerdate', '--format=%(HEAD)%00%(refname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes/origin'], { cwd, read: true }),
+      run(w, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], { cwd, read: true }),
+    ]);
+    check(r);
     const local: Branches['local'] = [], remote: string[] = [];
     let current = '';
     for (const line of r.out.trim().split('\n').filter(Boolean)) {
@@ -128,7 +132,16 @@ export function createGitControl() {
     }
     // A remote branch that already has a local branch of the same name is listed once, as the local branch.
     const names = new Set(local.map(l => l.name));
-    return { current, local, remote: remote.filter(name => !names.has(name.slice(7))) };
+    // Prefer origin's recorded default. Repositories without it use the conventional local default.
+    const defaultName = defaultRef.code === 0
+      ? defaultRef.out.trim().replace(/^refs\/remotes\/origin\//, '')
+      : ['main', 'master'].find(name => names.has(name));
+    const defaultIndex = local.findIndex(branch => branch.name === defaultName);
+    if (defaultIndex > 0) local.unshift(...local.splice(defaultIndex, 1));
+    const remoteBranches = remote.filter(name => !names.has(name.slice(7)));
+    const remoteDefaultIndex = remoteBranches.indexOf(`origin/${defaultName}`);
+    if (remoteDefaultIndex > 0) remoteBranches.unshift(...remoteBranches.splice(remoteDefaultIndex, 1));
+    return { current, local, remote: remoteBranches };
   }
   async function mutate(w: Workspace, action: string, body: Record<string, unknown>) {
     const s = await changes(w), key = `${w.machine}:${s.cwd}`;
