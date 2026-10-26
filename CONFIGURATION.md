@@ -938,8 +938,10 @@ The session's own model is never used, so a large session model does not change 
   with at most three automatic model calls per session per process. Retries use the latest user message and its references.
   A successful generated title stops automatic naming; greeting placeholders remain eligible for upgrade.
 - User titles win. Automatic titles never replace a rename, including a rename made while the call runs.
-- **Generate title** in the session menu replaces the current title on request, using the opening message and current
-  details of its board references. It is unavailable without a route.
+- **Generate title** in the session menu replaces the current title on request, using all user messages in chronological order
+  and current details of their board references. It names the current main task, including later changes of direction.
+  Unlike automatic naming, it does not limit message text to the opening 1,000 characters.
+  It is unavailable without a route. Automatic naming behavior is unchanged.
 - `session_search` shows stored titles (renames and generated titles) instead of the first message.
 - `session_search` shows each session's live status. Its `status` parameter (one value or a list: `ready`, `running`, `reviewing`, `review_finished`, `finished`,
   `needs_approval`, `needs_input`, `limit_reached`, `failed`, `stopped`) keeps only matching sessions, alone or with `query`.
