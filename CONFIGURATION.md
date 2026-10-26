@@ -1701,3 +1701,13 @@ diffs return a `truncated` flag after 512 KiB. Error/summary text and diffs reda
 common GitHub token formats. Git authentication errors are not Luna login failures (never HTTP401).
 
 `POST /v1/sessions/:id/submissions/:submission/send-now` accepts `{ content }`. It withdraws only the selected queued input and submits a redirect with a stable replacement request ID. Retries do not duplicate delivery. Already placed messages return 409. Busy-input safety guards still apply, so blocked redirects remain queued.
+
+### Ordered pinned models
+
+`pinnedModels` is an ordered array of unique `provider/modelId` strings (default `[]`).
+Clients using the same daemon share this list through its configuration file. Separate daemons do not automatically replicate configuration.
+The picker refreshes pins when opened. Pin, unpin, and move actions save immediately.
+Existing browser pins are imported once after a successful save: shared order stays unchanged, and missing local pins append in local order.
+
+- `GET /v1/models/pins` returns `{ pins: string[] }`.
+- `POST /v1/models/pins` returns the saved list. Send `{ action: "import", pins: string[] }`, `{ action: "toggle", key: string }`, or `{ action: "move", key: string, direction: -1 | 1 }`. Mutations use the latest config to preserve unrelated settings.

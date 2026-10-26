@@ -57,10 +57,6 @@ function handleBeforeToggle(e: Event) {
   document.getElementById("model")?.setAttribute("aria-expanded", String(open));
   if (open) {
     void loadModels();
-    try {
-      const pins = JSON.parse(localStorage.getItem("luna.pinnedModels") || "[]");
-      models.pins = Array.isArray(pins) ? pins.filter((p: unknown) => typeof p === "string") : [];
-    } catch { /* keep */ }
     position();
     searchOpen.value = false;
     void nextTick(() => searchButton.value?.focus());
