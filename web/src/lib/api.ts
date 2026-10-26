@@ -18,6 +18,7 @@ export function setServerUrl(value: string) {
 }
 export const url = (path: string) => serverUrl.value + path;
 export function setToken(value: string) {
+  if (value !== token.value) connectionGeneration++;
   token.value = value;
   try { localStorage.setItem("luna.token", value); } catch {}
 }
@@ -26,30 +27,118 @@ export function onUnauthorized(fn: (reason: string) => void) { handlers.push(fn)
 
 export type HttpError = Error & { status?: number };
 
-export async function api(path: string, opts: RequestInit = {}): Promise<Response> {
+export interface ApiOptions extends RequestInit {
+  /** Request deadline in milliseconds. Defaults to 15000. 0 disables the deadline (e.g. for long-lived SSE streams). */
+  timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 15000;
+
+export async function api(path: string, opts: ApiOptions = {}): Promise<Response> {
   const headers: Record<string, string> = { "content-type": "application/json", ...((opts.headers as Record<string, string>) || {}) };
-  if (token.value) headers.authorization = "Bearer " + token.value;
+  const currentToken = token.value;
+  if (currentToken) headers.authorization = "Bearer " + currentToken;
   const generation = connectionGeneration;
   const origin = serverUrl.value;
-  const r = await fetch(origin + path, { ...opts, headers });
+
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const { timeoutMs: _timeoutMs, signal: callerSignal, ...fetchInit } = opts;
+
+  let r: Response;
+  if (timeoutMs === 0) {
+    // When timeoutMs is 0, use caller signal directly without creating an intermediate controller
+    r = await fetch(origin + path, { ...fetchInit, headers, signal: callerSignal });
+  } else {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let callerAbortCleanup: (() => void) | undefined;
+
+    if (callerSignal) {
+      if (callerSignal.aborted) {
+        controller.abort(callerSignal.reason);
+      } else {
+        const onCallerAbort = () => controller.abort(callerSignal.reason);
+        callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+        callerAbortCleanup = () => callerSignal.removeEventListener("abort", onCallerAbort);
+      }
+    }
+
+    timer = setTimeout(() => {
+      controller.abort(new DOMException("Request timed out", "TimeoutError"));
+    }, timeoutMs);
+
+    try {
+      r = await fetch(origin + path, { ...fetchInit, headers, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+      callerAbortCleanup?.();
+    }
+  }
+
   if (generation !== connectionGeneration) throw new DOMException("Connection address changed", "AbortError");
+  if (token.value !== currentToken) throw new DOMException("Authentication token changed", "AbortError");
   if (r.status === 401) { for (const fn of handlers) fn("token rejected"); throw new Error("unauthorized"); }
   return r;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function json<T = any>(path: string, opts?: RequestInit): Promise<T> {
+export async function json<T = any>(path: string, opts?: ApiOptions): Promise<T> {
   const generation = connectionGeneration;
-  const r = await api(path, opts);
-  if (!r.ok) {
-    const error = await r.json().catch(() => ({}));
-    if (generation !== connectionGeneration) throw new DOMException("Connection address changed", "AbortError");
-    throw Object.assign(new Error(error.error || r.statusText), { status: r.status });
+  const currentToken = token.value;
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let callerAbortCleanup: (() => void) | undefined;
+
+  const callerSignal = opts?.signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason);
+    } else {
+      const onCallerAbort = () => controller.abort(callerSignal.reason);
+      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+      callerAbortCleanup = () => callerSignal.removeEventListener("abort", onCallerAbort);
+    }
   }
-  const result = await r.json();
-  if (generation !== connectionGeneration) throw new DOMException("Connection address changed", "AbortError");
-  return result;
+
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => {
+      controller.abort(new DOMException("Request timed out", "TimeoutError"));
+    }, timeoutMs);
+  }
+
+  const apiOpts: ApiOptions = {
+    ...opts,
+    signal: controller.signal,
+    // Disable inner fetch deadline so controller.signal spans headers AND body stream
+    timeoutMs: 0,
+  };
+
+  try {
+    const r = await api(path, apiOpts);
+    if (!r.ok) {
+      const error = await r.json().catch(err => {
+        if (controller.signal.aborted) throw controller.signal.reason;
+        if (err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError")) throw err;
+        return {};
+      });
+      if (generation !== connectionGeneration) throw new DOMException("Connection address changed", "AbortError");
+      if (token.value !== currentToken) throw new DOMException("Authentication token changed", "AbortError");
+      throw Object.assign(new Error(error.error || r.statusText), { status: r.status });
+    }
+    const result = await r.json();
+    if (generation !== connectionGeneration) throw new DOMException("Connection address changed", "AbortError");
+    if (token.value !== currentToken) throw new DOMException("Authentication token changed", "AbortError");
+    return result;
+  } catch (error) {
+    // Body reads can expose AbortError instead of the controller's TimeoutError.
+    if (controller.signal.aborted) throw controller.signal.reason;
+    throw error;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    callerAbortCleanup?.();
+  }
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function post<T = any>(path: string, body?: unknown, method = "POST"): Promise<T> {
-  return json<T>(path, { method, body: JSON.stringify(body ?? {}) });
+export function post<T = any>(path: string, body?: unknown, method = "POST", opts?: ApiOptions): Promise<T> {
+  return json<T>(path, { ...opts, method, body: JSON.stringify(body ?? {}) });
 }

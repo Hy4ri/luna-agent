@@ -1,7 +1,7 @@
 // App shell state: auth, pages, panels, drawer, sidebar geometry. Port of vanilla shell.js + panels.js open/close.
-import { nextTick, reactive, ref } from "vue";
+import { nextTick, reactive, ref, watch } from "vue";
 import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, url } from "@/lib/api";
-import { connectionFailure, recoveryOpen, rememberConnection } from "@/lib/connections";
+import { activeAddress, connection, connectionFailure, findWorkingAddress, preferredAddress, recoveryOpen, rememberConnection, reportConnectionFailure } from "@/lib/connections";
 import { isMobile } from "@/lib/dom";
 import { sections, resolveSettingsRoute } from "@/pages/settings/catalog";
 import { sessionPane } from "@/lib/pane";
@@ -186,6 +186,10 @@ export function setSideWidth(px: number | null) {
 
 // ---- login ----
 export function showLogin(err = "") {
+  cancelBoot(); needsBoot = false;
+  reportConnectionFailure(bootFailureSource, false);
+  routeProbe?.abort(); clearTimeout(routeTimer);
+  chatStore.chat.booting = false; chatStore.chat.bootError = "";
   closeSettings(true);
   if (ui.view !== "chat") ui.view = "chat";
   chatStore.stopFeeds();
@@ -200,14 +204,19 @@ export function login(value: string, server?: string) {
   sessionsStore.resetNotifications();
   ui.login = false; ui.loginError = "";
   setDrawer(false);
+  needsBoot = true;
   void boot();
 }
 
 // Each split tile owns its feeds. Change every tile in the same task, without reloading the shell.
 window.addEventListener("luna:can-switch-connection", event => {
-  if (settingsDirty()) (event as CustomEvent).detail.error = "Save or discard settings before switching addresses.";
+  const detail = (event as CustomEvent).detail;
+  if (settingsDirty()) detail.error = "Save or discard settings before switching addresses.";
+  if (chatStore.sending.value) detail.error = "Wait for the current send to finish before switching addresses.";
+  if (detail.prefer && chatStore.busy.value) detail.error = "Wait for the current turn before switching addresses.";
 });
 window.addEventListener("luna:switch-connection", event => {
+  cancelBoot(); needsBoot = true;
   composerStore.saveDraft();
   chatStore.stopFeeds();
   chatStore.chat.connected = false;
@@ -216,13 +225,23 @@ window.addEventListener("luna:switch-connection", event => {
   ui.login = false; ui.loginError = "";
   void boot();
 });
-export function changeConnection(target: string) {
-  const windows: Window[] = [window];
-  for (const frame of document.querySelectorAll<HTMLIFrameElement>("iframe[data-tile-session]")) {
+function connectionWindows(): Window[] {
+  // A recovery action in a tile changes the whole workspace, not only that tile.
+  const root = sessionPane ? window.parent : window;
+  const windows: Window[] = [root];
+  for (const frame of root.document.querySelectorAll<HTMLIFrameElement>("iframe[data-tile-session]")) {
     if (frame.contentWindow) windows.push(frame.contentWindow);
   }
-  const detail = { target, error: "" };
-  for (const pane of windows) pane.dispatchEvent(new CustomEvent("luna:can-switch-connection", { detail }));
+  return windows;
+}
+function canSwitch(target: string, prefer: boolean) {
+  const detail = { target, prefer, error: "" };
+  for (const pane of connectionWindows()) pane.dispatchEvent(new CustomEvent("luna:can-switch-connection", { detail }));
+  return detail;
+}
+export function changeConnection(target: string, prefer = false) {
+  const windows = connectionWindows();
+  const detail = canSwitch(target, prefer);
   if (detail.error) throw new Error(detail.error);
   if (!closeSettings()) return;
   // Verify persistence before changing live state. Keep drafts, attachments, and explicit retry IDs in memory.
@@ -230,41 +249,111 @@ export function changeConnection(target: string) {
   for (const pane of windows) pane.dispatchEvent(new CustomEvent("luna:switch-connection", { detail }));
 }
 
-// ---- boot ----
-/** Keeps the sidebar unread count current while the Cron panel is closed. */
-let bootGeneration = 0;
+// ---- boot and route recovery ----
+let bootGeneration = 0, bootDelay = 1000, bootFailures = 0, bootFailureAt = 0;
+let needsBoot = true;
+let routeNotice = "";
+const bootFailureSource = Symbol("boot");
+let bootController: AbortController | undefined;
+let bootRetry: ReturnType<typeof setTimeout> | undefined;
 let badgeTimer: ReturnType<typeof setInterval> | undefined;
+let routeProbe: AbortController | undefined;
+let routeTimer: ReturnType<typeof setTimeout> | undefined;
+function cancelBoot() {
+  bootGeneration++; bootController?.abort(); bootController = undefined;
+  clearTimeout(bootRetry); bootRetry = undefined;
+}
+function retryBoot() {
+  clearTimeout(bootRetry);
+  bootRetry = setTimeout(() => { bootRetry = undefined; void boot(); }, bootDelay);
+  bootDelay = Math.min(bootDelay * 2, 15000);
+}
 export async function boot() {
-  const own = ++bootGeneration;
-  // A tile can finish loading after the parent changes the route.
+  if (bootController || ui.login) return;
+  clearTimeout(bootRetry); bootRetry = undefined;
+  const own = ++bootGeneration, controller = bootController = new AbortController();
   const savedServer = localStorage.getItem("luna.server") || "";
   if (savedServer !== serverUrl.value) setServerUrl(savedServer);
   const chat = chatStore, models = modelsStore, sessions = sessionsStore, composer = composerStore;
-  const badge = await import("@/pages/cron/badge");
-  if (own !== bootGeneration) return;
   chat.chat.booting = true;
   try {
+    const badge = await import("@/pages/cron/badge");
+    if (own !== bootGeneration) return;
     if (isDesktop && !serverUrl.value) return showLogin();
-    let hl;
-    try { hl = await (await fetch(url("/health"), { signal: AbortSignal.timeout(5000), cache: "no-store" })).json(); }
-    catch (e) { if (own !== bootGeneration) return; connectionFailure.value = true; if (isDesktop) return showLogin(`Cannot reach ${serverUrl.value}. Check the address and that the daemon runs.`); throw e; }
+    const response = await fetch(url("/health"), { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]), cache: "no-store" });
+    if (!response.ok) throw Object.assign(new Error("Daemon is not available"), { status: response.status });
+    const hl = await response.json();
     if (own !== bootGeneration) return;
     if (hl.auth && !token.value) return showLogin();
     await rememberConnection();
     if (own !== bootGeneration) return;
-    // Independent reads: fetch in parallel so boot costs one round trip, not three.
     await Promise.all([models.loadModels(), sessions.loadProjects(), sessions.loadSessions()]);
     if (own !== bootGeneration) return;
     if (chat.chat.session) await chat.openSession(chat.chat.session, true); else composer.restoreDraft();
     chat.startListFeed();
+    needsBoot = false; bootFailures = 0; bootFailureAt = 0; bootDelay = 1000;
+    reportConnectionFailure(bootFailureSource, false); chat.chat.bootError = "";
+    if (routeNotice) { chat.addErr(routeNotice, "muted"); routeNotice = ""; }
     void badge.refreshCronBadge();
-    badgeTimer ??= setInterval(() => { if (!document.hidden) void badge.refreshCronBadge(); }, 30_000);
+    badgeTimer ??= setInterval(() => { if (!document.hidden && !ui.login) void badge.refreshCronBadge(); }, 30_000);
     applyHash();
   } catch (e) {
-    if (own !== bootGeneration) return;
-    if ((e as Error).message !== "unauthorized") chat.chat.bootError = String((e as Error).message || e);
-  } finally { if (own === bootGeneration) chat.chat.booting = false; }
+    if (own !== bootGeneration || controller.signal.aborted || ui.login || (e as Error).message === "unauthorized") return;
+    if ((e as { status?: number }).status === 401) return showLogin("Token rejected");
+    needsBoot = true; chat.chat.connected = false;
+    chat.chat.bootError = "Reconnecting…";
+    bootFailureAt ||= Date.now(); bootFailures++;
+    if (bootFailures >= 3 || Date.now() - bootFailureAt >= 8000) reportConnectionFailure(bootFailureSource, true);
+    retryBoot();
+    // With confirmation disabled, do not wait for the popup debounce to try another route.
+    if (connection.value?.prompt === false) void recoverRoute(false);
+  } finally {
+    if (own === bootGeneration) { chat.chat.booting = false; bootController = undefined; }
+  }
 }
+
+async function recoverRoute(prefer: boolean) {
+  if (sessionPane || ui.login || document.hidden || routeProbe || !connection.value) return;
+  if (!prefer && connection.value.prompt) return; // The recovery dialog owns confirmation.
+  const index = connection.value.addresses.findIndex(a => a.url === activeAddress());
+  const addresses = prefer ? (index < 0 ? [] : connection.value.addresses.slice(0, index)) : connection.value.addresses;
+  if (!addresses.length) return;
+  const saved = connection.value, origin = serverUrl.value, bearer = token.value;
+  const controller = routeProbe = new AbortController();
+  try {
+    const target = await findWorkingAddress(addresses, controller.signal, prefer);
+    if (!target || controller.signal.aborted || connection.value !== saved || serverUrl.value !== origin || token.value !== bearer || ui.login) return;
+    if (canSwitch(target, prefer).error) return;
+    if (saved.prompt) { preferredAddress.value = target; return; }
+    const label = saved.addresses.find(a => a.url === target)?.label || target;
+    routeNotice = "Switched to " + label;
+    changeConnection(target, prefer);
+  } catch { routeNotice = ""; /* Never replay a write on another address. */ }
+  finally {
+    if (routeProbe === controller) routeProbe = undefined;
+    if (!controller.signal.aborted && !document.hidden && !ui.login && (connectionFailure.value || needsBoot) && !connection.value?.prompt) {
+      clearTimeout(routeTimer);
+      routeTimer = setTimeout(() => { void recoverRoute(false); }, 5000);
+    }
+  }
+}
+function resumeConnection() {
+  if (ui.login || document.hidden) return;
+  if (needsBoot) void boot();
+  else void recoverRoute(!connectionFailure.value);
+}
+// Stores import each other. Install reactive observers after module initialization.
+queueMicrotask(() => {
+  watch(connectionFailure, failed => { if (failed) void recoverRoute(false); });
+  watch(() => [chatStore.busy.value, composerStore.composer.submitting.size, settingsDirty()], () => {
+    if (!chatStore.busy.value && !composerStore.composer.submitting.size) resumeConnection();
+  });
+});
+window.addEventListener("online", resumeConnection);
+window.addEventListener("focus", resumeConnection);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) resumeConnection(); });
+window.addEventListener("pagehide", () => { cancelBoot(); routeProbe?.abort(); clearTimeout(routeTimer); });
+window.addEventListener("pageshow", e => { if (e.persisted) { needsBoot = true; resumeConnection(); } });
 
 function applyHash() {
   const h = location.hash;

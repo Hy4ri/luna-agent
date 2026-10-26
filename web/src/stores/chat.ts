@@ -90,7 +90,7 @@ function clearRunNotices() { chat.notices = chat.notices.filter(notice => notice
 export const sending = computed(() => chat.session ? composer.submitting.has(chat.session) :
   [...pendingMessages.values()].some(p => p.session === null && p.epoch === chat.epoch && p.status === "Sending…"));
 export const busy = computed(() => chat.runActive || chat.generationActive || chat.activeTools.size > 0 || chat.queuedCount > 0 || chat.contextCompacting || chat.compactions.size > 0);
-export const sendDisabled = computed(() => sending.value || (!!chat.session && !chat.connected));
+export const sendDisabled = computed(() => chat.booting || !!chat.bootError || sending.value || (!!chat.session && !chat.connected));
 export const stopDisabled = computed(() => !busy.value || !chat.connected);
 function toolName(id: string): string | undefined {
   if (chat.toolStarts[id]) return chat.toolStarts[id].name;
@@ -392,13 +392,17 @@ export async function openSession(id: string | number, reattach = false) {
   const sid = chat.session!, epoch = chat.epoch;
   chat.title = history.list.find(s => String(s.id) === sid)?.title || "Conversation " + sid;
   restoreDraft();
+  let hydrated = false;
   // Hydrate durable history on EVERY attachment. Its subsequent atomic snapshot closes the fetch/subscribe gap.
   activeFeed = watchFeed({
     path: `/v1/sessions/${sid}/events`, api,
     beforeConnect: async signal => {
-      const s = await json(`/v1/sessions/${sid}?limit=500`, { signal });
-      if (epoch !== chat.epoch) return;
-      entries = new Map(s.entries.map((e: any) => [e.id, markRaw(e)])); chat.rev++;
+      const s = await json(`/v1/sessions/${sid}?limit=${hydrated ? 100 : 500}`, { signal, timeoutMs: 30000 });
+      if (epoch !== chat.epoch || signal.aborted) return;
+      // The server returns append-only, fork-aware history. Keep the already loaded older rows.
+      if (!hydrated) entries = new Map();
+      for (const e of s.entries) entries.set(e.id, markRaw(e));
+      hydrated = true; chat.rev++;
       chat.project = s.project ?? history.list.find(row => String(row.id) === sid)?.project ?? null;
       chat.machine = s.machine ?? null;
       applyAgent(s.agent); chat.usage = s.usage ? markRaw(s.usage) : null; showContext(s.contextUsage); setExtras(s);

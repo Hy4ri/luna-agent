@@ -146,7 +146,14 @@ export async function submitMessage(sid: string, body: any) {
     // The feed can confirm a send even when its HTTP response is lost.
     if (pending?.submissionId) { composer.sendErrors.delete(sid); return true; }
     if (pending && pendingMessages.get(body.requestId) === pending && pending.status === "Sending…") pending.status = "Send not confirmed";
-    if ((e as Error).message !== "unauthorized") composer.sendErrors.set(sid, { body, message: (e as Error).message });
+    if ((e as Error).message !== "unauthorized") {
+      const err = e as Error;
+      const isTimeout = err.name === "TimeoutError" || /timed?\s*out/i.test(err.message);
+      const message = isTimeout
+        ? "Request timed out; delivery not confirmed. The server may still have received the message."
+        : err.message;
+      composer.sendErrors.set(sid, { body, message });
+    }
     return false;
   } finally {
     composer.submitting.delete(sid);
