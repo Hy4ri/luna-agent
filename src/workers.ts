@@ -281,6 +281,9 @@ class RemoteExecutionEnv {
   writeGeneratedImage(bytes: Uint8Array, c: Context) {
     return this.call("writeGeneratedImage", [bytes], c) as Promise<Result<string, Error>>;
   }
+  writeUpload(file: { data: Uint8Array; name: string; mimeType: string }, c: Context) {
+    return this.call("writeUpload", [file], c) as Promise<Result<import("./uploads.js").UploadMetadata, Error>>;
+  }
   absolutePath(path: string, c: Context) { return this.call("absolutePath", [path], c); }
   joinPath(parts: string[], c: Context) { return this.call("joinPath", [parts], c); }
   readTextFile(path: string, c: Context) { return this.call("readTextFile", [path], c); }

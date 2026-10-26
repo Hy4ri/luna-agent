@@ -11,6 +11,7 @@ import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS,
   type BrowserMethod, type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 import { WorkerServices } from "./worker-services.js";
 import { ensureGeneratedDirectories, saveGeneratedImage, workerGeneratedRoot } from "./generated-files.js";
+import { MAX_UPLOAD_BYTES, UploadStore, workerUploadRoot } from "./uploads.js";
 
 export interface WorkerOptions {
   url: string; token: string; cwd?: string;
@@ -29,6 +30,22 @@ function validateImageBytes(bytes: unknown): Uint8Array {
   return bytes;
 }
 
+function validateUploadFile(file: unknown): { data: Uint8Array; name: string; mimeType: string } {
+  if (!file || typeof file !== "object") throw new Error("Upload file must be an object.");
+  const candidate = file as { data?: unknown; name?: unknown; mimeType?: unknown };
+  if (!(candidate.data instanceof Uint8Array)) throw new Error("Upload data must be a Uint8Array.");
+  if (candidate.data.byteLength > MAX_UPLOAD_BYTES) {
+    throw new Error(`Upload size ${candidate.data.byteLength} exceeds maximum allowed size ${MAX_UPLOAD_BYTES}.`);
+  }
+  if (typeof candidate.name !== "string" || !candidate.name.trim()) throw new Error("Upload name must be a non-empty string.");
+  if (typeof candidate.mimeType !== "string" || !candidate.mimeType.trim()) throw new Error("Upload mimeType must be a non-empty string.");
+  return {
+    data: candidate.data,
+    name: candidate.name,
+    mimeType: candidate.mimeType,
+  };
+}
+
 export function startWorker(o: WorkerOptions) {
   const log = o.log ?? ((m: string) => console.error(m));
   const cwd = o.cwd ?? homedir();
@@ -44,9 +61,18 @@ export function startWorker(o: WorkerOptions) {
     // Do not advertise generated storage or fall back to cwd/main after a startup failure.
   }
 
+  let uploadStore: UploadStore | undefined;
+  try {
+    uploadStore = new UploadStore(workerUploadRoot(workerHome, process.platform));
+  } catch (err) {
+    log(`worker: failed to initialize upload store under home: ${err instanceof Error ? err.message : String(err)}`);
+    // Do not advertise upload capability or fall back to cwd/main after a startup failure.
+  }
+
   const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
     user: userInfo().username, home: workerHome, cwd, path: process.env.PATH, browser: services.browserCapability(),
-    generatedFiles: generatedRootPath !== undefined };
+    generatedFiles: generatedRootPath !== undefined,
+    uploadFiles: uploadStore !== undefined };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
   let socket: WebSocket | undefined, stopped = false, delay = 1000, retry: ReturnType<typeof setTimeout> | undefined;
   let connected: (() => void) | undefined;
@@ -131,6 +157,17 @@ export function startWorker(o: WorkerOptions) {
               if (!generatedRootPath) throw new Error("Generated image storage is unavailable on this worker.");
               const path = await saveGeneratedImage(generatedRootPath, bytes, controller.signal);
               result = { ok: true, value: path };
+            } catch (error) {
+              if (controller.signal.aborted) throw error;
+              result = { ok: false, error: new FileError("invalid", error instanceof Error ? error.message : String(error)) };
+            }
+          } else if (m.method === "writeUpload") {
+            try {
+              if (controller.signal.aborted) throw controller.signal.reason ?? new Error("aborted");
+              if (!uploadStore) throw new Error("Upload storage is unavailable on this worker.");
+              const file = validateUploadFile(args[0]);
+              const metadata = uploadStore.put(file);
+              result = { ok: true, value: metadata };
             } catch (error) {
               if (controller.signal.aborted) throw error;
               result = { ok: false, error: new FileError("invalid", error instanceof Error ? error.message : String(error)) };

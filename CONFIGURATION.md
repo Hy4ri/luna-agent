@@ -667,7 +667,7 @@ Change these fields in **Settings → Busy chat input**. Both apply immediately,
 - `steer`: add text after the tool batch. Multiple pending steers form one user message, separated by newlines. Check again before ending a turn.
 - `queue`: run each message as a separate later turn, in order. Do not combine message boundaries.
 
-Images always queue. Text transcripts use the text policy. Interrupt mode falls back to queue during compression or active subagents.
+File attachments always queue. Text transcripts use the text policy. Interrupt mode falls back to queue during compression or active subagents.
 Internal background and subagent completion messages always use follow-up input. They never redirect the model.
 
 Override the default for one message:
@@ -823,9 +823,9 @@ They do not interrupt, steer, or queue the main turn. They also work while a mai
 
 An empty argument returns usage. `/btw` reports unreadable history, empty history, or unavailable provider credentials before starting.
 `/bg` can start from an empty chat. Include all necessary task context in its prompt.
-Images go directly to the new conversation. Audio attachments become local files with paths in its prompt.
+Uploaded image previews go to the new conversation. File metadata and execution-machine paths are preserved for all attachment types.
 Audio understanding requires an enabled tool that can read or transcribe those files; it is not a native audio model input.
-Ordinary messages cannot contain audio. `/btw` ignores attachments.
+Normal messages can also contain audio as a persistent file attachment. `/btw` and `/review` reject new attachments.
 
 The started receipt includes the prompt preview and job ID. Side-question and background results appear separately in the same chat.
 Review jobs appear in the right session sidebar. Select a review to inspect its activity and report.
@@ -1048,6 +1048,47 @@ Transport safety limits are 32 MiB per source and 40 million decoded pixels.
 An interruption returns `Interrupted`.
 
 
+## User uploads
+
+Incoming user files are separate from generated outputs. New uploads are saved as normal files under
+`<dataDir>/uploads/<id>/<sanitized filename>`. The existing `dataDir` setting controls the root.
+The original bytes are preserved, including original image resolution. File names retain their extension where possible.
+Directories use mode `0700`, and files use mode `0600`. Uploads never go into a project directory.
+
+The `luna_uploads` table in `luna.db` stores only an ID, name, MIME type, size, relative file path, and creation time.
+New conversation entries, queued inputs, and submission records contain metadata and references, not original file bytes.
+Image blocks use `luna-upload:<id>/<encoded filename>` internally. The model transport loads referenced pixels only for the request.
+A bounded inference image is stored separately when needed; the downloadable original remains unchanged.
+Non-image files, including documents, spreadsheets, archives, audio, and video, enter the prompt as untrusted file references for tools.
+An uploaded file is never executed automatically. Provider and media-decoder limits still apply.
+
+The web composer accepts any file type through the picker, paste, or drag and drop.
+It shows upload progress, raster previews or file names, and authenticated download controls.
+Normal chat and `/bg` accept at most 8 attachments, each up to 32 MiB. Empty generic files are allowed.
+`/btw` and `/review` reject new attachments instead of silently ignoring them.
+
+### Upload API
+
+- `POST /v1/uploads?name=<filename>` accepts raw bytes and a `Content-Type` header.
+  It returns `{ id, name, mimeType, size, path, ref }` with HTTP 201.
+- Include `{ "type": "file", "uploadId": "<id>" }` in a message's `content` array to attach that file.
+  Extra client paths and metadata are not trusted. Native PNG, JPEG, GIF, and WebP inputs receive image previews;
+  other files remain available through tools.
+- `GET /v1/uploads/:id` downloads the original bytes. It uses the normal bearer authentication,
+  attachment disposition, `nosniff`, a sandbox CSP, and private/no-store caching. There is no public static upload directory.
+- Legacy inline base64 image/audio message inputs remain accepted and are offloaded before durable submission.
+
+Content/name/type-derived IDs make identical upload retries reuse the same file. Files are published before database references.
+A missing or invalid stored file produces an error, not a silently incomplete prompt.
+Worker sessions keep the original on main and copy the file into `<worker home>/.luna/uploads/` before submission.
+The prompt names the execution-machine path. Workers must run the same Luna version and advertise upload support;
+copy failure refuses submission, without falling back to a project path or main-host path.
+
+Existing chat image payloads and board BLOB attachments remain readable. This change does not rewrite old history,
+migrate old payloads, compact SQLite, or restart a running daemon. Back up both `luna.db` and the `uploads/` directory.
+Uploads and shared files remain on disk after conversation/card deletion or attachment removal.
+There is no automatic garbage collection, so forks, retries, and shared references cannot lose their files.
+
 ## Generated file storage
 
 Persistent generated outputs that are not part of a project belong under `<dataDir>/generated/` on main.
@@ -1140,9 +1181,9 @@ The tool accepts `image_url` and `reference_image_urls`. At most 16 source image
 Sources select editing; no sources select text-to-image. Upscaling and creative controls are not advertised for Codex.
 The schema includes only the selected adapter's supported fields and is rebuilt for every listing.
 Local sources must resolve inside the conversation working directory (or configured `cwd`),
-or inside the generated `images/` directory on the session's execution machine.
+inside the generated `images/` directory, or inside upload storage on the session's execution machine.
 The file descriptor is checked after opening, so symlinks cannot escape these allowed source directories.
-Only the generated image directory is added, not the whole data directory with credentials and databases.
+Only generated image and upload directories are added, not the whole data directory with credentials and databases.
 This is source-file confinement, not an operating-system sandbox.
 HTTP(S) sources use the existing vision loader, with public-address checks, pinned DNS, redirect checks, and byte/pixel limits.
 Data URLs are also accepted. Sources are decoded before provider dispatch; adapters receive pixels, not unchecked paths or URLs.
@@ -1316,9 +1357,12 @@ An idle session starts a new turn. A busy session queues the event. A session th
 
 ## Card attachments
 
-A card can hold files, stored in the daemon database with the card. Limits: 10 MB per file, 20 files per card.
+A card can hold files under the daemon's upload directory. Limits: 10 MB per file, 20 files per card.
 Cards in `GET /v1/projects/:id/board` list their `attachments` (`id`, `name`, `type`, `size`, `created`).
-The `board` tool shows attachment names in `get`. Deleting a card or project deletes its files.
+New attachment rows store an upload ID and an empty legacy BLOB; original bytes live only on disk.
+Legacy BLOB rows remain readable without destructive migration.
+The `board` tool shows attachment names in `get`. Deleting a card/project or removing an attachment deletes its association,
+not shared upload files on disk.
 
 - `POST /v1/projects/:id/cards/:cardId/attachments?name=<file>`: the request body is the raw file. `Content-Type` is kept.
 - `GET /v1/projects/:id/cards/:cardId/attachments/:attachmentId`: downloads the file as an attachment.
@@ -1336,7 +1380,7 @@ A worker runs file, shell, browser, and MCP operations for sessions that explici
 Opening or sending instructions to a session never changes its execution machine.
 Web, image generation, vision, and video tools run on main. In a worker session, they read local file paths from the worker.
 `video_analyze` applies the credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
-`image_generate` source images must be inside the worker's working directory or its generated `images/` directory.
+`image_generate` source images must be inside the worker's working directory, generated `images/`, or upload storage.
 The worker opens each protected file once. It checks the opened file and reads from it, so a symlink swap cannot redirect the read.
 These protected reads need a Linux worker at the same Luna version as main. Other workers refuse them.
 A generated image is copied into `<worker home>/.luna/generated/images/` with a unique filename and private permissions.

@@ -36,16 +36,17 @@ function schema(caps: ImageGenCapabilities) {
   for (const control of caps.controls ?? []) properties[control] = Type.Optional(Type.Number());
   return Type.Object(properties, { additionalProperties: false });
 }
-async function source(value: unknown, cwd: string, signal: AbortSignal, env?: ExecutionEnv, generatedImages?: string): Promise<ImageGenSource> {
+async function source(value: unknown, cwd: string, signal: AbortSignal, env?: ExecutionEnv, generatedImages?: string, uploadDirectory?: string): Promise<ImageGenSource> {
   if (typeof value !== "string" || !value.trim()) throw new Error("Image sources must be nonempty strings.");
   let input = value;
-  const outside = generatedImages ? "Source image is outside the conversation working directory and generated images directory."
+  const outside = generatedImages || uploadDirectory ? "Source image is outside the allowed image source directories."
     : "Source image is outside the conversation working directory.";
   if (!/^https?:|^data:/i.test(value)) {
     // Worker sessions can inherit the worker cwd while agent.cwd is unset. Never allow the host default as a worker root.
     const sourceCwd = isWorkerEnv(env) ? env!.cwd : env?.cwd || cwd;
     if (!sourceCwd) throw new Error("The execution machine's working directory is unavailable.");
-    const policy = generatedImages ? { roots: [sourceCwd, generatedImages], maxBytes: 32 * 1024 * 1024 } : { root: sourceCwd, maxBytes: 32 * 1024 * 1024 };
+    const extraRoots = [generatedImages, uploadDirectory].filter((root): root is string => !!root);
+    const policy = extraRoots.length ? { roots: [sourceCwd, ...extraRoots], maxBytes: 32 * 1024 * 1024 } : { root: sourceCwd, maxBytes: 32 * 1024 * 1024 };
     let bytes: Buffer;
     if (env && isWorkerEnv(env)) {
       // One worker-side open: confinement is checked on the opened file and the bytes come from it.
@@ -91,7 +92,7 @@ export class ImageGenManager {
     try { return !!this.selected()?.is_available(); } catch { return false; }
   }
   parameters() { return schema(this.selected()?.capabilities() ?? {}); }
-  async generate(args: Record<string, unknown>, execution: { cwd: string; signal: AbortSignal; backend?: string; env?: ExecutionEnv; generatedImages?: string }): Promise<ImageGenResult> {
+  async generate(args: Record<string, unknown>, execution: { cwd: string; signal: AbortSignal; backend?: string; env?: ExecutionEnv; generatedImages?: string; uploadDirectory?: string }): Promise<ImageGenResult> {
     const { signal, cwd, generatedImages } = execution;
     try {
       signal.throwIfAborted();
@@ -108,7 +109,7 @@ export class ImageGenManager {
         const refs = (args.reference_image_urls ?? []) as unknown[];
         sources = [];
         for (const value of [...(args.image_url !== undefined ? [args.image_url] : []), ...refs]) {
-          sources.push(await source(value, cwd, signal, execution.env, generatedImages));
+          sources.push(await source(value, cwd, signal, execution.env, generatedImages, execution.uploadDirectory));
         }
       } catch (error) {
         if (signal.aborted) throw error;
@@ -166,7 +167,9 @@ export class ImageGenManager {
     }
   }
 }
-export function createImageGenExtension(manager: ImageGenManager, defaultCwd = process.cwd(), generatedImagesDir?: (env: ExecutionEnv | undefined) => string | undefined) {
+export function createImageGenExtension(manager: ImageGenManager, defaultCwd = process.cwd(),
+  generatedImagesDir?: (env: ExecutionEnv | undefined) => string | undefined,
+  uploadsDir?: (env: ExecutionEnv | undefined) => string | undefined) {
   return defineExtension({ name: "image-gen", get tools() {
     // The registry resolves this getter for each tool listing, including existing conversations.
     if (!manager.available()) return [];
@@ -177,7 +180,8 @@ export function createImageGenExtension(manager: ImageGenManager, defaultCwd = p
       async execute(args, api, context) {
         const agent = await api.agent(context), signal = context.abortSignal ?? new AbortController().signal;
         const generatedImages = generatedImagesDir ? generatedImagesDir(api.env) : undefined;
-        const result = await manager.generate(args, { cwd: api.env?.cwd || agent.cwd || defaultCwd, signal, env: api.env, generatedImages });
+        const result = await manager.generate(args, { cwd: api.env?.cwd || agent.cwd || defaultCwd, signal, env: api.env,
+          generatedImages, uploadDirectory: uploadsDir?.(api.env) });
         const output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [{ type: "text", text: JSON.stringify(result) }];
         if (result.success && result.image) {
           try {

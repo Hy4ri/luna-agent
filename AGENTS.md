@@ -132,7 +132,7 @@ A capability is complete only when all three layers are verified:
 - Web UI panels (Settings, Model Providers, MCP Servers) must read and update this shared store so live runtime policy (`busyInput`, `autoContinue`, `subagents`, `auxiliary`, etc.) stays consistent without requiring separate config files.
 
 ### 4. Data Directory Isolation (`dataDir`)
-- All persistent runtime state (`luna.db`, `memory.db`, `cron.db`, `learn.db`, `recall.db`, `auth.json`, `mcp.json`, `skills/`, `processes/`, `generated/`; legacy `generated-images/`) must live under `cfg.dataDir` (default `~/.luna`).
+- All persistent runtime state (`luna.db`, `memory.db`, `cron.db`, `learn.db`, `recall.db`, `auth.json`, `mcp.json`, `skills/`, `processes/`, `uploads/`, `generated/`; legacy `generated-images/`) must live under `cfg.dataDir` (default `~/.luna`).
 - Never hardcode database or state file paths relative to `process.cwd()` or the repository root.
 - In verification scripts, always create an isolated temporary directory (`mkdtempSync`) for `dataDir` and clean it up on exit.
 

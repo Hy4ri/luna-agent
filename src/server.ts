@@ -54,6 +54,10 @@ import * as ghActions from "./github-actions.js";
 import { cardInput, itemUrl, linked } from "./github-board.js";
 import { z } from "zod";
 import { activeContextTokens } from "./context-usage.js";
+import { MAX_UPLOAD_BYTES, UploadError, type UploadMetadata, type UploadStore } from "./uploads.js";
+import { parseUploadInput as parseInput, prepareUploadInput, type UploadInput } from "./upload-input.js";
+import { uploadWriter } from "./worker-protocol.js";
+import { withAbortSignal } from "@earendil-works/chord/context";
 
 // Carry placement identity with its entry so viewers can replace local pending input atomically.
 // One entry can contain several steering submissions combined by the harness.
@@ -98,30 +102,15 @@ export interface ServerOptions {
   mcp?: McpManager;
   /** Execution workers. Absent: sessions run on this host only. */
   workers?: WorkerHub;
+  /** Persistent incoming files. Only paths and metadata enter durable conversation storage. */
+  uploads?: UploadStore;
   /** Default working directory on this host, for `@file:` completion before a session exists. */
   cwd?: string;
   /** Session learning ledger and the improver that applies approved proposals. */
   learn?: { store: LearnStore; improver: SkillImprover; scan?: () => Promise<unknown> | undefined };
 }
 
-type Input = SideInput;
-const AUDIO_MIME = /^audio\/(mpeg|mp3|wav|x-wav|ogg|webm|mp4|flac)$/;
-const IMAGE_MIME = /^image\/(png|jpeg|gif|webp)$/;
-/** Validate text, image, and file-backed audio input (max 8 images, base64 data). */
-function parseInput(v: unknown): Input | string {
-  if (typeof v === "string") return v.trim() ? v : "content is empty";
-  if (!Array.isArray(v) || !v.length) return "content (string or block array) required";
-  let images = 0;
-  for (const b of v) {
-    if (b?.type === "text" && typeof b.text === "string") continue;
-    if (b?.type === "image" && typeof b.data === "string" && IMAGE_MIME.test(b.mimeType) && /^[A-Za-z0-9+/=]+$/.test(b.data)) { images++; continue; }
-    if (b?.type === "audio" && typeof b.data === "string" && AUDIO_MIME.test(b.mimeType) && /^[A-Za-z0-9+/=]+$/.test(b.data)) continue;
-    return "invalid content block (text, image, or audio with base64 data)";
-  }
-  if (!images && !v.some(b => b.type === "text" && b.text.trim())) return "content is empty";
-  if (images > 8) return "at most 8 images per message";
-  return v as Input;
-}
+type Input = UploadInput;
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -164,11 +153,11 @@ export function createApp(opts: ServerOptions) {
     try { await work; }
     finally { draining.delete(id); stops.delete(id); }
   };
-  const err = (c: HonoContext, status: 400 | 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503 | 504, message: string) => c.json({ error: message }, status);
+  const err = (c: HonoContext, status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 502 | 503 | 504, message: string) => c.json({ error: message }, status);
 
   app.onError((e, c) => {
     if (e instanceof BusyCommandError) return err(c, e.status, e.message);
-    if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError) return err(c, e.status, e.message);
+    if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError || e instanceof UploadError) return err(c, e.status, e.message);
     const name = (e as Error).name;
     if (name === "ConversationBusy") return err(c, 409, "conversation busy");
     return err(c, 500, (e as Error).message ?? String(e));
@@ -211,6 +200,52 @@ export function createApp(opts: ServerOptions) {
       ...(c?.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}),
       ...(c?.instructions ? { instructions: c.instructions } : {}) };
   };
+
+  const prepareAttachments = async (input: Input, conv: NonNullable<Awaited<ReturnType<Harness["conversation"]>>>, signal: AbortSignal): Promise<UserInput> => {
+    if (typeof input === "string" || input.every(block => block.type === "text")) return prepareUploadInput(input, opts.uploads);
+    const worker = (await harness.snapshot(ExecTarget, conv.id, context))?.worker;
+    let copy: ((file: UploadMetadata) => Promise<UploadMetadata>) | undefined;
+    if (worker) {
+      if (!opts.workers?.store.get(worker)?.capabilities?.uploadFiles) throw new UploadError(400, "This execution worker cannot store uploads. Update it to the same Luna version.");
+      const env = opts.workers.env(worker, (await conv.agent(context)).cwd);
+      const writer = uploadWriter(env);
+      if (!writer) throw new UploadError(500, "Worker upload storage is unavailable.");
+      copy = async file => {
+        if (!opts.uploads) throw new UploadError(500, "Upload storage is unavailable.");
+        const result = await writer.writeUpload({ name: file.name, mimeType: file.mimeType, data: new Uint8Array(opts.uploads.read(file.id)) }, withAbortSignal(signal, context));
+        if (!result.ok) throw new UploadError(500, `Could not copy the upload to its execution worker: ${result.error.message}`);
+        const local = result.value;
+        if (local.id !== file.id || local.ref !== file.ref || local.name !== file.name || local.size !== file.size || typeof local.path !== "string") {
+          throw new UploadError(500, "The execution worker returned an invalid upload receipt.");
+        }
+        return local;
+      };
+    }
+    return prepareUploadInput(input, opts.uploads, copy, signal, file => harness.commit(() => {
+      if (!opts.uploads) throw new UploadError(500, "Upload storage is unavailable.");
+      return opts.uploads.put(file);
+    }, context));
+  };
+
+  app.post("/v1/uploads", bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: c => err(c, 413, "file too large (32 MB max)") }), async c => {
+    if (!opts.uploads) return err(c, 503, "upload storage unavailable");
+    const name = c.req.query("name");
+    if (!name?.trim()) return err(c, 400, "file name required");
+    const data = new Uint8Array(await c.req.arrayBuffer());
+    const metadata = await harness.commit(() => opts.uploads!.put({ name,
+      mimeType: c.req.header("content-type") || "application/octet-stream", data }), context);
+    return c.json(metadata, 201);
+  });
+  app.get("/v1/uploads/:id", c => {
+    const file = opts.uploads?.get(c.req.param("id"));
+    if (!file) return err(c, 404, "uploaded file not found");
+    const bytes = opts.uploads!.read(file.id);
+    return new Response(new Uint8Array(bytes), { headers: {
+      "content-type": file.mimeType, "content-length": String(bytes.byteLength), "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff", "content-security-policy": "sandbox; default-src 'none'",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    } });
+  });
 
   app.get("/v1/settings", c => opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"));
   app.get("/v1/models/pins", c => opts.settings ? c.json({ pins: opts.settings.read().pinnedModels }) : err(c, 404, "settings disabled"));
@@ -974,7 +1009,7 @@ export function createApp(opts: ServerOptions) {
     const projectCwd = project === undefined ? undefined : opts.conversations?.projects.dirFor(project, worker) || undefined;
     if (project !== undefined && project !== 0 && !projectCwd) return err(c, 400, "project is not linked to this machine");
     const cwd = (b.cwd as string | undefined)?.trim() || projectCwd || null;
-    const moved = await harness.commit(async tx => {
+    const moved = await serial(String(conv.id), () => harness.commit(async tx => {
       if (await isRunning(tx, conv.id)) return "busy";
       // Check retained OS work at the same boundary as task admission, not before this transaction.
       const owner = (await tx.doc(ProcessOwner, conv.id)).token;
@@ -983,7 +1018,7 @@ export function createApp(opts: ServerOptions) {
       await configure(tx, conv.id, { cwd });
       await tx.appendEntry(conv.id, { kind: "luna.execution", data: { worker, cwd } });
       return "moved";
-    }, context);
+    }, context));
     if (moved === "busy") return err(c, 409, "Cannot move a session while it runs.");
     if (moved === "processes") return err(c, 409, "Stop or finish background processes before moving execution.");
     return c.json({ machine: await machineOf(conv.id), cwd });
@@ -1158,13 +1193,18 @@ export function createApp(opts: ServerOptions) {
     const side = /^\/(btw|bg|review)(?:\s+([\s\S]*))?$/.exec(commandText.trim());
     if (side) {
       const kind = side[1] as "btw" | "bg" | "review", prompt = (side[2] ?? "").trim() || (kind === "review" ? REVIEW_DEFAULT_PROMPT : "");
+      if (kind !== "bg" && Array.isArray(content) && content.some(block => block.type !== "text")) {
+        return err(c, 400, "Send attachments in normal chat or /bg, not /btw or /review.");
+      }
       if (!prompt) return err(c, 400, `Usage: /${kind} <${kind === "btw" ? "question" : "prompt"}>`);
       try {
-        const job = await sideCommands.start(conv, kind, prompt, content as Input, body.requestId);
+        const job = await serial(String(conv.id), async () => {
+          const prepared = await prepareAttachments(content as Input, conv, c.req.raw.signal);
+          return sideCommands.start(conv, kind, prompt, prepared as SideInput, body.requestId);
+        });
         return c.json({ command: true, job: jobView(job), notice: `/${kind} started: ${prompt.slice(0, 60)} [${job.id}]` }, 202);
       } catch (error) { return err(c, 400, (error as Error).message); }
     }
-    if (Array.isArray(content) && content.some(b => b.type === "audio")) return err(c, 400, "Audio attachments require /bg.");
     if (draining.has(String(conv.id))) return c.json({ command: true, notice: "The current turn is stopping. Send the message again after it stops." }, 409);
     const plain = typeof content === "string" ? content : content.every(block => block.type === "text") ? content.map(block => block.type === "text" ? block.text : "").join("\n") : undefined;
     const slash = plain === undefined ? null : /^\/(usage|cost|queue|steer|redirect|stop|model|compress|compact|retry|undo)(?:\s+([\s\S]*))?$/.exec(plain.trim());
@@ -1220,7 +1260,8 @@ export function createApp(opts: ServerOptions) {
       if (mode === "interrupt" && await harness.commit(tx => interruptBlocked(tx, conv.id), context)) mode = "queue";
       const textOnly = typeof input === "string" || input.every(block => block.type === "text");
       const whenBusy = body.whenBusy === "reject" && !override ? "reject" : !textOnly || mode === "queue" ? "followUp" : mode === "steer" ? "steer" : "redirect";
-      const sub = await conv.submit({ type: "input", content: input as UserInput, requestId: body.requestId, whenBusy }, context);
+      const prepared = await prepareAttachments(input, conv, c.req.raw.signal);
+      const sub = await conv.submit({ type: "input", content: prepared, requestId: body.requestId, whenBusy }, context);
       if (sub.action === "steered" && mode === "interrupt") harness.busyTools.yield(conv.id);
       const action = sub.action ?? ((await sub.status(context)).status === "queued" ? "queued" : "started");
       const notices = await harness.commit(tx => feedback(tx, conv.id, policy, action), context);

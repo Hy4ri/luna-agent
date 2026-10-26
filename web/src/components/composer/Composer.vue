@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
-import { ArrowUp, Square } from "@lucide/vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { ArrowUp, Square, FileText, Loader2 } from "@lucide/vue";
 import { json, post } from "@/lib/api";
-import { composer, addAttachment, removeAttachment, saveDraft, restoreDraft, submitDraft, retrySend } from "@/stores/composer";
+import { composer, addAttachment, captureAttachmentContext, removeAttachment, saveDraft, restoreDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history, loadProjects } from "@/stores/sessions";
 import { modelLabel, loadModels } from "@/stores/models";
@@ -372,7 +372,19 @@ function scrollActiveMentionIntoView() {
   });
 }
 
-const hasDraft = computed(() => composer.text.trim().length > 0 || composer.attachments.length > 0);
+function isRasterImage(mimeType?: string): boolean {
+  return /^(image\/(png|jpeg|gif|webp))$/i.test(mimeType || "");
+}
+
+function formatFileSize(bytes?: number): string {
+  if (bytes === undefined || bytes === null || Number.isNaN(bytes)) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const hasDraft = computed(() => composer.text.trim().length > 0 || composer.attachments.length > 0 || composer.uploadingCount > 0);
+const isSendDisabled = computed(() => sendDisabled.value || composer.uploadingCount > 0 || !hasDraft.value);
 const showStop = busy;
 const sendHidden = computed(() => showStop.value && !hasDraft.value);
 
@@ -497,21 +509,28 @@ async function handleSubmit(e?: Event) {
   if (!sendDisabled.value) submit();
 }
 
-async function handleFileChange(e: Event) {
+function handleFileChange(e: Event) {
   const files = (e.target as HTMLInputElement).files;
-  if (!files) return;
-  for (const f of files) {
-    await addAttachment(f);
-  }
+  if (!files || !files.length) return;
+  const context = captureAttachmentContext();
+  const fileArray = Array.from(files);
   if (fileRef.value) fileRef.value.value = "";
+  for (const f of fileArray) {
+    void addAttachment(f, context);
+  }
 }
 
 function handlePaste(e: ClipboardEvent) {
-  for (const it of e.clipboardData?.items || []) {
-    if (it.type.startsWith("image/")) {
-      e.preventDefault();
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const context = captureAttachmentContext();
+  for (const it of Array.from(items)) {
+    if (it.kind === "file") {
       const file = it.getAsFile();
-      if (file) addAttachment(file);
+      if (file) {
+        e.preventDefault();
+        void addAttachment(file, context);
+      }
     }
   }
 }
@@ -519,11 +538,10 @@ function handlePaste(e: ClipboardEvent) {
 function handleDrop(e: DragEvent) {
   e.preventDefault();
   const files = e.dataTransfer?.files;
-  if (!files) return;
-  for (const f of files) {
-    if (f.type.startsWith("image/") || f.type.startsWith("audio/")) {
-      addAttachment(f);
-    }
+  if (!files || !files.length) return;
+  const context = captureAttachmentContext();
+  for (const f of Array.from(files)) {
+    void addAttachment(f, context);
   }
 }
 
@@ -586,7 +604,7 @@ onMounted(() => {
   nextTick(() => grow());
 });
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   document.removeEventListener("paste", handlePaste);
   document.removeEventListener("pointerdown", handleOutsideClick);
 });
@@ -706,18 +724,36 @@ onUnmounted(() => {
         <button type="button" aria-label="Remove attached Cron report" @click="removeAttachment(i)">×</button>
       </div>
     </div>
-    <div id="atts" aria-label="Attached media">
-      <template v-for="(a, i) in composer.attachments" :key="i"><div v-if="!a.report">
-        <span v-if="a.mimeType.startsWith('audio/')">Audio attachment</span>
-        <img v-else :src="a.url" alt="attachment" />
-        <button
-          type="button"
-          :aria-label="'Remove attached image ' + (i + 1)"
-          @click="removeAttachment(i)"
-        >
-          ×
-        </button>
-      </div></template>
+    <div id="atts" aria-label="Attached files">
+      <template v-for="(a, i) in composer.attachments" :key="i">
+        <div v-if="!a.report" class="composer-att-item">
+          <img v-if="isRasterImage(a.mimeType)" :src="a.url" :alt="a.name || 'attachment'" />
+          <div v-else class="composer-file-pill">
+            <FileText :size="14" aria-hidden="true" />
+            <span class="composer-file-name" :title="a.name">{{ a.name || 'File' }}</span>
+            <span v-if="a.size !== undefined" class="composer-file-size">{{ formatFileSize(a.size) }}</span>
+          </div>
+          <button
+            type="button"
+            :aria-label="'Remove attachment ' + (a.name || (i + 1))"
+            @click="removeAttachment(i)"
+          >
+            ×
+          </button>
+        </div>
+      </template>
+      <div v-if="composer.uploadingCount > 0" class="composer-uploading-pill" role="status" aria-live="polite">
+        <Loader2 :size="14" class="spin" aria-hidden="true" />
+        <span>Uploading ({{ composer.uploadingCount }})…</span>
+      </div>
+    </div>
+
+    <div
+      v-if="composer.uploadError"
+      class="msg err composer-upload-error"
+      role="alert"
+    >
+      {{ composer.uploadError }}
     </div>
 
     <div
@@ -755,8 +791,8 @@ onUnmounted(() => {
           type="button"
           id="attach"
           class="icon-button"
-          title="Attach images or audio"
-          aria-label="Attach images or audio"
+          title="Attach files"
+          aria-label="Attach files"
           @click="fileRef?.click()"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L12 3"/></svg>
@@ -765,7 +801,6 @@ onUnmounted(() => {
           type="file"
           id="file"
           ref="fileRef"
-          accept="image/png,image/jpeg,image/gif,image/webp,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/flac"
           multiple
           hidden
           @change="handleFileChange"
@@ -804,7 +839,7 @@ onUnmounted(() => {
             class="icon-button primary"
             aria-label="Send"
             title="Send"
-            :disabled="sendDisabled || !hasDraft"
+            :disabled="isSendDisabled"
             v-show="!sendHidden"
           >
             <ArrowUp :size="18" aria-hidden="true" />
@@ -820,4 +855,51 @@ onUnmounted(() => {
 <style scoped>
 .cron-context { display: flex; align-items: start; gap: 8px; margin-bottom: 8px; }
 .cron-context > :first-child { flex: 1; }
+.composer-att-item { display: inline-flex; align-items: center; position: relative; }
+.composer-file-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 54px;
+  padding: 0 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 220px;
+}
+.composer-file-name {
+  font-size: 13px;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-file-size {
+  font-size: 11px;
+  color: var(--faint);
+  flex: none;
+}
+.composer-uploading-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 54px;
+  padding: 0 12px;
+  background: var(--secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.composer-upload-error {
+  margin: 6px 12px 0;
+  font-size: 12px;
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 </style>

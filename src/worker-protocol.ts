@@ -25,6 +25,16 @@ export interface GeneratedImageWriter {
 }
 export const generatedImageWriter = (env: unknown): GeneratedImageWriter | undefined =>
   isWorkerEnv(env as { id: string }) && typeof (env as Partial<GeneratedImageWriter>).writeGeneratedImage === "function" ? env as GeneratedImageWriter : undefined;
+
+/** Worker-only operation: write an uploaded file copy into worker-managed upload storage. Not an ExecutionEnv method. */
+export interface UploadWriter {
+  writeUpload(
+    file: { data: Uint8Array; name: string; mimeType: string },
+    context: import("@earendil-works/chord").Context,
+  ): Promise<Result<import("./uploads.js").UploadMetadata, Error>>;
+}
+export const uploadWriter = (env: unknown): UploadWriter | undefined =>
+  isWorkerEnv(env as { id: string }) && typeof (env as Partial<UploadWriter>).writeUpload === "function" ? env as UploadWriter : undefined;
 export const CONNECT_PATH = "/v1/workers/connect";
 
 /** ExecutionEnv methods a worker serves. Anything else is refused on both sides. */
@@ -32,7 +42,7 @@ export const ENV_METHODS = [
   "absolutePath", "joinPath", "readTextFile", "readTextLines", "readBinaryFile", "writeFile", "appendFile", "truncateFile",
   "flushFile", "renameFile", "fileInfo", "listDir", "listFiles", "canonicalPath", "exists", "createDir", "remove",
   "createTempDir", "createTempFile", "exec", "openBinaryReader", "openTextLineReader", "openDirReader",
-  "readConfined", "writeGeneratedImage",
+  "readConfined", "writeGeneratedImage", "writeUpload",
 ] as const;
 export type EnvMethod = typeof ENV_METHODS[number];
 /** Methods that return a reader object; the worker keeps it and main gets a handle. */
@@ -52,6 +62,7 @@ export interface Capabilities {
   cwd: string;
   path?: string;
   generatedFiles?: boolean;
+  uploadFiles?: boolean;
 }
 
 export type MainMessage =

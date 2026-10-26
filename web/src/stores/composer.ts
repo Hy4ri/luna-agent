@@ -2,12 +2,20 @@
 // Port of vanilla composer.js.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { markRaw, reactive } from "vue";
-import { json, post } from "@/lib/api";
+import { api, json, post } from "@/lib/api";
 import { draftsKey } from "@/lib/pane";
 import { addErr, chat, createSession, entryList, putSideJob } from "./chat";
 import { loadSessions } from "./sessions";
 
-export interface Attachment { mimeType: string; data: string; url: string; report?: { jobName: string; id: number; status: string } }
+export interface Attachment {
+  mimeType: string;
+  data: string;
+  url: string;
+  uploadId?: string;
+  name?: string;
+  size?: number;
+  report?: { jobName: string; id: number; status: string };
+}
 interface Draft { text: string; attachments: Attachment[] }
 interface PendingMessage {
   requestId: string; session: string | null; epoch: number; content: any;
@@ -67,6 +75,10 @@ try {
 export const composer = reactive({
   text: "",
   attachments: [] as Attachment[],
+  /** Number of uploads currently in flight. */
+  uploadingCount: 0,
+  /** Upload error message if the most recent upload failed. */
+  uploadError: null as string | null,
   /** Conversations with an unconfirmed submission in flight. */
   submitting: new Set<string>(),
   /** Last failed submission per conversation, for "Retry send". */
@@ -74,7 +86,9 @@ export const composer = reactive({
 });
 // A route change must not interrupt a message whose delivery is still in flight.
 window.addEventListener("luna:can-switch-connection", event => {
-  if (composer.submitting.size) (event as CustomEvent).detail.error = "Wait for the current send to finish before switching addresses.";
+  if (composer.submitting.size || composer.uploadingCount > 0) {
+    (event as CustomEvent).detail.error = "Wait for current uploads or sends to finish before switching addresses.";
+  }
 });
 const draftTextKey = (id: string | null) => `luna.draft.${id ?? "new"}`;
 let owner: string | null | undefined; // conversation the visible draft belongs to
@@ -93,29 +107,136 @@ export function restoreDraft() {
 }
 
 // ---- attachments ----
-export async function addAttachment(file: File) {
-  const target = composer.attachments, from = chat.session;
-  if (!/^(image\/(png|jpeg|gif|webp)|audio\/(mpeg|mp3|wav|x-wav|ogg|webm|mp4|flac))$/.test(file.type)) return addErr("Unsupported image or audio type.");
-  if (target.length >= 8) return addErr("At most 8 attachments per message.");
-  const blob = file.type.startsWith("audio/") ? file : await shrink(file);
-  const data = await new Promise<string>(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(",")[1]); fr.readAsDataURL(blob); });
-  if (target.length >= 8) return;
-  target.push(markRaw({ mimeType: blob.type, data, url: URL.createObjectURL(blob) }));
-  void from;
+const MAX_UPLOAD_SIZE = 32 * 1024 * 1024; // 32 MiB
+
+export interface UploadMetadataResponse {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  path?: string;
+  ref?: string;
 }
+
+export function isValidUploadMetadata(data: unknown): data is UploadMetadataResponse {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.id === "string" &&
+    /^[a-f0-9]{64}$/.test(d.id) &&
+    typeof d.name === "string" && d.name.length > 0 &&
+    typeof d.mimeType === "string" &&
+    typeof d.size === "number" && Number.isSafeInteger(d.size) &&
+    d.size >= 0 && d.size <= MAX_UPLOAD_SIZE
+  );
+}
+
+export interface AddAttachmentContext {
+  targetSession: string | null;
+  targetAttachments: Attachment[];
+}
+
+export function captureAttachmentContext(): AddAttachmentContext {
+  return {
+    targetSession: chat.session,
+    targetAttachments: composer.attachments,
+  };
+}
+
+export async function addAttachment(file: File, context?: AddAttachmentContext) {
+  if (file.size > MAX_UPLOAD_SIZE) {
+    const err = `File exceeds 32 MB limit (${file.name})`;
+    composer.uploadError = err;
+    addErr(err);
+    return;
+  }
+
+  const targetSession = context ? context.targetSession : chat.session;
+  const targetAttachments = context ? context.targetAttachments : composer.attachments;
+
+  // Initial capacity check before uploading
+  if (targetAttachments.length >= 8) {
+    const err = `At most 8 attachments per message (${file.name} not added).`;
+    composer.uploadError = err;
+    addErr(err);
+    return;
+  }
+
+  composer.uploadingCount++;
+  composer.uploadError = null;
+  const localUrl = URL.createObjectURL(file);
+
+  try {
+    const uploadRes = await api(`/v1/uploads?name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+      timeoutMs: 60000,
+    });
+
+    if (!uploadRes.ok) {
+      const errBody = await uploadRes.json().catch(() => ({}));
+      throw new Error(errBody.error || `Upload failed with status ${uploadRes.status}`);
+    }
+
+    const meta = await uploadRes.json();
+    if (!isValidUploadMetadata(meta)) {
+      throw new Error("Invalid upload metadata returned by server (expected id, name, mimeType, and numeric size)");
+    }
+
+    // Check capacity again in target list
+    if (targetAttachments.length >= 8) {
+      URL.revokeObjectURL(localUrl);
+      const err = `At most 8 attachments per message (${meta.name} exceeded limit).`;
+      composer.uploadError = err;
+      addErr(err);
+      return;
+    }
+
+    const attachmentRecord: Attachment = markRaw({
+      mimeType: meta.mimeType || file.type || "application/octet-stream",
+      data: "", // Backed by uploadId
+      url: localUrl,
+      uploadId: meta.id,
+      name: meta.name || file.name,
+      size: meta.size ?? file.size,
+    });
+
+    // Check if target is still active visible composer
+    if (chat.session === targetSession && composer.attachments === targetAttachments) {
+      targetAttachments.push(attachmentRecord);
+      saveDraft();
+    } else {
+      // User navigated to another conversation; preserve in captured draft if draft exists
+      const existingDraft = drafts.get(targetSession);
+      if (existingDraft && existingDraft.attachments === targetAttachments) {
+        if (targetAttachments.length < 8) {
+          targetAttachments.push(attachmentRecord);
+        } else {
+          URL.revokeObjectURL(localUrl);
+        }
+      } else {
+        // If the draft was completely discarded, do not drop silently; report clear error
+        URL.revokeObjectURL(localUrl);
+        const err = `Attachment ${meta.name} completed but draft for session was discarded.`;
+        composer.uploadError = err;
+        addErr(err);
+      }
+    }
+  } catch (err) {
+    URL.revokeObjectURL(localUrl);
+    const msg = (err as Error).message || "Failed to upload file";
+    composer.uploadError = msg;
+    addErr(msg);
+  } finally {
+    composer.uploadingCount = Math.max(0, composer.uploadingCount - 1);
+  }
+}
+
 export function removeAttachment(i: number) {
   const [a] = composer.attachments.splice(i, 1);
-  if (a) URL.revokeObjectURL(a.url);
-}
-// Downscale big photos to 2000px max so uploads stay small; GIFs pass through.
-async function shrink(file: File): Promise<Blob> {
-  if (file.type === "image/gif") return file;
-  const bmp = await createImageBitmap(file).catch(() => null);
-  if (!bmp || Math.max(bmp.width, bmp.height) <= 2000) return file;
-  const k = 2000 / Math.max(bmp.width, bmp.height);
-  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-  c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
-  return new Promise(r => c.toBlob(b => r(b || file), "image/jpeg", 0.88));
+  if (a?.url) URL.revokeObjectURL(a.url);
+  saveDraft();
 }
 
 // ---- submission ----
@@ -216,8 +337,37 @@ function randomId(): string {
 export async function send(text: string, atts: Attachment[]) {
   let sid = chat.session;
   if (sid && composer.submitting.has(sid)) return;
-  const content = atts.length ? [...(text ? [{ type: "text", text }] : []), ...atts.map(a => a.report ? { type: "text", text: a.data } : ({ type: a.mimeType.startsWith("audio/") ? "audio" : "image", data: a.data, mimeType: a.mimeType }))] : text;
-  for (const a of atts) URL.revokeObjectURL(a.url);
+  const content = atts.length
+    ? [
+        ...(text ? [{ type: "text", text }] : []),
+        ...atts.map(a => {
+          if (a.report) {
+            return { type: "text", text: a.data };
+          }
+          if (a.uploadId) {
+            return {
+              type: "file",
+              uploadId: a.uploadId,
+              attachment: {
+                id: a.uploadId,
+                name: a.name || "upload",
+                mimeType: a.mimeType || "application/octet-stream",
+                size: a.size || 0,
+              },
+            };
+          }
+          return {
+            type: a.mimeType.startsWith("audio/") ? "audio" : "image",
+            data: a.data,
+            mimeType: a.mimeType,
+          };
+        }),
+      ]
+    : text;
+
+  for (const a of atts) {
+    if (a.url) URL.revokeObjectURL(a.url);
+  }
   const body = { content, requestId: randomId() };
   const pending = pendingMessage(sid, body);
   try {
@@ -235,6 +385,7 @@ export async function send(text: string, atts: Attachment[]) {
 }
 /** Form submit: takes the draft and sends it. The caller checks the send button state. */
 export function submitDraft() {
+  if (composer.uploadingCount > 0) return;
   const text = composer.text.trim();
   if (!text && !composer.attachments.length) return;
   const atts = composer.attachments;

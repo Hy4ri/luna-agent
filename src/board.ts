@@ -6,6 +6,7 @@ import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { detectCycle } from "./todo.js";
 import { deliverCardEvents, ownerSession, wakeEvents } from "./board-events.js";
+import type { UploadStore } from "./uploads.js";
 
 export const STATUSES = ["backlog", "todo", "in_progress", "review", "done"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
@@ -42,7 +43,7 @@ const ids = (v: unknown, what: string): number[] => {
 };
 
 export class BoardStore {
-  constructor(private readonly db: DatabaseSync) {
+  constructor(private readonly db: DatabaseSync, private readonly uploads?: UploadStore) {
     db.exec(`CREATE TABLE IF NOT EXISTS luna_board_cards (
         id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, subject TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
         priority TEXT NOT NULL DEFAULT 'medium', status TEXT NOT NULL DEFAULT 'backlog', blocked_by TEXT NOT NULL DEFAULT '[]',
@@ -59,6 +60,8 @@ export class BoardStore {
       CREATE INDEX IF NOT EXISTS luna_board_attachments_card ON luna_board_attachments(card_id);`);
     const cols = db.prepare("PRAGMA table_info(luna_board_cards)").all() as { name: string }[];
     if (!cols.some(c => c.name === "blocked_reason")) db.exec("ALTER TABLE luna_board_cards ADD COLUMN blocked_reason TEXT");
+    const attachmentCols = db.prepare("PRAGMA table_info(luna_board_attachments)").all() as { name: string }[];
+    if (!attachmentCols.some(c => c.name === "upload_id")) db.exec("ALTER TABLE luna_board_attachments ADD COLUMN upload_id TEXT");
   }
   list(project: number, o: { status?: CardStatus; archived?: boolean } = {}): Card[] {
     const rows = this.db.prepare("SELECT * FROM luna_board_cards WHERE project_id=? AND archived=?").all(project, o.archived ? 1 : 0) as Row[];
@@ -82,21 +85,33 @@ export class BoardStore {
   /** Store one file on a card. */
   attach(project: number, id: number, file: { name: unknown; type: unknown; data: Uint8Array }, by = "user"): Attachment {
     this.need(project, id);
-    const name = typeof file.name === "string" ? file.name.replace(/[\\/\x00-\x1f]/g, "_").trim().slice(0, 200) : "";
-    if (!name) bad("file name required");
+    const uploads = this.uploads;
+    if (!uploads) throw new BoardError(400, "upload store unavailable");
+    const requestedName = typeof file.name === "string" ? file.name.trim() : "";
+    if (!requestedName) bad("file name required");
     if (!file.data.byteLength) bad("file is empty");
     if (file.data.byteLength > MAX_ATTACHMENT_BYTES) bad(`file too large (${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB max)`);
     if (this.attachments(id).length >= MAX_ATTACHMENTS) bad(`at most ${MAX_ATTACHMENTS} attachments per card`);
-    const type = typeof file.type === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(file.type.split(";")[0]!.trim()) ? file.type.split(";")[0]!.trim() : "application/octet-stream";
+    const uploaded = uploads.put({ name: requestedName, mimeType: typeof file.type === "string" ? file.type : "application/octet-stream", data: file.data });
+    const { name, mimeType: type } = uploaded;
     const now = Date.now();
-    const r = this.db.prepare("INSERT INTO luna_board_attachments(card_id,name,type,size,created,data) VALUES (?,?,?,?,?,?)").run(id, name, type, file.data.byteLength, now, file.data);
+    const r = this.db.prepare("INSERT INTO luna_board_attachments(card_id,name,type,size,created,data,upload_id) VALUES (?,?,?,?,?,?,?)")
+      .run(id, name, type, uploaded.size, now, new Uint8Array(0), uploaded.id);
     this.db.prepare("UPDATE luna_board_cards SET updated=? WHERE id=?").run(now, id);
     this.log(id, by, `attached ${name}`);
-    return { id: Number(r.lastInsertRowid), card: id, name, type, size: file.data.byteLength, created: now };
+    return { id: Number(r.lastInsertRowid), card: id, name, type, size: uploaded.size, created: now };
   }
   file(project: number, id: number, attachment: number): { name: string; type: string; data: Uint8Array } | undefined {
     this.need(project, id);
-    return this.db.prepare("SELECT name,type,data FROM luna_board_attachments WHERE id=? AND card_id=?").get(attachment, id) as { name: string; type: string; data: Uint8Array } | undefined;
+    const row = this.db.prepare("SELECT name,type,data,upload_id FROM luna_board_attachments WHERE id=? AND card_id=?")
+      .get(attachment, id) as { name: string; type: string; data: Uint8Array; upload_id: string | null } | undefined;
+    if (!row) return undefined;
+    if (row.upload_id) {
+      if (!this.uploads) throw new BoardError(400, "upload store unavailable");
+      const data = this.uploads.read(row.upload_id);
+      return { name: row.name, type: row.type, data: new Uint8Array(data) };
+    }
+    return { name: row.name, type: row.type, data: row.data };
   }
   detach(project: number, id: number, attachment: number, by = "user") {
     this.need(project, id);
