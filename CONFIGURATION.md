@@ -1240,6 +1240,9 @@ An idle session starts a new turn. A busy session queues the event. A session th
 - `done` or archive sends a final event, then clears the owner.
 - Blocked: the `board` tool sets `blocked` to a short reason, for example `needs your decision on X`. The board shows it. An empty string clears it.
 - Answer: `PATCH` with `{ "answer": "text" }` sends the answer to the owner and clears the blocked reason.
+- Move: `PATCH` with `{ "project": <id> }` moves the card to another project, General included. The card keeps its id,
+  attachments, and activity. Dependencies outside the target project are dropped, the old project stops waiting on the
+  card, and a `session <id>` owner is released. The editor offers the same move in its **Project** field.
 - Dependency wake-up: when a card reaches `done`, the owner of each card that waits on it gets one line
   (`#40 is done, you can start #52`). If other blockers remain, the line names them.
 - Activity: `GET /v1/projects/:id/cards/:cardId/activity` lists who changed the card and when, newest first
