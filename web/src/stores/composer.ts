@@ -12,7 +12,7 @@ interface Draft { text: string; attachments: Attachment[] }
 interface PendingMessage {
   requestId: string; session: string | null; epoch: number; content: any;
   status: "Sending…" | "Queued" | "Sent" | "Send not confirmed" | "Not delivered";
-  submissionId?: string; entryId?: number;
+  submissionId?: string; entryId?: number; promoting?: boolean;
 }
 // Local transport state only. Never add an unconfirmed message to durable history.
 export const pendingMessages = reactive(new Map<string, PendingMessage>());
@@ -35,6 +35,7 @@ function pendingMessage(sid: string | null, body: any) {
 export function reconcileSubmission(record: any) {
   const pending = record.requestId && pendingMessages.get(record.requestId);
   if (!pending || String(record.conversationId) !== pending.session) return;
+  if (pending.promoting && record.status === "unanswered" && record.reason === "aborted" && record.entry === undefined) return;
   pending.submissionId = String(record.id);
   // A receipt read can finish after a newer feed event.
   if (record.entry === undefined && (pending.entryId !== undefined || pending.status === "Not delivered")) return;
@@ -158,6 +159,27 @@ export async function submitMessage(sid: string, body: any) {
   } finally {
     composer.submitting.delete(sid);
     loadSessions().catch(() => {});
+  }
+}
+/** A promotion retry uses the same replacement request ID, never a second input. */
+export async function sendPendingNow(requestId: string) {
+  const pending = pendingMessages.get(requestId);
+  if (!pending?.session || !pending.submissionId || pending.status !== "Queued" || composer.submitting.has(pending.session)) return;
+  const sid = pending.session;
+  pending.promoting = true;
+  composer.submitting.add(sid);
+  try {
+    const result = await post(`/v1/sessions/${sid}/submissions/${encodeURIComponent(pending.submissionId)}/send-now`, { content: pending.content });
+    if (result.submissionId === undefined) throw new Error(result.notice || "Message promotion was not accepted.");
+    pendingMessages.delete(requestId);
+    const replacementId = `send-now:${pending.submissionId}`;
+    pendingMessages.set(replacementId, { ...pending, promoting: false, requestId: replacementId, submissionId: String(result.submissionId), status: result.action === "queued" ? "Queued" : "Sent" });
+    void refreshPending(sid);
+  } catch (error) {
+    // Keep the promotion available after a lost response; its server ID is stable.
+    if (chat.session === sid) addErr((error as Error).message);
+  } finally {
+    composer.submitting.delete(sid);
   }
 }
 export function retrySend() {
