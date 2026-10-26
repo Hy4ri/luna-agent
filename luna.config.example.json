@@ -85,7 +85,25 @@
   "subagents": {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
-    "thinkingLevel": "low"
+    "thinkingLevel": "low",
+    "profiles": {
+      "scout": {
+        "context": "fresh",
+        "tools": ["read", "delegate_files", "skill_view", "session_handoff"],
+        "instructions": "Read the assigned code and return relevant files and evidence. Do not edit."
+      },
+      "reviewer": {
+        "context": "fresh",
+        "thinkingLevel": "high",
+        "tools": ["read", "delegate_files", "skill_view", "session_handoff"],
+        "instructions": "Review independently. Return concrete findings with file paths and lines. Do not claim tests passed."
+      },
+      "worker": {
+        "context": "fresh",
+        "tools": ["read", "write", "edit", "bash", "skill_view", "session_handoff"],
+        "instructions": "Implement only the assigned scope. Report actual changes, validation, and limits."
+      }
+    }
   },
   "auxiliary": {
     "review": { "provider": "anthropic", "model": "claude-sonnet-4-5" }

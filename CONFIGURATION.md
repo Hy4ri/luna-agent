@@ -113,18 +113,58 @@ loads its shell locally and does not have this browser limitation.
 - `sessionTalk`: messages between sessions. `enabled` defaults to `true`; `maxHops` (1 through 20) defaults to `3`.
   Edit it under **Settings → Chat**. Changes apply live. See **Sessions talk with each other**.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.
-- `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` overrides.
-  Set both provider and model, or omit both to inherit the parent model.
-  Normal and forked children use these defaults. Children cannot delegate further.
-  Children have no `ask_user_question`. A child that needs input or approval calls `session_handoff`.
-  `delegate_task` then reports `needs_input` or `needs_approval` with the reason: `wait` returns early and `list` shows it.
-  When the child's turn ends, the spawning session also gets one follow-up message (once per handoff).
-  The message grants no permission. Answer the child with `delegate_task` `steer`; approvals stay with m57.
-  `delegate_task` actions: `show` prints a child's full pending request and its last tool calls; `stop` is final until the child is steered.
-  `spawn` also takes `worktree` and `base` (own git worktree on a new branch, under `.luna-worktrees` beside the project),
-  `notes` (a facts file put in the brief) and `timeoutSec` (child budget, enforced when the parent runs `list` or `wait`).
-  Every brief tells the child to end with a `receipt` JSON block; `wait` checks `commit_sha` against git. There is no `approve` action: only m57 approves.
-  A handoff that ends while the daemon is down does not send a message, but `wait` and `list` still show it.
+- `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` defaults, plus named `profiles`.
+  Set both provider and model, or omit both to inherit the parent model. A selected profile can override provider/model and thinking.
+  Profiles apply to new children only. Each profile has an exact `tools` allowlist, optional `instructions`, and `context` (`fresh` by default, or `fork`).
+  An explicit `spawn.fork` overrides the profile context. Without a profile, children retain the parent's enabled tools except delegation, board, and hidden questionnaires.
+  The built-in profiles are `scout`, `reviewer`, and `worker`. Scout and reviewer can read files, list directories with `delegate_files`, load existing skills with `skill_view`, and hand off; they have no shell or write tools.
+  Worker can read, write, edit, run bash, load existing skills, and hand off. Requested profile tools must already be enabled for the parent; profiles do not install tools.
+  The runtime adds `delegate_result` to every new child for result reporting. Tool restrictions are enforced by the native agent tool selection, not just instructions; they are not an operating-system sandbox.
+  Supplying `profiles` replaces the profile map; omit it to keep the built-ins. Unknown profiles, duplicate tool names, incomplete model pairs, and unavailable selected tools fail explicitly.
+  Child profiles cannot include `delegate_task`, `ask_user_question`, `board`, or `tool_search`. Children cannot delegate further.
+
+  `delegate_task` supports these actions:
+  - `profiles`: list configured role defaults and tool allowlists.
+  - `spawn`: start a child with `task`, optional `profile`, `fork`/`forkAt`, `worktree`/`base`, `notes`, `timeoutSec`, and `outputSchema`.
+  - `steer`: send `task` to owned child `ids`. A new optional `timeoutSec` starts a fresh time budget; omitting it removes the old budget.
+  - `wait`: collect owned child outcomes, validated results, and optional commit-object checks. `timeoutSec` here only bounds the wait (default 120 seconds, maximum 1800).
+  - `list`: show owned child states, reasons, and task summaries.
+  - `show`: show an owned child's pending handoff, recent tool calls, final response, and validated result.
+  - `stop`: stop owned children. A stop remains final until explicit steering; steering is refused while the abort is still finishing.
+  - `usage`: report parent, individual child, child-total, and combined model usage from existing per-conversation ledgers.
+
+  Children have no `ask_user_question`. A child needing input or approval calls `session_handoff`; `wait` returns early and `list` shows the reason.
+  A child's settled result, failure, or handoff sends one notification input to the spawning session, using a durable request ID to prevent duplicates.
+  Notifications are admitted only when the parent is idle, using the installed guarded-input contract. Busy parents are checked again when their current input settles.
+  The notifier subscribes before recovered work resumes and reconciles missed notifications on startup. Completed work is never executed again for notification recovery.
+  Results already returned by a completed parent `wait` or `show` tool do not trigger another automatic parent turn; a collector that crashed before settlement is not counted as delivery.
+  Stopped, archived, failed, quota-limited, or user-blocked parents are not automatically resumed, and parent-stopped children do not send routine completion messages.
+  A child notice never clears a pending parent approval/input handoff or becomes an implicit retry after a parent failure.
+  Held results can be delivered after the parent runs again. Existing pre-upgrade terminal children are not all replayed as new notifications; their handoffs still use the existing IDs.
+  A peer message, result schema, receipt, or successful execution never grants approval or proves correct work.
+
+  `spawn.worktree` creates a new branch under `.luna-worktrees` beside the repository. `base` is pinned to a commit after any requested remote fetch.
+  Notes and the result schema are checked before allocation. Allocation intent is durable before branch/worktree creation, so a replay can reuse only its own matching allocation.
+  Conflicting paths, branches, or uncertain partial allocations are preserved and reported, never deleted automatically. Remote execution-worker sessions do not support worktree allocation.
+  Child submission identities live in the parent document; old records are migrated with complete own-entry pagination, not a first-page limit.
+  Child time budgets use a native background task with durable sleep. They do not depend on `list`, `wait`, or a UI poll.
+  Active pre-upgrade child deadlines are migrated to native deadline tasks on startup. Budgets survive daemon restart; completed, replaced, or stopped child deadlines are cancelled. The maximum budget is 2147483 seconds.
+
+  `outputSchema` is a JSON Schema draft-07 object, at most 32 KiB and 32 nesting levels, with local references only.
+  Its current value is available in the child's `delegate-result` prompt section, including after context compaction.
+  The default receipt schema requires `commit_sha` (hex string or null), `pr_url` (string or null), `files_changed` (string array), and `blocked_on` (string or null), with no extra fields.
+  Before its final summary, a child calls `delegate_result({ value: ... })`; values are limited to 64 KiB and checked against the schema before storage.
+  Each result belongs to the current input boundary. Steering requires a new result; an earlier result cannot satisfy a later task.
+  Invalid values return a tool error. A finished child with no valid current result is reported as failed, not successfully delivered.
+  A valid schema is only data validation. A local commit check proves object existence only; remote-worker commits are not checked on the main host; PR URLs, changed-file claims, and validation claims remain unverified.
+  Existing pre-upgrade children without a schema can still return their text and optional legacy receipt.
+
+  `GET /v1/sessions/:id` includes child `profile`, `cwd`, and `resultStatus` (`valid`, `missing`, or `not_requested`).
+  With children present, `delegationUsage` includes `parent`, `children`, `childTotal`, `total`, `unavailableChildren`, and an accounting note.
+  Each usage summary contains token counters, `costUsd`, `missingCost`, and `zeroCostModels`.
+  Totals include recorded model/compaction usage only. Tool-reported usage is not added because it can overlap; inherited fork history is not charged again.
+  Deleted children are excluded and counted as unavailable. Recorded costs are estimates, not invoices; zero can mean unpriced, subscription, or free usage.
+  The existing activity panel shows role, result-schema state, grouped recorded estimates, and the existing Open/Stop controls. There is no second inspector or usage store.
 - `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
 - `disabledTools`: tool names hidden from the model and refused if called. Applies to the next model request, including existing sessions.

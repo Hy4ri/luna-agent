@@ -23,6 +23,7 @@ import { createToggleExtension } from "./toggles.js";
 import { createAskExtension } from "./ask.js";
 import { createCronExtension, deliverRun } from "./cron-tools.js";
 import { createDelegateExtension } from "./delegate.js";
+import { DelegateResults } from "./delegate-results.js";
 import { createGoalExtension } from "./goal.js";
 import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
@@ -147,7 +148,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       }).join("\n\n");
     return (text + (projection?.managed && projection.stale ? "\nMEMORY.md projection is stale or edited. Use recall for current database facts; request review before refreshing the file." : "")) || undefined;
   })] }));
-  if (on("delegate")) extensions.push(createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
+  if (on("delegate")) extensions.push(DelegateResults, createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler));
   const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
@@ -229,6 +230,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const conversations = new ConversationStore(harness, recall);
   conversationsRef = conversations;
   harnessRef = harness;
+  // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
+  const subagentNotifier = new SubagentNotifier({ harness, log, skip: id => conversations.get(id).archived });
+  if (on("delegate")) await subagentNotifier.start();
   harness.resume(); // continue any run a previous process left unfinished
 
   if (on("cron")) {
@@ -297,9 +301,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     defaultModel: () => providers.defaultModel(),
     skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)) });
   await limitContinuer.start();
-  // A blocked subagent (session_handoff) wakes the session that spawned it.
-  const subagentNotifier = new SubagentNotifier({ harness, log });
-  if (on("delegate")) subagentNotifier.start();
 
   return {
     sideCommands,
