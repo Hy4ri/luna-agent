@@ -75,7 +75,8 @@ export class FileCredentialStore implements CredentialStore {
 export const CUSTOM_APIS = ["openai-completions", "openai-responses", "anthropic-messages"] as const;
 export type CustomApi = (typeof CUSTOM_APIS)[number];
 export interface CustomModelDef { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean; vision?: boolean }
-export interface CustomProviderDef { id: string; name: string; api: CustomApi; baseUrl: string; models: CustomModelDef[] }
+export interface CustomProviderCompat { supportsMidConvoSystemMessages?: boolean; sendSessionAffinityHeaders?: boolean }
+export interface CustomProviderDef { id: string; name: string; api: CustomApi; baseUrl: string; models: CustomModelDef[]; compat?: CustomProviderCompat }
 
 interface ProvidersFile { custom: CustomProviderDef[]; defaultModel?: ModelRef; deviceId?: string }
 
@@ -89,7 +90,9 @@ export function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch =
     input: m.vision ? ["text", "image"] : ["text"], reasoning: m.reasoning ?? false,
     contextWindow: m.contextWindow ?? 128_000, maxTokens: m.maxTokens ?? 16_384,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  });
+    // Mid-conversation system messages keep the leading prompt fixed; affinity headers keep a session on one upstream account.
+    ...(def.compat ? { compat: def.compat } : {}),
+  } as Model<CustomApi>);
   const models = def.models.map(toModel);
   // Discover new models and reported limits. Explicit saved definitions still win.
   const fetchModels = def.api === "anthropic-messages" ? undefined : async ({ credential, signal }: { credential?: { type: string; key?: string }; signal: AbortSignal }) => {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  getCurrentSystemPrompt, getCurrentTools,
+  getCurrentTools, getSystemMessageText, renderSystemMessageUpdate,
   type ImageContent, type TextContent, type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { runClaude } from "./claude-native/transport.js";
@@ -79,10 +79,17 @@ function claudeToolIds(messages: TranscriptContext["messages"]): Map<string, str
 export function prepareNativeRequest(context: TranscriptContext, model: { id: string }, maxTokens?: number): NativeRequest {
   const messages: NativeMessage[] = [];
   const toolIds = claudeToolIds(context.messages);
-  const system = getCurrentSystemPrompt(context.messages);
+  // The first system message stays the fixed system prompt. A later section update is sent in place as a reminder,
+  // so it does not rewrite the cached prefix of every earlier frame.
+  const first = context.messages.find(m => m.role === "system");
+  const system = first ? getSystemMessageText(first) : "";
   if (system) messages.push({ role: "system", content: system });
   for (const message of context.messages) {
-    if (message.role === "system") continue;
+    if (message.role === "system") {
+      const update = message === first ? "" : renderSystemMessageUpdate(message);
+      if (update) messages.push({ role: "user", content: `<system-reminder>\n${update}\n</system-reminder>` });
+      continue;
+    }
     if (message.role === "user") {
       messages.push({ role: "user", content: typeof message.content === "string" ? message.content : blocks(message.content) });
     } else if (message.role === "toolResult") {
