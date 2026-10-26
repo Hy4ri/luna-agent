@@ -70,6 +70,8 @@ export function createBrowserToolsExtension(config: () => { provider: string }, 
             const view = hub.store.get(workerId);
             throw new Error(view ? `Execution machine "${view.name}" is offline. Nothing ran. Start its worker, or move this session to another machine.` : `Execution machine ${workerId} no longer exists. Nothing ran. Move this session to another machine.`);
           }
+          const browser = hub.connection(workerId)?.capabilities.browser;
+          if (browser && !browser.configured) throw new Error(`Worker browser unavailable: ${browser.reason ?? "Browser is not configured."} Nothing ran. Configure and restart the worker. Do not retry until configuration changes.`);
           return new RemoteBrowserProvider(hub, workerId);
         }
       }

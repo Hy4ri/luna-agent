@@ -1,6 +1,8 @@
 // Browser and MCP services of an execution worker. Both come from the worker's own luna.config.json
 // (LUNA_CONFIG, or ./luna.config.json in the directory the worker starts in): `browser` and `mcpServers`.
 // Nothing here fakes a result. A worker without a browser or an MCP server reports that to main.
+import { accessSync, constants } from "node:fs";
+import type { BrowserCapability } from "./worker-protocol.js";
 import { createRegistry } from "@earendil-works/pi-durable";
 import type { BrowserProvider } from "./browser-tools.js";
 import { createCamofoxBrowserProvider } from "./camofox-browser-provider.js";
@@ -26,9 +28,25 @@ export class WorkerServices {
     })();
   }
 
+  browserCapability(): BrowserCapability {
+    const { browser } = this.config();
+    const provider = browser.provider;
+    if (provider === "disabled") return { provider, configured: false, reason: "Browser tools are disabled in the worker configuration." };
+    if (provider === "chromium") {
+      const path = browser.providers.chromium.executablePath;
+      if (!path) return { provider, configured: false, reason: "Set browser.providers.chromium.executablePath to the worker's Helium executable." };
+      try { accessSync(path, constants.X_OK); }
+      catch { return { provider, configured: false, reason: "The configured browser executable is missing or not executable on this worker." }; }
+    } else if (!this.config().mcpServers.some(server => server.name === browser.providers.camofox.mcpServer && server.enabled !== false)) {
+      return { provider, configured: false, reason: "The worker's Camofox MCP server is not configured or enabled." };
+    }
+    return { provider, configured: true };
+  }
+
   async browser(): Promise<BrowserProvider> {
     const { browser } = this.config();
-    if (browser.provider === "disabled") throw new Error("Browser tools are not enabled on this worker. Set browser.provider in the worker's luna.config.json.");
+    const capability = this.browserCapability();
+    if (!capability.configured) throw new Error(`${capability.reason} Nothing ran. Configure the worker browser, then restart the worker. Do not retry until configuration changes.`);
     this.browserProvider ??= browser.provider === "chromium"
       ? createChromiumBrowserProvider(() => this.config().browser.providers.chromium)
       : createCamofoxBrowserProvider(() => this.config().browser.providers.camofox, await this.manager());
