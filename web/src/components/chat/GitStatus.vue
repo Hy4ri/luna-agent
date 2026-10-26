@@ -45,7 +45,8 @@ watch([() => chat.session, () => chat.cwd, () => chat.machine?.id, serverUrl], r
 function visibility() { if (document.hidden) { controller?.abort(); controller = undefined; } else void refresh(); }
 onMounted(() => {
   observer = new IntersectionObserver(entries => { visible = entries.some(e => e.isIntersecting); if (visible) void refresh(); });
-  if (root.value) observer.observe(root.value);
+  // Observe the host container so a hidden Git module can discover a new repository.
+  if (root.value?.parentElement) observer.observe(root.value.parentElement);
   timer = setInterval(refresh, 5000);
   window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', visibility);
 });
@@ -55,24 +56,26 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <section ref="root" class="git-status" :class="{ 'card': docked }" aria-label="Workspace Git status">
-    <details>
-      <summary>
-        <span class="git-branch"><GitBranch :size="14" aria-hidden="true" /><span class="truncate" :title="data?.state === 'ok' ? data.branch : 'Git'">{{ data?.state === 'ok' ? data.branch : 'Git' }}</span></span>
-        <span v-if="data?.state === 'ok' && data.files.length" class="git-totals"><span class="git-added">+{{ data.added }}</span> <span class="git-deleted">−{{ data.deleted }}</span></span>
-      </summary>
-      <ul v-if="data?.state === 'ok' && data.files.length" class="git-files">
-        <li v-for="file in data.files" :key="file.path"><span class="git-file-status" :title="statusTitle(file.status)" role="img" :aria-label="statusTitle(file.status)"><component :is="fileStatus(file.status).icon" :size="14" aria-hidden="true" /></span><span class="git-path" :title="file.path">{{ file.path }}</span><span class="git-file-count">{{ file.binary ? 'Binary' : file.status === '??' ? 'Untracked' : `+${file.added} −${file.deleted}` }}</span></li>
-      </ul>
-    </details>
-    <template v-if="data?.state === 'ok'">
-      <p class="git-caption">{{ data.files.length ? `${data.files.length - data.untracked} changed · ${data.untracked} untracked` : 'Working tree clean' }}<span v-if="data.conflicts" class="text-destructive"> · {{ data.conflicts }} conflicts</span></p>
-      <p v-if="data.upstream && (data.ahead || data.behind)" class="git-caption" :title="data.upstream">{{ data.ahead }} ahead · {{ data.behind }} behind</p>
-    </template>
-    <p v-else class="git-caption" :role="data?.state === 'error' ? 'status' : undefined">{{ data?.message ?? 'Reading Git status…' }}</p>
-  </section>
+  <div ref="root" class="git-status-host">
+    <section v-if="data?.state === 'ok'" class="git-status" :class="{ 'card': docked }" aria-label="Workspace Git status">
+      <details>
+        <summary>
+          <span class="git-branch"><GitBranch :size="14" aria-hidden="true" /><span class="truncate" :title="data?.state === 'ok' ? data.branch : 'Git'">{{ data?.state === 'ok' ? data.branch : 'Git' }}</span></span>
+          <span v-if="data?.state === 'ok' && data.files.length" class="git-totals"><span class="git-added">+{{ data.added }}</span> <span class="git-deleted">−{{ data.deleted }}</span></span>
+        </summary>
+        <ul v-if="data?.state === 'ok' && data.files.length" class="git-files">
+          <li v-for="file in data.files" :key="file.path"><span class="git-file-status" :title="statusTitle(file.status)" role="img" :aria-label="statusTitle(file.status)"><component :is="fileStatus(file.status).icon" :size="14" aria-hidden="true" /></span><span class="git-path" :title="file.path">{{ file.path }}</span><span class="git-file-count">{{ file.binary ? 'Binary' : file.status === '??' ? 'Untracked' : `+${file.added} −${file.deleted}` }}</span></li>
+        </ul>
+      </details>
+      <template v-if="data?.state === 'ok'">
+        <p class="git-caption">{{ data.files.length ? `${data.files.length - data.untracked} changed · ${data.untracked} untracked` : 'Working tree clean' }}<span v-if="data.conflicts" class="text-destructive"> · {{ data.conflicts }} conflicts</span></p>
+        <p v-if="data.upstream && (data.ahead || data.behind)" class="git-caption" :title="data.upstream">{{ data.ahead }} ahead · {{ data.behind }} behind</p>
+      </template>
+    </section>
+  </div>
 </template>
 <style scoped>
+.git-status-host { display: contents; }
 .git-status { min-width: 0; padding: 10px 12px; font-size: 12px; }
 summary { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
 summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
