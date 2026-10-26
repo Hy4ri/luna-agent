@@ -43,7 +43,7 @@ export interface ModelItem {
   lastSeen: string | null
   rates: UsageCost | null
   usage: ModelUsage
-  daily: DailyItem[]
+  daily: { date: string; responses: number; usage: ModelUsage }[]
 }
 
 export interface ToolItem {

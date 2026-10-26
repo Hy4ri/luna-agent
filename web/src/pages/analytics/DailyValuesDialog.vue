@@ -6,28 +6,30 @@
         <DialogDescription class="text-xs text-muted-foreground">
           Dated assistant responses over the last 30 active days.
         </DialogDescription>
+        <p class="text-xs text-muted-foreground m-0">Select a column header to sort; select it again to reverse. <span class="sm:hidden">Scroll the table sideways for more columns.</span></p>
       </DialogHeader>
 
-      <div class="p-4 overflow-auto min-h-0 min-w-0 flex-1">
+      <div class="p-4 overflow-auto min-h-0 min-w-0 flex-1" role="region" tabindex="0" aria-label="Daily token values table">
         <table class="w-full border-collapse text-xs whitespace-nowrap tabular-nums">
           <thead class="sticky top-0 bg-secondary/80 backdrop-blur z-10">
             <tr class="border-b border-border">
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-left">Date</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Responses</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Input</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Output</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Cache Read</th>
-              <th scope="col" class="text-muted-foreground text-[11px] font-medium uppercase tracking-wider p-2.5 text-right">Cache Write</th>
+              <SortHeader label="Date" :active="sortKey === 'date'" :descending="descending" align="left" @sort="sortBy('date')" />
+              <SortHeader label="Responses" :active="sortKey === 'responses'" :descending="descending" align="right" @sort="sortBy('responses')" />
+              <SortHeader label="Input" :active="sortKey === 'input'" :descending="descending" align="right" @sort="sortBy('input')" />
+              <SortHeader label="Output" :active="sortKey === 'output'" :descending="descending" align="right" @sort="sortBy('output')" />
+              <SortHeader label="Cache Read" :active="sortKey === 'cacheRead'" :descending="descending" align="right" @sort="sortBy('cacheRead')" />
+              <SortHeader label="Cache Write" :active="sortKey === 'cacheWrite'" :descending="descending" align="right" @sort="sortBy('cacheWrite')" />
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in items" :key="d.date" class="border-b border-border last:border-0 hover:bg-accent/30">
-              <td class="p-2.5 text-left font-mono font-medium">{{ d.date }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(d.responses) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(d.input) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(d.output) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(d.cacheRead) }}</td>
-              <td class="p-2.5 text-right font-mono">{{ full(d.cacheWrite) }}</td>
+            <tr v-if="!sortedRows.length"><td colspan="6" class="p-6 text-center text-muted-foreground">No daily usage recorded.</td></tr>
+            <tr v-for="d in sortedRows" :key="d.date" class="border-b border-border last:border-0 hover:bg-accent/30">
+              <td class="p-2.5 text-left font-medium">{{ d.date }}</td>
+              <td class="p-2.5 text-right">{{ full(d.responses) }}</td>
+              <td class="p-2.5 text-right">{{ full(d.input) }}</td>
+              <td class="p-2.5 text-right">{{ full(d.output) }}</td>
+              <td class="p-2.5 text-right">{{ full(d.cacheRead) }}</td>
+              <td class="p-2.5 text-right">{{ full(d.cacheWrite) }}</td>
             </tr>
           </tbody>
         </table>
@@ -37,11 +39,13 @@
 </template>
 
 <script setup lang="ts">
+import SortHeader from "./SortHeader.vue"
+import { useTableSort } from "./useTableSort"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { DailyItem } from "./types"
 import { full } from "./formatters"
 
-defineProps<{
+const props = defineProps<{
   open: boolean
   items: DailyItem[]
 }>()
@@ -49,4 +53,13 @@ defineProps<{
 const emit = defineEmits<{
   (e: "update:open", val: boolean): void
 }>()
+
+const { sortKey, descending, sortBy, sortedRows } = useTableSort(() => props.items, {
+  date: (r: DailyItem) => r.date,
+  responses: (r: DailyItem) => r.responses,
+  input: (r: DailyItem) => r.input,
+  output: (r: DailyItem) => r.output,
+  cacheRead: (r: DailyItem) => r.cacheRead,
+  cacheWrite: (r: DailyItem) => r.cacheWrite,
+}, "date", false)
 </script>

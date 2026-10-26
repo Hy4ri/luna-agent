@@ -228,7 +228,8 @@ export function createApp(opts: ServerOptions) {
   app.get("/v1/analytics/sessions", async c => {
     const pageRaw = c.req.query("page") ?? "0", limitRaw = c.req.query("limit") ?? "20";
     const page = Number(pageRaw), limit = Number(limitRaw);
-    const sorts = ["tokensDesc", "tokensAsc", "costDesc", "responsesDesc", "durationDesc", "activityDesc"];
+    const sorts = ["title", "status", "tokens", "cost", "hitRate", "responses", "duration", "activity"]
+      .flatMap(key => [key + "Asc", key + "Desc"]);
     const sort = c.req.query("sort") ?? "tokensDesc";
     if (!/^\d+$/.test(pageRaw) || !Number.isSafeInteger(page) || page < 0 ||
         !/^\d+$/.test(limitRaw) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !sorts.includes(sort)) {
@@ -240,17 +241,26 @@ export function createApp(opts: ServerOptions) {
     const status = c.req.query("status") ?? "";
     const rows = snapshot.sessionsList.filter(row => (!status || row.status === status) &&
       (!search || row.id.includes(search) || row.title?.toLowerCase().includes(search)));
+    const sortValues: Record<string, (row: typeof rows[number]) => string | number | null> = {
+      title: row => row.title || "Untitled session",
+      status: row => row.status,
+      tokens: row => row.usage.totalTokens,
+      cost: row => row.usage.cost.total,
+      hitRate: row => row.usage.cacheHitRate,
+      responses: row => row.responses,
+      duration: row => row.durationMs,
+      activity: row => row.lastActivity,
+    };
+    const value = sortValues[sort.replace(/(Asc|Desc)$/, "")]!; // Validated against sorts above.
     rows.sort((a, b) => {
-      let order = 0;
-      switch (sort) {
-        case "tokensDesc": order = b.usage.totalTokens - a.usage.totalTokens; break;
-        case "tokensAsc": order = a.usage.totalTokens - b.usage.totalTokens; break;
-        case "costDesc": order = b.usage.cost.total - a.usage.cost.total; break;
-        case "responsesDesc": order = b.responses - a.responses; break;
-        case "durationDesc": order = (b.durationMs ?? 0) - (a.durationMs ?? 0); break;
-        case "activityDesc": order = (b.lastActivity ?? "").localeCompare(a.lastActivity ?? ""); break;
-      }
-      return order || a.id.localeCompare(b.id, undefined, { numeric: true });
+      const left = value(a), right = value(b);
+      // Unknown values belong last, regardless of the requested direction.
+      if (left == null && right != null) return 1;
+      if (right == null && left != null) return -1;
+      const order = left == null || right == null ? 0
+        : typeof left === "number" && typeof right === "number" ? left - right
+        : String(left).localeCompare(String(right), undefined, { numeric: true });
+      return (sort.endsWith("Desc") ? -order : order) || a.id.localeCompare(b.id, undefined, { numeric: true });
     });
     const actualPage = Math.min(page, Math.max(0, Math.ceil(rows.length / limit) - 1));
     c.header("Server-Timing", `analytics;dur=${(performance.now() - started).toFixed(2)}`);
