@@ -242,7 +242,7 @@ function backgroundReport(entry: any, message: any): boolean {
     </template>
     <div v-for="message in pending" :key="message.requestId" class="msg user" :data-pending="message.requestId">
       <div dir="auto" class="user-content rtl-plaintext"><template v-for="(block, bi) in blocks(message.content)" :key="bi"><ReportContext v-if="block.type === 'text'" :text="block.text" /><img v-else-if="block.type === 'image'" class="att" :src="`data:${block.mimeType};base64,${block.data}`" alt="attachment" /></template></div>
-      <div class="message-footer">
+      <div class="message-footer pending-message-footer">
         <span role="status">{{ message.status }}</span>
         <template v-if="canRecoverPending(message)">
           <button type="button" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="retryPending(message.requestId)">Retry send</button>
