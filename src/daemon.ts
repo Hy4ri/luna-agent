@@ -19,7 +19,7 @@ const rt = await startRuntime(cfg);
 const app = createApp({
   connection: daemonConnection(cfg.dataDir, host, port, publicUrls),
   harness: rt.harness, sideCommands: rt.sideCommands, titler: rt.titler, limitContinuer: rt.limitContinuer, token, agent: { model: rt.model },
-  settings: rt.settings, busyInput: rt.busyInput, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
+  settings: rt.settings, busyInput: rt.busyInput, sessionTalk: rt.sessionTalk, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
   workers: rt.workers, uploads: rt.uploads, cwd: cfg.cwd,
   ...(rt.learn ? { learn: { store: rt.learn, improver: rt.improver!, scan: rt.learnScan } } : {}),

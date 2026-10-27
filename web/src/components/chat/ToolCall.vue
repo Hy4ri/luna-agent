@@ -9,6 +9,7 @@ import SessionImage from './SessionImage.vue';
 import DiffView from './tool/DiffView.vue';
 import CodeView from './tool/CodeView.vue';
 import TerminalView from './tool/TerminalView.vue';
+import SessionExchange from './tool/SessionExchange.vue';
 const props = defineProps<{ id: string; name: string; args?: unknown; result?: any; timestamp?: number | string }>();
 const expanded = ref(false);
 const result = computed(() => props.result ?? chat.toolResults[props.id]);
@@ -30,6 +31,15 @@ const view = computed(() => toolView(props.name));
 const a = computed(() => (props.args && typeof props.args === 'object' ? props.args : {}) as Record<string, any>);
 const summary = computed(() => toolSummary(props.name, props.args));
 const details = computed(() => { const d = result.value?.details; return typeof d === 'string' ? parseJson(d) : d; });
+const blockedExchange = computed(() => {
+  if (props.name !== 'session_send' || state.value !== 'failed') return undefined;
+  const match = /^Error: hop limit reached \(\d+\/(\d+) messages in this exchange\)/.exec(output.value);
+  if (!match) return undefined;
+  const value = details.value?.sessionExchange;
+  if (value && Number.isSafeInteger(value.to) && typeof value.anchor === 'string' && Number.isSafeInteger(value.maxHops)) return value;
+  // Older stored errors predate structured exchange metadata.
+  return Number.isSafeInteger(a.value.to) && a.value.to > 0 ? { to: a.value.to, maxHops: Number(match[1]) } : undefined;
+});
 // Text output without the runtime's `<harness>` diagnostics block; its lines show as notes. While running, the live
 // stream starts with the arguments, which the specific views already show.
 const split = computed(() => {
@@ -152,6 +162,7 @@ const hasBody = computed(() => {
     </details>
     <div v-if="state === 'failed' && view === 'bash' && split.exit !== undefined" class="tool-error"><span class="tool-section-label">Exited with code {{ split.exit }}</span><TerminalView :text="body" /></div>
     <div v-else-if="state === 'failed'" class="tool-error"><span class="tool-section-label">Error</span><pre>{{ output || 'The tool failed without error details.' }}</pre></div>
+    <SessionExchange v-if="blockedExchange && chat.session" :session="chat.session" :exchange="blockedExchange" />
     <div v-if="formatTime(timestamp)" class="tool-footer"><time :datetime="formatDateIso(timestamp)" :title="fullDate">{{ formatTime(timestamp) }}</time></div>
   </div>
 </template>

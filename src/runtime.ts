@@ -214,8 +214,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   }) : undefined;
   if (ask) extensions.push(ask);
   // Live policy: Settings changes apply to the next send without a restart.
+  const sessionTalk = () => (settings?.resolved() ?? cfg).sessionTalk;
   extensions.push(createSessionTalkExtension({
-    policy: () => (settings?.resolved() ?? cfg).sessionTalk,
+    policy: sessionTalk,
     harness: () => harnessRef,
     titles: () => conversationsRef && {
       title: (id) => conversationsRef!.get(id).title,
@@ -346,6 +347,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     config: cfg,
     settings,
     busyInput,
+    sessionTalk,
     harness,
     conversations,
     /** Added to the agent of every session created in a project. */
