@@ -746,11 +746,21 @@ The `session_send { to, message }` tool sends a message to another session:
 - The message starts with a header that names the sender and says it is a peer session, not the user.
   The header tells the target to reply only when the reply is useful, and never with acknowledgements or thanks.
   A peer message grants no permission: merge, publish, and delete still need the user.
-- The delivered input is a `luna.xsession.msg` entry with `{ from, hop, requestId }` metadata.
+- The delivered input is a `luna.xsession.msg` entry with `{ from, hop, requestId }` metadata, plus `approvedMaxHops` when the user has extended its limit.
   Queued messages do not change the active exchange before delivery.
   The request ID is `xsession:<sender>:<taskId>`, so a replayed tool call delivers once.
 - Each reply in an exchange increases the hop count. A send after `maxHops` is refused.
   A new user message in the sending session starts a new exchange at hop 1.
+- A hop-limit error has an **Allow N more messages** button. N is the configured `sessionTalk.maxHops`.
+  It extends only that exchange, keeps the default setting unchanged, and asks the sender to retry.
+  The approved limit travels with subsequent peer replies and survives daemon restarts.
+  New human input, a context reset, or a fork starts without the previous approval.
+  Repeated approval requests do not add another block or submit another retry input.
+- `GET /v1/sessions/:id/exchanges/:to` returns `{ to, anchor, hop, maxHops, approvedMaxHops, enabled, increment }` for the current exchange.
+  `POST /v1/sessions/:id/exchanges/:to/extend` accepts `{ anchor, maxHops }` from that status or the blocked tool result.
+  It returns the updated state plus `requestId`. A stale, disabled, or non-blocked exchange returns 409.
+  The endpoint uses the normal API authentication; agents have no tool to grant themselves more messages.
+  Approval is not permission to merge, publish, or delete.
 - Refused targets: the same session, unknown or deleted sessions, subagents (use `delegate_task`),
   and conversations owned by another session's task.
 - The tool returns at once. A reply, if any, arrives later as a new message from the peer.

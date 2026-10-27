@@ -65,7 +65,7 @@ async function sessionTail(tx: Tx, id: ConversationId) {
     size = Math.min(size * 4, 200);
     for (const entry of page.items) {
       if (entry.kind === "pi.reset" || entry.kind === "luna.context-start") return { boundary: Number(entry.id), reset: true, assistant };
-      if ((entry.kind === "pi.user" || entry.kind === "luna.xsession.msg")) return { boundary: Number(entry.id), reset: false, assistant };
+      if ((entry.kind === "pi.user" || entry.kind === "luna.xsession.msg" || entry.kind === "luna.xsession.approved")) return { boundary: Number(entry.id), reset: false, assistant };
       if (!assistant && entry.kind === "pi.assistant") assistant = entry;
     }
     cursor = page.next;

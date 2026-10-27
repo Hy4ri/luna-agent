@@ -123,10 +123,7 @@
     "maxWaitHours": 168,
     "maxAttempts": 5
   },
-  "sessionTalk": {
-    "enabled": true,
-    "maxHops": 3
-  },
+  "sessionTalk": { "enabled": true, "maxHops": 3 },
   "busyInput": {
     "mode": "interrupt",
     "acknowledgements": true

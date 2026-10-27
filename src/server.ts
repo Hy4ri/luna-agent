@@ -1,3 +1,4 @@
+import { DEFAULT_SESSION_TALK, XSESSION_APPROVED, extendSessionExchange, readSessionExchange, type SessionTalkPolicy } from "./session-talk.js";
 import { getImageBlockAt, projectAgentEvent, projectEntryImages, projectSnapshotImages } from "./session-images.js";
 import { readClaudeUsage, usageNotice } from "./claude-usage.js";
 import { createGitControl, GitError, type Workspace } from "./git-control.js";
@@ -84,6 +85,7 @@ export interface ServerOptions {
   settings?: SettingsStore;
   /** Policy for a runtime without a file-backed settings store. */
   busyInput?: () => BusyPolicy;
+  sessionTalk?: () => SessionTalkPolicy;
   conversations?: ConversationStore;
   /** Extensions added to sessions created in a project (the board). */
   projectExtensions?: Extension[];
@@ -1046,6 +1048,33 @@ export function createApp(opts: ServerOptions) {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
     return c.json({ cancelled: await opts.limitContinuer.cancel(Number(conv.id)) });
+  });
+
+  const sessionTalkPolicy = () => opts.sessionTalk?.() ?? opts.settings?.resolved().sessionTalk ?? DEFAULT_SESSION_TALK;
+  const exchangeTarget = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+  app.get("/v1/sessions/:id/exchanges/:to", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const to = exchangeTarget.safeParse(c.req.param("to"));
+    if (!to.success || to.data === Number(conv.id)) return err(c, 400, "invalid peer session");
+    return c.json(await harness.commit(tx => readSessionExchange(tx, conv.id, to.data, sessionTalkPolicy()), context));
+  });
+  app.post("/v1/sessions/:id/exchanges/:to/extend", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const to = exchangeTarget.safeParse(c.req.param("to"));
+    const body = z.strictObject({ anchor: z.string().min(1), maxHops: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!to.success || !body.success) return err(c, 400, "invalid exchange extension");
+    const result = await harness.commit(tx => extendSessionExchange(tx, conv.id, to.data, body.data.anchor, body.data.maxHops, sessionTalkPolicy()), context);
+    if ("error" in result) return err(c, 409, result.error!);
+    // A distinct input kind preserves the exchange. Ordinary human input would reset its hop count.
+    // Stable submission identity also covers a retry after a committed grant but failed HTTP delivery.
+    await conv.submit({ type: "input", whenBusy: "followUp", requestId: result.requestId,
+      content: `m57 allowed up to ${result.maxHops} messages in the current exchange with session #${to.data}. Retry the blocked session_send if this exchange is still current. This approval does not grant merge, publish, or delete permission.`,
+      entry: { kind: XSESSION_APPROVED, data: { to: to.data, anchor: body.data.anchor, maxHops: result.maxHops } },
+    }, context);
+    return c.json(result);
   });
 
   app.post("/v1/sessions/:id/reset", async (c) => {

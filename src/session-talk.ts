@@ -3,13 +3,13 @@
 // A peer message is never m57: its header says so, and it grants no permission.
 // Replay safety: the requestId derives from the sender and the tool call's task id, and input metadata is stored atomically with delivery.
 import { Type } from "typebox";
-import { defineExtension, defineTool, section, type ConversationId, type Tx } from "@earendil-works/pi-durable";
+import { defineDoc, defineExtension, defineTool, section, type ConversationId, type Tx } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { newestMessageTime } from "./session-activity.js";
 
 /** Authenticated peer input: sender and hop metadata are stored with the delivered user message. */
 export const XSESSION_MSG = "luna.xsession.msg";
-export type XSessionMarker = { from: number; hop: number; requestId: string };
+export type XSessionMarker = { from: number; hop: number; requestId: string; approvedMaxHops?: number };
 export interface SessionTalkPolicy { enabled: boolean; maxHops: number }
 export const DEFAULT_SESSION_TALK: SessionTalkPolicy = { enabled: true, maxHops: 3 };
 
@@ -46,23 +46,55 @@ async function rejectTarget(tx: Tx, from: ConversationId, to: number): Promise<s
   return undefined;
 }
 
-/**
- * Hop of a new message from `from` to `to`: one more than the latest message `to` sent here, when no human input came
- * after it. Human input starts a new exchange at hop 1.
- */
-async function nextHop(tx: Tx, from: ConversationId, to: number): Promise<number> {
+/** Grants are local to this conversation, survive restart, and never pass to a fork. */
+const ExchangeGrants = defineDoc<{
+  grants: Record<string, { anchor: string; maxHops: number; requestId: string }>;
+}>({
+  kind: "luna.xsession.grants", version: 1, scope: "conversation", history: "latest", fork: "initial",
+  checkpointWhen: () => false, initial: () => ({ grants: {} }),
+});
+export const XSESSION_APPROVED = "luna.xsession.approved";
+export type SessionExchange = { to: number; anchor: string | null; hop: number; maxHops: number; approvedMaxHops: number; enabled: boolean; increment: number };
+
+/** Human input and resets start a new exchange. A peer reply carries the approved limit forward. */
+export async function readSessionExchange(tx: Tx, from: ConversationId, to: number, policy: SessionTalkPolicy): Promise<SessionExchange> {
+  const initial: SessionExchange = { to, anchor: null, hop: 1, maxHops: policy.maxHops, approvedMaxHops: 0, enabled: policy.enabled, increment: policy.maxHops };
   let cursor;
   do {
     const page = await tx.scanEntries({ conversationId: from, order: "descending" }, 100, cursor);
     for (const e of page.items) {
+      // Inherited peer input must not carry an approval into a different conversation.
+      if (e.conversationId !== from) return initial;
       if (e.kind === XSESSION_MSG) {
         const m = e.data as XSessionMarker;
-        if (m.from === to) return m.hop + 1;
-      } else if (e.kind === "pi.user") return 1;
+        if (m.from !== to) continue;
+        const grant = (await tx.doc(ExchangeGrants, from)).grants[String(to)];
+        const approvedMaxHops = Math.max(m.approvedMaxHops ?? 0, grant?.anchor === m.requestId ? grant.maxHops : 0);
+        return { ...initial, anchor: m.requestId, hop: m.hop + 1, approvedMaxHops,
+          maxHops: Math.max(policy.maxHops, approvedMaxHops) };
+      } else if (["pi.user", "pi.reset", "luna.context-start"].includes(e.kind)) return initial;
     }
     cursor = page.next;
   } while (cursor);
-  return 1;
+  return initial;
+}
+
+/** Compare-and-set makes double clicks and retries grant only one block of extra messages. */
+export async function extendSessionExchange(tx: Tx, from: ConversationId, to: number, anchor: string, maxHops: number, policy: SessionTalkPolicy) {
+  const reason = await rejectTarget(tx, from, to);
+  if (reason) return { error: reason };
+  if (!policy.enabled) return { error: "Session messages are disabled in settings." };
+  const state = await readSessionExchange(tx, from, to, policy);
+  if (state.anchor !== anchor) return { error: "This exchange is no longer current." };
+  const doc = await tx.doc(ExchangeGrants, from);
+  const requestId = `xsession:extend:${from}:${to}:${anchor}:${maxHops}`;
+  const previous = doc.grants[String(to)];
+  if (previous?.requestId === requestId) return { ...state, requestId };
+  if (state.maxHops !== maxHops || state.hop <= state.maxHops) return { error: "The exchange limit changed. Refresh its status." };
+  const limit = state.maxHops + policy.maxHops;
+  if (!Number.isSafeInteger(limit)) return { error: "The exchange limit is too large." };
+  doc.grants[String(to)] = { anchor, maxHops: limit, requestId };
+  return { ...state, maxHops: limit, approvedMaxHops: limit, requestId };
 }
 
 async function running(tx: Tx, id: ConversationId) {
@@ -117,19 +149,20 @@ export function createSessionTalkExtension(o: { policy: () => SessionTalkPolicy;
           if (reason) return { error: reason };
           // Admission is durable even while the input is queued. Replays need no new hop or metadata.
           if (await tx.submissionByRequest(to as ConversationId, requestId)) return { replayed: true };
-          const hop = await nextHop(tx, from, to);
-          if (hop > policy.maxHops) return { error: `hop limit reached (${hop - 1}/${policy.maxHops} messages in this exchange). Stop and report to m57.` };
-          const out = { hop, busy: await running(tx, to as ConversationId), title: await titleOf(tx, Number(from)), target: await titleOf(tx, to) };
+          const exchange = await readSessionExchange(tx, from, to, policy);
+          const { hop, maxHops, approvedMaxHops } = exchange;
+          if (hop > maxHops) return { error: `hop limit reached (${hop - 1}/${maxHops} messages in this exchange). Stop and report to m57.`, exchange };
+          const out = { hop, maxHops, approvedMaxHops, busy: await running(tx, to as ConversationId), title: await titleOf(tx, Number(from)), target: await titleOf(tx, to) };
           return out;
         }, ctx);
-        if ("error" in prepared) return text(`Error: ${prepared.error}`, true);
+        if ("error" in prepared) return { ...text(`Error: ${prepared.error}`, true), ...(prepared.exchange ? { details: { sessionExchange: prepared.exchange } } : {}) };
         if ("replayed" in prepared) return text(`Message already submitted to session ${to}; replay did not send it again.`);
         const target = await api.conversation(to as ConversationId, ctx);
         if (!target) return text(`Error: session ${to} does not exist`, true);
         await target.submit({ type: "input", content: `${peerHeader(Number(from), prepared.title)}\n\n${args.message}`, requestId, whenBusy: "followUp",
-          entry: { kind: XSESSION_MSG, data: { from: Number(from), hop: prepared.hop, requestId } satisfies XSessionMarker } }, ctx);
+          entry: { kind: XSESSION_MSG, data: { from: Number(from), hop: prepared.hop, requestId, ...(prepared.approvedMaxHops ? { approvedMaxHops: prepared.approvedMaxHops } : {}) } satisfies XSessionMarker } }, ctx);
         const state = prepared.busy ? "queued (the session is busy)" : "delivered";
-        return text(`Message ${state} to session ${to} "${prepared.target}" (hop ${prepared.hop}/${policy.maxHops}). A reply, if any, arrives as a new message.`);
+        return text(`Message ${state} to session ${to} "${prepared.target}" (hop ${prepared.hop}/${prepared.maxHops}). A reply, if any, arrives as a new message.`);
       },
     })],
     sections: [section("sessions", async (input, ctx) => {
