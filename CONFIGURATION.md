@@ -1340,6 +1340,9 @@ Scheduled runs and delegated children do not receive the board tool.
 
 Open **Board** from the sidebar. It selects the active chat's project when opened.
 General cards also appear in the composer's `#` picker. Card references remain scoped to the selected project.
+The system prompt includes board card details only for explicit `#<id>` references in user messages still in context.
+It does not include board counts or an automatic list of active or high-priority cards. Without a matching reference,
+the board prompt section is omitted. The `board` tool remains available for explicit board queries and updates.
 
 ## Board events
 
