@@ -66,6 +66,8 @@ export interface NativeResponse {
     };
   }[];
   usage: {
+    /** Claude Code's USD estimate for this fresh, single-generation CLI process. Not a subscription bill. */
+    native_cost_usd: number;
     native_usage: NativeUsage;
     native_admission?: { upstream_requests: number; blocked_requests: number; request_id?: string | null; unrestored?: string };
   };

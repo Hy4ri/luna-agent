@@ -151,6 +151,10 @@ export function validateNativeResponse(value: unknown, model: string): asserts v
       (typeof usage[k] === "number" && Number.isSafeInteger(usage[k]) && usage[k] >= 0))) {
     throw new Error("Claude native response missing complete token usage");
   }
+  const cost = object(value.usage) ? value.usage.native_cost_usd : undefined;
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
+    throw new Error("Claude native response missing valid USD cost");
+  }
 }
 
 /** One CLI process group and one admitted upstream request per generation. Never return partial tool batches. */

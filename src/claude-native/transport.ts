@@ -397,6 +397,13 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     if (!usage || typeof usage.input_tokens !== "number" || typeof usage.output_tokens !== "number") {
       throw new Error("Native result missing complete token usage");
     }
+    // Native reports a cumulative process total. This process never resumes a saved transcript;
+    // replayed history does not query, so its single final result prices only this generation.
+    // Read it once (including tool-use/max-turn and handled refusal results), never sum results.
+    const cost = final.total_cost_usd;
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
+      throw new Error("Native result missing valid USD cost");
+    }
     const text = blocks.filter(b => b.type === "text").map(b => (b.text as string | undefined) ?? "").join("");
     if (emitted !== text) {
       if (!text.startsWith(emitted)) throw new Error("Native final text differs from incremental stream");
@@ -427,7 +434,7 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     return {
       id: assistants.at(-1)?.id ?? "claude-native", model: request.model,
       choices: [{ finish_reason: finish, message }],
-      usage: { native_usage: usage, native_admission: nativeAdmission },
+      usage: { native_cost_usd: cost, native_usage: usage, native_admission: nativeAdmission },
     };
   } finally {
     signal?.removeEventListener("abort", cancel);

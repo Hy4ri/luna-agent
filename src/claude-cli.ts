@@ -65,6 +65,9 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
         message.usage.cacheWrite1h = usage.cache_creation.ephemeral_1h_input_tokens;
       }
       message.usage.totalTokens = message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite;
+      // Use native pricing, not the zero-priced subscription catalog. Native exposes a total,
+      // not per-token-category dollar amounts; do not invent a component breakdown.
+      message.usage.cost.total = response.usage.native_cost_usd;
       message.responseId = response.id;
       message.rawStopReason = choice.finish_reason;
       const fullText = final.content ?? "";
@@ -144,6 +147,7 @@ export function claudeCliProvider() {
       // Same table the transport routes by, so the reported window is the one the CLI runs at.
       // Unknown/plain native routes stay 200K. Never copy a larger API-only window.
       contextWindow: nativeContextWindow(id), maxTokens: known?.maxTokens ?? 32000,
+      // No local price table: each completed generation supplies Claude Code's USD estimate.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     };
   };

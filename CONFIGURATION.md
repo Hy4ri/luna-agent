@@ -569,6 +569,10 @@ Only a complete, validated response can return actionable tool calls.
 Plain model IDs use a conservative 200000-token window. Explicit `[1m]` routes report 1000000 tokens.
 The adapter has no input-size guard. The runtime's context-window compaction limits history size.
 
+Each completed generation records Claude Code's `total_cost_usd` estimate in the assistant usage and the conversation's existing usage ledger. The transport reads the final result once; history replay acknowledgments are not added. Each process starts without resuming saved costs and permits one queried generation. Tool-use/max-turn and handled refusal completions use the same cost path. A missing, negative, or non-finite native cost fails response validation instead of silently recording zero.
+
+`/usage`, `/cost`, and analytics read this recorded total. It is Claude Code's USD estimate, not a subscription bill or a local catalog-price calculation. Claude Code does not supply per-token-category dollar amounts, so component cost fields remain zero; the reported total is authoritative. Older zero-cost entries are not backfilled. Existing conversations start accumulating cost only for generations run with this fix; previous totals remain incomplete.
+
 ### Offline verification
 
 `pnpm run verify:claude-cli:budget` checks the provider without inference.
@@ -688,7 +692,7 @@ Queue numbers start at 1. Each command applies atomically to the current queue. 
 `/stop` and the Stop button always hard-stop the current work and withdraw pending input. They do not become model messages.
 `/model`, `/compress`, `/compact`, and `/retry` are rejected while busy. Use session controls when idle.
 
-`/usage` (alias `/cost`) returns recorded model token totals and cost for the current Luna conversation, plus Claude plan usage from the daemon host's Claude Code login. It does not submit a model prompt, change the conversation, or scan local transcripts. Tool-reported usage is excluded because it can overlap model usage. Recorded model cost is not the subscription bill; providers that do not report cost can show zero. The report appears in command feedback, not model context.
+`/usage` (alias `/cost`) returns recorded model token totals and cost for the current Luna conversation, plus Claude plan usage from the daemon host's Claude Code login. It does not submit a model prompt, change the conversation, or scan local transcripts. Tool-reported usage is excluded because it can overlap model usage. Recorded model cost is not the subscription bill; Claude generations record the native CLI's USD estimate, while providers that do not report cost can show zero. The report appears in command feedback, not model context.
 
 Claude plan data uses the experimental Claude Code `get_usage` control API. It includes available usage windows, reset times (UTC), and extra-usage utilization. Missing limits display as unavailable, never as zero. Unsupported CLI versions, login failures, and timeouts preserve Luna's session totals with an error notice. Requests have a 20-second timeout and terminate their child process group. Executable selection and OAuth-only environment validation follow the Claude native transport, including `LUNA_CLAUDE_EXECUTABLE` and `CLAUDE_CONFIG_DIR`. Remote-worker sessions still report the **daemon host's** Claude account, not the worker's account. No new configuration fields are required.
 
