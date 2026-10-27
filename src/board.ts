@@ -251,21 +251,6 @@ export class BoardStore {
     this.db.prepare("DELETE FROM luna_board_activity WHERE card_id IN (SELECT id FROM luna_board_cards WHERE project_id=?)").run(project);
     this.db.prepare("DELETE FROM luna_board_cards WHERE project_id=?").run(project);
   }
-  /** Compact text for the prompt: column counts and the cards that need attention. Never the whole board. */
-  summary(project: number, name: string, cwd: string): string {
-    const cards = this.list(project);
-    const count = Object.fromEntries(STATUSES.map(s => [s, cards.filter(c => c.status === s).length]));
-    const open = cards.filter(c => c.status === "in_progress" || c.status === "review" || (c.status !== "done" && RANK[c.priority]! >= 2)).slice(0, 8);
-    const done = new Set(cards.filter(c => c.status === "done").map(c => c.id));
-    const clip = (s: string) => (s.length > 80 ? s.slice(0, 77) + "..." : s).replace(/\s+/g, " ");
-    const lines = open.map(c => {
-      const waits = c.blockedBy.filter(d => !done.has(d));
-      return `#${c.id} [${c.status}|${c.priority}] ${clip(c.subject)}${c.owner ? ` (${clip(c.owner)})` : ""}${waits.length ? ` waits on ${waits.map(d => "#" + d).join(",")}` : ""}`;
-    });
-    return [`Project "${clip(name)}"${cwd ? ` (working directory ${cwd})` : ""}. Board: ${STATUSES.map(s => `${s} ${count[s]}`).join(", ")}.`,
-      ...(lines.length ? ["Cards in progress, in review, or high priority:", ...lines] : []),
-      "Use the board tool to list, read, create, move, or archive cards. Plan the steps of a card with the todo tool and pass metadata {cardId}."].join("\n");
-  }
   /** Full details for `#<id>` mentions in user messages so referenced cards are always in context. */
   mentioned(project: number, ids: Iterable<number>): string {
     const out: string[] = [];
@@ -329,7 +314,7 @@ const DESCRIPTION = [
 
 type Conversations = { projects: { projectOf(conversationId: number): number | undefined; get(id: number): { id: number; name: string; cwd: string } | undefined }; board: BoardStore; touch(): void };
 
-/** Extension: the `board` tool and a compact `board` prompt section. Unlinked chat sessions use General. */
+/** Extension: the `board` tool and prompt details only for explicit card mentions. Unlinked chat sessions use General. */
 export function createBoardExtension(conversations: () => Conversations | undefined) {
   return defineExtension({
     name: "board",
@@ -378,12 +363,10 @@ export function createBoardExtension(conversations: () => Conversations | undefi
       const pid = conv?.projects.projectOf(Number(input.conversationId));
       const p = pid === undefined ? undefined : conv!.projects.get(pid);
       if (!p) return undefined;
-      // The project stores a host path, but this session can run on another machine or keep an older cwd.
-      const base = conv!.board.summary(p.id, p.name, input.env?.cwd ?? "");
       const runtime = input.read as { context?: (id: typeof input.conversationId, ctx: typeof context) => Promise<{ messages: readonly { role?: string; content?: unknown }[] }> };
       const view = typeof runtime.context === "function" ? await runtime.context(input.conversationId, context).catch(() => undefined) : undefined;
       const mentioned = view ? conv!.board.mentioned(p.id, extractMentionedCardIds(view.messages)) : "";
-      return mentioned ? `${base}\n\n${mentioned}` : base;
+      return mentioned || undefined;
     })],
   });
 }
