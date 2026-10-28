@@ -2,7 +2,7 @@
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
-import { composer, pendingMessages, canRecoverPending, sendPendingNow, retryPending, dismissPending } from "@/stores/composer";
+import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import Markdown from "./Markdown.vue";
 import ReportContext from "./ReportContext.vue";
@@ -13,12 +13,16 @@ import ToolCall from "./ToolCall.vue";
 import SideJobCard from "./SideJobCard.vue";
 import Welcome from "./Welcome.vue";
 import Questions from "./Questions.vue";
+import PendingMessage from "./PendingMessage.vue";
 import UploadAttachment from "./UploadAttachment.vue";
 import SessionImage from "./SessionImage.vue";
 
 const pending = computed(() => [...pendingMessages.values()].filter(p =>
   p.session === chat.session && (p.session !== null || p.epoch === chat.epoch) &&
   !entryList.value.some(e => e.id === p.entryId)));
+// Queued input waits outside the scrolling log, docked above the composer.
+const queued = computed(() => pending.value.filter(p => p.status === "Queued"));
+const inLog = computed(() => pending.value.filter(p => p.status !== "Queued"));
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
 const jumpTopRef = ref<HTMLElement | null>(null);
@@ -259,34 +263,7 @@ function backgroundReport(entry: any, message: any): boolean {
     <template v-for="(tool, id) in chat.toolStarts" :key="id">
       <ToolCall v-if="!calls.has(id) && !durableResults.has(id)" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
     </template>
-    <div v-for="message in pending" :key="message.requestId" class="msg user" :data-pending="message.requestId">
-      <div dir="auto" class="user-content rtl-plaintext">
-        <template v-for="(block, bi) in blocks(message.content)" :key="bi">
-          <UploadAttachment
-            v-if="block.type === 'file' || block.attachment"
-            :upload-id="block.uploadId || block.attachment?.id"
-            :name="block.attachment?.name || 'upload'"
-            :mime-type="block.attachment?.mimeType"
-            :size="block.attachment?.size"
-          />
-          <ReportContext v-else-if="block.type === 'text'" :text="block.text" />
-          <SessionImage
-            v-else-if="block.type === 'image' && !block.data?.startsWith('luna-upload:')"
-            class="att"
-            :image="block"
-            alt="attachment"
-          />
-        </template>
-      </div>
-      <div class="message-footer pending-message-footer">
-        <span role="status">{{ message.status }}</span>
-        <button v-if="message.status === 'Queued' && message.submissionId" type="button" class="send-now" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="sendPendingNow(message.requestId)">Send now</button>
-        <template v-if="canRecoverPending(message)">
-          <button type="button" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="retryPending(message.requestId)">Retry send</button>
-          <button type="button" :disabled="!!message.session && composer.submitting.has(message.session)" title="Remove local message; this does not cancel delivery" @click="dismissPending(message.requestId)">Dismiss</button>
-        </template>
-      </div>
-    </div>
+    <PendingMessage v-for="message in inLog" :key="message.requestId" :message="message" />
     <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message">
       <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre dir="auto">{{ chat.liveThinking }}</pre></details>
       <AssistantText v-if="chat.liveText" :text="chat.liveText" />
@@ -298,6 +275,9 @@ function backgroundReport(entry: any, message: any): boolean {
     <div v-if="activityLabel" id="activity" role="status" aria-live="polite">{{ activityLabel }}</div>
     <Questions />
   </div>
+  <div v-if="queued.length" class="queued-dock" role="region" aria-label="Queued messages">
+    <PendingMessage v-for="message in queued" :key="message.requestId" :message="message" />
+  </div>
   <div class="transcript-jumps">
     <button id="jump-top" ref="jumpTopRef" type="button" hidden aria-label="Jump to top" title="Jump to top" @click="jumpToTop"><ArrowUp :size="18" aria-hidden="true" /></button>
     <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="jumpToBottom"><ArrowDown :size="18" aria-hidden="true" /></button>
@@ -305,6 +285,5 @@ function backgroundReport(entry: any, message: any): boolean {
 </template>
 
 <style scoped>
-.send-now { border: 1px solid var(--border); padding: 3px 8px; border-radius: 1px; cursor: pointer; }
-.send-now:disabled { opacity: 0.5; cursor: default; }
+.queued-dock { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-height: 30%; overflow: auto; padding: 8px max(24px, calc((100% - 760px) / 2)) 0; }
 </style>
