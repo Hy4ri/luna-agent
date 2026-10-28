@@ -2,6 +2,7 @@
 import { onUnmounted, ref, watch } from 'vue';
 import { ImageOff } from '@lucide/vue';
 import { api } from '@/lib/api';
+import { openImage } from '@/stores/image-viewer';
 
 const props = defineProps<{ path: string; name: string }>();
 const source = ref(''), failed = ref(false);
@@ -28,7 +29,7 @@ onUnmounted(release);
 
 <template>
   <span class="board-image">
-    <img v-if="source && !failed" :src="source" :alt="name" @error="failed = true" />
+    <img v-if="source && !failed" :src="source" :alt="name" class="zoomable" @click="openImage(source, name)" @error="failed = true" />
     <ImageOff v-else-if="failed" :size="16" role="img" :aria-label="`Preview unavailable for ${name}`" />
     <span v-else role="status" :aria-label="`Loading preview for ${name}`">…</span>
   </span>

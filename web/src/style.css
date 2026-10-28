@@ -1130,3 +1130,5 @@ pre[dir="auto"],
    for list indentation and quote borders, while each item keeps its direction. */
 .md :is(ul, ol):has(> li:first-child:dir(rtl)),
 .md blockquote:has(> :first-child:dir(rtl)) { direction: rtl; }
+
+.zoomable, .md img { cursor: zoom-in; }
