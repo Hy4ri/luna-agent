@@ -458,6 +458,14 @@ The command becomes a normal turn. The agent asks one question per turn with `as
 It reads the codebase and files to answer what it can instead of asking, and it challenges weak answers.
 It does not implement anything. When no decision remains, or you say stop, it writes the plan (goal, decisions with reasons, open risks, ordered steps with verification) to `/.luna/plans/<yyyy-mm-dd>-<slug>.md` and reports the path.
 
+## Crafting a skill
+
+`/skillcraft <skill idea or existing skill name>` interviews you and then saves one managed skill. An empty argument returns usage.
+The command becomes a normal turn in the current chat. The agent runs `skill_list` first and plans an update if a managed skill already covers the topic.
+It asks one question per turn with `ask_user_question`, in this order: trigger, scope and non-goals, procedure, gates, pitfalls, tools, reference files.
+It then shows the full draft `SKILL.md` and asks for approval. Only after you approve does it write with `skill_manage`, which lints and backs up the previous version.
+Use `skill_rollback` to undo an update. External skills stay read-only. Requires the `skills` extension.
+
 ## Native browser tools
 
 The agent uses these provider-neutral tools without `tool_search` discovery:

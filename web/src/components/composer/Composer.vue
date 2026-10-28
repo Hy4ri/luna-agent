@@ -63,6 +63,7 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "review", insert: "/review", label: "/review", args: "[focus]", description: "Review this session's code and request coverage with a read-only model", category: "side" },
   { id: "learn", insert: "/learn ", label: "/learn", args: "<source> [objective]", description: "Study a URL, repo, or file and record a skill", category: "side" },
   { id: "grill", insert: "/grill ", label: "/grill", args: "<topic>", description: "Interview me about a plan until every decision is resolved", category: "side" },
+  { id: "skillcraft", insert: "/skillcraft ", label: "/skillcraft", args: "<skill idea>", description: "Interview me to craft or update a skill", category: "side" },
   { id: "queue", insert: "/queue ", label: "/queue", args: "<message>", description: "Queue a follow-up message for the next turn", category: "busy" },
   { id: "steer", insert: "/steer ", label: "/steer", args: "<message>", description: "Steer the active turn after the current tool batch", category: "busy" },
   { id: "redirect", insert: "/redirect ", label: "/redirect", args: "<message>", description: "Interrupt and redirect the current model generation", category: "busy" },

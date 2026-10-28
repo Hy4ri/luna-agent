@@ -30,6 +30,7 @@ import { Children, readChildReport, type ChildRow } from "./delegate-state.js";
 import { readDelegationUsage } from "./delegate-usage.js";
 import { GoalDoc } from "./goal.js";
 import { GRILL_USAGE, grillPrompt, parseGrill } from "./grill-command.js";
+import { SKILLCRAFT_USAGE, parseSkillcraft, skillcraftPrompt } from "./skillcraft-command.js";
 import { LEARN_USAGE, learnPrompt, parseLearn } from "./learn-command.js";
 import type { McpManager } from "./mcp.js";
 import type { SkillImprover } from "./improve.js";
@@ -1287,6 +1288,12 @@ export function createApp(opts: ServerOptions) {
       const topic = parseGrill(grill[1] ?? "");
       if (!topic) return err(c, 400, GRILL_USAGE);
       input = grillPrompt(topic);
+    }
+    const skillcraft = plain === undefined ? null : /^\/skillcraft(?:\s+([\s\S]*))?$/.exec(plain.trim());
+    if (skillcraft) {
+      const topic = parseSkillcraft(skillcraft[1] ?? "");
+      if (!topic) return err(c, 400, SKILLCRAFT_USAGE);
+      input = skillcraftPrompt(topic);
     }
     if (slash) {
       const command = slash[1]!, args = (slash[2] ?? "").trim();
