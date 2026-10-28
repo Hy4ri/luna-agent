@@ -788,6 +788,7 @@ When a member settles the lead's latest task (done, failed, unanswered, or block
 Reports use durable request IDs and the same idle-only guarded delivery as subagent notifications. A report already collected with `wait` or `show` is not sent again.
 Missed reports are reconciled on startup. Stopped members and archived leads get no automatic reports.
 A lead and its members can use `session_send` in both directions without a hop limit.
+A lead's `session_send` to its own member counts as a crew task, the same as `send`: its answer is what `wait`, `show`, and the automatic report return.
 Lead and member links do not pass to forks. Deleting a lead does not delete its members.
 
 ## Native background processes

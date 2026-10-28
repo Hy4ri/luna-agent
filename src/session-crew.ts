@@ -302,8 +302,14 @@ export class CrewNotifier {
     for (const id of ids) if (!this.closed) await this.notify(id);
   }
 
-  async notify(member: number): Promise<boolean> {
-    if (this.closed || !Number.isSafeInteger(member) || member < 1) return false;
+  /** One check at a time per member, so the trigger pair (submission and generation end) delivers and logs once. */
+  notify(member: number): Promise<boolean> {
+    if (this.closed || !Number.isSafeInteger(member) || member < 1) return Promise.resolve(false);
+    return withChildControl(member, () => this.deliver(member));
+  }
+
+  private async deliver(member: number): Promise<boolean> {
+    if (this.closed) return false;
     try {
       const pending = await this.o.harness.commit(tx => inspect(tx, member as ConversationId, this.o.title), context);
       if (this.closed || !pending || this.o.skip?.(Number(pending.lead))) return false;
