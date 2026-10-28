@@ -80,6 +80,8 @@ luna-pi/
 │   ├── scheduler.ts            # CronStore (SQLite) and Scheduler loop
 │   ├── cron-tools.ts           # Agent cron tools and ntfy-compatible run delivery
 │   ├── delegate.ts             # Subagent spawning, forking, steering, and ownership checks
+│   ├── session-crew.ts         # session_crew: lead full top-level sessions, automatic member reports
+│   ├── session-create.ts       # Shared new-session rules (project, machine, model, thinking level)
 │   ├── conversations.ts        # Conversation metadata, project association, and pinning
 │   ├── projects.ts             # Project definitions and workspace routing
 │   ├── board.ts                # Project kanban board extension and store

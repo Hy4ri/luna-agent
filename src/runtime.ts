@@ -49,6 +49,7 @@ import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
 import { LimitContinuer } from "./limit-continue.js";
 import { SubagentNotifier } from "./subagent-notify.js";
+import { CrewNotifier, createSessionCrewExtension } from "./session-crew.js";
 import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./workers.js";
 import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 
@@ -187,6 +188,20 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     return (text + (projection?.managed && projection.stale ? "\nMEMORY.md projection is stale or edited. Use recall for current database facts; request review before refreshing the file." : "")) || undefined;
   })] }));
   if (on("delegate")) extensions.push(DelegateResults, createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
+  // Crew sessions are full sessions, created with the same rules as the web UI's new-session request.
+  let projectExtensions: Extension[] = [];
+  const newSessionAgent = () => {
+    const c = live();
+    return { model: providers.defaultModel(), ...(c.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}), ...(c.instructions ? { instructions: c.instructions } : {}) };
+  };
+  if (on("delegate")) extensions.push(createSessionCrewExtension({
+    harness: () => harnessRef,
+    session: () => conversationsRef && { base: newSessionAgent, models: built.models, projects: conversationsRef.projects, workers: workers.store, projectExtensions },
+    projects: () => conversationsRef?.projects,
+    workers: () => workers.list(),
+    title: id => conversationsRef?.get(id).title ?? null,
+    setTitle: (id, title) => conversationsRef!.update(id, { title }),
+  }));
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler));
   const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
@@ -205,6 +220,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let conversationsRef: ConversationStore | undefined;
   const board = createBoardExtension(() => conversationsRef);
   extensions.push(board);
+  projectExtensions = [board];
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
   const notifyUrl = () => live().cron.notifyUrl;
   const ask = on("ask-user") ? createAskExtension({
@@ -273,6 +289,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
   const subagentNotifier = new SubagentNotifier({ harness, log, skip: id => conversations.get(id).archived });
   if (on("delegate")) await subagentNotifier.start();
+  const crewNotifier = new CrewNotifier({ harness, log, title: id => conversations.get(id).title, skip: id => conversations.get(id).archived });
+  if (on("delegate")) await crewNotifier.start();
   harness.resume(); // continue any run a previous process left unfinished
 
   if (on("cron")) {
@@ -354,7 +372,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     harness,
     conversations,
     /** Added to the agent of every session created in a project. */
-    projectExtensions: [board],
+    projectExtensions,
     models: built.models,
     providers,
     memory: memory || undefined,
@@ -373,6 +391,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       await learnRunning;
       await limitContinuer.close();
       await subagentNotifier.close();
+      await crewNotifier.close();
       await titler.close();
       await sideCommands.close();
       providers.close();

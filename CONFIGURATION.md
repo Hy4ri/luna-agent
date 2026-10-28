@@ -147,7 +147,7 @@ loads its shell locally and does not have this browser limitation.
   Every selected tool is offered directly to the child, including deferred tools. The parent does not need to load `delegate_files` or other selected deferred tools first.
   The runtime adds `delegate_result` to every new child for result reporting. Tool restrictions are enforced by the native agent tool selection, not just instructions; they are not an operating-system sandbox.
   Supplying `profiles` replaces the profile map; omit it to keep the built-ins. Unknown profiles, duplicate tool names, incomplete model pairs, and unavailable selected tools fail explicitly.
-  Child profiles cannot include `delegate_task`, `ask_user_question`, `board`, or `tool_search`. Children cannot delegate further.
+  Child profiles cannot include `delegate_task`, `session_crew`, `ask_user_question`, `board`, or `tool_search`. Children cannot delegate further or lead a crew.
 
   `delegate_task` supports these actions:
   - `profiles`: list configured role defaults and tool allowlists.
@@ -767,6 +767,29 @@ The `session_send { to, message }` tool sends a message to another session:
 
 In the transcript, a received peer message shows a **From #<id> <title>** chip in place of the header.
 The chip opens the sending session. A typed header without metadata on that exact input is shown as plain text.
+
+### Session crews
+
+The `session_crew` tool lets a session lead a crew of full sessions. It is part of the `delegate` built-in extension.
+A crew member is a normal top-level session, not a subagent: it has every tool, shows in the sidebar, and the user can talk to it directly.
+Subagents (`delegate_task` children) and task-owned conversations cannot lead a crew.
+
+Actions:
+- `options`: projects with their machine directories, machines (main host and execution workers, with online state), thinking levels, the default model, and the lead's own model.
+- `create`: start a session with `task` and optional `title`, `project` (0 = General), `machine` (worker id; absent = main host), `model` (`provider/modelId`), `thinkingLevel`, `cwd`, and `instructions`.
+  The rules are the same as `POST /v1/sessions`: a named project must be linked to the selected machine, `cwd` overrides the project directory, and unknown workers, projects, models, or thinking levels fail.
+- `send`: give member `ids` a new task, a review, or a correction. A busy member gets it after its current turn; `interrupt: true` steers it now.
+- `wait`: block until the members (default: all running members) finish or one is blocked. `timeoutSec` defaults to 300, maximum 1800.
+- `show`: a member's state, pending question, and full final answer. `list`: every member with its state and task. `stop`: abort members.
+
+Messages from the lead are `luna.xsession.msg` inputs with a header that names the lead. The header grants no permission.
+The member's prompt gets a **crew** section that names its lead. Only lead messages count as crew tasks; turns the user starts directly in the member do not.
+When a member settles the lead's latest task (done, failed, unanswered, or blocked on approval or input), the lead receives one automatic report with the final answer.
+Reports use durable request IDs and the same idle-only guarded delivery as subagent notifications. A report already collected with `wait` or `show` is not sent again.
+Missed reports are reconciled on startup. Stopped members and archived leads get no automatic reports.
+A lead and its members can use `session_send` in both directions without a hop limit.
+A lead's `session_send` to its own member counts as a crew task, the same as `send`: its answer is what `wait`, `show`, and the automatic report return.
+Lead and member links do not pass to forks. Deleting a lead does not delete its members.
 
 ## Native background processes
 
