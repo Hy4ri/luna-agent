@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
-import { ChevronLeft, Plus, Star } from "@lucide/vue";
+import { ChevronLeft, Plus, RotateCcw, Star } from "@lucide/vue";
 import { api, post } from "@/lib/api";
 import { useMobile } from "@/lib/dom";
 import { history, loadProjects, loadSessions, sessionTitle, toggleFavorite } from "@/stores/sessions";
@@ -66,6 +66,38 @@ const unlinkMachine = (worker: number | "main") => run(async () => {
   await refresh(); syncMachineDirs(); notice.value = "Removed";
 });
 
+/** Per-project skill overrides. `override` null means the skill follows the global setting. */
+type ProjectSkill = { name: string; description: string; global: boolean; override: boolean | null; effective: boolean };
+const skills = ref<ProjectSkill[]>([]);
+const skillsError = ref("");
+const skillFilter = ref("");
+const skillBusy = reactive<Record<string, boolean>>({});
+const shownSkills = computed(() => {
+  const q = skillFilter.value.trim().toLowerCase();
+  return q ? skills.value.filter(s => `${s.name} ${s.description}`.toLowerCase().includes(q)) : skills.value;
+});
+async function loadSkills(id: number) {
+  skillsError.value = "";
+  try {
+    const list = await api(`/v1/projects/${id}/skills`).then(async r => {
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error || r.statusText);
+      return r.json() as Promise<ProjectSkill[]>;
+    });
+    if (selected.value === id) skills.value = list;
+  } catch (e) { if (selected.value === id) { skills.value = []; skillsError.value = (e as Error).message; } }
+}
+/** `enabled` null resets to global. Optimistic; rolls back on failure. The guard is released on every path. */
+async function setSkill(s: ProjectSkill, enabled: boolean | null) {
+  const p = current.value; if (!p || skillBusy[s.name]) return;
+  skillBusy[s.name] = true;
+  const before = { override: s.override, effective: s.effective };
+  s.override = enabled; s.effective = enabled ?? s.global;
+  skillsError.value = "";
+  try { await post(`/v1/projects/${p.id}/skills/${encodeURIComponent(s.name)}`, { enabled }, "PUT"); }
+  catch (e) { s.override = before.override; s.effective = before.effective; skillsError.value = (e as Error).message; }
+  finally { skillBusy[s.name] = false; }
+}
+
 function ago(ms?: number | null) {
   if (!ms) return "";
   const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
@@ -83,6 +115,8 @@ function select(id: number | "new" | null) {
   cwd.value = p?.cwd ?? "";
   if (id === "new") { createOn.value = "host"; newWorker.value = null; newWorkerCwd.value = ""; }
   syncMachineDirs();
+  skills.value = []; skillFilter.value = ""; skillsError.value = "";
+  if (typeof id === "number" && id !== 0) void loadSkills(id);
   if (id !== null) showDetail.value = true;
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
 }
@@ -223,6 +257,22 @@ onMounted(async () => {
           </form>
         </div>
 
+        <div v-if="current && !current.general" class="pw-sec" id="project-skills">
+          <h4>Skills</h4>
+          <p class="pw-muted pw-small">Switch a skill on or off for this project's conversations. Skills without a custom marker follow the global setting.</p>
+          <input v-if="skills.length > 10" v-model="skillFilter" type="search" aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" />
+          <p v-if="skillsError" class="pw-err" role="alert">{{ skillsError }}</p>
+          <div v-for="s in shownSkills" :key="s.name" class="pw-skill" :data-skill="s.name">
+            <div class="pw-skill-text">
+              <span class="pw-skill-name">{{ s.name }}<span v-if="s.override !== null" class="pw-custom">custom</span></span>
+              <span v-if="s.description" class="pw-muted pw-small pw-skill-desc">{{ s.description }}</span>
+            </div>
+            <button v-if="s.override !== null" type="button" class="pw-icon" :disabled="skillBusy[s.name]" aria-label="Reset to global" title="Reset to global" @click="setSkill(s, null)"><RotateCcw :size="14" /></button>
+            <button type="button" role="switch" class="pw-switch" :aria-checked="s.effective" :aria-label="s.name" :disabled="skillBusy[s.name]" @click="setSkill(s, !s.effective)"><span class="pw-thumb" /></button>
+          </div>
+          <p v-if="skills.length && !shownSkills.length" class="pw-muted">No match.</p>
+        </div>
+
         <div v-if="current" class="pw-sec">
           <h4>Recent conversations</h4>
           <p v-if="!recent.length" class="pw-muted">No conversations yet.</p>
@@ -275,6 +325,18 @@ input:focus, select.pw-input:focus { border-color: var(--ring); }
 .pw-primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); font-weight: 600; }
 .pw-primary:hover:not(:disabled) { border-color: var(--primary); filter: brightness(1.08); }
 .pw-del { color: var(--destructive); }
+.pw-skill { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.pw-skill-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.pw-skill-name { font-size: 14px; overflow-wrap: anywhere; }
+.pw-skill-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-custom { margin-left: 8px; font-size: 12px; color: var(--primary-text); background: var(--acc-soft); border-radius: var(--radius); padding: 1px 6px; }
+.pw-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); border-radius: var(--radius); cursor: pointer; }
+.pw-icon:hover:not(:disabled) { color: var(--foreground); border-color: var(--muted-foreground); }
+.pw-icon:disabled, .pw-switch:disabled { opacity: .45; cursor: default; }
+.pw-switch { position: relative; flex-shrink: 0; width: 34px; height: 20px; border-radius: 999px; border: 1px solid var(--border); background: var(--muted); cursor: pointer; padding: 0; }
+.pw-switch[aria-checked="true"] { background: var(--primary); border-color: var(--primary); }
+.pw-thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--foreground); transition: transform .12s; }
+.pw-switch[aria-checked="true"] .pw-thumb { transform: translateX(14px); background: var(--primary-foreground); }
 .pw-conv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: inherit; font-size: 14px; text-align: left; cursor: pointer; min-width: 0; }
 .pw-conv:hover { background: var(--secondary); }
 .pw-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

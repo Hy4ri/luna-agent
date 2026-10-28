@@ -34,7 +34,7 @@ export interface LunaOptions {
   /** Registry extension names hidden from every session, read on every call. */
   hiddenExtensions?: () => ReadonlySet<string>;
   /** Skill names hidden from the skills extension, read on every call. */
-  disabledSkills?: () => readonly string[];
+  disabledSkills?: (conversationId?: number) => readonly string[];
   /** Extra extensions (e.g. tools a skill mounts on demand). */
   extensions?: Extension[];
   /** Install bash/read/write/edit. Default true. */

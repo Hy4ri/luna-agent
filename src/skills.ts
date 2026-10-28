@@ -120,7 +120,7 @@ export interface SkillsOptions {
   /** Directories scanned (recursively) for SKILL.md. Rescanned on every use, so edits apply live. */
   dirs: readonly string[];
   /** Skill names to hide, read on every use. */
-  disabled?: () => readonly string[];
+  disabled?: (conversationId?: number) => readonly string[];
   /** Max bytes of a linked file returned. Default 100k. */
   maxFileBytes?: number;
 }
@@ -134,7 +134,7 @@ const catalog = (skills: Skill[]) =>
 
 export function createSkillsExtension(opts: SkillsOptions) {
   const max = opts.maxFileBytes ?? 100_000;
-  const active = () => { const off = new Set(opts.disabled?.() ?? []); return scanSkills(opts.dirs).filter((s) => !off.has(s.name)); };
+  const active = (conversationId?: number) => { const off = new Set(opts.disabled?.(conversationId) ?? []); return scanSkills(opts.dirs).filter((s) => !off.has(s.name)); };
   const skillView = defineTool({
     name: "skill_view",
     description:
@@ -145,8 +145,8 @@ export function createSkillsExtension(opts: SkillsOptions) {
       file_path: Type.Optional(Type.String({ description: "Linked file, relative to the skill directory." })),
     }),
     replay: "safe",
-    async execute({ name, file_path }) {
-      const skills = active();
+    async execute({ name, file_path }, api) {
+      const skills = active(Number(api.conversationId));
       const skill = skills.find((s) => s.name === name);
       if (!skill) {
         return {
@@ -182,6 +182,6 @@ export function createSkillsExtension(opts: SkillsOptions) {
   return defineExtension({
     name: "skills",
     tools: [skillView],
-    sections: [section("skills", () => catalog(active()))],
+    sections: [section("skills", ({ conversationId }) => catalog(active(Number(conversationId))))],
   });
 }

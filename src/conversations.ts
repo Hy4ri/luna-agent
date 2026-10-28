@@ -7,6 +7,7 @@ import type { RecallIndex } from "./recall.js";
 import type { UploadStore } from "./uploads.js";
 import { ProjectStore } from "./projects.js";
 import { BoardStore } from "./board.js";
+import { ProjectSkills } from "./project-skills.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export type PruneOptions = { days: number; includeArchived: boolean; excludeIds: number[] };
@@ -19,6 +20,7 @@ export class ConversationStore {
   private readonly listeners = new Set<() => void>();
   readonly projects: ProjectStore;
   readonly board: BoardStore;
+  readonly projectSkills: ProjectSkills;
   private readonly boardListeners = new Set<() => void>();
   constructor(private readonly harness: Harness, private readonly recall?: RecallIndex, uploads?: UploadStore) {
     this.db = conversationStorage(harness).db;
@@ -28,7 +30,8 @@ export class ConversationStore {
     // NULL source on an existing title means a user rename from before sources were stored.
     const cols = this.db.prepare("PRAGMA table_info(luna_conversations)").all() as { name: string }[];
     if (!cols.some(c => c.name === "title_source")) this.db.exec("ALTER TABLE luna_conversations ADD COLUMN title_source TEXT");
-    this.projects = new ProjectStore(this.db, id => this.board.deleteProject(id));
+    this.projectSkills = new ProjectSkills(this.db);
+    this.projects = new ProjectStore(this.db, id => { this.board.deleteProject(id); this.projectSkills.clear(id); });
     this.board = new BoardStore(this.db, uploads);
   }
   subscribeChanges(cb: () => void): () => void {

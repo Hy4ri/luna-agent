@@ -510,6 +510,34 @@ export function createApp(opts: ServerOptions) {
     return c.json({ ok: true });
   });
 
+  // ---- per-project skill overrides: on, off, or inherit the global setting ----
+  const skillsOf = (c: HonoContext) => {
+    if (!opts.conversations) throw new ProjectError(404, "projects disabled");
+    if (!opts.skillDirs) throw new ProjectError(404, "skills disabled");
+    const id = projectId(c); if (!opts.conversations.projects.get(id)) throw new ProjectError(404, "no such project");
+    return { conv: opts.conversations, id, dirs: opts.skillDirs };
+  };
+  app.get("/v1/projects/:id/skills", (c) => {
+    const { conv, id, dirs } = skillsOf(c);
+    const off = opts.settings?.read().disabledSkills ?? [];
+    const over = conv.projectSkills.overrides(id);
+    return c.json(scanSkills(dirs).map((s) => {
+      const global = !off.includes(s.name), override = id === 0 ? null : over.get(s.name) ?? null;
+      return { name: s.name, description: s.description, global, override, effective: override ?? global };
+    }));
+  });
+  app.put("/v1/projects/:id/skills/:name", async (c) => {
+    const { conv, id, dirs } = skillsOf(c);
+    if (id === 0) throw new ProjectError(409, "The General project uses the global skill settings");
+    const name = c.req.param("name");
+    if (!scanSkills(dirs).some((s) => s.name === name)) throw new ProjectError(404, "no such skill");
+    const b = await c.req.json().catch(() => null) as { enabled?: unknown } | null;
+    if (!b || (b.enabled !== null && typeof b.enabled !== "boolean")) throw new ProjectError(400, "enabled must be true, false, or null");
+    conv.projectSkills.set(id, name, b.enabled);
+    conv.touch();
+    return c.json({ ok: true });
+  });
+
   // ---- project board: cards shared by the user and the project's sessions ----
   const boardOf = (c: HonoContext) => {
     const conv = opts.conversations; if (!conv) throw new ProjectError(404, "projects disabled");
