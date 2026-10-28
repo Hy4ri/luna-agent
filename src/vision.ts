@@ -24,13 +24,21 @@ export function nativeVisionAllowed(model: Model<any> | undefined, cfg: Config["
   const profile = cfg.profiles[`${model.provider}/${model.id}`] ?? cfg.profiles[model.provider];
   return bypassProfile || profile?.tool_result_images !== false;
 }
-export async function resolveAuxVision(models: Models, cfg: Config): Promise<Model<any> | undefined> {
+type AuxVisionResolution = { model: Model<any>; error?: never } | { model?: never; error: string };
+export async function resolveAuxVision(models: Models, cfg: Config): Promise<AuxVisionResolution> {
+  const route = cfg.auxiliary.vision;
+  if (!route) return { error: "No auxiliary vision route is configured. Set auxiliary.vision." };
   try {
-    const route = cfg.auxiliary.vision;
-    if (!route) return undefined;
+    if (!models.getProvider(route.provider)) return { error: `Auxiliary vision provider is unknown: ${route.provider}.` };
     const model = models.getModel(route.provider, route.model);
-    return model?.input.includes("image") && await models.getAuth(model) ? model : undefined;
-  } catch { return undefined; }
+    if (!model) return { error: `Auxiliary vision model is not in the catalog: ${route.provider}/${route.model}. Refresh the catalog or correct auxiliary.vision.` };
+    if (!await models.getAuth(model)) return { error: `Auxiliary vision credentials are unavailable for ${route.provider}. Connect the provider.` };
+    // An explicit vision route asserts image support. Proxy catalogs often omit this metadata.
+    // Copy the model for this request only; leave the shared catalog and native routing unchanged.
+    return { model: model.input.includes("image") ? model : { ...model, input: [...model.input, "image"] } };
+  } catch {
+    return { error: `Auxiliary vision resolution failed for ${route.provider}. Check provider credentials and catalog status.` };
+  }
 }
 function turnImages(messages: readonly Message[]): string[] {
   return messages.slice(Math.max(0, messages.findLastIndex(m => m.role === "user"))).flatMap(m =>
@@ -49,8 +57,10 @@ export function createVisionExtension(options: { config: () => Config; models: M
       const cfg = options.config();
       const ref = (await api.snapshot(AgentDoc, api.conversationId, context))?.model ?? options.defaultModel();
       let capable = false;
-      try { capable = !!options.models.getModel(ref.provider, ref.modelId)?.input.includes("image"); } catch { /* Try auxiliary. */ }
-      const available = capable || !!await resolveAuxVision(options.models, cfg);
+      try {
+        capable = cfg.vision.image_mode === "native" && nativeVisionAllowed(options.models.getModel(ref.provider, ref.modelId), cfg.vision, true);
+      } catch { /* Try auxiliary. */ }
+      const available = capable || !!(await resolveAuxVision(options.models, cfg)).model;
       // Filter actual request declarations, without changing stored user tool selections.
       return { messages: available ? request.messages : request.messages.map(m => m.role === "system" && m.toolsAdded
         ? { ...m, toolsAdded: m.toolsAdded.filter(t => t.name !== "vision_analyze") } : m) };
@@ -85,13 +95,18 @@ export function createVisionExtension(options: { config: () => Config; models: M
           model = options.models.getModel(ref.provider, ref.modelId);
           native = cfg.vision.image_mode === "native" && nativeVisionAllowed(model, cfg.vision, args.use_active_model);
         } catch { /* Any capability check error falls back. */ }
-        const aux = native ? undefined : await resolveAuxVision(options.models, cfg);
+        const auxiliary = native ? undefined : await resolveAuxVision(options.models, cfg);
+        const aux = auxiliary?.model;
         if (!native && !aux) {
-          let retry = false;
-          try { retry = cfg.vision.image_mode === "native" && nativeVisionAllowed(model, cfg.vision, true); } catch { /* Unknown is not supported. */ }
-          return text({ success: false, error: "Native routing was rejected and no auxiliary vision client resolves.",
-            ...(retry ? { retry: { use_active_model: true }, note: "Retry with the active vision model, bypassing only its profile veto." }
-              : { note: "The active model cannot accept supported image tool results. Configure auxiliary.vision." }) }, true);
+          const retry = cfg.vision.image_mode === "native" && nativeVisionAllowed(model, cfg.vision, true);
+          const nativeReason = cfg.vision.image_mode === "auxiliary"
+            ? "Native routing is disabled by vision.image_mode=auxiliary."
+            : retry ? "Native routing is blocked by the model profile."
+              : !model ? "The active model is not in the catalog."
+                : !model.input.includes("image") ? "The active model is not marked as image-capable in the catalog."
+                  : "The active model transport does not support image tool results.";
+          return text({ success: false, error: auxiliary!.error, note: nativeReason,
+            ...(retry ? { retry: { use_active_model: true } } : {}) }, true);
         }
         image = await loadVisionImage(args.image_url, args.region, { signal, cwd: agent.cwd, env: api.env });
         if (signal.aborted) throw new Error("Interrupted");

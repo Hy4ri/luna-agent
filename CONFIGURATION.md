@@ -1000,8 +1000,12 @@ Load the full image first. Then use `region` to inspect small text.
 All values must be integers. Regions outside the image are rejected. Cropping occurs before resizing.
 Local paths use the conversation working directory.
 
-The tool is offered only when the active model accepts images or a configured auxiliary vision model resolves with credentials.
-The runtime checks the model catalog. Unknown capability does not enable native routing.
+The tool is offered when native routing is available (including a profile-bypass retry), or an auxiliary vision route resolves with credentials.
+In auxiliary mode, an image-capable active model alone does not make the tool available.
+Native routing checks the model catalog. Unknown capability does not enable native routing.
+Custom-provider discovery reads explicit `vision`, `supports_vision`, `capabilities.vision`, and image input modality lists
+(`architecture.input_modalities`, `input_modalities`, or `capabilities.input`). Saved `vision` overrides take precedence.
+Discovery does not infer image support from model names or image output modalities.
 
 ```json
 {
@@ -1034,6 +1038,11 @@ The active model inspects the pixels directly. Later requests resend those pixel
 Both byte limits measure the base64 payload. The tool resizes and re-encodes to meet both limits and the long-edge cap.
 It returns an error if the image cannot fit.
 
+An explicit `auxiliary.vision` selection asserts that the selected model accepts images. Luna attempts that route even if
+its catalog entry lacks image support metadata. This override applies only to the auxiliary request; it does not change
+the shared catalog or enable native image results. The model must still exist in the catalog and have provider credentials.
+If the model actually rejects images, its request error is returned instead of a local capability rejection.
+
 Auxiliary routing uses `auxiliary.vision.model`, temperature `0.1`, and a 120-second timeout across attempts.
 It sends the full-resolution image, or the full-resolution crop, with this prompt:
 `Fully describe everything, then answer: <question>`.
@@ -1041,7 +1050,9 @@ A size rejection permits one smaller-image retry. An empty reply permits one fur
 The main model receives only `{ "success": true, "analysis": "..." }`, not auxiliary pixels.
 Some visual detail can be lost in that text.
 
-If native routing is rejected and no auxiliary client resolves, the tool returns an explicit error.
+If no route resolves, the tool identifies a missing auxiliary setting, unknown provider, missing catalog model,
+or unavailable credentials. It also states whether native routing is disabled by mode, blocked by a profile,
+or unavailable because of catalog metadata or transport support. Provider-resolution failures use a controlled error message.
 For a supported active vision model in native mode, the error offers a retry with `use_active_model: true`.
 That explicit option bypasses only the profile veto. It cannot enable image input for a text-only model or an unsupported transport.
 It does not change configured image mode or future calls.
