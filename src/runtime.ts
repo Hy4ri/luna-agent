@@ -5,6 +5,7 @@ import { UploadStore, workerUploadRoot } from "./uploads.js";
 import { withUploadModels } from "./upload-models.js";
 import { conversationStorage } from "./conversation-storage.js";
 import { createOpenAICodexImageProvider } from "./plugins/image_gen/openai-codex.js";
+import { createChatCompletionsImageProvider } from "./plugins/image_gen/chat-completions.js";
 import { createCodexImageAuth } from "./codex-image-auth.js";
 import { createVideoExtension } from "./video.js";
 import { createVisionExtension } from "./vision.js";
@@ -141,6 +142,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     ["openai-codex", createOpenAICodexImageProvider({ config: () => imageGenConfig()["openai-codex"],
       auth: createCodexImageAuth({ config: () => imageGenConfig()["openai-codex"] }),
       outputDir: generatedDirectories(outputRoot).images, fetch: o.fetch })],
+    ["chat-completions", createChatCompletionsImageProvider({ config: () => imageGenConfig()["chat-completions"],
+      models: built.models, outputDir: generatedDirectories(outputRoot).images, fetch: o.fetch })],
   ]) });
   extensions.push(createToggleExtension(() => live().disabledTools));
   extensions.push(createImageGenExtension(imageGen, cfg.cwd, env => {
