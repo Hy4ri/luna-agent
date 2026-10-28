@@ -33,7 +33,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "hono": "^4.13.13",
     "sharp": "^0.35.5",
-    "typebox": "1.4.2",
+    "typebox": "1.4.3",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   },
