@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { GitBranch, FilePlus, FileMinus, FilePen, FileQuestion, FileSymlink, Files, FileWarning, File } from '@lucide/vue';
 import { chat } from '@/stores/chat';
 import { json, serverUrl } from '@/lib/api';
+import { railCollapsed } from '@/lib/rail-collapse';
 import type { GitStatus } from '../../../../src/git-status';
 defineProps<{ docked?: boolean }>();
 const data = ref<GitStatus | null>(null);
@@ -58,7 +59,7 @@ onUnmounted(() => {
 <template>
   <div ref="root" class="git-status-host">
     <section v-if="data?.state === 'ok'" class="git-status" :class="{ 'card': docked }" aria-label="Workspace Git status">
-      <details>
+      <details :open="railCollapsed.git === false" @toggle="railCollapsed.git = !($event.target as HTMLDetailsElement).open">
         <summary>
           <span class="git-branch"><GitBranch :size="14" aria-hidden="true" /><span class="truncate" :title="data?.state === 'ok' ? data.branch : 'Git'">{{ data?.state === 'ok' ? data.branch : 'Git' }}</span></span>
           <span v-if="data?.state === 'ok' && data.files.length" class="git-totals"><span class="git-added">+{{ data.added }}</span> <span class="git-deleted">−{{ data.deleted }}</span></span>

@@ -4,6 +4,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { Activity, ArrowUpRight, Check, ChevronRight, Circle, CircleAlert, LoaderCircle, Square } from "@lucide/vue";
 import ReviewInspector from "./ReviewInspector.vue";
 import { json } from "@/lib/api";
+import { railCollapsed } from "@/lib/rail-collapse";
 import { activityVisible, reviewJobs, chat, childLive, sortChildren, sortProcesses, openSession, stopChild, stopProcess, type ChildRow, type ProcessRow } from "@/stores/chat";
 
 // Docked in the session rail: independently collapsible cards.
@@ -36,11 +37,11 @@ const label = computed(() => {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 const open = ref(false);
-const collapsed = ref<Record<string, boolean>>({});
+const collapsed = railCollapsed;
 const expanded = ref<string | null>(null);
 const output = ref<{ id: string; text: string; error?: string } | null>(null);
 let outputTimer: ReturnType<typeof setTimeout> | undefined;
-watch(() => chat.session, () => { selectedReview.value = null; collapsed.value = {}; open.value = false; expanded.value = null; output.value = null; clearTimeout(outputTimer); });
+watch(() => chat.session, () => { selectedReview.value = null; open.value = false; expanded.value = null; output.value = null; clearTimeout(outputTimer); });
 onUnmounted(() => clearTimeout(outputTimer));
 
 async function loadOutput(id: string) {
