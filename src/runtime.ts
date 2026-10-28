@@ -14,6 +14,7 @@ import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
+import { createMachineFilesExtension } from "./machine-files.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
@@ -123,6 +124,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // Workers hub early so browser tools can proxy to the session's worker.
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
+  extensions.push(createMachineFilesExtension({ hub: () => workers }));
   const workerOutput = (id: number) => {
     const caps = workers.store.get(id)?.capabilities;
     if (!caps?.generatedFiles) return undefined;
