@@ -94,7 +94,7 @@ export function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch =
     ...(def.compat ? { compat: def.compat } : {}),
   } as Model<CustomApi>);
   const models = def.models.map(toModel);
-  // Discover new models and reported limits. Explicit saved definitions still win.
+  // Discover models, limits, and image input support. Explicit saved definitions still win.
   const fetchModels = def.api === "anthropic-messages" ? undefined : async ({ credential, signal }: { credential?: { type: string; key?: string }; signal: AbortSignal }) => {
     const live = await detectModels(baseUrl, credential?.type === "api_key" ? credential.key : undefined, fetchImpl, signal);
     return live.map((m) => toModel({ ...m, ...def.models.find((saved) => saved.id === m.id) }));
@@ -142,7 +142,19 @@ const entryId = (m: ModelEntry) => String(m.id ?? m.name ?? "");
 // CLIProxyAPI's Anthropic-format list cloaks non-Claude ids as this prefix + the id reversed.
 const CLOAK_PREFIX = "claude-fable-5-dd-";
 
-/** Ask an OpenAI-compatible endpoint for its models (GET <baseUrl>/models), with any context/output limits it reports. */
+/** Read reported image input support. Missing metadata stays unknown; never infer it from model names or image output. */
+function imageInput(m: ModelEntry): boolean | undefined {
+  if (typeof m.vision === "boolean") return m.vision;
+  if (typeof m.supports_vision === "boolean") return m.supports_vision;
+  const architecture = m.architecture as { input_modalities?: unknown } | undefined;
+  const capabilities = m.capabilities as { input?: unknown; vision?: unknown } | undefined;
+  if (typeof capabilities?.vision === "boolean") return capabilities.vision;
+  const modalities = architecture?.input_modalities ?? m.input_modalities ?? capabilities?.input;
+  if (Array.isArray(modalities) && modalities.every(v => typeof v === "string")) return modalities.includes("image");
+  return undefined;
+}
+
+/** Ask an OpenAI-compatible endpoint for its models, reported limits, and image input support. */
 export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch, signal?: AbortSignal): Promise<CustomModelDef[]> {
   const auth: Record<string, string> = key && key !== "none" ? { authorization: `Bearer ${key}` } : {};
   const entries = await listModels(baseUrl, auth, fetchImpl, signal);
@@ -151,6 +163,8 @@ export async function detectModels(baseUrl: string, key: string | undefined, fet
     const cw = limit(m, CONTEXT_KEYS), mt = limit(m, OUTPUT_KEYS);
     if (cw !== undefined) def.contextWindow = cw;
     if (mt !== undefined && (cw === undefined || mt <= cw)) def.maxTokens = mt;
+    const vision = imageInput(m);
+    if (vision !== undefined && def.vision === undefined) def.vision = vision;
   };
   for (const m of entries) {
     const id = entryId(m);
@@ -160,15 +174,19 @@ export async function detectModels(baseUrl: string, key: string | undefined, fet
     models.push(def);
   }
   if (!models.length) throw new Error("the endpoint listed no models; enter model ids by hand");
-  // Proxies such as CLIProxyAPI list limits only in Anthropic format. Ask once more; best effort.
-  if (models.some((d) => d.contextWindow === undefined)) {
+  // Proxies such as CLIProxyAPI expose extra metadata in Anthropic format. Ask once more; best effort.
+  if (models.some((d) => d.contextWindow === undefined || d.vision === undefined)) {
     const anthropic = await listModels(baseUrl, { ...auth, "anthropic-version": "2023-06-01" }, fetchImpl, signal).catch(() => []);
     const byId = new Map(models.map((d) => [d.id, d]));
     for (const m of anthropic) {
       let id = entryId(m);
       if (!byId.has(id) && id.startsWith(CLOAK_PREFIX)) id = [...id.slice(CLOAK_PREFIX.length)].reverse().join("");
       const def = byId.get(id);
-      if (def && def.contextWindow === undefined) apply(def, m);
+      if (!def) continue;
+      if (def.contextWindow === undefined) apply(def, m);
+      // Keep primary capability metadata, including explicit false values.
+      const vision = imageInput(m);
+      if (def.vision === undefined && vision !== undefined) def.vision = vision;
     }
   }
   return models;
