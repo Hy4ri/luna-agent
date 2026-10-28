@@ -26,12 +26,14 @@ import {
   Monitor,
   ChartNoAxesColumn,
   GitBranch,
+  Star,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSourceControl } from "@/stores/app";
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
-import { history, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
+import { sortProjects } from "@/lib/projects";
+import { history, toggleFavorite, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
@@ -78,7 +80,7 @@ function sortSessions(sessions: any[]) {
 }
 
 type Machine = { key: string; id: number | null; name: string; online: boolean };
-type Group = { key: string; name: string; project: number | null; sessions: any[]; machine?: Machine; head?: boolean };
+type Group = { key: string; name: string; project: number | null; favorite?: boolean; sessions: any[]; machine?: Machine; head?: boolean };
 
 /** With more than one machine, history is machine, then project. One machine keeps the flat project list. */
 const machines = computed<Machine[]>(() => workers.list.length
@@ -90,14 +92,14 @@ const groups = computed<Group[]>(() => {
   if (history.projects.length === 0 && !machines.value.length) {
     return [{ key: "none", name: "Chats", project: null, sessions: sortSessions(filtered) }];
   }
-  const named = history.projects.filter(p => !p.general);
+  const named = sortProjects(history.projects).filter(p => !p.general);
   const isNamed = (s: any) => !!s.project && named.some(p => p.id === s.project);
   if (!machines.value.length) {
     const result: Group[] = [];
     for (const p of named) {
       const pSessions = filtered.filter(s => Number(s.project) === Number(p.id));
       if (pSessions.length > 0 || !history.query) {
-        result.push({ key: String(p.id), name: p.name, project: p.id, sessions: sortSessions(pSessions) });
+        result.push({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, sessions: sortSessions(pSessions) });
       }
     }
     const noneSessions = filtered.filter(s => !isNamed(s));
@@ -115,7 +117,7 @@ const groups = computed<Group[]>(() => {
       // The host has a directory for every project. A worker lists a project once it is linked there or has sessions.
       const linked = m.id === null ? !!p.cwd : !!p.workerDirs?.some(d => d.worker === m.id);
       if (pSessions.length > 0 || (linked && !history.query)) {
-        part.push({ key: `${m.key}:${p.id}`, name: p.name, project: p.id, sessions: sortSessions(pSessions), machine: m });
+        part.push({ key: `${m.key}:${p.id}`, name: p.name, project: p.id, favorite: p.favorite, sessions: sortSessions(pSessions), machine: m });
       }
     }
     const noneSessions = here.filter(s => !isNamed(s));
@@ -461,7 +463,16 @@ onMounted(() => {
                 <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !isGroupCollapsed(g.key) }" />
                 <FolderKanban :size="14" />
                 <span dir="auto" class="group-name">{{ g.name }}</span>
+                <Star v-if="g.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
               </button>
+              <DropdownMenu v-if="g.project !== null">
+                <DropdownMenuTrigger as-child>
+                  <button class="group-new" :aria-label="'Manage ' + g.name" aria-haspopup="menu"><Ellipsis :size="14" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem @select="toggleFavorite(g.project)"><Star :size="14" />{{ g.favorite ? 'Unfavourite' : 'Favourite' }}</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <button
                 class="group-new"
                 :aria-label="'New session in ' + g.name + (g.machine ? ' on ' + g.machine.name : '')"

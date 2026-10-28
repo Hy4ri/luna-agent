@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
-import { ChevronLeft, Plus } from "@lucide/vue";
+import { ChevronLeft, Plus, Star } from "@lucide/vue";
 import { api, post } from "@/lib/api";
 import { useMobile } from "@/lib/dom";
-import { history, loadProjects, loadSessions, sessionTitle } from "@/stores/sessions";
+import { history, loadProjects, loadSessions, sessionTitle, toggleFavorite } from "@/stores/sessions";
 import { chat, newSession, openSession } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
 import { loadWorkers, workers } from "@/stores/workers";
 import type { Project, SessionMeta } from "@/lib/types";
+import { sortProjects } from "@/lib/projects";
 
 const mobile = useMobile();
 const loading = ref(true);
@@ -31,7 +32,8 @@ const count = (id: number) => sessionsOf(id).length;
 
 const filtered = computed(() => {
   const q = filter.value.trim().toLowerCase();
-  return q ? history.projects.filter(p => p.name.toLowerCase().includes(q) || p.cwd.toLowerCase().includes(q)) : history.projects;
+  const list = sortProjects(history.projects);
+  return q ? list.filter(p => p.name.toLowerCase().includes(q) || p.cwd.toLowerCase().includes(q)) : list;
 });
 const current = computed<Project | null>(() => typeof selected.value === "number" ? history.projects.find(p => p.id === selected.value) ?? null : null);
 const recent = computed(() => current.value ? sessionsOf(current.value.id).slice(0, 5) : []);
@@ -181,7 +183,10 @@ onMounted(async () => {
       <button v-if="mobile" class="pw-back" aria-label="Back to projects" @click="showDetail = false"><ChevronLeft :size="16" /> Projects</button>
 
       <template v-if="selected === 'new' || current">
-        <h3 dir="auto" class="pw-title">{{ selected === 'new' ? 'New project' : current!.name }}</h3>
+        <div class="pw-head">
+          <h3 dir="auto" class="pw-title">{{ selected === 'new' ? 'New project' : current!.name }}</h3>
+          <button v-if="current && !current.general" type="button" class="pw-btn pw-star" :aria-pressed="!!current.favorite" :title="current.favorite ? 'Unfavourite' : 'Favourite'" :aria-label="current.favorite ? 'Unfavourite project' : 'Favourite project'" @click="toggleFavorite(current.id)"><Star :size="14" :fill="current.favorite ? 'currentColor' : 'none'" /></button>
+        </div>
         <p v-if="selected === 'new'" class="pw-muted">New conversations in a project start in its directory.</p>
 
         <p v-if="current?.general" class="pw-muted">General shares a board across Chats. Each conversation keeps its working directory.</p>
@@ -250,6 +255,8 @@ onMounted(async () => {
 .pw-count { font-size: 12.5px; color: var(--muted-foreground); background: var(--muted); border-radius: var(--radius); padding: 1px 8px; }
 .pw-foot { padding: 10px; border-top: 1px solid var(--border); }
 .pw-main { flex: 1; min-width: 0; overflow: auto; padding: 22px 26px; display: grid; gap: 22px; align-content: start; }
+.pw-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pw-star { flex-shrink: 0; padding: 6px 8px; }
 .pw-title { margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
 .pw-sec { display: grid; gap: 10px; }
 .pw-sec h4 { margin: 0; font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); font-weight: 600; }

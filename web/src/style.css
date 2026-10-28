@@ -336,6 +336,7 @@ aside#side.collapsed #history-rail {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.group-star { flex-shrink: 0; color: var(--primary-text); }
 .group-new {
   display: flex;
   align-items: center;

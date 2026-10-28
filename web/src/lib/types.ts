@@ -30,6 +30,8 @@ export interface SessionMeta {
 
 export interface Project {
   general?: boolean;
+  /** Favourite projects are listed first everywhere. Stored on the server. */
+  favorite?: boolean;
   id: number;
   name: string;
   /** Working directory on the main host. */

@@ -483,7 +483,7 @@ export function createApp(opts: ServerOptions) {
   });
   app.patch("/v1/projects/:id", async (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
-    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown };
+    const b = await c.req.json().catch(() => ({})) as { name?: unknown; cwd?: unknown; favorite?: unknown };
     return c.json(opts.conversations.projects.update(projectId(c), b));
   });
   // Link a project to a machine: one project, one board, a working directory per machine.

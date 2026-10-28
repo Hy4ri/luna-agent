@@ -7,6 +7,7 @@ import { chat } from '@/stores/chat';
 import { boardChanged, openPanel, ui } from '@/stores/app';
 import BoardImage from './BoardImage.vue';
 import type { Project } from '@/lib/types';
+import { sortProjects } from '@/lib/projects';
 
 type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
@@ -38,10 +39,10 @@ async function loadBoard(refreshProjects = false, background = false) {
       const data = await json<{ projects: Project[] }>('/v1/projects', { signal: request.signal });
       if (ticket !== generation || disposed) return;
       if (background && (busy.value || editing.value || drag.value)) { refreshQueued = true; return; }
-      history.projects = data.projects;
+      history.projects = sortProjects(data.projects);
       let saved = (ui.boardTarget ? String(ui.boardTarget.projectId) : selectedPid.value) || (chat.session || chat.project !== null ? String(chat.project ?? data.projects.find(p => p.general)?.id ?? '') : '');
       try { saved ||= localStorage.getItem('luna.project') || ''; } catch {}
-      selectedPid.value = data.projects.some(p => String(p.id) === saved) ? saved : String(data.projects[0]?.id ?? '');
+      selectedPid.value = data.projects.some(p => String(p.id) === saved) ? saved : String(history.projects[0]?.id ?? '');
       if (selectedPid.value) rememberProject();
     }
     const pid = selectedPid.value, isArchived = archived.value;

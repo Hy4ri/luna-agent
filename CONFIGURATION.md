@@ -1389,6 +1389,16 @@ on an unlinked machine with `400`, even when an explicit directory is supplied.
 General chats retain the normal machine defaults. No operation falls back to main
 when a selected worker is offline.
 
+## Favourite projects
+
+Every named project has a boolean `favorite` (default `false`). `GET /v1/projects` and
+every project response include it. `PATCH /v1/projects/:id` accepts `{ "favorite": true }`
+alone, without `name` or `cwd`, and returns the updated project. A non-boolean value
+returns `400`. The flag is stored with the project, so it syncs across devices. The
+web UI lists favourite projects first everywhere, keeps the existing order inside each
+group, and marks them with a star in the sidebar. Existing databases gain the column
+on startup. General cannot be a favourite (`409`).
+
 ## General chat board
 
 The built-in **General** project is always available. It shares one persistent board across sessions in **Chats**.

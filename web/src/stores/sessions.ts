@@ -4,6 +4,7 @@ import { api, json, post } from "@/lib/api";
 import { notify } from "@/lib/platform";
 import { sessionState, SESSION_STATUS_LABELS } from "@/lib/session-status";
 import type { Project, SessionMeta, SessionStatus } from "@/lib/types";
+import { sortProjects } from "@/lib/projects";
 import { chat, clearConversation } from "./chat";
 
 const GROUPS_KEY = "luna.side.groups";
@@ -31,12 +32,26 @@ export function toggleGroup(key: string) {
 }
 
 export async function loadProjects() {
-  history.projects = (await json<{ projects: Project[] }>("/v1/projects").catch(() => ({ projects: [] as Project[] }))).projects || [];
+  history.projects = sortProjects((await json<{ projects: Project[] }>("/v1/projects").catch(() => ({ projects: [] as Project[] }))).projects || []);
   const saved = localStorage.getItem("luna.project");
   if (!saved || !history.projects.some(p => String(p.id) === saved)) {
     if (history.projects.length) localStorage.setItem("luna.project", String(history.projects[0].id));
     else localStorage.removeItem("luna.project");
   }
+}
+
+const favoriteBusy = new Set<number>();
+/** Flip a project's favourite flag at once and roll it back when the server refuses. */
+export async function toggleFavorite(id: number) {
+  const p = history.projects.find(x => x.id === id);
+  if (!p || p.general || favoriteBusy.has(id)) return;
+  favoriteBusy.add(id);
+  const before = !!p.favorite, next = !before;
+  const set = (v: boolean) => { const cur = history.projects.find(x => x.id === id); if (cur) cur.favorite = v; history.projects = sortProjects([...history.projects].sort((a, b) => Number(!!b.general) - Number(!!a.general) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))); };
+  set(next);
+  try { await post(`/v1/projects/${id}`, { favorite: next }, "PATCH"); }
+  catch (e) { set(before); history.status = (e as Error).message; }
+  finally { favoriteBusy.delete(id); }
 }
 
 // Desktop notifications: a session that was running and now needs attention or has stopped.

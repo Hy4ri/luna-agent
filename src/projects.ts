@@ -8,7 +8,7 @@ import { isAbsolute, resolve } from "node:path";
 
 /** A project's working directory on one execution worker. `cwd` on the project itself is the directory on the main host. */
 export type WorkerDir = { worker: number; cwd: string };
-export type Project = { id: number; name: string; cwd: string; general?: boolean; workerDirs?: WorkerDir[] };
+export type Project = { id: number; name: string; cwd: string; general?: boolean; favorite?: boolean; workerDirs?: WorkerDir[] };
 // ID zero is reserved; persisted project IDs start at one. No migration or session rewrites are needed.
 export const GENERAL_PROJECT: Readonly<Project> = Object.freeze({ id: 0, name: "General", cwd: "", general: true });
 
@@ -27,6 +27,9 @@ export class ProjectStore {
       CREATE TABLE IF NOT EXISTS luna_project_worker_dirs (
         project_id INTEGER NOT NULL, worker_id INTEGER NOT NULL, cwd TEXT NOT NULL, PRIMARY KEY (project_id, worker_id)
       ) STRICT;`);
+    // Older databases lack the favourite flag.
+    if (!(db.prepare("PRAGMA table_info(luna_projects)").all() as { name: string }[]).some(c => c.name === "favorite"))
+      db.exec("ALTER TABLE luna_projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0");
   }
   /** One board serves every machine of a project, so linking machines only records a directory per worker. */
   private dirs(): Map<number, WorkerDir[]> {
@@ -37,13 +40,13 @@ export class ProjectStore {
   }
   list(): Project[] {
     const dirs = this.dirs();
-    const rows = this.db.prepare("SELECT id, name, cwd FROM luna_projects ORDER BY name COLLATE NOCASE").all() as Omit<Project, "general" | "workerDirs">[];
-    return [{ ...GENERAL_PROJECT }, ...rows.map(r => ({ ...r, workerDirs: dirs.get(r.id) ?? [] }))];
+    const rows = this.db.prepare("SELECT id, name, cwd, favorite FROM luna_projects ORDER BY name COLLATE NOCASE").all() as (Omit<Project, "general" | "workerDirs" | "favorite"> & { favorite: number })[];
+    return [{ ...GENERAL_PROJECT }, ...rows.map(r => ({ ...r, favorite: !!r.favorite, workerDirs: dirs.get(r.id) ?? [] }))];
   }
   get(id: number): Project | undefined {
     if (id === GENERAL_PROJECT.id) return { ...GENERAL_PROJECT };
-    const r = this.db.prepare("SELECT id, name, cwd FROM luna_projects WHERE id=?").get(id) as Omit<Project, "workerDirs"> | undefined;
-    return r && { ...r, workerDirs: this.dirs().get(id) ?? [] };
+    const r = this.db.prepare("SELECT id, name, cwd, favorite FROM luna_projects WHERE id=?").get(id) as (Omit<Project, "workerDirs" | "favorite"> & { favorite: number }) | undefined;
+    return r && { ...r, favorite: !!r.favorite, workerDirs: this.dirs().get(id) ?? [] };
   }
   /** Directory for a new session on a machine: `null` is the main host. */
   dirFor(id: number, worker: number | null): string | undefined {
@@ -115,23 +118,30 @@ export class ProjectStore {
         const id = Number(r.lastInsertRowid);
         this.db.prepare("INSERT INTO luna_project_worker_dirs(project_id, worker_id, cwd) VALUES (?,?,?)").run(id, opts!.worker as number, workerCwd);
         this.db.exec("COMMIT");
-        return { id, name: cleanName, cwd: hostCwd, workerDirs: [{ worker: opts!.worker as number, cwd: workerCwd }] };
+        return { id, name: cleanName, cwd: hostCwd, favorite: false, workerDirs: [{ worker: opts!.worker as number, cwd: workerCwd }] };
       } catch (e) { try { this.db.exec("ROLLBACK"); } catch {} throw e; }
     }
     const v = this.clean(name, cwd); this.taken(v.name);
     const r = this.db.prepare("INSERT INTO luna_projects(name, cwd) VALUES (?,?)").run(v.name, v.cwd);
-    return { id: Number(r.lastInsertRowid), ...v, workerDirs: [] };
+    return { id: Number(r.lastInsertRowid), ...v, favorite: false, workerDirs: [] };
   }
-  update(id: number, changes: { name?: unknown; cwd?: unknown }): Project {
+  update(id: number, changes: { name?: unknown; cwd?: unknown; favorite?: unknown }): Project {
     if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
     const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
+    if (changes.favorite !== undefined && typeof changes.favorite !== "boolean") throw new ProjectError(400, "favorite must be a boolean");
+    const favorite = changes.favorite ?? cur.favorite ?? false;
+    // A favourite-only change leaves the name and directory alone, so it works even when the directory is gone.
+    if (changes.name === undefined && changes.cwd === undefined) {
+      this.db.prepare("UPDATE luna_projects SET favorite=? WHERE id=?").run(favorite ? 1 : 0, id);
+      return this.get(id)!;
+    }
     const next = changes.cwd ?? cur.cwd;
     if (next === "" && !cur.workerDirs?.length) throw new ProjectError(400, "cwd must be an absolute path");
     // A project that is only on other machines keeps an empty host directory.
     const v = next === "" ? { name: this.cleanName(changes.name ?? cur.name), cwd: "" } : this.clean(changes.name ?? cur.name, next);
     this.taken(v.name, id);
-    this.db.prepare("UPDATE luna_projects SET name=?, cwd=? WHERE id=?").run(v.name, v.cwd, id);
-    return { id, ...v, workerDirs: cur.workerDirs ?? [] };
+    this.db.prepare("UPDATE luna_projects SET name=?, cwd=?, favorite=? WHERE id=?").run(v.name, v.cwd, favorite ? 1 : 0, id);
+    return { id, ...v, favorite, workerDirs: cur.workerDirs ?? [] };
   }
   /** Existing sessions keep their directory and fall back to General. */
   delete(id: number) {
