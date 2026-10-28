@@ -1577,6 +1577,17 @@ The web UI uses authenticated blob requests; tokens are not included in image UR
 Live partials and nested tool results without committed entry IDs remain inline.
 This transport needs no configuration changes; `luna.config.example.json` stays unchanged.
 
+### Cross-machine file access (`machine_files`)
+
+`machine_files` is a read-only tool available in every session, whatever its own machine.
+Parameters: `machine` (`main` or a worker name, case-insensitive), `path` (absolute or `~/...`; `~` is the target machine's home),
+optional `offset` (1-based line) and `limit` (lines, default and maximum 2000).
+A directory returns its entries, directories first, up to 500 (a note shows truncation).
+A file returns text truncated at 2000 lines or 50KB; continue with `offset`. Binary files and files over 16 MB return an error.
+An unknown machine returns the valid names. An offline worker returns `worker <name> is offline.`
+The machine section of the system prompt mentions the tool only when at least one worker is registered.
+No configuration is needed; `luna.config.example.json` stays unchanged.
+
 ### Browser and MCP on a worker
 
 In a worker session, `browser_*` tools drive the worker's browser. Main MCP servers stay available.
