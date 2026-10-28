@@ -4,9 +4,11 @@
 // Each final answer to a lead task returns to the lead automatically (CrewNotifier). Lead and member talk without
 // a hop limit. Replay safety: create is keyed by the tool call's task id and every message has a deterministic requestId.
 import { Type } from "typebox";
-import { defineExtension, defineTool, section, type ConversationId, type TaskId, type Tx } from "@earendil-works/pi-durable";
+import { readFileSync } from "node:fs";
+import { configure, defineExtension, defineTool, section, type ConversationId, type TaskId, type Tx } from "@earendil-works/pi-durable";
+import { prepareDelegateWorktree } from "./delegate-worktree.js";
 import { AskDoc } from "./ask.js";
-import { Crew, CrewLead, crewLead, crewNoticeId, readCrewReport, type CrewReport } from "./crew-state.js";
+import { Crew, CrewLead, crewLead, crewNoticeId, crewUnseen, readCrewReport, type CrewReport, type CrewRow } from "./crew-state.js";
 import { withChildControl } from "./delegate-control.js";
 import { context } from "./luna.js";
 import type { ProjectStore } from "./projects.js";
@@ -48,12 +50,15 @@ const parameters = Type.Object({
       "wait: block until members finish; show: full answer and pending request; list: your crew; stop: abort members",
   }),
   task: Type.Optional(Type.String({ description: "create/send: the instruction. The member sees your session id and title." })),
-  ids: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }), { description: "send/wait/show/stop: member session ids (wait: default all running members)" })),
+  ids: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }), { description: "send/wait/show/stop: member session ids (wait: default running members and results you have not seen)" })),
   title: Type.Optional(Type.String({ description: "create: sidebar title of the new session" })),
   project: Type.Optional(Type.Integer({ minimum: 0, description: "create: project id from options (0 = General). Sets the working directory for the machine." })),
   machine: Type.Optional(Type.Integer({ minimum: 1, description: "create: execution worker id from options. Absent: this host." })),
-  model: Type.Optional(Type.String({ description: "create: provider/modelId, e.g. anthropic/claude-sonnet-4-5. Absent: default model." })),
-  thinkingLevel: Type.Optional(Type.Union(THINKING_LEVELS.map(l => Type.Literal(l)), { description: "create: thinking level. Absent: default." })),
+  model: Type.Optional(Type.String({ description: "create/send: provider/modelId, e.g. anthropic/claude-sonnet-4-5. create absent: default model. send: switch the member to this model (e.g. after a quota error)." })),
+  thinkingLevel: Type.Optional(Type.Union(THINKING_LEVELS.map(l => Type.Literal(l)), { description: "create/send: thinking level. create absent: default. send: change the member's level." })),
+  worktree: Type.Optional(Type.String({ description: "create: new git branch name; the member works in its own worktree of the project directory (main host only)" })),
+  base: Type.Optional(Type.String({ description: "create+worktree: start point, e.g. origin/main (default HEAD). origin is fetched first" })),
+  notes: Type.Optional(Type.String({ description: "create: path of a notes file on this host; its text (first 8000 chars) goes before the task" })),
   cwd: Type.Optional(Type.String({ description: "create: working directory; overrides the project directory" })),
   instructions: Type.Optional(Type.String({ description: "create: extra standing instructions for the session" })),
   interrupt: Type.Optional(Type.Boolean({ description: "send: steer a busy member now instead of queueing after its current turn (default false)" })),
@@ -62,8 +67,9 @@ const parameters = Type.Object({
 
 const DESCRIPTION = [
   "Lead a crew of full sessions. Unlike delegate_task children, a member is a normal top-level session with every tool, visible to m57 in the sidebar.",
-  "create starts one with a task and optional title, project, machine, model, and thinking level (see options). send gives a member a new task, a review, or a correction.",
-  "Each member's final answer to your task comes back to you as a message automatically; wait blocks for answers, show reads one in full, list shows your crew, stop aborts.",
+  "create starts one with a task and optional title, project, machine, model, thinking level (see options), worktree/base, and notes. send gives a member a new task, a review, a correction, or a retry; it can also switch the member's model or thinking level.",
+  "Each member's final answer to your task comes back to you as a message automatically, so usually end your turn instead of waiting. wait blocks for answers, show reads one in full, list shows your crew, stop aborts.",
+  "Failures carry a class: quota (wait for the reset or send with another model), transient (send 'continue'), fatal (auth, billing, or context size), deleted, error.",
   "Lead and members talk without a hop limit. Member reports are claims: verify them. You cannot grant m57's approval to a member.",
 ].join("\n");
 
@@ -80,7 +86,7 @@ export function createSessionCrewExtension(o: CrewDeps) {
         const lead = api.conversationId;
         const leadTitle = () => o.title(Number(lead)) || `Conversation ${lead}`;
         const memberTitle = (id: number) => o.title(id) || `Conversation ${id}`;
-        const rows = () => api.commit(async tx => JSON.parse(JSON.stringify((await tx.doc(Crew, lead)).members)) as { id: number; task: string; spawnKey: string; requests: string[] }[], ctx);
+        const rows = () => api.commit(async tx => JSON.parse(JSON.stringify((await tx.doc(Crew, lead)).members)) as CrewRow[], ctx);
         const owned = async (ids: number[]) => {
           const known = new Set((await rows()).map(r => r.id));
           return { ok: ids.filter(i => known.has(i)), foreign: ids.filter(i => !known.has(i)) };
@@ -98,7 +104,17 @@ export function createSessionCrewExtension(o: CrewDeps) {
           }
           return value;
         }, ctx);
-        const line = (r: CrewReport) => `[${r.id}] "${memberTitle(r.id)}" ${r.state}${r.reason ? `: ${r.reason}` : ""}`;
+        const errorText = (r: CrewReport) => !r.error ? "" : ` [${r.error.class}${r.error.resetAt ? `, resets ${new Date(r.error.resetAt).toISOString().slice(0, 16)}Z` : ""}]`;
+        const line = (r: CrewReport) => `[${r.id}] "${memberTitle(r.id)}" ${r.state}${errorText(r)}${r.reason ? `: ${r.reason}` : ""}`;
+        const parseModel = (value: string | undefined) => {
+          if (!value) return undefined;
+          const at = value.indexOf("/");
+          if (at < 1 || at === value.length - 1) throw new SessionCreateError(400, "`model` must be provider/modelId");
+          const model = { provider: value.slice(0, at), modelId: value.slice(at + 1) };
+          const models = o.session()?.models;
+          if (models && !models.getModel(model.provider as never, model.modelId as never)) throw new SessionCreateError(400, `unknown model ${value}`);
+          return model;
+        };
         const submit = async (id: number, task: string, requestId: string, whenBusy: "steer" | "followUp") => {
           const handle = await api.conversation(id as ConversationId, ctx);
           if (!handle) throw new Error(`Session ${id} no longer exists.`);
@@ -123,42 +139,55 @@ export function createSessionCrewExtension(o: CrewDeps) {
             const spawnKey = String(api.taskId);
             const prior = (await rows()).find(r => r.spawnKey === spawnKey);
             if (prior) {
-              await withChildControl(prior.id, () => submit(prior.id, args.task!, prior.requests[0]!, "followUp"));
+              await withChildControl(prior.id, () => submit(prior.id, prior.brief ?? args.task!, prior.requests[0]!, "followUp"));
               return text(`created session ${prior.id} (resumed after restart)`);
             }
             const deps = o.session();
             if (!deps) return text("Error: sessions are not ready yet", true);
             if ((await api.commit(tx => tx.conversation(lead), ctx))?.owner) return text("Error: a task-owned conversation cannot lead a crew", true);
-            let model;
-            if (args.model) {
-              const at = args.model.indexOf("/");
-              if (at < 1 || at === args.model.length - 1) return text("Error: `model` must be provider/modelId", true);
-              model = { provider: args.model.slice(0, at), modelId: args.model.slice(at + 1) };
-            }
             let plan;
             try {
-              plan = planSession(deps, { ...(model && { model }), ...(args.thinkingLevel ? { thinkingLevel: args.thinkingLevel } : {}),
+              const model = parseModel(args.model);
+              const request = { ...(model && { model }), ...(args.thinkingLevel ? { thinkingLevel: args.thinkingLevel } : {}),
                 ...(args.instructions && { instructions: args.instructions }), ...(args.cwd && { cwd: args.cwd }),
-                ...(args.project !== undefined && { project: args.project }), ...(args.machine !== undefined && { worker: args.machine }) });
+                ...(args.project !== undefined && { project: args.project }), ...(args.machine !== undefined && { worker: args.machine }) };
+              plan = planSession(deps, request);
+              if (args.worktree) {
+                if (plan.worker !== null) return text("Error: worktree works only for sessions on this host", true);
+                const repo = plan.cwd ?? (await api.agent(ctx)).cwd;
+                if (!repo) return text("Error: worktree needs a project or cwd that is a git repository", true);
+                let path;
+                try { path = await prepareDelegateWorktree(api, ctx, { repo, branch: args.worktree, ...(args.base ? { base: args.base } : {}) }); }
+                catch (error) { return text(`Error: worktree failed: ${(error as Error).message}`, true); }
+                plan = planSession(deps, { ...request, cwd: path });
+              }
             } catch (e) { if (e instanceof SessionCreateError) return text(`Error: ${e.message}`, true); throw e; }
+            let brief = args.task;
+            if (args.notes) {
+              try { brief = `Notes from the lead (${args.notes}):\n${readFileSync(args.notes, "utf8").slice(0, 8000)}\n\n${args.task}`; }
+              catch (error) { return text(`Error: notes unreadable: ${(error as Error).message}`, true); }
+            }
             const id = await api.commit(async tx => {
               const doc = await tx.doc(Crew, lead);
               const existing = doc.members.find(m => m.spawnKey === spawnKey);
               if (existing) return existing.id;
               const cid = await createPlannedSession(tx, plan);
               (await tx.doc(CrewLead, cid)).lead = Number(lead);
-              doc.members.push({ id: Number(cid), spawnKey, task: args.task!.slice(0, 200), requests: [`crew:${cid}:0`] });
+              doc.members.push({ id: Number(cid), spawnKey, task: args.task!.slice(0, 200), requests: [`crew:${cid}:0`], ...(brief !== args.task ? { brief } : {}) });
               return Number(cid);
             }, ctx);
             linkProject(o.projects(), id, plan);
             if (args.title?.trim()) await o.setTitle(id, args.title.trim().slice(0, 120));
             await api.details({ conversationId: id }, ctx);
-            await withChildControl(id, () => submit(id, args.task!, `crew:${id}:0`, "followUp"));
+            await withChildControl(id, () => submit(id, brief!, `crew:${id}:0`, "followUp"));
             const where = [plan.worker === null ? "main" : `machine ${plan.worker}`, plan.cwd, plan.agent.model && `${plan.agent.model.provider}/${plan.agent.model.modelId}`, plan.agent.thinkingLevel].filter(Boolean).join(", ");
             return text(`created session ${id} (${where}). Its report arrives as a message when it finishes.`);
           }
           case "send": {
             if (!args.task?.trim() || !args.ids?.length) return text("send needs `task` and `ids`", true);
+            let model;
+            try { model = parseModel(args.model); } catch (e) { if (e instanceof SessionCreateError) return text(`Error: ${e.message}`, true); throw e; }
+            const change = { ...(model && { model }), ...(args.thinkingLevel ? { thinkingLevel: args.thinkingLevel } : {}) };
             const { ok, foreign } = await owned(args.ids);
             const sent: number[] = [], failed: string[] = [];
             for (const id of ok) {
@@ -167,15 +196,19 @@ export function createSessionCrewExtension(o: CrewDeps) {
                   const requestId = `crew:${id}:send:${api.taskId}`;
                   await api.commit(async tx => {
                     const row = (await tx.doc(Crew, lead)).members.find(m => m.id === id)!;
-                    if (!row.requests.includes(requestId)) row.requests.push(requestId);
+                    if (row.requests.includes(requestId)) return;
+                    row.requests.push(requestId);
                     delete row.stopped;
+                    // The new model or level applies from the member's next model request.
+                    if (Object.keys(change).length) await configure(tx, id as ConversationId, change);
                   }, ctx);
                   await submit(id, args.task!, requestId, args.interrupt ? "steer" : "followUp");
                 });
                 sent.push(id);
               } catch (e) { failed.push(`${id}: ${(e as Error).message}`); }
             }
-            return text(`sent to ${sent.join(", ") || "none"}${failed.length ? `; failed ${failed.join("; ")}` : ""}${foreignNote(foreign)}`, sent.length === 0);
+            const switched = Object.keys(change).length ? ` (now ${[model && `${model.provider}/${model.modelId}`, args.thinkingLevel].filter(Boolean).join(", ")})` : "";
+            return text(`sent to ${sent.join(", ") || "none"}${sent.length ? switched : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}${foreignNote(foreign)}`, sent.length === 0);
           }
           case "list": {
             const list = await rows();
@@ -183,9 +216,17 @@ export function createSessionCrewExtension(o: CrewDeps) {
             return text(out.join("\n") || "no crew sessions");
           }
           case "wait": {
+            // Default: members still running plus settled results the lead has not seen, so a finished member is never skipped.
             const { ok: ids, foreign } = args.ids?.length ? await owned(args.ids)
-              : { ok: (await Promise.all((await rows()).map(r => report(r.id)))).filter(r => r.state === "running").map(r => r.id), foreign: [] as number[] };
-            if (!ids.length) return text(foreign.length ? `not your crew: ${foreign.join(", ")}` : "no running crew sessions", foreign.length > 0);
+              : { ok: await api.commit(async tx => {
+                  const out: number[] = [];
+                  for (const m of (await tx.doc(Crew, lead)).members) {
+                    const r = await readCrewReport(tx, lead, m.id);
+                    if (r.state === "running" || await crewUnseen(tx, lead, r)) out.push(m.id);
+                  }
+                  return out;
+                }, ctx), foreign: [] as number[] };
+            if (!ids.length) return text(foreign.length ? `not your crew: ${foreign.join(", ")}` : "no running members and no unseen results", foreign.length > 0);
             const deadline = Date.now() + Math.min(Math.max(args.timeoutSec ?? 300, 1), 1800) * 1000;
             while (Date.now() < deadline && !ctx.abortSignal?.aborted) {
               const now = await Promise.all(ids.map(report));
@@ -205,7 +246,7 @@ export function createSessionCrewExtension(o: CrewDeps) {
                 for (const p of (await tx.doc(AskDoc, id as ConversationId)).pending) parts.push(`pending ${p.purpose ?? "input"} question:\n${JSON.stringify(p.questions, null, 1)}`);
                 return parts.join("\n");
               }, ctx);
-              return `${line(r)}${extra ? `\n${extra}` : ""}${r.answer ? `\n${r.answer}` : ""}`;
+              return `${line(r)}${r.error && r.error.detail !== r.reason ? `\nfull error:\n${r.error.detail.slice(0, 4000)}` : ""}${extra ? `\n${extra}` : ""}${r.answer ? `\n${r.answer}` : ""}`;
             }));
             return text(out.join("\n\n") + foreignNote(foreign));
           }
@@ -254,7 +295,8 @@ async function inspect(tx: Tx, member: ConversationId, title: (id: number) => st
   const name = title(Number(member)) || row.task.replace(/\s+/g, " ").slice(0, 60);
   const body = report.state === "needs_input" || report.state === "needs_approval"
     ? `Session ${member} is blocked (${report.state}): ${report.reason ?? "no reason given"}. Answer it with session_crew send, or ask m57 when it needs approval.`
-    : `Session ${member} finished your task: ${report.state}${report.reason ? ` (${report.reason})` : ""}.${report.answer ? `\n\n${truncate(report.answer)}` : ""}`;
+    : `Session ${member} finished your task: ${report.state}${report.error ? ` [${report.error.class}${report.error.resetAt ? `, resets ${new Date(report.error.resetAt).toISOString().slice(0, 16)}Z` : ""}]` : ""}${report.reason ? ` (${report.reason})` : ""}.${report.answer ? `\n\n${truncate(report.answer)}` : ""}` +
+      (report.error?.class === "quota" ? "\nRetry after the reset, or switch it with session_crew send {model}." : report.error?.class === "transient" ? "\nRetry with session_crew send: continue." : "");
   return { lead, member: Number(member), noticeId, state: report.state, content: `${crewReportHeader(Number(member), name, report.state)}\n\n${body}` };
 }
 
