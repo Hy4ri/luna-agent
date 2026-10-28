@@ -26,6 +26,19 @@ export interface Extras { goal?: any; todos?: any[]; questions: any[]; processes
 const LIVE_CHILD = new Set(["running", "needs_input", "needs_approval"]);
 export const childLive = (c: ChildRow) => LIVE_CHILD.has(c.status);
 
+const CHILD_RANK: Record<string, number> = { running: 0, needs_input: 1, needs_approval: 2 };
+const childRank = (c: { status: string }) => CHILD_RANK[c.status] ?? 3;
+
+/** Stable sort: running first, then needs_input/needs_approval, then all others. */
+export function sortChildren<T extends { status: string }>(list: T[]): T[] {
+  return list.slice().sort((a, b) => childRank(a) - childRank(b));
+}
+
+/** Stable sort: running === true first, then all others. */
+export function sortProcesses<T extends { running: boolean }>(list: T[]): T[] {
+  return list.slice().sort((a, b) => (a.running === b.running ? 0 : a.running ? -1 : 1));
+}
+
 export const EXTRA_TOOLS = /^(todo|ask_user_question|create_goal|update_goal|set_goal_tasks|update_goal_task)$/;
 
 export function textBlocks(content: unknown): string {
