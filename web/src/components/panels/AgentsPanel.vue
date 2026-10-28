@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { json, api, post } from "@/lib/api";
-import { chat, openSession } from "@/stores/chat";
+import { chat, openSession, sortChildren } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
 
 const loading = ref(true);
@@ -87,7 +87,7 @@ onMounted(() => {
         This session has not spawned subagents. Ask Luna to delegate with delegate_task.
       </p>
 
-      <div v-for="c in childSessions" :key="c.id" class="card">
+      <div v-for="c in sortChildren(childSessions)" :key="c.id" class="card">
         <div class="row">
           <span class="grow">#{{ c.id }} {{ c.task }}</span>
           <button @click="openChildSession(c.id)">Open</button>
