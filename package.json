@@ -30,7 +30,7 @@
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-durable": "1.4.0",
     "@hono/node-server": "^2.1.5",
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "hono": "^4.13.13",
     "sharp": "^0.35.5",
     "typebox": "1.4.3",
