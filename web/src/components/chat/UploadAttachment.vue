@@ -2,6 +2,7 @@
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { Download, FileText, FileWarning, Loader2 } from "@lucide/vue";
 import { api, serverUrl, token } from "@/lib/api";
+import { openImage } from "@/stores/image-viewer";
 
 const props = defineProps<{
   uploadId?: string;
@@ -124,14 +125,7 @@ onBeforeUnmount(() => {
     </div>
     <span v-else-if="loading && isRasterImage && !objectUrl" class="muted">Loading {{ name }}…</span>
     <template v-else-if="isRasterImage && objectUrl">
-      <a
-        :href="objectUrl"
-        target="_blank"
-        rel="noopener"
-        :title="name"
-      >
-        <img class="att" :src="objectUrl" :alt="name" loading="lazy" />
-      </a>
+      <img class="att zoomable" :src="objectUrl" :alt="name" :title="name" loading="lazy" @click="openImage(objectUrl, name)" />
       <button type="button" class="att-download" :aria-label="`Download ${name}`" :title="`Download ${name}`" @click="downloadFile">
         <Download :size="16" aria-hidden="true" />
       </button>

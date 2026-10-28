@@ -3,6 +3,7 @@
 import { computed, watchEffect } from "vue";
 import { Download, FileText, FileWarning } from "@lucide/vue";
 import { chat, loadMedia } from "@/stores/chat";
+import { openImage } from "@/stores/image-viewer";
 const props = defineProps<{ url: string; name: string; type: string }>();
 watchEffect(() => loadMedia(props.url));
 const state = computed(() => chat.media[props.url]);
@@ -19,7 +20,7 @@ function size(n?: number) {
       <span class="att-meta"><span class="att-name">{{ name }}</span><span class="att-sub">{{ state.error }}</span></span>
     </div>
     <span v-else-if="!state?.url" class="muted">Loading {{ name }}…</span>
-    <a v-else-if="type === 'image'" :href="state.url" target="_blank" rel="noopener" :title="name"><img class="att" :src="state.url" :alt="name" /></a>
+    <img v-else-if="type === 'image'" class="att zoomable" :src="state.url" :alt="name" :title="name" @click="openImage(state.url, name)" />
     <audio v-else-if="type === 'voice'" :src="state.url" controls preload="metadata" :aria-label="name" />
     <video v-else-if="type === 'video'" class="att-video" :src="state.url" controls preload="metadata" :aria-label="name" />
     <div v-else class="att-file">

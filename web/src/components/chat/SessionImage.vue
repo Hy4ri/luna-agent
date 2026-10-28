@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ImageOff } from "@lucide/vue";
 import { api, serverUrl, token } from "@/lib/api";
+import { openImage } from "@/stores/image-viewer";
 
 const props = defineProps<{ image: { url?: string; data?: string; mimeType: string }; alt: string }>();
 const source = ref("");
@@ -42,7 +43,7 @@ onBeforeUnmount(cleanup);
 </script>
 
 <template>
-  <img v-if="!failed && (source || inline)" :src="source || inline" :alt="alt" @error="failed = true" />
+  <img v-if="!failed && (source || inline)" :src="source || inline" :alt="alt" class="zoomable" @click="openImage(source || inline, alt)" @error="failed = true" />
   <span v-else-if="failed" role="img" :aria-label="`${alt}: image unavailable`" title="Image unavailable"><ImageOff :size="20" /></span>
   <span v-else role="status" :aria-label="`Loading ${alt}`">Loading image…</span>
 </template>
