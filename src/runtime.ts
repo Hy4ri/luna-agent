@@ -277,7 +277,11 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       if (!response.ok) throw new Error(`notification HTTP ${response.status}`);
     },
     memory,
-    ...(on("skills") ? { skillDirs: cfg.allSkillDirs, disabledSkills: () => live().disabledSkills } : {}),
+    ...(on("skills") ? { skillDirs: cfg.allSkillDirs, disabledSkills: id => {
+      const global = live().disabledSkills;
+      const pid = id === undefined ? undefined : conversationsRef?.projects.projectOf(id);
+      return pid ? conversationsRef!.projectSkills.disabled(pid, global) : global;
+    } } : {}),
     // A built-in missing from the live list is hidden from sessions. Its store and scheduler keep running.
     hiddenExtensions: () => new Set(BUILTIN_EXTENSIONS.filter(e => !live().extensions.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e])),
     extensions,

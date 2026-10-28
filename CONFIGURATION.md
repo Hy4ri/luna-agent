@@ -1414,6 +1414,9 @@ Scheduled runs and delegated children do not receive the board tool.
 - Existing board and card routes accept `/v1/projects/0/board` and `/v1/projects/0/cards`.
 - `PATCH` and `DELETE /v1/projects/0` return `409`. The name General is reserved for new projects.
 - Deleting a named project keeps its conversations and directories. Those conversations then use General.
+- `GET /v1/projects/:id/skills` returns `[{ name, description, global, override, effective }]`. `global` is the global state (not in `disabledSkills`). `override` is `true`, `false`, or `null` (inherit). `effective` is `override ?? global`.
+- `PUT /v1/projects/:id/skills/:name` with `{ "enabled": true | false | null }` sets the project override. `null` resets the skill to the global setting. It returns `404` for an unknown project or skill, and `409` for General (General uses the global setting only).
+- A skill disabled for a project is hidden from the skills list and cannot be loaded with `skill_view` in that project's conversations. Overrides are deleted with the project.
 
 Open **Board** from the sidebar. It selects the active chat's project when opened.
 General cards also appear in the composer's `#` picker. Card references remain scoped to the selected project.
