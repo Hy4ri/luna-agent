@@ -1,7 +1,7 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
 export const sections = [
   { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'busyInput', 'autoContinue', 'afterFailedRun', 'sessionTalk'] },
-  { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'subagents', 'auxiliary'] },
+  { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'pinnedModels', 'subagents', 'auxiliary'] },
   { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
   { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'extensions', 'disabledTools'] },
   { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge and learning from conversations.', keys: ['skillDirs', 'disabledSkills', 'learn'] },
@@ -38,7 +38,7 @@ export const fieldTitles: Record<string, string> = {
   busyInput: 'Messages during a response', mode: 'Message handling', acknowledgements: 'Show message acknowledgements',
   sessionTalk: 'Messages between sessions', maxHops: 'Messages per exchange',
   autoContinue: 'Continue after usage limits', maxWaitHours: 'Maximum reset wait (hours)', maxAttempts: 'Consecutive retry limit',
-  provider: 'Provider ID', model: 'Model ID', thinkingLevel: 'Thinking level', subagents: 'Subagent defaults',
+  provider: 'Provider ID', model: 'Model ID', thinkingLevel: 'Thinking level', pinnedModels: 'Pinned models', subagents: 'Subagent defaults',
   auxiliary: 'Task-specific models', side_question: 'Side questions', session_title: 'Session titles', review: 'Session review',
   providers: 'Provider accounts', id: 'ID', name: 'Display name', api: 'API format', baseUrl: 'Base URL', models: 'Models',
   contextWindow: 'Context window (tokens)', maxTokens: 'Maximum output (tokens)', reasoning: 'Supports reasoning',
