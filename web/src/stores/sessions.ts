@@ -47,7 +47,7 @@ export async function toggleFavorite(id: number) {
   if (!p || p.general || favoriteBusy.has(id)) return;
   favoriteBusy.add(id);
   const before = !!p.favorite, next = !before;
-  const set = (v: boolean) => { const cur = history.projects.find(x => x.id === id); if (cur) cur.favorite = v; history.projects = sortProjects(history.projects); };
+  const set = (v: boolean) => { const cur = history.projects.find(x => x.id === id); if (cur) cur.favorite = v; history.projects = sortProjects([...history.projects].sort((a, b) => Number(!!b.general) - Number(!!a.general) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))); };
   set(next);
   try { await post(`/v1/projects/${id}`, { favorite: next }, "PATCH"); }
   catch (e) { set(before); history.status = (e as Error).message; }
