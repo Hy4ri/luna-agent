@@ -792,11 +792,19 @@ Subagents (`delegate_task` children) and task-owned conversations cannot lead a 
 
 Actions:
 - `options`: projects with their machine directories, machines (main host and execution workers, with online state), thinking levels, the default model, and the lead's own model.
-- `create`: start a session with `task` and optional `title`, `project` (0 = General), `machine` (worker id; absent = main host), `model` (`provider/modelId`), `thinkingLevel`, `cwd`, and `instructions`.
+- `create`: start a session with `task` and optional `title`, `project` (0 = General), `machine` (worker id; absent = main host), `model` (`provider/modelId`), `thinkingLevel`, `cwd`, `instructions`, `worktree`, `base`, and `notes`.
   The rules are the same as `POST /v1/sessions`: a named project must be linked to the selected machine, `cwd` overrides the project directory, and unknown workers, projects, models, or thinking levels fail.
-- `send`: give member `ids` a new task, a review, or a correction. A busy member gets it after its current turn; `interrupt: true` steers it now.
-- `wait`: block until the members (default: all running members) finish or one is blocked. `timeoutSec` defaults to 300, maximum 1800.
-- `show`: a member's state, pending question, and full final answer. `list`: every member with its state and task. `stop`: abort members.
+  `worktree` names a new branch. The member works in its own git worktree of the project directory (or `cwd`), made from `base` (default `HEAD`; a remote base is fetched first). It uses the same allocation as `delegate_task` and works on the main host only. Dependencies such as `node_modules` are not installed in the new worktree.
+  `notes` is a file path on the main host. Its first 8000 characters go before the task in the member's first message.
+- `send`: give member `ids` a new task, a review, a correction, or a retry. A busy member gets it after its current turn; `interrupt: true` steers it now.
+  Optional `model` and `thinkingLevel` switch the member before the message, for example after a quota error. The change applies from the member's next model request.
+  A failed member continues in the same session with its full context.
+- `wait`: block until the members finish or one is blocked. Without `ids` it waits for running members and also returns settled results the lead has not seen yet (not collected and not delivered as a report). `timeoutSec` defaults to 300, maximum 1800.
+- `show`: a member's state, pending question, full error text, and full final answer. `list`: every member with its state and task. `stop`: abort members.
+
+A failed or unanswered member shows an error class and one short line (the provider's `message` field or the first line of the error):
+`quota` (a rate or usage limit; the reset time is shown when the error names one), `transient` (network drop or abort; send `continue`),
+`fatal` (auth, billing, or context size), `deleted` (the session no longer exists), and `error` (anything else).
 
 Messages from the lead are `luna.xsession.msg` inputs with a header that names the lead. The header grants no permission.
 The member's prompt gets a **crew** section that names its lead. Only lead messages count as crew tasks; turns the user starts directly in the member do not.
