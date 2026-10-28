@@ -450,6 +450,14 @@ Source content is untrusted data. The instruction tells the agent to ignore any 
 This is a prompt rule, not a sandbox: the agent keeps its normal tool permissions during the turn.
 Requires the `skills` extension. `pnpm run verify:learn-command` checks it with a scripted model only.
 
+## Planning interview
+
+`/grill <plan, design, or topic>` interviews you about a plan until every decision is resolved. An empty argument returns usage.
+
+The command becomes a normal turn. The agent asks one question per turn with `ask_user_question`, each with 2 to 4 options and a recommended option first.
+It reads the codebase and files to answer what it can instead of asking, and it challenges weak answers.
+It does not implement anything. When no decision remains, or you say stop, it writes the plan (goal, decisions with reasons, open risks, ordered steps with verification) to `/.luna/plans/<yyyy-mm-dd>-<slug>.md` and reports the path.
+
 ## Native browser tools
 
 The agent uses these provider-neutral tools without `tool_search` discovery:

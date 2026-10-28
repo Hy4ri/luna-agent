@@ -29,6 +29,7 @@ import { isRunning, readSessionStatus, markSessionRead, type SessionState } from
 import { Children, readChildReport, type ChildRow } from "./delegate-state.js";
 import { readDelegationUsage } from "./delegate-usage.js";
 import { GoalDoc } from "./goal.js";
+import { GRILL_USAGE, grillPrompt, parseGrill } from "./grill-command.js";
 import { LEARN_USAGE, learnPrompt, parseLearn } from "./learn-command.js";
 import type { McpManager } from "./mcp.js";
 import type { SkillImprover } from "./improve.js";
@@ -1280,6 +1281,12 @@ export function createApp(opts: ServerOptions) {
       const req = parseLearn(learn[1] ?? "");
       if (!req) return err(c, 400, LEARN_USAGE);
       input = learnPrompt(req);
+    }
+    const grill = plain === undefined ? null : /^\/grill(?:\s+([\s\S]*))?$/.exec(plain.trim());
+    if (grill) {
+      const topic = parseGrill(grill[1] ?? "");
+      if (!topic) return err(c, 400, GRILL_USAGE);
+      input = grillPrompt(topic);
     }
     if (slash) {
       const command = slash[1]!, args = (slash[2] ?? "").trim();
