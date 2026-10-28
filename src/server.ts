@@ -41,6 +41,7 @@ import { linkedFiles, scanSkills } from "./skills.js";
 import { TodoDoc } from "./todo.js";
 import { workerMediaResponse } from "./worker-media.js";
 import { ExecTarget, WorkerError, type WorkerHub } from "./workers.js";
+import { createPlannedSession, linkProject, planSession, SessionCreateError, THINKING_LEVELS as SESSION_THINKING_LEVELS, type SessionRequest } from "./session-create.js";
 import { createAnalyticsReader } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
 import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
@@ -70,7 +71,7 @@ function withSubmissions(events: readonly AgentEvent[]) {
     : event);
 }
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const THINKING_LEVELS: readonly string[] = SESSION_THINKING_LEVELS;
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
@@ -613,30 +614,14 @@ export function createApp(opts: ServerOptions) {
   });
 
   app.post("/v1/sessions", async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { model?: { provider: string; modelId: string }; thinkingLevel?: string; instructions?: string; cwd?: string; project?: number; worker?: number | null };
-    const worker = b.worker ?? null;
-    if (worker !== null && (!Number.isSafeInteger(worker) || !opts.workers?.store.get(worker))) return err(c, 400, "unknown worker");
-    if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
-    if (b.thinkingLevel !== undefined && !THINKING_LEVELS.includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
-    // Named projects supply a cwd; General preserves the normal session default.
-    let project;
-    if (b.project !== undefined && b.project !== null) {
-      project = opts.conversations?.projects.get(b.project);
-      if (!project) return err(c, 400, "unknown project");
-    }
-    // A project has one directory per machine. Without one, a worker session uses the worker's default directory.
-    const projectCwd = project ? opts.conversations?.projects.dirFor(project.id, worker) : undefined;
-    if (project && !project.general && !projectCwd) return err(c, 400, "project is not linked to this machine");
-    const cwd = b.cwd || projectCwd;
-    // The board is a default runtime extension, including existing unlinked sessions.
-    const agent = { ...baseAgent(), ...(b.model && { model: b.model }), ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }), ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }), ...(project && opts.projectExtensions?.length && { extensions: { add: opts.projectExtensions } }) };
-    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
-    await harness.commit(async tx => {
-      (await tx.doc(ExecTarget, conv.id)).worker = worker;
-      await tx.appendEntry(conv.id, { kind: "luna.execution", data: { worker, cwd: cwd ?? null } });
-    }, context);
-    if (project) opts.conversations!.projects.link(Number(conv.id), project.id);
-    return c.json({ id: conv.id }, 201);
+    const b = await c.req.json().catch(() => ({})) as SessionRequest;
+    let plan;
+    try {
+      plan = planSession({ base: baseAgent, models: opts.models, projects: opts.conversations?.projects, workers: opts.workers?.store, projectExtensions: opts.projectExtensions }, b);
+    } catch (e) { if (e instanceof SessionCreateError) return err(c, e.status, e.message); throw e; }
+    const id = await harness.commit(tx => createPlannedSession(tx, plan), context);
+    linkProject(opts.conversations?.projects, Number(id), plan);
+    return c.json({ id }, 201);
   });
 
   // Fork: a new session whose model context starts as of one visible entry of this session. The stored agent

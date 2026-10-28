@@ -6,6 +6,7 @@ import { Type } from "typebox";
 import { defineDoc, defineExtension, defineTool, section, type ConversationId, type Tx } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { newestMessageTime } from "./session-activity.js";
+import { crewLinked } from "./crew-state.js";
 
 /** Authenticated peer input: sender and hop metadata are stored with the delivered user message. */
 export const XSESSION_MSG = "luna.xsession.msg";
@@ -151,7 +152,8 @@ export function createSessionTalkExtension(o: { policy: () => SessionTalkPolicy;
           if (await tx.submissionByRequest(to as ConversationId, requestId)) return { replayed: true };
           const exchange = await readSessionExchange(tx, from, to, policy);
           const { hop, maxHops, approvedMaxHops } = exchange;
-          if (hop > maxHops) return { error: `hop limit reached (${hop - 1}/${maxHops} messages in this exchange). Stop and report to m57.`, exchange };
+          // A crew lead and its member talk without a hop limit; the lead decides when the exchange ends.
+          if (hop > maxHops && !await crewLinked(tx, Number(from), to)) return { error: `hop limit reached (${hop - 1}/${maxHops} messages in this exchange). Stop and report to m57.`, exchange };
           const out = { hop, maxHops, approvedMaxHops, busy: await running(tx, to as ConversationId), title: await titleOf(tx, Number(from)), target: await titleOf(tx, to) };
           return out;
         }, ctx);

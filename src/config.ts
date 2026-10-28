@@ -13,7 +13,7 @@ export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cr
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /** Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live. */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
-  coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate", "delegate-results"],
+  coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate", "delegate-results", "session-crew"],
   cron: ["cron"], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
   recall: ["recall"], goal: ["goal"], learn: ["learn"],
 };
@@ -172,7 +172,7 @@ export const ConfigSchema = z
     if (!!c.subagents.provider !== !!c.subagents.model) ctx.addIssue({ code: "custom", path: ["subagents"], message: "provider and model must be set together" });
     for (const [role, profile] of Object.entries(c.subagents.profiles)) {
       if (!!profile.provider !== !!profile.model) ctx.addIssue({ code: "custom", path: ["subagents", "profiles", role], message: "provider and model must be set together" });
-      if (profile.tools.some(tool => ["delegate_task", "ask_user_question", "board", "tool_search"].includes(tool)))
+      if (profile.tools.some(tool => ["delegate_task", "session_crew", "ask_user_question", "board", "tool_search"].includes(tool)))
         ctx.addIssue({ code: "custom", path: ["subagents", "profiles", role, "tools"], message: "Child profiles cannot delegate, ask a hidden questionnaire, mutate a board, or load additional tools." });
     }
     if (new Set(c.providers.map(p => p.id)).size !== c.providers.length) ctx.addIssue({ code: "custom", path: ["providers"], message: "duplicate provider id" });

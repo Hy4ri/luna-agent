@@ -180,7 +180,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               // Both lists already enforce the parent's enabled tools and model-caller restrictions.
               const available = new Map([...parent.tools, ...parent.deferred].map(tool => [tool.name, tool]));
               const requested = profile?.tools ?? parent.tools.map(tool => tool.name);
-              const forbidden = new Set(["delegate_task", "ask_user_question", "board"]);
+              const forbidden = new Set(["delegate_task", "session_crew", "ask_user_question", "board"]);
               const missing = requested.filter(name => !forbidden.has(name) && !available.has(name));
               if (missing.length) return text(`Child profile requires unavailable tools: ${missing.join(", ")}.`, true);
               const tools = requested.filter(name => !forbidden.has(name)).map(name => available.get(name)!);
