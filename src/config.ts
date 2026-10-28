@@ -102,6 +102,11 @@ export const ConfigSchema = z
         quality: z.enum(["low", "medium", "high"]).default("low"),
         codexHome: z.string().min(1).optional(), codexCommand: z.string().min(1).optional(),
       }).prefault({}),
+      // Any configured OpenAI-compatible provider whose model returns images from /chat/completions.
+      "chat-completions": z.strictObject({
+        provider: z.string().trim().min(1).optional(),
+        model: z.string().trim().min(1).optional(),
+      }).prefault({}),
     }).prefault({}),
     pinnedModels: z.array(z.string().min(1)).refine(value => new Set(value).size === value.length, "Duplicate pinned models").default([]),
     providers: z.array(CustomProviderSchema).default([]),

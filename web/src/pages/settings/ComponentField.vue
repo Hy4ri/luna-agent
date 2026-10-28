@@ -52,7 +52,7 @@ const optionLabels: Record<string, string> = { disabled: 'Disabled', ddgs: 'DDGS
 const keyError = ref('')
 const expandedKeys = ref<Record<string, boolean>>({})
 const choiceOptions = computed<{ value: string; label: string }[] | null>(() => {
-  if (full.value === 'image_gen.provider') return [{ value: 'openai-codex', label: 'OpenAI Codex' }]
+  if (full.value === 'image_gen.provider') return [{ value: 'openai-codex', label: 'OpenAI Codex' }, { value: 'chat-completions', label: 'Chat completions model' }]
   if (key.value === 'mcpServer') return [...new Set([safeSchema.value.default, ...(draft.value?.mcpServers || []).map((s: any) => s.name)].filter(Boolean))].map(name => ({ value: String(name), label: String(name) }))
   if (full.value === 'web.providers.ddgs.backend') return [{ value: 'auto', label: 'Automatic' }]
   if (full.value === 'web.providers.ddgs.region') return ['us-en', 'uk-en', 'fr-fr', 'de-de'].map(code => ({ value: code, label: ({ 'us-en': 'United States · English', 'uk-en': 'United Kingdom · English', 'fr-fr': 'France · French', 'de-de': 'Germany · German' } as Record<string, string>)[code]! }))

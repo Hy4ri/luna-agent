@@ -1213,8 +1213,31 @@ The tool returns a bounded image preview for chat delivery. If preview delivery 
 Use `vision_analyze` on the returned local path to inspect the original.
 Generated images in the session machine's generated `images/` directory can be edited directly without copying them into the project.
 
+### Chat completions image models
+
+Set `image_gen.provider` to `chat-completions` to use an image-output model from a provider you already configured,
+such as Gemini Flash Image through an OpenAI-compatible proxy, OpenRouter, or ZenMux:
+
+```json
+{
+  "image_gen": {
+    "provider": "chat-completions",
+    "chat-completions": { "provider": "cli-proxy-api", "model": "gemini-3.1-flash-image" }
+  }
+}
+```
+
+The provider must use the `openai-completions` API and the model must exist in its catalog.
+Credentials come from the provider's stored login; the adapter has no keys of its own.
+It posts one non-streaming request to `<baseUrl>/chat/completions` with `modalities: ["image", "text"]` and
+`image_config.aspect_ratio`, and adds the ratio to the prompt because some endpoints ignore those fields.
+Sources (up to 8) are sent as PNG `image_url` content parts. The first data-URL image in `message.images` or the
+message content is saved as PNG, JPEG, or WebP. A text-only reply returns `no_image`, which usually means the model refused.
+Output size is chosen by the model; the result records the requested ratio and the measured `pixel_size`.
+
 Provider adapters implement `ImageGenProvider` in `src/image-gen.ts`.
-The current adapter is `src/plugins/image_gen/openai-codex.ts`; authentication is in `src/codex-image-auth.ts`.
+The adapters are `src/plugins/image_gen/openai-codex.ts` (authentication in `src/codex-image-auth.ts`) and
+`src/plugins/image_gen/chat-completions.ts`.
 Register new adapters explicitly. Directory contents are not executed automatically.
 Adapters must ignore unknown request fields. The dispatcher forwards only advertised controls.
 Unsupported editing is checked before calling an adapter. JavaScript `TypeError` is `provider_exception`, not a Python keyword-argument error.
