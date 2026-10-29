@@ -104,7 +104,7 @@ const groups = computed<Group[]>(() => {
     }
     const noneSessions = filtered.filter(s => !isNamed(s));
     if (noneSessions.length > 0 || !history.query) {
-      result.push({ key: "none", name: "Chats", project: null, sessions: sortSessions(noneSessions) });
+      result.splice(result.filter(g => g.favorite).length, 0, { key: "none", name: "Chats", project: null, sessions: sortSessions(noneSessions) });
     }
     return result;
   }
@@ -122,7 +122,7 @@ const groups = computed<Group[]>(() => {
     }
     const noneSessions = here.filter(s => !isNamed(s));
     if (noneSessions.length > 0 || (m.id === null && !history.query)) {
-      part.push({ key: `${m.key}:none`, name: "Chats", project: null, sessions: sortSessions(noneSessions), machine: m });
+      part.splice(part.filter(g => g.favorite).length, 0, { key: `${m.key}:none`, name: "Chats", project: null, sessions: sortSessions(noneSessions), machine: m });
     }
     if (part.length || !history.query) {
       if (!part.length) part.push({ key: `${m.key}:none`, name: "Chats", project: null, sessions: [], machine: m });
