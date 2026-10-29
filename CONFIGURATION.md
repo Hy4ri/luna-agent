@@ -1615,6 +1615,20 @@ An unknown machine returns the valid names. An offline worker returns `worker <n
 The machine section of the system prompt mentions the tool only when at least one worker is registered.
 No configuration is needed; `luna.config.example.json` stays unchanged.
 
+### Cross-machine command execution (`machine_exec`)
+
+`machine_exec` runs a bash command on any machine, from every session, whatever its own machine:
+main to a worker, a worker session to main, and a worker session to another worker.
+Parameters: `machine` (`main` or a worker name, case-insensitive), `command`,
+optional `cwd` (absolute or `~/...` on the target machine) and `timeout` (seconds).
+Without `cwd`, the command runs in the session cwd when the target is the session's own machine, else in the target machine's home.
+Output streams and is truncated like `bash` (last 2000 lines or 50KB). A nonzero exit is an error result with the exit code.
+Spilled full output stays on the target machine; the diagnostic names it as `<machine>:<path>`, readable with `machine_files`.
+Abort and `timeout` stop the command on the target machine. An unknown machine returns the valid names; an offline worker returns an error without running anything.
+Worker targets use the existing worker exec call; the worker protocol is unchanged. There is no per-worker permission gate.
+The machine section of the system prompt mentions the tool only when at least one worker is registered.
+No configuration is needed; `luna.config.example.json` stays unchanged.
+
 ### Browser and MCP on a worker
 
 In a worker session, `browser_*` tools drive the worker's browser. Main MCP servers stay available.
