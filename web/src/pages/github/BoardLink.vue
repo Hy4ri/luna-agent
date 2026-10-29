@@ -21,7 +21,7 @@ async function open() {
   if (busy.value || !selected.value) return;
   const card = existing(); if (card) { openBoardCard(card.project, card.id); return; }
   const ticket = generation, project = selected.value, endpoint = path(); busy.value = true; error.value = '';
-  try { const created = await post<{ id: number; archived: boolean }>(endpoint + '/card', { project }); if (ticket !== generation || disposed) return; links.value.cards.push({ ...created, project, status: 'todo' }); openBoardCard(project, created.id); }
+  try { const created = await post<{ id: number; archived: boolean }>(endpoint + '/card', { project }); if (ticket !== generation || disposed) return; links.value.cards.push({ ...created, project, status: 'todo' }); }
   catch (e) { if (ticket === generation && !disposed) error.value = (e as Error).message; }
   finally { busy.value = false; }
 }
@@ -33,7 +33,7 @@ async function open() {
     </select>
     <button type="button" class="inline-flex items-center gap-1.5 border border-border rounded px-2.5 py-1.5 disabled:opacity-50" :disabled="loading || busy || !selected" :title="!loading && !selected ? 'No project uses this repository' : ''" @click="open">
       <SquareKanban :size="14" />
-      {{ loading ? 'Loading board…' : busy ? 'Adding…' : existing() ? `Card #${existing()!.id}${existing()!.archived ? ' (archived)' : ''}` : 'Add to board' }}
+      {{ loading ? 'Loading board…' : busy ? 'Adding…' : existing() ? `Open card #${existing()!.id}${existing()!.archived ? ' (archived)' : ''}` : 'Add to board' }}
     </button>
     <span v-if="error" role="alert" class="text-destructive">{{ error }}</span>
   </div>
