@@ -6,12 +6,17 @@ import { serverUrl, token, json } from "@/lib/api";
 import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
 import { get as cached, makeKey, forget } from "./github/cache";
 import ChangesTab from "./source-control/ChangesTab.vue";
+import HistoryTab from "./source-control/HistoryTab.vue";
+import BranchesTab from "./source-control/BranchesTab.vue";
 import ItemList from "./github/ItemList.vue";
 import ItemDetail from "./github/ItemDetail.vue";
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
 import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu } from "@lucide/vue";
 
-const section = ref<'changes' | 'pr' | 'issue'>('changes');
+type Section = 'changes' | 'history' | 'branches' | 'pr' | 'issue';
+const section = ref<Section>('changes');
+/** Sections that read the local repository instead of GitHub. */
+const local = computed(() => section.value === 'changes' || section.value === 'history' || section.value === 'branches');
 const sourceProjects = ref<{id:number;name:string;cwd:string;general?:boolean}[]>([]);
 const sourceProject = ref<number | null>(chat.project);
 const selector = computed(() => chat.session ? { session: String(chat.session) } : sourceProject.value !== null ? { project: sourceProject.value } : null);
@@ -39,6 +44,8 @@ const loadingDetail = ref(false);
 const detailError = ref<string | null>(null);
 const lastUpdated = ref("");
 const isWide = ref(window.innerWidth >= 900);
+/** Room for a file list beside a diff inside a pane that already has a list on its left. */
+const isVeryWide = ref(window.innerWidth >= 1280);
 const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 let lastWorkspaceRepo: string | null = null;
 let disposed = false, loadGeneration = 0, detailGeneration = 0, initGeneration = 0, infoGeneration = 0;
@@ -46,7 +53,7 @@ let displayedListKey = "";
 let prefetchController: AbortController | null = null;
 let prefetchedItem = "", prefetchedKey = "";
 const context = () => JSON.stringify([serverUrl.value, token.value]);
-const handleResize = () => { isWide.value = window.innerWidth >= 900; };
+const handleResize = () => { isWide.value = window.innerWidth >= 900; isVeryWide.value = window.innerWidth >= 1280; };
 function cancelPrefetch() {
   if (prefetchController) {
     // Remove this pending entry before aborting, so a fast reselect cannot join it.
@@ -68,10 +75,10 @@ function followRepo(repo: string | null) {
   lastWorkspaceRepo = repo;
   if (repo) selectedRepo.value = repo;
 }
-function setSection(value: 'changes' | 'pr' | 'issue') {
+function setSection(value: Section) {
   if (value === section.value) return;
   section.value = value;
-  if (value !== 'changes') {
+  if (value === 'pr' || value === 'issue') {
     if (kind.value === value) void loadList();
     else kind.value = value;
   }
@@ -268,7 +275,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div v-if="section !== 'changes' && status?.state === 'ok'" class="flex flex-wrap items-center gap-2 min-w-0">
+      <div v-if="!local && status?.state === 'ok'" class="flex flex-wrap items-center gap-2 min-w-0">
         <!-- Repo Selector -->
         <select
           :value="showCustomRepo ? '__custom__' : selectedRepo"
@@ -317,16 +324,20 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <div role="tablist" aria-label="Source Control sections" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border">
-      <button v-for="tab in ([{id:'changes',label:'Changes'},{id:'pr',label:'Pull requests'},{id:'issue',label:'Issues'}] as const)" :key="tab.id" type="button" role="tab" :aria-selected="section === tab.id" class="px-3 py-1.5 rounded text-xs" :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="setSection(tab.id)">{{ tab.label }}</button>
-      <button v-if="section === 'changes'" type="button" class="ml-auto text-xs px-2" @click="backToChat">Close</button>
+    <div role="tablist" aria-label="Source Control sections" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border overflow-x-auto">
+      <button v-for="tab in ([{id:'changes',label:'Changes'},{id:'history',label:'History'},{id:'branches',label:'Branches'},{id:'pr',label:'Pull requests'},{id:'issue',label:'Issues'}] as const)" :key="tab.id" type="button" role="tab" :aria-selected="section === tab.id" class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0" :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="setSection(tab.id)">{{ tab.label }}</button>
+      <button v-if="local" type="button" class="ml-auto text-xs px-2 shrink-0" @click="backToChat">Close</button>
     </div>
-    <template v-if="section === 'changes'">
+    <template v-if="local">
       <div v-if="!chat.session" class="px-3 py-2 border-b border-border text-xs">
         <label>Project <select v-model="sourceProject" aria-label="Source Control project" class="bg-secondary border border-border rounded px-2 py-1"><option v-for="project in sourceProjects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
       </div>
       <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
-      <ChangesTab v-if="selector" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
+      <template v-if="selector">
+        <ChangesTab v-if="section === 'changes'" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
+        <HistoryTab v-else-if="section === 'history'" v-bind="selector" :wide="isWide" :files-wide="isVeryWide" />
+        <BranchesTab v-else v-bind="selector" :wide="isWide" />
+      </template>
       <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on this host to use source control.</p>
     </template>
     <!-- Main Content Area -->
@@ -425,6 +436,7 @@ onUnmounted(() => {
             @deleted="handleDeleted"
             :loading="loadingDetail"
             :error="detailError"
+            :files-wide="isVeryWide"
           />
         </div>
       </div>

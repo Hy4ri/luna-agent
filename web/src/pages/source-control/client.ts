@@ -28,9 +28,16 @@ export type Changes = {
 
 export type Branches = {
   current: string;
-  local: { name: string; upstream: string; ahead: number; behind: number }[];
+  local: { name: string; upstream: string; ahead: number; behind: number; date: string; subject: string }[];
   remote: string[];
+  default: string | null;
 };
+
+export type LogCommit = { oid: string; parents: string[]; author: string; email: string; date: string; refs: string[]; subject: string };
+/** A changed file. patch: inline diff text (GitHub); null when GitHub omits it; absent when loaded on demand. */
+export type FileStat = { path: string; original?: string; status: string; additions: number; deletions: number; binary?: boolean; patch?: string | null };
+export type CommitDetail = Omit<LogCommit, "subject"> & { message: string; committer: string; committerDate: string; base: string; files: FileStat[]; filesTruncated: boolean };
+export type Compare = { base: string; head: string; mergeBase: string; ahead: number; behind: number; commits: LogCommit[]; commitsTruncated: boolean; files: FileStat[]; filesTruncated: boolean };
 
 export type DiffResult = {
   path: string;
@@ -85,4 +92,26 @@ export async function mutateGit(
   body: Record<string, unknown>
 ): Promise<GitMutationResult> {
   return post<GitMutationResult>(`/v1/git/${action}${queryParams(selector)}`, body);
+}
+
+function withSelector(selector: SelectorParams, extra: Record<string, string>): string {
+  const params = new URLSearchParams(queryParams(selector).slice(1));
+  for (const [key, value] of Object.entries(extra)) params.set(key, value);
+  return params.toString();
+}
+
+export function fetchLog(selector: SelectorParams, scope: "head" | "all", skip: number, limit = 100): Promise<{ commits: LogCommit[]; more: boolean }> {
+  return json(`/v1/git/log?${withSelector(selector, { scope, skip: String(skip), limit: String(limit) })}`);
+}
+
+export function fetchCommit(selector: SelectorParams, oid: string): Promise<CommitDetail> {
+  return json(`/v1/git/commit?${withSelector(selector, { oid })}`);
+}
+
+export function fetchCompare(selector: SelectorParams, base: string, head: string): Promise<Compare> {
+  return json(`/v1/git/compare?${withSelector(selector, { base, head })}`);
+}
+
+export function fetchRangeDiff(selector: SelectorParams, base: string, head: string, file: FileStat): Promise<DiffResult> {
+  return json(`/v1/git/range-diff?${withSelector(selector, { base, head, path: file.path, ...(file.original ? { original: file.original } : {}) })}`);
 }
