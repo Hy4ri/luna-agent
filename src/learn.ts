@@ -72,7 +72,7 @@ export function shellProgram(command: string): string {
 function expectedFailure(tool: string, command: string, body: string): boolean {
   if (/was interrupted and may have partially run/.test(body)) return true;
   const code = /^Command exited with code (\d+)$/.exec(body)?.[1];
-  if (tool !== "bash" || !code) return false;
+  if (tool !== "bash" && tool !== "machine_exec" || !code) return false;
   if (code === "130" || code === "143") return true;
   const prog = shellProgram(command);
   return code === "1" && (["grep", "egrep", "fgrep", "rg", "diff", "cmp", "test", "[", "git grep", "pgrep"].includes(prog)
@@ -82,7 +82,7 @@ function expectedFailure(tool: string, command: string, body: string): boolean {
 /** One failure cause per key: tool, program or target, and the message (a bare exit code stays its own cause). */
 function errorKey(tool: string, command: string, body: string): string {
   const code = /^Command exited with code (\d+)$/.exec(body)?.[1];
-  const target = tool === "bash" ? shellProgram(command) || "shell" : "";
+  const target = tool === "bash" || tool === "machine_exec" ? shellProgram(command) || "shell" : "";
   return [tool, target, code ? `exit ${code}` : signature(body) || "(empty error)"].filter(Boolean).join(":");
 }
 

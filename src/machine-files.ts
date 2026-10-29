@@ -15,10 +15,30 @@ const DESCRIPTION = "Read-only view of files on any Luna machine: \"main\" (the 
   "A directory lists entries (directories first, max 500). A file returns text with `read` truncation (2000 lines / 50KB); " +
   "continue with offset. Works from every session regardless of its own machine. `~` is the target machine's home.";
 
-export function createMachineFilesExtension(o: { hub: () => WorkerHub | undefined; mainEnv?: () => ExecutionEnv }) {
+export interface MachineSources { hub: () => WorkerHub | undefined; mainEnv?: () => ExecutionEnv }
+export type ResolvedMachine = { ok: true; env: ExecutionEnv; home: string | undefined; workerId: number | undefined } | { ok: false; error: string };
+
+/** "main" or a worker name (case-insensitive) to its execution env. Unknown and offline machines are errors. */
+export async function resolveMachine(o: MachineSources, machine: string): Promise<ResolvedMachine> {
+  const name = machine.trim().toLowerCase();
+  if (name === "main") {
+    const { NodeExecutionEnv } = await import("@earendil-works/pi-durable/env/node");
+    return { ok: true, env: o.mainEnv?.() ?? new NodeExecutionEnv({ cwd: homedir() }), home: homedir(), workerId: undefined };
+  }
+  const hub = o.hub();
+  const worker = hub?.store.list().find(w => w.name.toLowerCase() === name);
+  if (!hub || !worker) {
+    const names = ["main", ...(hub?.store.list().map(w => w.name) ?? [])];
+    return { ok: false, error: `Unknown machine "${machine}". Valid machines: ${names.join(", ")}.` };
+  }
+  if (!hub.view(worker.id)?.online) return { ok: false, error: `worker ${worker.name} is offline.` };
+  const home = worker.capabilities?.home;
+  return { ok: true, env: hub.env(worker.id, home), home, workerId: worker.id };
+}
+
+export function createMachineFilesExtension(o: MachineSources) {
   const fail = (text: string) => ({ output: [{ type: "text" as const, text }], isError: true });
   const ok = (text: string) => ({ output: [{ type: "text" as const, text }] });
-  const machineNames = () => ["main", ...(o.hub()?.store.list().map(w => w.name) ?? [])];
   return defineExtension({
     name: "machine-files",
     tools: [defineTool({
@@ -31,20 +51,9 @@ export function createMachineFilesExtension(o: { hub: () => WorkerHub | undefine
         limit: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum lines (default 2000)." })),
       }, { additionalProperties: false }),
       async execute(a, _api, context: Context) {
-        const name = a.machine.trim().toLowerCase();
-        let env: ExecutionEnv, home: string | undefined;
-        if (name === "main") {
-          const { NodeExecutionEnv } = await import("@earendil-works/pi-durable/env/node");
-          env = o.mainEnv?.() ?? new NodeExecutionEnv({ cwd: homedir() });
-          home = homedir();
-        } else {
-          const hub = o.hub();
-          const worker = hub?.store.list().find(w => w.name.toLowerCase() === name);
-          if (!hub || !worker) return fail(`Unknown machine "${a.machine}". Valid machines: ${machineNames().join(", ")}.`);
-          if (!hub.view(worker.id)?.online) return fail(`worker ${worker.name} is offline.`);
-          env = hub.env(worker.id, worker.capabilities?.home);
-          home = worker.capabilities?.home;
-        }
+        const machine = await resolveMachine(o, a.machine);
+        if (!machine.ok) return fail(machine.error);
+        const { env, home } = machine;
         const expanded = expandHome(a.path, home);
         if (expanded === undefined) return fail(`Home directory of machine "${a.machine}" is unknown.`);
         if (!expanded.startsWith("/")) return fail("path must be absolute or start with ~/.");
