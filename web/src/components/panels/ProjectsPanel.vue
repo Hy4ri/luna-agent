@@ -71,10 +71,14 @@ type ProjectSkill = { name: string; description: string; global: boolean; overri
 const skills = ref<ProjectSkill[]>([]);
 const skillsError = ref("");
 const skillFilter = ref("");
+const skillStatus = ref<"all" | "enabled" | "disabled">("all");
 const skillBusy = reactive<Record<string, boolean>>({});
 const shownSkills = computed(() => {
   const q = skillFilter.value.trim().toLowerCase();
-  return q ? skills.value.filter(s => `${s.name} ${s.description}`.toLowerCase().includes(q)) : skills.value;
+  return skills.value.filter(s =>
+    (skillStatus.value === "all" || s.effective === (skillStatus.value === "enabled")) &&
+    (!q || `${s.name} ${s.description}`.toLowerCase().includes(q))
+  );
 });
 async function loadSkills(id: number) {
   skillsError.value = "";
@@ -115,7 +119,7 @@ function select(id: number | "new" | null) {
   cwd.value = p?.cwd ?? "";
   if (id === "new") { createOn.value = "host"; newWorker.value = null; newWorkerCwd.value = ""; }
   syncMachineDirs();
-  skills.value = []; skillFilter.value = ""; skillsError.value = "";
+  skills.value = []; skillFilter.value = ""; skillStatus.value = "all"; skillsError.value = "";
   if (typeof id === "number" && id !== 0) void loadSkills(id);
   if (id !== null) showDetail.value = true;
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
@@ -260,7 +264,14 @@ onMounted(async () => {
         <div v-if="current && !current.general" class="pw-sec" id="project-skills">
           <h4>Skills</h4>
           <p class="pw-muted pw-small">Switch a skill on or off for this project's conversations. Skills without a custom marker follow the global setting.</p>
-          <input v-if="skills.length > 10" v-model="skillFilter" type="search" aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" />
+          <div class="pw-skill-filters">
+            <input v-if="skills.length > 10" v-model="skillFilter" type="search" aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" />
+            <select v-model="skillStatus" class="pw-input" aria-label="Filter skills by status">
+              <option value="all">All</option>
+              <option value="enabled">Enabled</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </div>
           <p v-if="skillsError" class="pw-err" role="alert">{{ skillsError }}</p>
           <div v-for="s in shownSkills" :key="s.name" class="pw-skill" :data-skill="s.name">
             <div class="pw-skill-text">
@@ -325,6 +336,9 @@ input:focus, select.pw-input:focus { border-color: var(--ring); }
 .pw-primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); font-weight: 600; }
 .pw-primary:hover:not(:disabled) { border-color: var(--primary); filter: brightness(1.08); }
 .pw-del { color: var(--destructive); }
+.pw-skill-filters { display: flex; align-items: center; gap: 8px; }
+.pw-skill-filters input { flex: 1; }
+.pw-skill-filters select { width: auto; flex-shrink: 0; }
 .pw-skill { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .pw-skill-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .pw-skill-name { font-size: 14px; overflow-wrap: anywhere; }
