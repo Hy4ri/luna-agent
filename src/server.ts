@@ -51,7 +51,7 @@ import { REVIEW_DEFAULT_PROMPT } from "./review.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
 import { entryMedia } from "./media-directives.js";
-import { GhError, REPO_PART, ghStatus, projectRepos } from "./github.js";
+import { GhError, REPO_PART, ghStatus, projectRepos, pullFiles } from "./github.js";
 import { repoInfo, listItems } from "./github-list.js";
 import { detail, commentsPage } from "./github-detail.js";
 import { createGithubCache } from "./github-cache.js";
@@ -797,6 +797,26 @@ export function createApp(opts: ServerOptions) {
       return c.json(await gitControl.diff(await gitWorkspace(c), path, staged === '1'));
     } catch (e) { return gitFail(c, e); }
   });
+  app.get('/v1/git/log', async c => {
+    try {
+      const scope = c.req.query('scope') ?? 'head', skip = Number(c.req.query('skip') ?? 0), limit = Number(c.req.query('limit') ?? 100);
+      if (!['head', 'all'].includes(scope) || !Number.isSafeInteger(skip) || skip < 0 || skip > 1_000_000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new GitError('Invalid history selection', 400);
+      return c.json(await gitControl.log(await gitWorkspace(c), { all: scope === 'all', skip, limit }));
+    } catch (e) { return gitFail(c, e); }
+  });
+  app.get('/v1/git/commit', async c => {
+    try { return c.json(await gitControl.commit(await gitWorkspace(c), c.req.query('oid') ?? '')); } catch (e) { return gitFail(c, e); }
+  });
+  app.get('/v1/git/compare', async c => {
+    try { return c.json(await gitControl.compare(await gitWorkspace(c), c.req.query('base') ?? '', c.req.query('head') ?? '')); } catch (e) { return gitFail(c, e); }
+  });
+  app.get('/v1/git/range-diff', async c => {
+    try {
+      const q = (k: string) => c.req.query(k) ?? '';
+      if (q('path').length > 4096 || q('original').length > 4096) throw new GitError('Invalid diff path', 400);
+      return c.json(await gitControl.rangeDiff(await gitWorkspace(c), q('base'), q('head'), q('path'), q('original') || undefined));
+    } catch (e) { return gitFail(c, e); }
+  });
   const gitPaths = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).min(1).max(500) });
   const gitSchemas = {
     stage: gitPaths, unstage: gitPaths,
@@ -897,6 +917,14 @@ export function createApp(opts: ServerOptions) {
     return n;
   };
   const ghRepo = (c: HonoContext) => { const repo = repoOfParam(c); if (!repo) throw new GhError("invalid repository name", 400); return repo; };
+  app.get("/v1/github/repos/:owner/:name/pulls/:number/files", async c => {
+    try {
+      const repo = ghRepo(c), n = ghNumber(c), page = Number(c.req.query("page") ?? 1);
+      // GitHub lists at most 3000 files: 30 pages of 100.
+      if (!Number.isSafeInteger(page) || page < 1 || page > 30) throw new GhError("Invalid page", 400);
+      return c.json(await githubCache.read(`${repo.toLowerCase()}|files|${n}|${page}`, 15_000, () => pullFiles(repo, n, page), freshGithub(c)));
+    } catch (e) { return ghFail(c, e); }
+  });
   const ghBody = async <T,>(c: HonoContext, schema: z.ZodType<T>): Promise<T> => {
     const result = schema.safeParse(await c.req.json().catch(() => null));
     if (!result.success) throw new GhError(result.error.issues.map(i => i.message).join("; ").slice(0, 300), 400);

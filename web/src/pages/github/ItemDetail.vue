@@ -7,6 +7,7 @@ import type { RepoInfo, Detail, Comment } from "../../../../src/github";
 import Markdown from "@/components/chat/Markdown.vue";
 import BoardLink from "./BoardLink.vue";
 import ItemActions from "./ItemActions.vue";
+import PullFiles from "./PullFiles.vue";
 import { ExternalLink, MessageSquare, CheckCircle2, XCircle, Clock } from "@lucide/vue";
 
 const props = defineProps<{
@@ -15,7 +16,10 @@ const props = defineProps<{
   info: RepoInfo | null;
   loading: boolean;
   error: string | null;
+  /** Room for the changed-file list beside the diff. */
+  filesWide?: boolean;
 }>();
+const view = ref<"conversation" | "files">("conversation");
 
 const emit = defineEmits<{
   (e: "changed", detail?: Detail): void;
@@ -50,7 +54,15 @@ function formatTime(iso: string): string {
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-y-auto bg-card/30 p-6 text-foreground">
+  <div class="flex flex-col h-full min-h-0 bg-card/30 text-foreground">
+    <div v-if="detail?.pr" role="tablist" aria-label="Pull request view" class="flex shrink-0 gap-1 px-3 py-1.5 border-b border-border text-xs">
+      <button type="button" role="tab" :aria-selected="view === 'conversation'" class="px-3 py-1 rounded" :class="view === 'conversation' ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="view = 'conversation'">Conversation</button>
+      <button type="button" role="tab" :aria-selected="view === 'files'" class="px-3 py-1 rounded" :class="view === 'files' ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="view = 'files'">Files changed ({{ detail.pr.files }})</button>
+    </div>
+    <div v-if="detail?.pr && view === 'files'" class="flex-1 min-h-0 overflow-hidden">
+      <PullFiles :repo="repo" :number="detail.number" :head-oid="detail.pr.headOid" :url="detail.url" :wide="!!filesWide" />
+    </div>
+  <div v-else class="flex flex-col flex-1 min-h-0 overflow-y-auto p-6">
     <div v-if="loading && !detail" class="text-center text-muted-foreground text-sm py-12">
       Loading detail…
     </div>
@@ -153,5 +165,6 @@ function formatTime(iso: string): string {
         @deleted="emit('deleted')"
       />
     </div>
+  </div>
   </div>
 </template>

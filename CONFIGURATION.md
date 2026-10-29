@@ -1795,6 +1795,7 @@ All routes below use normal Luna API authentication. `:owner` and `:name` are re
 | GET | `/v1/github/repos/:owner/:name` | Repository permissions and allowed merge methods |
 | GET | `/v1/github/repos/:owner/:name/items` | `kind=pr\|issue`, `state=open\|closed\|all`, optional `q` (256 characters), `after` cursor; 30 items/page |
 | GET | `/v1/github/repos/:owner/:name/items/:number` | Description, latest 30 comments, `commentTotal`, `commentsBefore` cursor (or null), PR checks and recent reviews, action capabilities |
+| GET | `/v1/github/repos/:owner/:name/pulls/:number/files` | `page=1`–`30`; 100 changed files per page with status, +/- counts, and `patch` (null when GitHub omits it for binary or very large files); `more` flag |
 | GET | `/v1/github/repos/:owner/:name/items/:number/comments` | Required `before` cursor (max 1000 characters); returns earlier 30 comments and `before` cursor (or null) |
 | POST | `/v1/github/repos/:owner/:name/items/:number/comments` | `{ "body": "comment" }`, 1–65536 characters |
 | POST | `/v1/github/repos/:owner/:name/items/:number/state` | `{ "kind": "issue", "state": "closed", "reason": "completed" }`; reason optional, `completed` or `not_planned`; state `open` or `closed` |
@@ -1825,7 +1826,22 @@ state synchronization between GitHub and board cards.
 ## Source Control: local Git
 
 The former **GitHub** page is now **Source Control** (`#source-control`). Old `#github` links redirect.
-The page has **Changes**, **Pull requests**, and **Issues** tabs. The existing GitHub routes do not change.
+The page has **Changes**, **History**, **Branches**, **Pull requests**, and **Issues** tabs.
+
+- **History** shows a commit graph for the current branch or all branches (local, remote, and tags),
+  100 commits per page. Select a commit to see its message, parents, refs, and changed files. Merge
+  commits show their changes against the first parent.
+- **Branches** lists local branches with upstream ahead/behind counts and the last commit; branches
+  without a commit for 90 days are marked stale. **Compare** shows the commits and file changes of one
+  revision since it split from another (three-dot, the same as a pull request).
+- A pull request has a **Files changed** view next to its conversation. GitHub omits the diff of binary
+  and very large files; those link to GitHub.
+- All diffs show old and new line numbers. Wide views can switch between unified and split layouts;
+  the choice is saved in the browser.
+
+History, commit, compare, and range-diff requests are read-only, never cached, and run with
+`--no-optional-locks`. Revisions are resolved with `rev-parse --verify --end-of-options`; values that
+start with `-` are rejected.
 
 Changes uses the active session's machine and working directory. Without a session, choose a project
 with a main-host directory. Git commands run on that machine, not in the browser. The displayed cwd is
@@ -1838,8 +1854,12 @@ main host; General and projects without a host directory are rejected.
 | Method | Route | Body / extra query |
 |---|---|---|
 | GET | `/v1/git/changes` | Branch, upstream, ahead/behind, detached/unborn state, files, cwd, machine, GitHub repo |
-| GET | `/v1/git/branches` | Current branch, local names/upstreams/counts, origin remote branch names |
+| GET | `/v1/git/branches` | Current branch, local names/upstreams/counts/last commit date and subject, origin remote branch names, `default` branch name (or null) |
 | GET | `/v1/git/diff` | `path=<relative path>&staged=0` or `staged=1`; plain diff text, binary/truncated flags |
+| GET | `/v1/git/log` | `scope=head\|all`, `skip` (0–1000000), `limit` (1–500, default 100); `{ commits, more }` in topological order; each commit has oid, parents, author, email, date, typed refs (`head:`, `local:`, `remote:`, `tag:`), subject |
+| GET | `/v1/git/commit` | `oid=<4–64 hex>`; full message, author, committer, parents, refs, `base` (first parent or the empty tree), changed files with status and +/- counts (up to 3000) |
+| GET | `/v1/git/compare` | `base=<rev>&head=<rev>`; three-dot comparison: resolved oids, `mergeBase`, ahead/behind, up to 250 commits, changed files since the merge base |
+| GET | `/v1/git/range-diff` | `base=<oid>&head=<oid>&path=<path>`, optional `original=<old path>` for renames; one file's diff between two commits (512 KB limit) |
 | POST | `/v1/git/stage` | `{ "paths": ["file.txt"] }` |
 | POST | `/v1/git/unstage` | `{ "paths": ["file.txt"] }` |
 | POST | `/v1/git/commit` | `{ "message": "Commit message" }` |

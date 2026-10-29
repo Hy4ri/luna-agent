@@ -9,7 +9,44 @@ export class GitError extends Error {
 export type Workspace = { env: ExecutionEnv; machine: string; commandEnv?: Record<string, string> };
 export type ChangeFile = { path: string; original?: string; index: string; worktree: string; staged: boolean; untracked: boolean; conflict: boolean };
 export type Changes = { cwd: string; machine: string; branch: string; upstream: string | null; ahead: number; behind: number; headOid: string | null; detached: boolean; unborn: boolean; files: ChangeFile[]; untrackedCollapsed: boolean; repo: string | null; busy: boolean };
-export type Branches = { current: string; local: { name: string; upstream: string; ahead: number; behind: number }[]; remote: string[] };
+export type Branches = { current: string; local: { name: string; upstream: string; ahead: number; behind: number; date: string; subject: string }[]; remote: string[]; default: string | null };
+export type LogCommit = { oid: string; parents: string[]; author: string; email: string; date: string; refs: string[]; subject: string };
+export type FileStat = { path: string; original?: string; status: string; additions: number; deletions: number; binary: boolean };
+export type CommitDetail = Omit<LogCommit, 'subject'> & { message: string; committer: string; committerDate: string; base: string; files: FileStat[]; filesTruncated: boolean };
+export type Compare = { base: string; head: string; mergeBase: string; ahead: number; behind: number; commits: LogCommit[]; commitsTruncated: boolean; files: FileStat[]; filesTruncated: boolean };
+const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+const LOG_FORMAT = '%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s%x1e';
+/** Changed files listed per commit or comparison; a huge refactor would flood the page. */
+const FILE_LIMIT = 3000;
+/** `%D` with --decorate=full to typed names: head:main, local:x, remote:origin/x, tag:v1, HEAD (detached). */
+function parseRefs(text: string) {
+  return text ? text.split(', ').map(ref => ref.startsWith('HEAD -> refs/heads/') ? `head:${ref.slice(19)}`
+    : ref.startsWith('tag: refs/tags/') ? `tag:${ref.slice(15)}`
+    : ref.startsWith('refs/heads/') ? `local:${ref.slice(11)}`
+    : ref.startsWith('refs/remotes/') ? `remote:${ref.slice(13)}` : ref).filter(ref => !/^remote:[^/]+\/HEAD$/.test(ref)) : [];
+}
+function parseLog(out: string): LogCommit[] {
+  return out.split('\x1e').map(r => r.replace(/^\n/, '')).filter(Boolean).map(record => {
+    const [oid = '', parents = '', author = '', email = '', date = '', refs = '', subject = ''] = record.split('\x1f');
+    return { oid, parents: parents.split(' ').filter(Boolean), author, email, date, refs: parseRefs(refs), subject };
+  });
+}
+/** Joins `--name-status -z` and `--numstat -z` output of the same diff. */
+function parseFiles(nameStatus: string, numstat: string): FileStat[] {
+  const files: FileStat[] = [], status = nameStatus.split('\0'), stats = numstat.split('\0');
+  for (let i = 0; i < status.length - 1;) {
+    const code = status[i++]!;
+    if (/^[RC]/.test(code)) { const original = status[i++]!, path = status[i++]!; files.push({ path, original, status: code[0]!, additions: 0, deletions: 0, binary: false }); }
+    else files.push({ path: status[i++]!, status: code[0]!, additions: 0, deletions: 0, binary: false });
+  }
+  let n = 0;
+  for (let i = 0; i < stats.length - 1 && n < files.length; n++) {
+    const [add = '', del = '', path = ''] = stats[i++]!.split('\t');
+    if (!path) i += 2; // rename: the two paths follow as separate records
+    Object.assign(files[n]!, add === '-' ? { binary: true } : { additions: Number(add), deletions: Number(del) });
+  }
+  return files;
+}
 const active = new Set<string>();
 const UNTRACKED_LIMIT = 5000;
 function countUntracked(out: string) { let n = 0; for (const record of out.split('\0')) if (record.startsWith('? ')) n++; return n; }
@@ -117,18 +154,18 @@ export function createGitControl() {
   async function branches(w: Workspace): Promise<Branches> {
     const cwd = await root(w);
     const [r, defaultRef] = await Promise.all([
-      run(w, ['for-each-ref', '--sort=refname', '--sort=-committerdate', '--format=%(HEAD)%00%(refname)%00%(upstream:short)%00%(upstream:track)', 'refs/heads', 'refs/remotes/origin'], { cwd, read: true }),
+      run(w, ['for-each-ref', '--sort=refname', '--sort=-committerdate', '--format=%(HEAD)%00%(refname)%00%(upstream:short)%00%(upstream:track)%00%(committerdate:iso-strict)%00%(contents:subject)', 'refs/heads', 'refs/remotes/origin'], { cwd, read: true }),
       run(w, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], { cwd, read: true }),
     ]);
     check(r);
     const local: Branches['local'] = [], remote: string[] = [];
     let current = '';
     for (const line of r.out.trim().split('\n').filter(Boolean)) {
-      const [head = '', ref = '', upstream = '', track = ''] = line.split('\0');
+      const [head = '', ref = '', upstream = '', track = '', date = '', subject = ''] = line.split('\0');
       if (ref.startsWith('refs/remotes/')) { const name = ref.slice(13); if (name !== 'origin/HEAD') remote.push(name); continue; }
       const name = ref.slice(11);
       if (head === '*') current = name;
-      local.push({ name, upstream, ahead: Number(/ahead (\d+)/.exec(track)?.[1] ?? 0), behind: Number(/behind (\d+)/.exec(track)?.[1] ?? 0) });
+      local.push({ name, upstream, ahead: Number(/ahead (\d+)/.exec(track)?.[1] ?? 0), behind: Number(/behind (\d+)/.exec(track)?.[1] ?? 0), date, subject });
     }
     // A remote branch that already has a local branch of the same name is listed once, as the local branch.
     const names = new Set(local.map(l => l.name));
@@ -141,7 +178,7 @@ export function createGitControl() {
     const remoteBranches = remote.filter(name => !names.has(name.slice(7)));
     const remoteDefaultIndex = remoteBranches.indexOf(`origin/${defaultName}`);
     if (remoteDefaultIndex > 0) remoteBranches.unshift(...remoteBranches.splice(remoteDefaultIndex, 1));
-    return { current, local, remote: remoteBranches };
+    return { current, local, remote: remoteBranches, default: defaultName ?? null };
   }
   async function mutate(w: Workspace, action: string, body: Record<string, unknown>) {
     const s = await changes(w), key = `${w.machine}:${s.cwd}`;
@@ -193,5 +230,76 @@ export function createGitControl() {
       return { changes: state, summary, sha: state.headOid };
     } finally { active.delete(key); }
   }
-  return { changes, diff, branches, mutate };
+  /** Resolves a branch, tag, or commit name to a commit oid. Never reads an option. */
+  async function resolve(w: Workspace, cwd: string, ref: string) {
+    if (!ref || ref.startsWith('-') || ref.length > 255 || /[\0\s]/.test(ref)) throw new GitError('Invalid revision', 400);
+    const r = await run(w, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`], { cwd, read: true });
+    if (r.code !== 0 || !OID.test(r.out.trim())) throw new GitError(`Unknown revision: ${ref}`, 404);
+    return r.out.trim();
+  }
+  async function fileStats(w: Workspace, cwd: string, base: string, head: string) {
+    const common = ['diff', '--no-ext-diff', '--no-textconv', '-M', '-z', base, head, '--'];
+    const [names, stats] = await Promise.all([
+      run(w, [...common.slice(0, 5), '--name-status', ...common.slice(5)], { cwd, read: true }),
+      run(w, [...common.slice(0, 5), '--numstat', ...common.slice(5)], { cwd, read: true }),
+    ]);
+    check(names); check(stats);
+    const files = parseFiles(names.out, stats.out);
+    return { files: files.slice(0, FILE_LIMIT), filesTruncated: files.length > FILE_LIMIT };
+  }
+  async function emptyTree(w: Workspace, cwd: string) {
+    const r = await run(w, ['hash-object', '-t', 'tree', '/dev/null'], { cwd, read: true }); check(r);
+    return r.out.trim();
+  }
+  /** Commit history in topological order. all: every branch, remote branch, and tag. */
+  async function log(w: Workspace, options: { all: boolean; skip: number; limit: number }) {
+    const cwd = await root(w);
+    const head = await run(w, ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd, read: true });
+    if (head.code !== 0 && !options.all) return { commits: [], more: false };
+    const r = await run(w, ['log', '--topo-order', '--decorate=full', `--format=${LOG_FORMAT}`, `--max-count=${options.limit + 1}`, `--skip=${options.skip}`,
+      ...(options.all ? ['--branches', '--remotes', '--tags', ...(head.code === 0 ? ['HEAD'] : [])] : ['HEAD']), '--'], { cwd, read: true });
+    // An empty repository has no refs for --all; git log then exits nonzero.
+    if (r.code !== 0 && /does not have any commits|bad default revision/i.test(r.error)) return { commits: [], more: false };
+    check(r);
+    const commits = parseLog(r.out);
+    return { commits: commits.slice(0, options.limit), more: commits.length > options.limit };
+  }
+  async function commit(w: Workspace, oid: string): Promise<CommitDetail> {
+    if (!/^[0-9a-f]{4,64}$/.test(oid)) throw new GitError('Invalid commit', 400);
+    const cwd = await root(w), full = await resolve(w, cwd, oid);
+    const r = await run(w, ['show', '-s', '--decorate=full', '--format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%cn%x1f%cI%x1f%B', full, '--'], { cwd, read: true }); check(r);
+    const [hash = '', parents = '', author = '', email = '', date = '', refs = '', committer = '', committerDate = '', ...message] = r.out.split('\x1f');
+    const parentList = parents.split(' ').filter(Boolean);
+    // Merge commits show the changes against their first parent, the same as GitHub.
+    const base = parentList[0] ?? await emptyTree(w, cwd);
+    return { oid: hash, parents: parentList, author, email, date, refs: parseRefs(refs), committer, committerDate,
+      message: redact(message.join('\x1f').trimEnd()), base, ...await fileStats(w, cwd, base, hash) };
+  }
+  /** Changes on head since it left base (three-dot, the same as a GitHub pull request). */
+  async function compare(w: Workspace, baseRef: string, headRef: string): Promise<Compare> {
+    const cwd = await root(w);
+    const [base, head] = await Promise.all([resolve(w, cwd, baseRef), resolve(w, cwd, headRef)]);
+    const mb = await run(w, ['merge-base', base, head], { cwd, read: true });
+    if (mb.code !== 0) throw new GitError('The revisions have no common history', 422);
+    const mergeBase = mb.out.trim();
+    const [counts, list, stats] = await Promise.all([
+      run(w, ['rev-list', '--left-right', '--count', `${base}...${head}`, '--'], { cwd, read: true }),
+      run(w, ['log', '--topo-order', '--decorate=full', `--format=${LOG_FORMAT}`, '--max-count=251', `${mergeBase}..${head}`, '--'], { cwd, read: true }),
+      fileStats(w, cwd, mergeBase, head),
+    ]);
+    check(counts); check(list);
+    const [behind = 0, ahead = 0] = counts.out.trim().split(/\s+/).map(Number);
+    const commits = parseLog(list.out);
+    return { base, head, mergeBase, ahead, behind, commits: commits.slice(0, 250), commitsTruncated: commits.length > 250, ...stats };
+  }
+  /** Diff of one file between two commits (or the empty tree). Paths are literal pathspecs. */
+  async function rangeDiff(w: Workspace, base: string, head: string, path: string, original?: string) {
+    if (!OID.test(base) || !OID.test(head)) throw new GitError('Invalid revision', 400);
+    for (const p of [path, ...(original ? [original] : [])]) if (!p || p.startsWith('/') || p.includes('\0')) throw new GitError('Invalid diff path', 400);
+    const cwd = await root(w);
+    const r = await run(w, ['diff', '--no-ext-diff', '--no-textconv', '-M', base, head, '--', path, ...(original && original !== path ? [original] : [])], { cwd, read: true, limit: 512 << 10, truncate: true });
+    check(r);
+    return { path, binary: /(?:Binary files|GIT binary patch)/.test(r.out), directory: false, text: redact(r.out), truncated: r.truncated };
+  }
+  return { changes, diff, branches, mutate, log, commit, compare, rangeDiff };
 }

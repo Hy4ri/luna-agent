@@ -245,3 +245,15 @@ export function projectRepos(projects: { id: number; name: string; cwd: string }
   projectCache = entry;
   return entry.result;
 }
+
+export type PullFile = { path: string; original?: string; status: string; additions: number; deletions: number; patch: string | null };
+const PULL_FILE_STATUS: Record<string, string> = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'T', unchanged: 'M' };
+/** One page (100) of a pull request's changed files. GitHub omits the patch of very large and binary files. */
+export async function pullFiles(repo: string, number: number, page: number): Promise<{ files: PullFile[]; more: boolean }> {
+  const rows = await api<{ filename: string; previous_filename?: string; status: string; additions: number; deletions: number; patch?: string }[]>(
+    `repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`);
+  return {
+    files: rows.map(f => ({ path: f.filename, ...(f.previous_filename ? { original: f.previous_filename } : {}), status: PULL_FILE_STATUS[f.status] ?? 'M', additions: f.additions, deletions: f.deletions, patch: f.patch ?? null })),
+    more: rows.length === 100 && page < 30,
+  };
+}

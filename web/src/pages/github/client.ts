@@ -1,5 +1,5 @@
 import { json } from "@/lib/api";
-import type { GhStatus, RepoInfo, ItemPage, Detail, Comment } from "../../../../src/github";
+import type { GhStatus, RepoInfo, ItemPage, Detail, Comment, PullFile } from "../../../../src/github";
 import { makeKey, fetchSWR } from './cache';
 export { dropRepo, clear } from './cache';
 
@@ -26,4 +26,7 @@ export function fetchItemDetail(owner: string, name: string, number: number, fre
 }
 export function fetchComments(owner: string, name: string, number: number, before: string): Promise<{ comments: Comment[]; before: string | null }> {
   return json(`/v1/github/repos/${owner}/${name}/items/${number}/comments?${new URLSearchParams({ before })}`);
+}
+export function fetchPullFiles(owner: string, name: string, number: number, page: number, fresh = false): Promise<{ files: PullFile[]; more: boolean }> {
+  return json(`/v1/github/repos/${owner}/${name}/pulls/${number}/files?${new URLSearchParams({ page: String(page), ...(fresh ? { fresh: '1' } : {}) })}`);
 }
