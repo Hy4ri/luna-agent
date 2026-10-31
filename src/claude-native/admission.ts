@@ -4,6 +4,7 @@ import tls from 'node:tls';
 import { URL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
+import type { NativeReplayMetadata, NativeSystemInjection } from './types.js';
 export interface Block {
   type: string;
   [key: string]: unknown;
@@ -94,6 +95,95 @@ function _frame_first(messages: any[], queried: Block[] | undefined): boolean {
 }
 
 const _DATE_LINE = /^Today's date is \d{4}-\d{2}-\d{2}\.$/;
+
+function withoutCacheControl(content: unknown): unknown {
+  if (Array.isArray(content)) return content.map(withoutCacheControl);
+  if (content && typeof content === 'object') {
+    const copy = { ...(content as Record<string, unknown>) };
+    delete copy.cache_control;
+    return copy;
+  }
+  return content;
+}
+
+function setCacheBreakpoint(message: Record<string, unknown>): void {
+  const content = message.content;
+  if (!Array.isArray(content)) return;
+  for (let k = content.length - 1; k >= 0; k--) {
+    const block = content[k];
+    if (block && typeof block === 'object' && !Array.isArray(block) && !UNCACHEABLE.includes(block.type)) {
+      block.cache_control = { type: 'ephemeral', ttl: '1h' };
+      return;
+    }
+  }
+}
+
+function setReplayCacheBreakpoints(messages: Array<Record<string, unknown>>): void {
+  // Two message breakpoints plus one system and one tool breakpoint stay within Anthropic's limit.
+  for (const message of messages) {
+    delete message.cache_control;
+    message.content = withoutCacheControl(message.content);
+  }
+  const userIndexes = messages
+    .map((msg, idx) => (msg.role === 'user' ? idx : -1))
+    .filter(idx => idx >= 0);
+  if (userIndexes.length >= 2) setCacheBreakpoint(messages[userIndexes.at(-2)!]!);
+  const final = messages.at(-1);
+  if (final) setCacheBreakpoint(final);
+}
+
+function injectNativeSystemMessages(
+  messages: Array<Record<string, unknown>>,
+  injections: NativeSystemInjection[],
+): Array<Record<string, unknown>> {
+  const byAssistant = new Map<number, Array<Record<string, unknown>>>();
+  const trailing: Array<Record<string, unknown>> = [];
+  for (const injection of injections) {
+    const message = { role: 'system', content: structuredClone(injection.content) };
+    if (injection.beforeAssistant === null) trailing.push(message);
+    else {
+      const pending = byAssistant.get(injection.beforeAssistant) ?? [];
+      pending.push(message);
+      byAssistant.set(injection.beforeAssistant, pending);
+    }
+  }
+
+  const output: Array<Record<string, unknown>> = [];
+  let assistantOrdinal = 0;
+  for (const message of messages) {
+    if (message.role === 'assistant') {
+      output.push(...(byAssistant.get(assistantOrdinal) ?? []));
+      byAssistant.delete(assistantOrdinal);
+      assistantOrdinal += 1;
+    }
+    output.push(message);
+  }
+  if (byAssistant.size > 0) throw new Error('Claude native request lost an assistant boundary needed by system history');
+  output.push(...trailing);
+  return output;
+}
+
+function normalizeLeadingSystemCache(system: unknown): void {
+  if (!Array.isArray(system)) return;
+  for (const block of system) {
+    if (block && typeof block === 'object') delete (block as Record<string, unknown>).cache_control;
+  }
+  const last = system.at(-1);
+  if (last && typeof last === 'object') {
+    (last as Record<string, unknown>).cache_control = { type: 'ephemeral', ttl: '1h' };
+  }
+}
+
+function applySystemInjections(payload: Buffer, injections?: NativeSystemInjection[]): Buffer {
+  if (!injections) return payload;
+  const body = JSON.parse(payload.toString('utf8'));
+  if (!Array.isArray(body.messages)) throw new Error('Claude native request has no message list for tool history');
+  // Never forward a request with silently missing tool removals or system updates.
+  body.messages = injectNativeSystemMessages(body.messages, injections);
+  normalizeLeadingSystemCache(body.system);
+  setReplayCacheBreakpoints(body.messages);
+  return Buffer.from(JSON.stringify(body), 'utf8');
+}
 
 export function stableRequestContext(payload: Buffer, queried: Block[] | undefined): Buffer {
   try {
@@ -606,14 +696,16 @@ export class Admission {
   private upstreamUrl: URL;
   private timeoutMs: number;
   private queried?: Block[];
+  private replayMetadata?: NativeReplayMetadata;
   private proxy: ReturnType<typeof upstreamProxy>;
 
-  private constructor(server: http.Server, url: string, upstream: URL, timeoutMs: number, queried?: Block[]) {
+  private constructor(server: http.Server, url: string, upstream: URL, timeoutMs: number, queried?: Block[], replayMetadata?: NativeReplayMetadata) {
     this.server = server;
     this.url = url;
     this.upstreamUrl = upstream;
     this.timeoutMs = timeoutMs;
     this.queried = queried;
+    this.replayMetadata = replayMetadata;
     this.proxy = upstreamProxy(upstream);
 
     this.server.on('clientError', (err: NodeJS.ErrnoException, socket) => {
@@ -632,7 +724,7 @@ export class Admission {
     });
   }
 
-  static async open(upstream: string, timeoutMs: number, queried?: Block[]): Promise<Admission> {
+  static async open(upstream: string, timeoutMs: number, queried?: Block[], replayMetadata?: NativeReplayMetadata): Promise<Admission> {
     let u: URL;
     try {
       u = new URL(upstream);
@@ -658,7 +750,7 @@ export class Admission {
     const addr = server.address() as any;
     const url = `http://127.0.0.1:${addr.port}${prefix}`;
 
-    const admission = new Admission(server, url, u, timeoutMs, queried);
+    const admission = new Admission(server, url, u, timeoutMs, queried, replayMetadata);
     server.on('request', (req, res) => admission.handleRequest(req, res, prefix));
     return admission;
   }
@@ -729,6 +821,7 @@ export class Admission {
         }
 
         payload = stableRequestContext(payload, this.queried);
+        payload = applySystemInjections(payload, this.replayMetadata?.systemInjections);
         payload = pinMessageBreakpoint(payload, this.queried);
 
         const target = this.upstreamUrl;
@@ -741,6 +834,10 @@ export class Admission {
             if (typeof v === 'string') headers[k] = v;
             else if (Array.isArray(v)) headers[k] = v.join(', ');
           }
+        }
+        if (this.replayMetadata?.betas?.length) {
+          const existing = headers['anthropic-beta'] ? headers['anthropic-beta'].split(',').map(s => s.trim()).filter(Boolean) : [];
+          headers['anthropic-beta'] = [...new Set([...existing, ...this.replayMetadata.betas])].join(',');
         }
         headers['Accept-Encoding'] = 'identity';
         headers['Content-Length'] = String(payload.length);

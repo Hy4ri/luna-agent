@@ -1,6 +1,6 @@
 // Native history, request body, and model routes. Port of directsdk.py / model_catalog.py (pinned MIT Hermes DirectSDK).
 import { createHash } from "node:crypto";
-import type { Block, Frame, NativeMessage, NativeRequest, Projection } from "./types.js";
+import type { Block, Frame, NativeMessage, NativeReplayMetadata, NativeRequest, NativeTool, Projection } from "./types.js";
 
 /** Private to this transport: DirectSDK maps it back to Luna's names. It is part of signed replay content. */
 export const TOOL_PREFIX = "mcp__hermes__";
@@ -69,9 +69,13 @@ export function conversationSessionId(system: string, frames: Frame[]): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export function prepareHistory(messages: NativeMessage[], names?: Map<string, string>): { system: string; frames: Frame[] } {
+export function prepareHistory(messages: NativeMessage[], names?: Map<string, string>): {
+  system: string; frames: Frame[]; assistantBoundaries: number[];
+} {
   const system: string[] = [];
   const frames: Frame[] = [];
+  const assistantBoundaries: number[] = [];
+  let assistantCount = 0;
   for (const message of messages) {
     const role = message.role as string;
     if (role === "system" || role === "developer") {
@@ -83,6 +87,7 @@ export function prepareHistory(messages: NativeMessage[], names?: Map<string, st
     let blocks: Block[];
     let frameRole: "user" | "assistant";
     if (role === "assistant") {
+      assistantBoundaries.push(assistantCount);
       const carriers = (message.reasoning_details ?? []).filter((d): d is Json => isObject(d) && d.type === CARRIER_TYPE);
       if (carriers.length) {
         const carrier = carriers[0]!;
@@ -95,6 +100,7 @@ export function prepareHistory(messages: NativeMessage[], names?: Map<string, st
             // frame would report the pre-compaction size. Usage is local metadata, never on the wire.
             delete restored.usage;
             frames.push({ type: "assistant", message: restored as Frame["message"] });
+            assistantCount++;
           }
           continue;
         }
@@ -107,6 +113,7 @@ export function prepareHistory(messages: NativeMessage[], names?: Map<string, st
         blocks.push({ type: "tool_use", id: call.id, name, input: call.input });
       }
       frameRole = "assistant";
+      assistantCount++;
     } else if (role === "tool") {
       const result: Block = { type: "tool_result", tool_use_id: message.tool_call_id,
         content: typeof message.content === "string" ? message.content : contentBlocks(message.content) };
@@ -125,7 +132,7 @@ export function prepareHistory(messages: NativeMessage[], names?: Map<string, st
   if (!last || last.type !== "user" || !last.message.content.length) {
     throw new Error("History must end in a nonempty user/tool-result message; assistant prefill is unsupported");
   }
-  return { system: system.join("\n\n"), frames };
+  return { system: system.join("\n\n"), frames, assistantBoundaries };
 }
 
 // Pinned native routes; a loopback gateway needs explicit long-context selection.
@@ -206,34 +213,75 @@ export function normalizeInputSchema(schema: Json): Json {
 
 export interface ToolManifestEntry { name: string; description: string; inputSchema: Json }
 
-/** The native extra body, the inert MCP inventory, and Luna -> native tool names. Both must advertise one shape. */
-export function buildBody(request: NativeRequest): { body: string; manifest: ToolManifestEntry[]; names: Map<string, string> } {
+/** Keep the live MCP inventory separate from the fixed initial upstream declarations. */
+export function buildBody(request: NativeRequest): {
+  body: string; manifest: ToolManifestEntry[]; names: Map<string, string>; replayMetadata?: NativeReplayMetadata;
+} {
   const body: Json = {};
   if (request.max_tokens !== undefined) {
     if (!Number.isSafeInteger(request.max_tokens) || request.max_tokens < 1) throw new Error("max_tokens must be a positive integer");
     body.max_tokens = request.max_tokens;
   }
-  const manifest: ToolManifestEntry[] = [];
-  const tools: Json[] = [];
+  if (request.thinking !== undefined) body.thinking = request.thinking;
+  if (request.output_config !== undefined) body.output_config = request.output_config;
+  if (request.context_management !== undefined) body.context_management = request.context_management;
+
   const names = new Map<string, string>();
   const natives = new Map<string, string>();
-  for (const tool of request.tools ?? []) {
-    if (tool.type !== "function") throw new Error("Only function tools are supported");
-    const { name } = tool.function;
-    if (typeof name !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(name) || names.has(name)) {
-      throw new Error("Tool names must be unique ASCII identifiers of at most 64 characters");
+  const nativeName = (name: string): string => {
+    if (typeof name !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+      throw new Error("Tool names must be ASCII identifiers of at most 64 characters");
     }
+    const known = names.get(name);
+    if (known) return known;
     const native = name.length <= 50 ? name : name.slice(0, 41) + "_" + createHash("sha256").update(name).digest("hex").slice(0, 8);
     if (natives.has(native)) throw new Error(`Tool name collision: '${name}' and '${natives.get(native)}' map to '${native}'`);
     names.set(name, native);
     natives.set(native, name);
-    const parameters = tool.function.parameters ?? { type: "object" };
-    const description = tool.function.description ?? "";
+    return native;
+  };
+  const definition = (name: string, description: unknown, parameters: unknown): Json => {
     if (!isObject(parameters) || typeof description !== "string") throw new Error("Tool schema must be an object and description a string");
-    const schema = normalizeInputSchema(parameters);
-    manifest.push({ name: native, description, inputSchema: schema });
-    tools.push({ name: TOOL_PREFIX + native, description, input_schema: schema });
+    return { name: TOOL_PREFIX + nativeName(name), description, input_schema: normalizeInputSchema(parameters) };
+  };
+  const definitions = (tools: NativeTool[]): Json[] => {
+    const seen = new Set<string>();
+    return tools.map(tool => {
+      if (tool.type !== "function" || seen.has(tool.function.name)) throw new Error("Tool inventories require unique function names");
+      seen.add(tool.function.name);
+      return definition(tool.function.name, tool.function.description ?? "", tool.function.parameters ?? { type: "object" });
+    });
+  };
+
+  const current = definitions(request.tools);
+  const manifest: ToolManifestEntry[] = current.map(tool => ({ name: String(tool.name).slice(TOOL_PREFIX.length),
+    description: tool.description as string, inputSchema: tool.input_schema as Json }));
+  let replayMetadata: NativeReplayMetadata | undefined;
+  if (request.replayMetadata) {
+    const { initialTools, systemInjections, betas } = request.replayMetadata;
+    const initial = initialTools ? definitions(initialTools) : undefined;
+    if (initial?.length) {
+      initial.at(-1)!.cache_control = { type: "ephemeral", ttl: "1h" };
+      body.tools = [...initial, { name: "__pi_deferred_placeholder__",
+        description: "Reserved placeholder. Never available. Never call this.",
+        input_schema: { type: "object", properties: {}, required: [] }, defer_loading: true }];
+    }
+    replayMetadata = {
+      betas,
+      systemInjections: systemInjections?.map(injection => ({ ...injection, content: injection.content.map(block => {
+        if (block.type === "tool_addition") {
+          const tool = block.tool as { definition: { name: string; description: unknown; input_schema: unknown } };
+          const d = tool.definition;
+          return { type: "tool_addition", tool: { type: "tool_definition", definition: definition(d.name, d.description, d.input_schema) } };
+        }
+        if (block.type === "tool_removal") {
+          const tool = block.tool as { name: string };
+          return { type: "tool_removal", tool: { type: "tool_reference", name: TOOL_PREFIX + nativeName(tool.name) } };
+        }
+        return structuredClone(block);
+      }) })),
+    };
   }
-  body.tools = tools;
-  return { body: JSON.stringify(body), manifest, names };
+  body.tools ??= current;
+  return { body: JSON.stringify(body), manifest, names, replayMetadata };
 }

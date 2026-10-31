@@ -7,6 +7,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Admission } from "./admission.js";
+import { chargedToUsageCredits, FATAL_BILLING_LIMIT, usageCreditsAllowed, usageCreditsChargeError, usageCreditsRejection } from "./billing.js";
 import { claudeHeaderLimit, recordClaudeLimit, type ProviderLimit } from "../provider-limits.js";
 import { CARRIER_TYPE, TOOL_PREFIX, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
 import { ClaudeTransportError, type Block, type NativeRequest, type NativeResponse, type NativeToolCall } from "./types.js";
@@ -216,8 +217,16 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
   const { signal } = options;
   const timeoutMs = options.timeoutMs ?? 180_000;
   if (signal?.aborted) throw aborted();
-  const { body, manifest, names } = buildBody(request);
-  const { system, frames } = prepareHistory(request.messages, names);
+  const { body, manifest, names, replayMetadata } = buildBody(request);
+  const { system, frames, assistantBoundaries } = prepareHistory(request.messages, names);
+  // A legacy signed carrier can restore several native messages for one Luna assistant.
+  const nativeReplay = replayMetadata ? { ...replayMetadata,
+    systemInjections: replayMetadata.systemInjections?.map(injection => {
+      if (injection.beforeAssistant === null) return injection;
+      const beforeAssistant = assistantBoundaries[injection.beforeAssistant];
+      if (beforeAssistant === undefined) throw new Error("Claude tool history has an invalid assistant boundary");
+      return { ...injection, beforeAssistant };
+    }) } : undefined;
   const env = childEnvironment(options.env);
   const upstream = (options.env && env.ANTHROPIC_BASE_URL) || UPSTREAM;
   const command = resolveClaude(options.executable, env);
@@ -225,10 +234,10 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
   const lunaNames = new Map([...names].map(([luna, native]) => [native, luna]));
 
   // The queried frame lets the relay keep the cache breakpoint off native's per-request context.
-  const admission = await Admission.open(upstream, timeoutMs, frames.at(-1)!.message.content);
+  const admission = await Admission.open(upstream, timeoutMs, frames.at(-1)!.message.content, nativeReplay);
   const root = mkdtempSync(join(tmpdir(), "claude-directsdk-"));
   let child: ChildProcessWithoutNullStreams | undefined;
-  let exited = false, handedOff = false;
+  let exited = false, handedOff = false, usedUsageCredits = false;
   const stderr: string[] = [];
   const tail = () => {
     const text = stderr.map(line => line.trim()).filter(Boolean).join(" ");
@@ -315,10 +324,14 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
       if (event === END) break;
       if (event.type === "rate_limit_event" && event.rate_limit_info && typeof event.rate_limit_info === "object") {
         recordClaudeLimit(blockedWindows, event.rate_limit_info);
+        usedUsageCredits ||= chargedToUsageCredits(event.rate_limit_info);
       }
       if (event.type === "assistant") {
         const info = event.api_error_params?.rate_limit_info;
-        if (info && typeof info === "object") recordClaudeLimit(blockedWindows, info);
+        if (info && typeof info === "object") {
+          recordClaudeLimit(blockedWindows, info);
+          usedUsageCredits ||= chargedToUsageCredits(info);
+        }
         if (event.error || event.message?.error) {
           nativeError = (event.message?.content ?? []).filter((b: Block) => b.type === "text")
             .map((b: Block) => b.text ?? "").join("\n");
@@ -434,8 +447,15 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     return {
       id: assistants.at(-1)?.id ?? "claude-native", model: request.model,
       choices: [{ finish_reason: finish, message }],
-      usage: { native_cost_usd: cost, native_usage: usage, native_admission: nativeAdmission },
+      usage: { native_cost_usd: cost, native_usage: usage, native_admission: nativeAdmission,
+        ...(usedUsageCredits && !usageCreditsAllowed(env) ? { native_billing_error: usageCreditsChargeError() } : {}) },
     };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    const billing = usedUsageCredits && !usageCreditsAllowed(env) ? usageCreditsChargeError()
+      : usageCreditsRejection(error instanceof Error ? error.message : String(error));
+    if (billing) throw new ClaudeTransportError(billing, 402, FATAL_BILLING_LIMIT);
+    throw error;
   } finally {
     signal?.removeEventListener("abort", cancel);
     rmSync(root, { recursive: true, force: true });

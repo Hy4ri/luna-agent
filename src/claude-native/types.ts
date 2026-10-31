@@ -28,12 +28,30 @@ export interface NativeTool {
   function: { name: string; description: string; parameters: object };
 }
 
+export interface NativeSystemInjection {
+  /** Insert immediately before this zero-based assistant message, or at the request tail. */
+  beforeAssistant: number | null;
+  content: Array<Record<string, unknown>>;
+}
+
+export interface NativeReplayMetadata {
+  /** Fixed initial declarations. The MCP manifest still contains the current active tools. */
+  initialTools?: NativeTool[];
+  systemInjections?: NativeSystemInjection[];
+  betas?: string[];
+}
+
 export interface NativeRequest {
   model: string;
   messages: NativeMessage[];
   tools: NativeTool[];
   stream: true;
   max_tokens?: number;
+  thinking?: { type: "adaptive" | "enabled" | "disabled"; budget_tokens?: number; display?: string };
+  output_config?: { effort: string };
+  context_management?: { edits: unknown[] };
+  providerThinkingLevel?: string;
+  replayMetadata?: NativeReplayMetadata;
 }
 
 export interface NativeUsage {
@@ -70,6 +88,7 @@ export interface NativeResponse {
     native_cost_usd: number;
     native_usage: NativeUsage;
     native_admission?: { upstream_requests: number; blocked_requests: number; request_id?: string | null; unrestored?: string };
+    native_billing_error?: string;
   };
 }
 
