@@ -602,6 +602,9 @@ using native inline tool blocks and the matching beta header. This avoids changi
 when deferred tools become available. Unsupported models, or histories without an initial active tool,
 use the current tool inventory instead. Only currently offered tools can execute, regardless of history.
 Each generation still starts a fresh CLI process. Warm-process reuse is not enabled.
+Tools hidden by settings or unavailable vision/video routes are omitted from both historical additions
+and removals in the outgoing request. Stored conversation history and tool selections remain unchanged.
+This prevents native replay from removing a tool that the request never declared.
 
 Luna executes all tools. Claude receives an inert tool inventory and cannot execute Luna tools.
 Luna supplies actual host results on the next request. Claude's temporary transcript is not resumed.

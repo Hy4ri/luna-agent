@@ -1,5 +1,6 @@
 // Live tool switch: names in the disabledTools setting leave every model request and every call is refused.
 import { GenerationTask, ToolTask, defineExtension, hook } from "@earendil-works/pi-durable";
+import { filterHiddenTools } from "./tool-visibility.js";
 
 export function createToggleExtension(disabled: () => readonly string[]) {
   return defineExtension({ name: "toggles", hooks: [
@@ -8,8 +9,7 @@ export function createToggleExtension(disabled: () => readonly string[]) {
       async beforeRequest(request) {
         const off = new Set(disabled());
         if (!off.size) return undefined;
-        return { messages: request.messages.map(m => m.role === "system" && m.toolsAdded?.some(t => off.has(t.name))
-          ? { ...m, toolsAdded: m.toolsAdded.filter(t => !off.has(t.name)) } : m) };
+        return { messages: filterHiddenTools(request.messages, off) };
       },
     }),
     hook(ToolTask, {
