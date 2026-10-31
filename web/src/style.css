@@ -970,7 +970,8 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 #input { width: 100%; min-height: 38px; max-height: 22dvh; resize: none; overflow-y: auto; scrollbar-width: thin; border: 0; background: transparent; border-radius: 0; padding: 4px 2px 6px; outline: none; font-size: 16px; font-weight: 450; line-height: 1.6; }
 #input:focus-visible, #palette-input:focus-visible { outline: none; }
 .compose-bar { display: flex; align-items: center; gap: 8px; }
-#attach { flex: none; color: var(--muted-foreground); }
+#attach, #camera { flex: none; color: var(--muted-foreground); }
+@media (pointer: fine) { #camera { display: none; } }
 #attach svg, #send svg, #stop svg { width: 18px; height: 18px; }
 #controls { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 #model { flex: 0 1 auto; min-width: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 12px; color: var(--muted-foreground); background: transparent; border: 1px solid transparent; border-radius: var(--radius); min-height: 32px; padding: 0 8px; }
