@@ -46,7 +46,7 @@ import { ExecTarget, WorkerError, type WorkerHub } from "./workers.js";
 import { createPlannedSession, linkProject, planSession, SessionCreateError, THINKING_LEVELS as SESSION_THINKING_LEVELS, type SessionRequest } from "./session-create.js";
 import { createAnalyticsReader } from "./analytics.js";
 import type { SessionTitler } from "./titles.js";
-import { readLimitWait, type LimitContinuer } from "./limit-continue.js";
+import { readLimitWait, type LimitContinuer, type RecoverySummary } from "./limit-continue.js";
 import { REVIEW_DEFAULT_PROMPT } from "./review.js";
 import { SideCommands, type SideInput, type SideJob } from "./side-commands.js";
 import { sideMedia, resolveMedia, mediaResponse } from "./side-media.js";
@@ -154,7 +154,10 @@ export function createApp(opts: ServerOptions) {
     const pending = stops.get(id);
     if (pending) return pending;
     draining.add(id);
-    const work = serial(id, () => conv.abort(context));
+    const work = serial(id, async () => {
+      await opts.limitContinuer?.cancel(Number(conv.id), "Stopped by the user.");
+      return conv.abort(context);
+    });
     stops.set(id, work);
     try { await work; }
     finally { draining.delete(id); stops.delete(id); }
@@ -359,7 +362,7 @@ export function createApp(opts: ServerOptions) {
   // runs. Rebuilding every row costs ~10 synchronous SQLite reads per conversation and blocked the event loop for
   // seconds. Cache the storage-derived part of each row and rebuild only conversations that a commit touched.
   // Metadata, project links and the limit-continue setting stay live: they are cheap and change outside commits.
-  type SessionRow = SessionState & { hidden: boolean; parent: unknown; firstUser: string; running: boolean; wait: number | null; lastActivity: number | null; createdAt: number | null; worker: number | null };
+  type SessionRow = SessionState & { hidden: boolean; parent: unknown; firstUser: string; running: boolean; wait: number | null; recovery: RecoverySummary | null; lastActivity: number | null; createdAt: number | null; worker: number | null };
   const rows = new Map<string, SessionRow>();
   const generations = new Map<string, number>();
   let epoch = 0, caching = true;
@@ -376,11 +379,12 @@ export function createApp(opts: ServerOptions) {
     const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
     const firstUser = textOf(head.find((e) => e.kind === "pi.user")).replace(/\s+/g, " ").slice(0, 60);
     const ownHead = r.parent ? (await tx.scanEntries({ conversationId: r.id, order: "ascending", minEntryId: (Number(r.parent.at) + 1) as never }, 30)).items : head;
-    if (ownHead.some((e) => e.kind === "delegate.child")) return { hidden: true, parent: null, firstUser, running: false, status: "ready", statusReason: null, wait: null, lastActivity: null, createdAt: null, worker: null };
+    if (ownHead.some((e) => e.kind === "delegate.child")) return { hidden: true, parent: null, firstUser, running: false, status: "ready", statusReason: null, wait: null, recovery: null, lastActivity: null, createdAt: null, worker: null };
     const running = await isRunning(tx, r.id);
     return {
       hidden: false, parent: r.parent ?? null, firstUser, running, ...await readSessionStatus(tx, r.id, running),
       wait: running ? null : (await readLimitWait(tx, r.id))?.resumeAt ?? null,
+      recovery: running ? null : await opts.limitContinuer?.recovery(tx, r.id) ?? null,
       lastActivity: await newestMessageTime(tx, r.id),
       createdAt: (await tx.doc(SessionCreated, r.id)).at ?? null,
       worker: (await tx.doc(ExecTarget, r.id)).worker,
@@ -414,12 +418,14 @@ export function createApp(opts: ServerOptions) {
     const built = await listRows();
     const links = opts.conversations?.projects.links();
     const continuing = !!opts.limitContinuer?.enabled();
-    const sessions: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; resumeAt: number | null; lastActivity: number | null; createdAt: number | null; worker: number | null })[] = [];
+    const recoveryBudget = opts.limitContinuer?.attemptLimit();
+    const sessions: (SessionState & { id: unknown; parent: unknown; project: number | null; title: string; archived: boolean; pinned: boolean; running: boolean; resumeAt: number | null; recovery: RecoverySummary | null; lastActivity: number | null; createdAt: number | null; worker: number | null })[] = [];
     for (const [id, row] of built) {
       if (row.hidden) continue;
-      const { hidden: _hidden, firstUser, wait, ...rest } = row;
+      const { hidden: _hidden, firstUser, wait, recovery, ...rest } = row;
       const meta = opts.conversations?.get(id) ?? { title: null, archived: false, pinned: false };
-      sessions.push({ ...rest, id, project: links?.get(id) ?? (opts.conversations ? GENERAL_PROJECT.id : null), ...meta, title: meta.title ?? firstUser, resumeAt: continuing && !row.running ? wait : null });
+      sessions.push({ ...rest, id, project: links?.get(id) ?? (opts.conversations ? GENERAL_PROJECT.id : null), ...meta, title: meta.title ?? firstUser, resumeAt: continuing && !row.running ? wait : null, recovery: !row.running && (continuing || recovery?.pausedReason) && recovery
+        ? { ...recovery, maxAttempts: recoveryBudget ?? recovery.maxAttempts } : null });
     }
     sessions.sort((a, b) => Number(b.pinned) - Number(a.pinned) || (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id));
     return c.json({ sessions });
@@ -440,6 +446,7 @@ export function createApp(opts: ServerOptions) {
       const owner = (await tx.doc(ProcessOwner, id as ConversationId)).token;
       return harness.busyTools?.sessionProcesses(id as ConversationId, owner).some(p => p.status === "running") ?? false;
     });
+    if (!preview) await opts.limitContinuer?.reconcile();
     return c.json(preview ? { ids: selected } : { deleted: selected });
   });
 
@@ -451,6 +458,7 @@ export function createApp(opts: ServerOptions) {
     for (const k of ["archived", "pinned"]) if (k in b && typeof b[k] !== "boolean") return err(c, 400, k + " must be a boolean");
     const id = Number(c.req.param("id")); if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
     const changes = { ...b, ...("title" in b ? { title: b.title.trim() } : {}) } as Partial<ConversationMeta>;
+    if (changes.archived) await opts.limitContinuer?.cancel(id, "Session archived.");
     return c.json(await opts.conversations.update(id, changes));
   });
   app.get("/v1/session-titles", c => c.json({ available: !!opts.titler?.available() }));
@@ -463,7 +471,10 @@ export function createApp(opts: ServerOptions) {
   app.delete("/v1/sessions/:id", async c => {
     if (!opts.conversations) return err(c, 404, "conversation management disabled");
     const id = Number(c.req.param("id")); if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
-    return c.json({ deleted: await opts.conversations.delete(id) });
+    await opts.limitContinuer?.cancel(id, "Session deleted.");
+    const deleted = await opts.conversations.delete(id);
+    await opts.limitContinuer?.reconcile();
+    return c.json({ deleted });
   });
 
   // ---- projects: a named working directory that new sessions inherit ----
@@ -740,7 +751,8 @@ export function createApp(opts: ServerOptions) {
       // Mark read in the same commit. readSessionStatus reads the doc before the mark,
       // so this GET returns the completion status; subsequent reads see "ready".
       if (!running && ["finished", "review_finished"].includes(status.status)) await markSessionRead(tx, conv.id);
-      return { running, ...status, resumeAt: await resumeAt(tx, conv.id, running) };
+      return { running, ...status, resumeAt: await resumeAt(tx, conv.id, running),
+        recovery: running ? null : await opts.limitContinuer?.recovery(tx, conv.id) ?? null };
     }, context);
     return c.json({
       id: conv.id,
@@ -749,6 +761,7 @@ export function createApp(opts: ServerOptions) {
       status: sessionStatus.status,
       statusReason: sessionStatus.statusReason,
       resumeAt: sessionStatus.resumeAt,
+      recovery: sessionStatus.recovery,
       agent: { model: a.model ?? null, thinkingLevel: a.thinkingLevel, cwd: a.cwd ?? null, instructions: a.instructions ?? null, tools: a.tools.map((t) => t.name) },
       machine: await machineOf(conv.id),
       usage: usage ?? null,
@@ -1078,6 +1091,7 @@ export function createApp(opts: ServerOptions) {
     if (await harness.commit(tx => isRunning(tx, conv.id), context)) return err(c, 409, "Cannot change the model or agent settings while busy.");
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId)) return err(c, 400, "unknown model");
     if (b.thinkingLevel && !THINKING_LEVELS.includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
+    if (b.model !== undefined) await opts.limitContinuer?.cancel(Number(conv.id), "Session model changed.");
     await conv.configure({
       ...(b.model !== undefined && { model: b.model }),
       ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }),
@@ -1368,6 +1382,7 @@ export function createApp(opts: ServerOptions) {
       const textOnly = typeof input === "string" || input.every(block => block.type === "text");
       const whenBusy = body.whenBusy === "reject" && !override ? "reject" : !textOnly || mode === "queue" ? "followUp" : mode === "steer" ? "steer" : "redirect";
       const prepared = await prepareAttachments(input, conv, c.req.raw.signal);
+      await opts.limitContinuer?.cancel(Number(conv.id), "New input replaced automatic recovery.");
       const sub = await conv.submit({ type: "input", content: prepared, requestId: body.requestId, whenBusy }, context);
       if (sub.action === "steered" && mode === "interrupt") harness.busyTools.yield(conv.id);
       const action = sub.action ?? ((await sub.status(context)).status === "queued" ? "queued" : "started");
@@ -1782,6 +1797,7 @@ export function createApp(opts: ServerOptions) {
     try { pretty = JSON.stringify(JSON.parse(raw), null, 2); } catch { /* keep raw */ }
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
+    await opts.limitContinuer?.cancel(Number(conv.id), "New input replaced automatic recovery.");
     const sub = await conv.submit({ type: "input", content: `[webhook from ${source}]\n${pretty}`, requestId: c.req.header("x-request-id") ?? undefined }, context);
     return c.json({ accepted: true, submissionId: sub.id }, 202); // fire-and-forget; poll GET /v1/submissions/:id
   });

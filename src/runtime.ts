@@ -299,6 +299,13 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("delegate")) await subagentNotifier.start();
   const crewNotifier = new CrewNotifier({ harness, log, title: id => conversations.get(id).title, skip: id => conversations.get(id).archived });
   if (on("delegate")) await crewNotifier.start();
+  // Continue after a usage limit resets. Cron runs have their own timeout and run log, so they never wait.
+  const isCronConversation = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
+  const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
+    defaultModel: () => providers.defaultModel(),
+    skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)) });
+  await limitContinuer.start();
+
   harness.resume(); // continue any run a previous process left unfinished
 
   if (on("cron")) {
@@ -336,6 +343,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   settings?.onApply(async (_old, next) => {
     const warnings: string[] = [];
     providers.reconcile(next.providers);
+    await limitContinuer.reconcile();
     for (const f of await mcp.reconcile(next.mcpServers)) warnings.push(`mcp ${f.name}: ${f.error}`);
     if (scheduler && store) {
       syncImproveJob(live(), store);
@@ -360,13 +368,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   } });
   titler.start();
   recall?.titles((id) => conversations.get(id).title);
-
-  // Continue after a usage limit resets. Cron runs have their own timeout and run log, so they never wait.
-  const isCronConversation = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
-  const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
-    defaultModel: () => providers.defaultModel(),
-    skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)) });
-  await limitContinuer.start();
 
   return {
     uploads,

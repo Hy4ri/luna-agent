@@ -5,6 +5,8 @@ export const LIMIT_DIAGNOSTIC = "luna.usage-limit";
 export type ProviderLimit = {
   kind: "wait" | "fatal";
   windows: { id: string; resetAt: number | null }[];
+  receivedAt?: number;
+  response?: string;
 };
 
 export function epochReset(seconds: unknown): number | null {
@@ -19,11 +21,27 @@ export function latestLimitReset(limit: ProviderLimit): number | undefined {
 }
 
 export function readProviderLimit(message: Pick<AssistantMessage, "diagnostics">): ProviderLimit | undefined {
-  const details = message.diagnostics?.findLast(d => d.type === LIMIT_DIAGNOSTIC)?.details;
+  const details = message.diagnostics?.findLast(d => d.type === LIMIT_DIAGNOSTIC)?.details as Record<string, unknown> | undefined;
   if (!details || (details.kind !== "wait" && details.kind !== "fatal") || !Array.isArray(details.windows)) return undefined;
   if (!details.windows.every(w => w !== null && typeof w === "object" && !Array.isArray(w) &&
     typeof w.id === "string" && (w.resetAt === null || typeof w.resetAt === "number" && Number.isFinite(w.resetAt) && w.resetAt > 0 && w.resetAt <= 8.64e15))) return undefined;
-  return { kind: details.kind, windows: details.windows as ProviderLimit["windows"] };
+
+  let receivedAt: number | undefined;
+  if (typeof details.receivedAt === "number" && Number.isFinite(details.receivedAt) && details.receivedAt > 0 && details.receivedAt <= 8.64e15) {
+    receivedAt = details.receivedAt;
+  }
+
+  let response: string | undefined;
+  if (typeof details.response === "string" && details.response.length <= 4000) {
+    response = details.response;
+  }
+
+  return {
+    kind: details.kind,
+    windows: details.windows as ProviderLimit["windows"],
+    ...(receivedAt !== undefined ? { receivedAt } : {}),
+    ...(response !== undefined ? { response } : {}),
+  };
 }
 
 /** Track only rejected Claude windows. Allowed overage must not block continuation. */

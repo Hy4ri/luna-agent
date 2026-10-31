@@ -105,28 +105,40 @@ loads its shell locally and does not have this browser limitation.
 - Operator alerts: when `cron.notifyUrl` is set, a parked task (`task_parked`) or a failed daemon session (`session_failed`) is also posted there.
   A task is parked after it is cut off by a crash five times in a row. `GET /v1/tasks/parked` lists parked tasks;
   `POST /v1/tasks/:id/retry` runs one again.
-- `autoContinue`: continue a turn automatically after a rate or usage limit resets. `enabled` defaults to `false`.
+- `autoContinue`: resume a stopped turn after a rate or usage limit. `enabled` defaults to `false`.
   Edit it under **Settings → Chat → Continue after usage limits**. Changes apply live.
-  When a top-level turn stops on a limit error, Luna uses structured provider quota data when available.
-  Claude native preserves rejected SDK quota windows and upstream quota headers. Codex preserves HTTP quota headers,
-  streamed `codex.rate_limits` windows (including metered model buckets), and the refusal's `resets_at` field.
-  These details stay in assistant diagnostics, not in the model-visible conversation.
-  Luna waits until one minute after the latest blocked window resets. An exact reset requires a time for every blocked window.
-  Other providers retain message-based recovery: epoch fields (`resets_at`), clock times with a zone
-  ("resets 12:30am (Asia/Amman)"), durations ("try again in 6m0s", Google `retryDelay`), and ISO times.
-  Without a complete reset time, Luna retries after 2, 10, 30, then 60 minutes, but not before any known blocked reset.
-  The continuation says whether the reported reset time or an estimated retry delay has passed. It does not claim quota was checked.
-  Reset timestamps already expired when the turn failed are not scheduled. Short transient errors still use the runtime's in-turn retries.
-  Context overflow, authentication, billing, and `insufficient_quota` errors never wait.
-  `maxWaitHours` (default `168`) skips longer waits. `maxAttempts` (default `5`) stops continuations that hit a limit again.
-  A new message or **Cancel** next to the resume time cancels the scheduled continuation.
-  Delivery rechecks the failed generation, provider/model, current input, pending user requests, archive state, and live enable setting.
-  Recovery uses the selected request model, including local long-context aliases, rather than the transport's upstream model ID.
-  These checks also run atomically during input admission, so cancellation or newer input before admission prevents delivery.
-  Waits survive a restart. A stable submission ID prevents duplicate delivery after a crash.
-  The saved wait remains until submission succeeds; failed delivery is retried after 30 seconds with the same ID.
-  Waits saved by older versions without a failed-generation identity are discarded on startup; retry those turns manually.
-  Cron runs, archived sessions, and subagents never continue automatically.
+  Quota refusals have one retry owner: the durable continuation scheduler. Provider-local and generation retry
+  loops do not rapidly retry a 429, even when automatic continuation is disabled. Non-quota transient network/server retries remain separate.
+  Claude native preserves rejected SDK windows and upstream quota headers. Codex preserves HTTP headers,
+  streamed `codex.rate_limits` windows, and refusal reset epochs. Google preserves allowlisted quota details and receipt time.
+  These details stay in assistant diagnostics, not model-visible conversation text.
+  For one quota window, an absolute `quotaResetTimeStamp` takes precedence over `quotaResetDelay`.
+  Google `RetryInfo.retryDelay`, Retry-After guidance, reset epochs, ISO times, zoned clock times
+  (such as "resets 1am (Asia/Amman)"), and relative text are also supported.
+  Relative delays are anchored to the original response receipt time, never the request start or a later reload.
+  Independent blocked windows and mandatory retry guidance remain lower bounds. Unknown windows prevent an exact-recovery claim.
+  A known quota reset gets a 60-second safety margin, plus 0–30 seconds of positive jitter saved once.
+  Without reliable future timing, delays are 2, 10, 30, then 60 minutes, bounded by the retry budget.
+  Stale reset timestamps use fallback backoff, never immediate repeated requests.
+  Sessions on the same configured provider/model route share cooldown evidence. Only one automatic recovery turn runs there at a time.
+  The next waiting session starts after a safety interval. Different provider IDs are not assumed to share an account.
+  Coordination is local to one daemon; it does not detect unknown shared accounts, aliases, or other daemon instances.
+  `maxWaitHours` (default `168`) limits both an individual scheduled wait and the complete recovery lifetime from its first failure.
+  `maxAttempts` (default `5`) limits admitted automatic continuations in that recovery chain.
+  Neither budget resets after a daemon restart. A provider reset beyond the time limit leaves recovery paused, not shortened.
+  Authentication, payment-required errors, empty balances, `insufficient_quota`, and context overflow never enter quota recovery.
+  An upgrade suggestion with a recoverable quota reset is not, by itself, a permanent billing failure.
+  New input, **Stop**, **Cancel**, a model change, archive/delete, a pending user action, or disabling recovery invalidates the old wait.
+  Re-enabling recovery does not silently revive cancelled work. Cron runs, owned subagents, and side questions remain excluded.
+  Stable submission IDs and durable receipt lookup prevent duplicate continuation after an ambiguous acknowledgement or crash.
+  Local delivery failures use three redelivery delays: 30 seconds, 2 minutes, and 10 minutes. Persistent failure then pauses recovery.
+  Receipt lookups and redelivery of the same admitted input do not spend extra model-attempt budget.
+  The existing wait status shows reported or estimated retry timing and the attempt budget. A reported reset does not confirm quota availability.
+  Budget exhaustion and delivery failures show a pause reason. Waiting does not add recurring transcript messages or quota polls.
+  Session detail/list responses keep `resumeAt` and add an optional `recovery` summary
+  (`active`, `resumeAt`, `attempt`, `maxAttempts`, `exact`, `source`, `pausedReason`). Updates use existing SSE invalidation.
+  Legacy waits without a failed-generation identity are retired. Identity-valid legacy waits retain their saved time;
+  recovery pauses conservatively when its original lifetime or submission ownership cannot be established.
 - `sessionTalk`: messages between sessions. `enabled` defaults to `true`; `maxHops` (1 through 20) defaults to `3`.
   Edit it under **Settings → Chat**. Changes apply live. See **Sessions talk with each other**.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.
