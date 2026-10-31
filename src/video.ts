@@ -3,6 +3,7 @@ import { AgentDoc, GenerationTask, defineExtension, defineTool, hook } from "@ea
 import { Type } from "typebox";
 import type { LunaConfig } from "./config.js";
 import { materializeVideo } from "./video-source.js";
+import { filterHiddenTools } from "./tool-visibility.js";
 
 type Config = Pick<LunaConfig, "auxiliary" | "video" | "dataDir" | "configPath">;
 type Ref = { provider: string; modelId: string };
@@ -97,8 +98,7 @@ export function createVideoExtension(options: { config: () => Config; models: Mo
     async beforeRequest(request, api, context) {
       const ref = (await api.snapshot(AgentDoc, api.conversationId, context))?.model ?? options.defaultModel();
       const available = !!await resolveVideoClient(options.models, options.config(), ref);
-      return { messages: available ? request.messages : request.messages.map(m => m.role === "system" && m.toolsAdded
-        ? { ...m, toolsAdded: m.toolsAdded.filter(t => t.name !== "video_analyze") } : m) };
+      return { messages: available ? request.messages : filterHiddenTools(request.messages, new Set(["video_analyze"])) };
     },
   })], tools: [defineTool({
     name: "video_analyze", executionMode: "sequential",

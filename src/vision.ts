@@ -7,6 +7,7 @@ import type { ContextView, ConversationId } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import type { LunaConfig } from "./config.js";
 import { fitVisionImage, loadVisionImage } from "./vision-images.js";
+import { filterHiddenTools } from "./tool-visibility.js";
 
 export const VisionState = defineDoc<{ turn: string; counts: Record<string, number>; seen: string[] }>({
   checkpointWhen: () => false,
@@ -62,8 +63,7 @@ export function createVisionExtension(options: { config: () => Config; models: M
       } catch { /* Try auxiliary. */ }
       const available = capable || !!(await resolveAuxVision(options.models, cfg)).model;
       // Filter actual request declarations, without changing stored user tool selections.
-      return { messages: available ? request.messages : request.messages.map(m => m.role === "system" && m.toolsAdded
-        ? { ...m, toolsAdded: m.toolsAdded.filter(t => t.name !== "vision_analyze") } : m) };
+      return { messages: available ? request.messages : filterHiddenTools(request.messages, new Set(["vision_analyze"])) };
     },
   })], tools: [defineTool({
     name: "vision_analyze", executionMode: "sequential",
