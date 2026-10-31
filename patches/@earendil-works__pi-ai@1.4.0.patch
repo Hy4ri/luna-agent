@@ -1,7 +1,64 @@
+diff --git a/dist/api/google-generative-ai.js b/dist/api/google-generative-ai.js
+index 1a33683db114ae21bda752d23fdc061fb6bbdbaf..a31854dbe1e1d915e11187ba6fe371dbdaffe16b 100644
+--- a/dist/api/google-generative-ai.js
++++ b/dist/api/google-generative-ai.js
+@@ -2,6 +2,8 @@ import { GoogleGenAI, } from "@google/genai";
+ import { calculateCost, clampThinkingLevel } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+ import { AssistantMessageEventStream } from "../utils/event-stream.js";
++import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.js";
++import { googleQuotaDiagnostic } from "../utils/google-quota.js";
+ import { providerHeadersToRecord } from "../utils/headers.js";
+ import { getIdentityHeaders } from "../utils/identity.js";
+ import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
+@@ -227,6 +229,10 @@ export const stream = (model, context, options) => {
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
+             output.errorMessage = formatProviderError(normalizeProviderError(error));
++            const receivedAt = Date.now(), quota = googleQuotaDiagnostic(error, receivedAt);
++            if (quota && output.stopReason === "error") {
++                appendAssistantMessageDiagnostic(output, { type: "luna.usage-limit", timestamp: receivedAt, details: quota });
++            }
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+         }
+diff --git a/dist/api/google-vertex.js b/dist/api/google-vertex.js
+index d3cbcf530801c76ba777ba701179549ca7088ef8..8a9a315923770fbcb3422ea92cb2fe4dbcfda328 100644
+--- a/dist/api/google-vertex.js
++++ b/dist/api/google-vertex.js
+@@ -2,6 +2,8 @@ import { GoogleGenAI, ResourceScope, } from "@google/genai";
+ import { calculateCost, clampThinkingLevel } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+ import { AssistantMessageEventStream } from "../utils/event-stream.js";
++import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.js";
++import { googleQuotaDiagnostic } from "../utils/google-quota.js";
+ import { providerHeadersToRecord } from "../utils/headers.js";
+ import { getIdentityHeaders } from "../utils/identity.js";
+ import { getProviderEnvValue } from "../utils/provider-env.js";
+@@ -229,6 +231,10 @@ export const stream = (model, context, options) => {
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
+             output.errorMessage = formatProviderError(normalizeProviderError(error));
++            const receivedAt = Date.now(), quota = googleQuotaDiagnostic(error, receivedAt);
++            if (quota && output.stopReason === "error") {
++                appendAssistantMessageDiagnostic(output, { type: "luna.usage-limit", timestamp: receivedAt, details: quota });
++            }
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+         }
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 45bcd08..919e833 100644
+index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597794bc29f 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
+@@ -53,7 +53,7 @@ function isTerminalRateLimitError(errorText) {
+     return /GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i.test(errorText);
+ }
+ function isRetryableError(status, errorText) {
+-    if (status === 429 && isTerminalRateLimitError(errorText)) {
++    if (status === 429 || isTerminalRateLimitError(errorText)) {
+         return false;
+     }
+     if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
 @@ -162,6 +162,7 @@ export const stream = (model, context, options) => {
              stopReason: "pending",
              timestamp: Date.now(),
@@ -33,7 +90,15 @@ index 45bcd08..919e833 100644
                  }
                  catch (error) {
                      if (error instanceof Error) {
-@@ -348,6 +356,10 @@ export const stream = (model, context, options) => {
+@@ -313,6 +321,7 @@ export const stream = (model, context, options) => {
+                     lastError = error instanceof Error ? error : new Error(String(error));
+                     // Network errors are retryable
+                     if (attempt < maxRetries &&
++                        !isCodexNonTransportError(lastError) &&
+                         !(lastError instanceof RetryDelayExceededError) &&
+                         !lastError.message.includes("usage limit")) {
+                         const delayMs = BASE_DELAY_MS * 2 ** attempt;
+@@ -348,6 +357,10 @@ export const stream = (model, context, options) => {
              }
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
              output.errorMessage = formatProviderError(normalizeProviderError(error));
@@ -44,7 +109,7 @@ index 45bcd08..919e833 100644
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
          }
-@@ -501,6 +513,48 @@ class CodexApiError extends Error {
+@@ -501,6 +514,48 @@ class CodexApiError extends Error {
          this.cause = options?.cause;
      }
  }
@@ -93,7 +158,7 @@ index 45bcd08..919e833 100644
  class CodexProtocolError extends Error {
      payload;
      constructor(message, options) {
-@@ -540,6 +594,7 @@ function extractCodexEventError(event) {
+@@ -540,6 +595,7 @@ function extractCodexEventError(event) {
      };
  }
  async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
@@ -101,7 +166,7 @@ index 45bcd08..919e833 100644
      for await (const event of events) {
          try {
              await onProviderStreamEvent?.(event, model);
-@@ -551,18 +606,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+@@ -551,18 +607,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
          const type = typeof event.type === "string" ? event.type : undefined;
          if (!type)
              continue;
@@ -140,7 +205,7 @@ index 45bcd08..919e833 100644
          }
          if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
              const response = event.response;
-@@ -1262,6 +1334,11 @@ async function parseErrorResponse(response) {
+@@ -1262,6 +1335,11 @@ async function parseErrorResponse(response) {
                  friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
              }
              message = err.message || friendlyMessage || message;
@@ -152,3 +217,76 @@ index 45bcd08..919e833 100644
          }
      }
      catch { }
+diff --git a/dist/utils/google-quota.js b/dist/utils/google-quota.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..fad981953ca82864d3f096e7d8e0d3c8206a007a
+--- /dev/null
++++ b/dist/utils/google-quota.js
+@@ -0,0 +1,38 @@
++// luna: persist only quota fields before the provider's display error loses its body.
++// Parsing reset dates belongs to Luna's scheduler, not the SDK retry loop.
++export function googleQuotaDiagnostic(error, receivedAt) {
++    const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
++    const parse = value => {
++        if (object(value)) return value;
++        if (typeof value !== "string" || value.length > 4000) return undefined;
++        const start = value.indexOf("{"), end = value.lastIndexOf("}");
++        if (start < 0 || end < start) return undefined;
++        try { const body = JSON.parse(value.slice(start, end + 1)); return object(body) ? body : undefined; }
++        catch { return undefined; }
++    };
++    const raw = parse(error?.error) ?? parse(error?.body) ?? parse(error?.message);
++    const body = object(raw?.error) ? raw.error : raw;
++    const status = typeof error?.status === "number" ? error.status : body?.code;
++    if ([401, 402, 403].includes(status)) return { kind: "fatal", windows: [], receivedAt };
++    if (status !== 429 && body?.status !== "RESOURCE_EXHAUSTED") return undefined;
++    const details = [];
++    for (const detail of Array.isArray(body?.details) ? body.details.slice(0, 32) : []) {
++        if (detail?.["@type"] === "type.googleapis.com/google.rpc.ErrorInfo") {
++            const metadata = {};
++            for (const key of ["quotaResetTimeStamp", "quotaResetDelay"]) {
++                const value = detail.metadata?.[key];
++                if (typeof value === "string" && value.length <= 128) metadata[key] = value;
++            }
++            details.push({ "@type": detail["@type"], metadata,
++                ...(typeof detail.reason === "string" ? { reason: detail.reason.slice(0, 128) } : {}) });
++        }
++        else if (detail?.["@type"] === "type.googleapis.com/google.rpc.RetryInfo" && typeof detail.retryDelay === "string") {
++            details.push({ "@type": detail["@type"], retryDelay: detail.retryDelay.slice(0, 128) });
++        }
++    }
++    const selected = { code: 429, status: "RESOURCE_EXHAUSTED", details };
++    if (typeof body?.message === "string") selected.message = body.message.slice(0, 1000);
++    const response = JSON.stringify(selected);
++    // Do not truncate JSON into a malformed body. Display error text remains a fallback.
++    return { kind: "wait", windows: [], receivedAt, ...(response.length <= 4000 ? { response } : {}) };
++}
+diff --git a/dist/utils/provider-retry.js b/dist/utils/provider-retry.js
+index 5960cf7f5e992eef7d1b96530cea66c6f616a6d2..0d7629d77faffd0e407eeb5383d6a715fac91113 100644
+--- a/dist/utils/provider-retry.js
++++ b/dist/utils/provider-retry.js
+@@ -7,6 +7,8 @@ function isProviderError(error) {
+ }
+ /** Mirrors the pinned OpenAI/Anthropic SDK retry policy; review when either SDK is upgraded. */
+ function isRetryableProviderError(error) {
++    // luna: quota recovery has one owner, the durable limit scheduler.
++    if (error.status === 429) return false;
+     const shouldRetry = error.headers?.get("x-should-retry");
+     if (shouldRetry === "true")
+         return true;
+diff --git a/dist/utils/retry.js b/dist/utils/retry.js
+index 1ae291c296dc5d35a7b827e1098977e0d0db32cf..c318fae6d7f481974bbef42861b9ed1480f760ac 100644
+--- a/dist/utils/retry.js
++++ b/dist/utils/retry.js
+@@ -202,7 +202,11 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
+ export function isRetryableAssistantError(message) {
+     if (message.stopReason !== "error" || !message.errorMessage)
+         return false;
++    // luna: never multiply quota refusals into rapid generation retries.
++    if (message.diagnostics?.some(d => d.type === "luna.usage-limit" &&
++        (d.details?.kind === "wait" || d.details?.kind === "fatal"))) return false;
+     const errorMessage = message.errorMessage;
++    if (/(?<![a-z0-9])429(?![a-z0-9])|rate[_ -]?limit|too many requests|individual quota reached|quota[_ -]exhausted|resource[_ ]exhausted|quotaResetTimeStamp|quotaResetDelay/i.test(errorMessage)) return false;
+     if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage))
+         return false;
+     return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);

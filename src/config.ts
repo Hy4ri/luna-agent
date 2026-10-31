@@ -61,9 +61,9 @@ export const ConfigSchema = z
     /** Continue a turn automatically after a usage limit resets. Off by default. */
     autoContinue: z.strictObject({
       enabled: z.boolean().default(false),
-      /** Longer waits (for example a weekly cap) are not scheduled. */
+      /** Maximum individual wait and total recovery-chain lifetime, in hours. */
       maxWaitHours: z.number().positive().max(24 * 31).default(168),
-      /** Continuations in a row that may hit a limit again before Luna stops. */
+      /** Maximum admitted automatic continuations in one recovery chain. */
       maxAttempts: z.number().int().min(1).max(50).default(5),
     }).prefault({}),
     /** Sessions can message each other with session_send. A peer message never interrupts and grants no permission. */

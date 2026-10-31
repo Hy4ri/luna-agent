@@ -66,7 +66,7 @@ function notifyChanges(list: SessionMeta[]) {
   if (!prev || document.hasFocus()) return; // First load, or the user is looking at the app.
   for (const s of list) {
     const was = prev.get(String(s.id)), now = next.get(String(s.id))!;
-    if ((was === "running" || was === "reviewing") && NOTIFY_ON.has(now)) notify(sessionTitle(s), SESSION_STATUS_LABELS[now]);
+    if (!s.recovery?.active && (was === "running" || was === "reviewing") && NOTIFY_ON.has(now)) notify(sessionTitle(s), SESSION_STATUS_LABELS[now]);
   }
 }
 
@@ -118,9 +118,9 @@ export const toggleArchived = (s: SessionMeta) => act(async () => {
 export const cancelLimitWait = (s: SessionMeta) =>
   act(() => json(`/v1/sessions/${s.id}/limit-wait`, { method: "DELETE" }));
 /** Local time of a scheduled continuation; the date appears only when it is not today. */
-export function resumeLabel(at: number, now = Date.now()) {
+export function resumeLabel(at: number, now = Date.now(), exact = true) {
   const d = new Date(at), sameDay = d.toDateString() === new Date(now).toDateString();
-  return "Resumes " + (sameDay ? "" : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " ")
+  return (exact ? "Retry after " : "Estimated retry ") + (sameDay ? "" : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " ")
     + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 export async function deleteSession(s: SessionMeta) {

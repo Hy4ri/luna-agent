@@ -20,6 +20,15 @@ export interface SessionMeta {
   statusReason?: string | null;
   /** Epoch ms when Luna continues after a usage limit; null when nothing is scheduled. */
   resumeAt?: number | null;
+  recovery?: {
+    active: boolean;
+    resumeAt?: number;
+    attempt: number;
+    maxAttempts: number;
+    exact: boolean;
+    source?: string;
+    pausedReason?: string;
+  } | null;
   project?: number | null;
   /** Execution machine of the session: a worker id, or null for the main host. */
   worker?: number | null;
