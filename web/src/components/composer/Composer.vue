@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
-import { ArrowUp, Square, FileText, Loader2 } from "@lucide/vue";
+import { ArrowUp, Square, FileText, Loader2, Camera } from "@lucide/vue";
 import { json, post } from "@/lib/api";
 import { composer, addAttachment, captureAttachmentContext, removeAttachment, saveDraft, restoreDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
@@ -79,6 +79,7 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
 
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
+const cameraRef = ref<HTMLInputElement | null>(null);
 const mentionMenuRef = ref<HTMLElement | null>(null);
 const commandMenuRef = ref<HTMLElement | null>(null);
 const atMenuRef = ref<HTMLElement | null>(null);
@@ -517,6 +518,7 @@ function handleFileChange(e: Event) {
   const context = captureAttachmentContext();
   const fileArray = Array.from(files);
   if (fileRef.value) fileRef.value.value = "";
+  if (cameraRef.value) cameraRef.value.value = "";
   for (const f of fileArray) {
     void addAttachment(f, context);
   }
@@ -799,6 +801,25 @@ onBeforeUnmount(() => {
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L12 3"/></svg>
         </button>
+        <button
+          type="button"
+          id="camera"
+          class="icon-button"
+          title="Take photo"
+          aria-label="Take photo"
+          @click="cameraRef?.click()"
+        >
+          <Camera :size="18" aria-hidden="true" />
+        </button>
+        <input
+          type="file"
+          id="camera-file"
+          ref="cameraRef"
+          accept="image/*"
+          capture="environment"
+          hidden
+          @change="handleFileChange"
+        />
         <input
           type="file"
           id="file"
