@@ -566,10 +566,28 @@ experimental, so pin the opencode version you tested.
 
 The `claude-cli` provider uses the installed Claude Code login. It requires a recent official
 Claude Code CLI. The transport runs inside the daemon; it does not require Python or a Hermes installation.
-`LUNA_CLAUDE_EXECUTABLE` selects the Claude executable; the default is `~/.local/bin/claude`.
+`LUNA_CLAUDE_EXECUTABLE` selects the Claude executable. Otherwise Luna searches for `claude` on PATH,
+then the usual installation directories, including `~/.local/bin`.
 Use `claude auth login`, `CLAUDE_CODE_OAUTH_TOKEN`, or `CLAUDE_CONFIG_DIR` for authentication.
+Provider availability checks `claude auth status`, not just the executable's presence. The check sends no
+model prompt, has a ten-second timeout, and terminates its owned process group on cancellation or timeout.
+Readiness, model discovery, usage reports, and generations share executable selection and environment guards.
 Conflicting API keys, custom Anthropic endpoints, and Bedrock/Vertex/Foundry overrides block requests.
 The provider does not silently change to API billing or another model.
+
+Paid usage credits are disabled in Luna by default. If Claude reports that a response used overage,
+Luna records its completed generation's tokens and native cost, then stops with a non-retryable billing error.
+It does not execute that response's tools or automatically continue. This is a reactive guard: that first
+response may already be charged. Disable extra usage in Claude account settings to prevent the first charge.
+To permit paid overage intentionally, set `LUNA_CLAUDE_ALLOW_USAGE_CREDITS=1` in the daemon environment.
+The values `true`, `yes`, and `on` also enable it. Other values leave the guard active. Upstream requests
+that demand usage credits produce a billing error instead of an automatic retry.
+
+Models use the installed Anthropic catalog's reasoning support and thinking-level map. The existing
+thinking selector controls adaptive effort on supported models and token-budget thinking on older models.
+Turning thinking off disables it explicitly where the model supports off. Requests are clamped to the model's
+supported levels; models that require thinking use their lowest supported level instead.
+Unknown models do not advertise unsupported reasoning features.
 
 Luna replays separate native user, assistant, tool-use, and tool-result frames.
 It no longer embeds the conversation as a JSON string in one user prompt.
@@ -578,29 +596,30 @@ A request-scoped local relay permits at most one upstream Messages request.
 The relay keeps cache markers on recurring content, not on Claude's per-request context.
 This preserves reusable message prefixes; it does not guarantee vendor cache hits or quota savings.
 
+On models with catalogued native system-message and tool-change support, the initial tool list stays fixed.
+Later additions, removals, and same-name redefinitions are sent chronologically at assistant boundaries,
+using native inline tool blocks and the matching beta header. This avoids changing the initial tool prefix
+when deferred tools become available. Unsupported models, or histories without an initial active tool,
+use the current tool inventory instead. Only currently offered tools can execute, regardless of history.
+Each generation still starts a fresh CLI process. Warm-process reuse is not enabled.
+
 Luna executes all tools. Claude receives an inert tool inventory and cannot execute Luna tools.
 Luna supplies actual host results on the next request. Claude's temporary transcript is not resumed.
 A tool-result mismatch blocks forwarding instead of accepting a synthetic denial.
 Only a complete, validated response can return actionable tool calls.
-Plain model IDs use a conservative 200000-token window. Explicit `[1m]` routes report 1000000 tokens.
+Known long-context models route to their native `[1m]` variant and report 1000000 tokens.
+Explicit `[1m]` routes also report 1000000 tokens. Other routes report a conservative 200000-token window.
 The adapter has no input-size guard. The runtime's context-window compaction limits history size.
 
 Each completed generation records Claude Code's `total_cost_usd` estimate in the assistant usage and the conversation's existing usage ledger. The transport reads the final result once; history replay acknowledgments are not added. Each process starts without resuming saved costs and permits one queried generation. Tool-use/max-turn and handled refusal completions use the same cost path. A missing, negative, or non-finite native cost fails response validation instead of silently recording zero.
 
 `/usage`, `/cost`, and analytics read this recorded total. It is Claude Code's USD estimate, not a subscription bill or a local catalog-price calculation. Claude Code does not supply per-token-category dollar amounts, so component cost fields remain zero; the reported total is authoritative. Older zero-cost entries are not backfilled. Existing conversations start accumulating cost only for generations run with this fix; previous totals remain incomplete.
 
-### Offline verification
+### Verification
 
-`pnpm run verify:claude-cli:budget` checks the provider without inference.
-`pnpm run verify:claude-cli:native` checks conversion, Python parity, process handling, and local HTTP admission.
-To qualify the installed CLI against a synthetic local peer, run:
-
-```sh
-pnpm run verify:claude-cli:wire /absolute/path/to/claude
-```
-
-This wire check uses temporary configuration and fake credentials. It does not call Anthropic.
-`verify:claude-cli:live` is separate and uses the real subscription; run it only when intended.
+Run `pnpm run typecheck` for backend changes. This repository does not include the historical
+`verify:claude-cli:*` scripts. Compiler success does not prove live vendor behavior or cache savings.
+Authenticated model generations consume account quota and require separate approval.
 
 ## Validation and credentials
 

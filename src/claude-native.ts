@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import {
-  getCurrentTools, getSystemMessageText, renderSystemMessageUpdate,
-  type ImageContent, type TextContent, type TranscriptContext,
+  getCurrentTools, getInitialSystemMessage, getSystemMessageText, renderSystemMessageUpdate,
+  type ImageContent, type TextContent, type ThinkingLevel, type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { runClaude } from "./claude-native/transport.js";
-import type { Block, NativeMessage, NativeRequest, NativeResponse, NativeToolCall } from "./claude-native/types.js";
+import type {
+  Block, NativeMessage, NativeRequest, NativeResponse, NativeSystemInjection, NativeToolCall,
+} from "./claude-native/types.js";
 
 export type { NativeToolCall, NativeRequest, NativeResponse } from "./claude-native/types.js";
 
@@ -75,19 +77,93 @@ function claudeToolIds(messages: TranscriptContext["messages"]): Map<string, str
   return map;
 }
 
+function mapThinkingLevelToEffort(model: { thinkingLevelMap?: Record<string, string | null> }, level: ThinkingLevel): string {
+  const mapped = model.thinkingLevelMap?.[level];
+  if (typeof mapped === "string") return mapped;
+  switch (level) {
+    case "minimal":
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    case "high":
+    default:
+      return "high";
+  }
+}
+
+const INLINE_TOOLS_BETA = "inline-tools-2026-09-15";
+
 /** Convert only model-visible content. Luna remains the sole transcript owner. */
-export function prepareNativeRequest(context: TranscriptContext, model: { id: string }, maxTokens?: number): NativeRequest {
+export function prepareNativeRequest(
+  context: TranscriptContext,
+  model: {
+    id: string;
+    reasoning?: boolean;
+    maxTokens?: number;
+    thinkingLevelMap?: Record<string, string | null>;
+    compat?: {
+      forceAdaptiveThinking?: boolean;
+      supportsMidConvoSystemMessages?: boolean;
+      supportsMidConvoToolChanges?: boolean;
+    };
+  },
+  maxTokens?: number,
+  reasoning?: ThinkingLevel,
+  thinkingBudgets?: Partial<Record<"minimal" | "low" | "medium" | "high", number>>,
+): NativeRequest {
   const messages: NativeMessage[] = [];
   const toolIds = claudeToolIds(context.messages);
-  // The first system message stays the fixed system prompt. A later section update is sent in place as a reminder,
-  // so it does not rewrite the cached prefix of every earlier frame.
-  const first = context.messages.find(m => m.role === "system");
+
+  const initialSystemMessage = getInitialSystemMessage(context.messages);
+  const initialTools = initialSystemMessage?.toolsAdded ?? [];
+  const supportsNativeToolChanges =
+    Boolean(model.compat?.supportsMidConvoSystemMessages) &&
+    Boolean(model.compat?.supportsMidConvoToolChanges) &&
+    initialTools.length > 0;
+
+  // The first system message stays the fixed system prompt.
+  const first = initialSystemMessage ?? context.messages.find(m => m.role === "system");
   const system = first ? getSystemMessageText(first) : "";
   if (system) messages.push({ role: "system", content: system });
+
+  const systemInjections: NativeSystemInjection[] = [];
+  let pendingSystemBlocks: Block[] = [];
+
   for (const message of context.messages) {
     if (message.role === "system") {
-      const update = message === first ? "" : renderSystemMessageUpdate(message);
-      if (update) messages.push({ role: "user", content: `<system-reminder>\n${update}\n</system-reminder>` });
+      if (message === first) continue;
+      if (supportsNativeToolChanges) {
+        const text = renderSystemMessageUpdate(message);
+        const blocksList: Block[] = [];
+        if (text) blocksList.push({ type: "text", text });
+        const added = message.toolsAdded ?? [];
+        const redefined = new Set(added.map(t => t.name));
+        for (const tool of message.toolsRemoved ?? []) {
+          if (redefined.has(tool.name)) continue;
+          blocksList.push({
+            type: "tool_removal",
+            tool: { type: "tool_reference", name: tool.name },
+          });
+        }
+        for (const tool of added) {
+          blocksList.push({
+            type: "tool_addition",
+            tool: {
+              type: "tool_definition",
+              definition: {
+                name: tool.name,
+                description: tool.description,
+                input_schema: tool.parameters ?? { type: "object", properties: {}, required: [] },
+              },
+            },
+          });
+        }
+        if (blocksList.length > 0) pendingSystemBlocks.push(...blocksList);
+      } else {
+        const update = renderSystemMessageUpdate(message);
+        if (update) messages.push({ role: "user", content: `<system-reminder>\n${update}\n</system-reminder>` });
+      }
       continue;
     }
     if (message.role === "user") {
@@ -96,6 +172,11 @@ export function prepareNativeRequest(context: TranscriptContext, model: { id: st
       messages.push({ role: "tool", tool_call_id: toolIds.get(message.toolCallId) ?? message.toolCallId,
         is_error: message.isError, content: blocks(message.content) });
     } else {
+      if (supportsNativeToolChanges && pendingSystemBlocks.length > 0) {
+        const assistantIdx = messages.filter(m => m.role === "assistant").length;
+        systemInjections.push({ beforeAssistant: assistantIdx, content: pendingSystemBlocks });
+        pendingSystemBlocks = [];
+      }
       const text = message.content.filter(b => b.type === "text");
       const calls: NativeToolCall[] = message.content.filter(b => b.type === "toolCall").map(b => ({
         id: toolIds.get(b.id) ?? b.id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.arguments) },
@@ -117,6 +198,12 @@ export function prepareNativeRequest(context: TranscriptContext, model: { id: st
       messages.push(native);
     }
   }
+
+  if (supportsNativeToolChanges && pendingSystemBlocks.length > 0) {
+    systemInjections.push({ beforeAssistant: null, content: pendingSystemBlocks });
+    pendingSystemBlocks = [];
+  }
+
   const request: NativeRequest = {
     model: model.id, messages, stream: true,
     tools: getCurrentTools(context.messages).map(tool => ({
@@ -126,6 +213,42 @@ export function prepareNativeRequest(context: TranscriptContext, model: { id: st
   if (maxTokens !== undefined) {
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new Error("Claude max_tokens must be a positive safe integer");
     request.max_tokens = maxTokens;
+  }
+
+  if (model.reasoning && reasoning) {
+    if (model.compat?.forceAdaptiveThinking === true) {
+      const effort = mapThinkingLevelToEffort(model, reasoning);
+      request.providerThinkingLevel = effort;
+      request.thinking = { type: "adaptive", display: "summarized" };
+      request.output_config = { effort };
+    } else {
+      const level = reasoning === "xhigh" || reasoning === "max" ? "high" : reasoning;
+      const budgets = { minimal: 1024, low: 2048, medium: 8192, high: 16384, ...thinkingBudgets };
+      const ceiling = request.max_tokens ?? model.maxTokens ?? 32000;
+      const budget = Math.min(budgets[level], ceiling - 1024);
+      if (!Number.isSafeInteger(budget) || budget < 1024) {
+        throw new Error("Claude token-budget thinking requires at least 1024 thinking tokens and 1024 answer tokens");
+      }
+      request.max_tokens = ceiling;
+      request.thinking = { type: "enabled", budget_tokens: budget, display: "summarized" };
+    }
+  } else if (model.reasoning && model.thinkingLevelMap?.off !== null) {
+    request.thinking = { type: "disabled" };
+    request.context_management = { edits: [] };
+  }
+
+  if (supportsNativeToolChanges) {
+    request.replayMetadata = {
+      initialTools: initialTools.map(tool => ({ type: "function",
+        function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
+      systemInjections,
+      betas: [INLINE_TOOLS_BETA],
+    };
+  }
+
+  if (request.thinking?.type === "enabled") {
+    request.replayMetadata ??= {};
+    request.replayMetadata.betas = [...(request.replayMetadata.betas ?? []), "interleaved-thinking-2025-05-14"];
   }
   return request;
 }
@@ -154,6 +277,10 @@ export function validateNativeResponse(value: unknown, model: string): asserts v
   const cost = object(value.usage) ? value.usage.native_cost_usd : undefined;
   if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
     throw new Error("Claude native response missing valid USD cost");
+  }
+  const billingError = object(value.usage) ? value.usage.native_billing_error : undefined;
+  if (billingError !== undefined && typeof billingError !== "string") {
+    throw new Error("Claude native response has invalid native_billing_error");
   }
 }
 

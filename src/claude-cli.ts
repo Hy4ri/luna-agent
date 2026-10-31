@@ -1,20 +1,20 @@
 // Claude Code owns authentication; Luna owns tools and the authoritative transcript.
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { LIMIT_DIAGNOSTIC } from "./provider-limits.js";
 import { ClaudeTransportError } from "./claude-native/types.js";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
-  createProvider, createAssistantMessageEventStream, getCurrentTools,
-  type ProviderStreams, type AssistantMessage, type TextContent, type ThinkingContent, type ToolCall,
+  createProvider, createAssistantMessageEventStream, getCurrentTools, clampThinkingLevel,
+  type ProviderStreams, type AssistantMessage, type Model, type TextContent, type ThinkingContent, type ToolCall,
 } from "@earendil-works/pi-ai";
 import { prepareNativeRequest, runNativeRequest, nativeResponseCarrier, validateNativeResponse } from "./claude-native.js";
 import { nativeContextWindow } from "./claude-native/history.js";
+import { FATAL_BILLING_LIMIT } from "./claude-native/billing.js";
+import { readClaudeLoginStatus } from "./claude-native/status.js";
+import { claudeControlOptions } from "./claude-native/transport.js";
 
 export function claudeExecutable() {
-  return process.env.LUNA_CLAUDE_EXECUTABLE ?? join(homedir(), ".local/bin/claude");
+  return claudeControlOptions().executable;
 }
 
 const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
@@ -48,7 +48,11 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
     };
     try {
       events.push({ type: "start", partial: message });
-      const request = prepareNativeRequest(context, model, options?.maxTokens);
+      if (model.api !== "anthropic-messages") throw new Error("Claude CLI requires the anthropic-messages API");
+      const level = clampThinkingLevel(model, options?.reasoning ?? "off");
+      const request = prepareNativeRequest(context, model as Model<"anthropic-messages">,
+        options?.maxTokens, level === "off" ? undefined : level, options?.thinkingBudgets);
+      message.providerThinkingLevel = request.providerThinkingLevel;
       const response = await runNativeRequest(request, { executable: claudeExecutable(), signal: options?.signal,
         onText: textDelta, onThinking: thinkingDelta });
       validateNativeResponse(response, model.id);
@@ -68,6 +72,9 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       // Use native pricing, not the zero-priced subscription catalog. Native exposes a total,
       // not per-token-category dollar amounts; do not invent a component breakdown.
       message.usage.cost.total = response.usage.native_cost_usd;
+      if (response.usage.native_billing_error) {
+        throw new ClaudeTransportError(response.usage.native_billing_error, 402, FATAL_BILLING_LIMIT);
+      }
       message.responseId = response.id;
       message.rawStopReason = choice.finish_reason;
       const fullText = final.content ?? "";
@@ -124,26 +131,19 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
   return events;
 };
 
-function discoveryEnvironment() {
-  const env = { ...process.env };
-  const conflicts = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_FOUNDRY_API_KEY"]
-    .filter(key => env[key]);
-  conflicts.push(...["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"]
-    .filter(key => !["", "0", "false", "no", "off"].includes((env[key] ?? "").toLowerCase())));
-  if (conflicts.length) throw new Error(`Claude CLI subscription refuses conflicting auth/backend overrides: ${conflicts.join(", ")}`);
-  delete env.CLAUDECODE;
-  return { ...env, DISABLE_AUTOUPDATER: "1", DISABLE_FEEDBACK_COMMAND: "1", CLAUDE_CODE_DISABLE_TERMINAL_TITLE: "1",
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1",
-    ENABLE_CLAUDEAI_MCP_SERVERS: "0" };
-}
-
 export function claudeCliProvider() {
   const catalog = anthropicProvider().getModels();
   const modelDefinition = (id: string, name: string) => {
-    const known = catalog.find(m => m.id === id);
+    const known = catalog.find(m => m.id === id.replace(/\[1m\]$/u, ""));
     return {
       id, name: `${name} (CLI)`, api: "anthropic-messages" as const,
-      provider: "claude-cli", baseUrl: "", input: ["text" as const, "image" as const], reasoning: false,
+      provider: "claude-cli", baseUrl: "", input: ["text" as const, "image" as const], reasoning: known?.reasoning ?? false,
+      ...(known?.thinkingLevelMap ? { thinkingLevelMap: known.thinkingLevelMap } : {}),
+      ...(known?.compat ? { compat: {
+        forceAdaptiveThinking: known.compat.forceAdaptiveThinking,
+        supportsMidConvoSystemMessages: known.compat.supportsMidConvoSystemMessages,
+        supportsMidConvoToolChanges: known.compat.supportsMidConvoToolChanges,
+      } } : {}),
       // Same table the transport routes by, so the reported window is the one the CLI runs at.
       // Unknown/plain native routes stay 200K. Never copy a larger API-only window.
       contextWindow: nativeContextWindow(id), maxTokens: known?.maxTokens ?? 32000,
@@ -153,12 +153,23 @@ export function claudeCliProvider() {
   };
   return createProvider({
     id: "claude-cli", name: "Claude Code (CLI login)",
-    auth: { apiKey: { name: "Claude Code login", resolve: async () =>
-      existsSync(claudeExecutable()) ? { auth: {}, source: "Claude Code CLI login" } : undefined } },
+    auth: { apiKey: {
+      name: "Claude Code login",
+      check: async ({ signal }) => {
+        const status = await readClaudeLoginStatus(signal);
+        return status.loggedIn ? { type: "oauth" as const,
+          source: status.plan ? `Claude Code ${status.plan}` : "Claude Code CLI login" } : undefined;
+      },
+      resolve: async ({ signal }) => {
+        signal.throwIfAborted();
+        claudeControlOptions();
+        return { auth: {}, source: "Claude Code CLI login" };
+      },
+    } },
     models: catalog.map(m => modelDefinition(m.id, m.name)),
     fetchModels: async ({ signal, allowNetwork }) => {
       if (!allowNetwork) return [];
-      const env = discoveryEnvironment();
+      const { executable, env } = claudeControlOptions();
       const controller = new AbortController();
       const abort = () => controller.abort();
       signal.addEventListener("abort", abort, { once: true });
@@ -168,7 +179,7 @@ export function claudeCliProvider() {
       try {
         // An empty iterable sends no user frame. Only the initialize handshake is used.
         session = query({ prompt: (async function* () {})(), options: {
-          pathToClaudeCodeExecutable: claudeExecutable(), tools: [], settingSources: [], env,
+          pathToClaudeCodeExecutable: executable, tools: [], settingSources: [], env,
           abortController: controller,
         } });
         const available = await session.supportedModels();

@@ -9,6 +9,8 @@ One generation is one CLI process group and one admitted upstream Messages reque
 - `admission.ts`: one-use loopback HTTP relay. It forwards one `/v1/messages` POST, captures the SSE answer,
   and moves cache breakpoints onto content the next request replays unchanged.
 - `transport.ts`: environment guard, CLI spawn, frame replay, event loop, final response.
+- `billing.ts`: opt-in paid usage credits and non-retryable billing errors.
+- `status.ts`: bounded, cancellable local `claude auth status` checks without inference.
 - `inert-mcp.mjs`: tool inventory without implementations. Luna executes every tool.
 - `types.ts`: shared shapes.
 
@@ -16,7 +18,13 @@ One generation is one CLI process group and one admitted upstream Messages reque
 
 Ported from [NousResearch/hermes-official-plugins, claude-subscription-directsdk](https://github.com/NousResearch/hermes-official-plugins/tree/f98c0999c6dd4e59680addc8f3480208018ab5b0/claude-subscription-directsdk),
 pinned commit `f98c0999c6dd4e59680addc8f3480208018ab5b0`. License: `UPSTREAM_LICENSE` (MIT, Nous Research and contributors).
-Windows support, the Hermes client API, reasoning effort, and request fields Luna never sends were dropped.
+Windows support, the Hermes client API, and request fields Luna never sends were dropped.
+
+The billing guard and chronological tool-change design also draw on
+[earendil-works/pi-claude-code](https://github.com/earendil-works/pi-claude-code/tree/70abb65186592ca788b29b3db22c3160d629c41f),
+pinned commit `70abb65186592ca788b29b3db22c3160d629c41f`.
+Its MIT notice is retained in `PI_CLAUDE_CODE_LICENSE`. The installed pi-ai Anthropic contract determines
+native inline-tool blocks and model reasoning support; the older extension is not the wire-protocol authority.
 
 Deliberate Luna changes, kept from the Python version:
 
@@ -34,16 +42,15 @@ The session id and native cwd must stay stable for one conversation; both sit in
 - Inherited API-key/backend overrides fail closed. Normal CLI login and OAuth-token configuration remain available.
 - Abort kills the owned CLI process group before the request rejects.
 - The final response and token usage come from the relay's completed upstream capture.
+- Reported paid overage stops the loop before tool execution unless `LUNA_CLAUDE_ALLOW_USAGE_CREDITS=1`.
+  Completed response tokens and the native USD estimate remain recorded. This cannot undo the first charge;
+  disable extra usage in the Claude account to prevent it.
+- Availability uses `claude auth status`; it does not submit a model prompt or copy credential files.
+- Models advertise only catalogued thinking support. Thinking off is explicit when supported, not an inherited CLI default.
+  Models that require thinking clamp off to their lowest supported level.
+- One fresh CLI process remains the rule. No warm-process reuse or saved native transcript is introduced.
 - There is no input-size guard. The runtime's compaction owns history size.
 
-Run from the repository root:
-
-```sh
-pnpm run verify:claude-cli:budget
-pnpm run verify:claude-cli:native
-pnpm run verify:claude-cli:wire /absolute/path/to/claude
-```
-
-The wire check uses the real executable with temporary configuration, fake credentials, and a synthetic
-loopback peer. Its token usage is synthetic. Outbound proxies point at a closed loopback port.
-The authenticated `verify:claude-cli:live` script is separate and opt-in.
+Run `pnpm run typecheck` from the repository root. Repository policy forbids test files and harnesses;
+compiler checks do not prove live vendor behavior. The historical `verify:claude-cli:*` scripts are not shipped.
+Authenticated inference requires separate approval and is not part of the compiler gate.
