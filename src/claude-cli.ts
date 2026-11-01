@@ -11,7 +11,7 @@ import { createStreamDeltas } from "./cli-stream.js";
 import { prepareNativeRequest, runNativeRequest, nativeResponseCarrier, validateNativeResponse } from "./claude-native.js";
 import { nativeContextWindow } from "./claude-native/history.js";
 import { FATAL_BILLING_LIMIT } from "./claude-native/billing.js";
-import { readClaudeLoginStatus } from "./claude-native/status.js";
+import { readClaudeLoginStatusCached } from "./claude-native/status.js";
 import { claudeControlOptions } from "./claude-native/transport.js";
 
 export function claudeExecutable() {
@@ -144,7 +144,7 @@ export function claudeCliProvider() {
     auth: { apiKey: {
       name: "Claude Code login",
       check: async ({ signal }) => {
-        const status = await readClaudeLoginStatus(signal);
+        const status = await readClaudeLoginStatusCached(signal);
         return status.loggedIn ? { type: "oauth" as const,
           source: status.plan ? `Claude Code ${status.plan}` : "Claude Code CLI login" } : undefined;
       },
