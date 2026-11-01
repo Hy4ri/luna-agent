@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight, Paperclip, Download } from '@lucide/vue';
 import { api, json, post } from '@/lib/api';
+import { saveFile } from '@/lib/platform';
 import { history } from '@/stores/sessions';
 import { chat } from '@/stores/chat';
 import { boardChanged, openPanel, ui } from '@/stores/app';
@@ -158,8 +159,7 @@ async function downloadFile(id: number, a: { id: number; name: string }) {
   try {
     const r = await api(attachPath(id, a.id));
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-    const url = URL.createObjectURL(await r.blob()), link = document.createElement('a');
-    link.href = url; link.download = a.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    await saveFile(await r.blob(), a.name);
   } catch (e) { error.value = message(e); }
 }
 async function removeFile(id: number, a: { id: number; name: string }) {

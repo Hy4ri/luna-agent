@@ -2,6 +2,7 @@
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { Download, FileText, FileWarning, Loader2 } from "@lucide/vue";
 import { api, serverUrl, token } from "@/lib/api";
+import { saveFile } from "@/lib/platform";
 import { openImage } from "@/stores/image-viewer";
 
 const props = defineProps<{
@@ -28,6 +29,7 @@ function formatSize(bytes?: number): string {
 }
 
 let activeAbort: AbortController | null = null;
+let loaded: Blob | null = null;
 
 function cleanup() {
   if (activeAbort) {
@@ -38,9 +40,10 @@ function cleanup() {
     URL.revokeObjectURL(objectUrl.value);
     objectUrl.value = null;
   }
+  loaded = null;
 }
 
-async function fetchBlob(id: string): Promise<string | null> {
+async function fetchBlob(id: string): Promise<Blob | null> {
   cleanup();
   loading.value = true;
   error.value = null;
@@ -57,9 +60,9 @@ async function fetchBlob(id: string): Promise<string | null> {
     }
     const blob = await res.blob();
     if (controller.signal.aborted) return null;
-    const url = URL.createObjectURL(blob);
-    objectUrl.value = url;
-    return url;
+    objectUrl.value = URL.createObjectURL(blob);
+    loaded = blob;
+    return blob;
   } catch (err) {
     if (controller.signal.aborted) return null;
     error.value = (err as Error).message || "Failed to load upload";
@@ -89,24 +92,13 @@ watch(
 
 async function downloadFile() {
   if (!props.uploadId) return;
-  if (objectUrl.value) {
-    triggerBrowserDownload(objectUrl.value, props.name);
-    return;
+  const blob = loaded ?? (await fetchBlob(props.uploadId));
+  if (!blob) return;
+  try {
+    await saveFile(blob, props.name);
+  } catch (err) {
+    error.value = (err as Error).message || String(err) || "Could not save the file";
   }
-  const url = await fetchBlob(props.uploadId);
-  if (url) {
-    triggerBrowserDownload(url, props.name);
-  }
-}
-
-function triggerBrowserDownload(url: string, filename: string) {
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename || "download";
-  link.rel = "noopener";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
 }
 
 onBeforeUnmount(() => {
