@@ -694,6 +694,17 @@ LUNA_PLAYWRIGHT_PATH=/path/to/playwright pnpm run verify:settings-ui
 Also run `verify:settings-page-ui` to check full-page navigation, tabs, drafts, deep links, mobile layout, and error recovery.
 Both tests use isolated config files, databases, and a faux model. They do not call an external AI provider.
 
+## OpenAI Codex subscription
+
+The built-in **OpenAI Codex** provider (`openai-codex`) uses the ChatGPT Codex login and
+`https://chatgpt.com/backend-api`. It uses the Codex plan quota, the same quota as the Codex app and CLI.
+The **OpenAI** provider (`openai`) uses Sign in with ChatGPT token sharing on `https://api.openai.com/v1`.
+That path has a separate "Subscription Sharing" usage limit. A Codex reset does not reset it.
+
+Log in from Settings → Providers → OpenAI Codex. Select browser login, or device code login on a headless host.
+The credential is stored in `auth.json` under `openai-codex`. Luna does not read or change `~/.codex/auth.json`
+for chat, so the Codex CLI login and its refresh token stay independent.
+
 ## OpenAI long-context models
 
 The built-in OpenAI provider reads its authenticated `/v1/models` catalog at startup,

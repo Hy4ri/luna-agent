@@ -189,7 +189,7 @@ export const ConfigSchema = z
         ctx.addIssue({ code: "custom", path: ["subagents", "profiles", role, "tools"], message: "Child profiles cannot delegate, ask a hidden questionnaire, mutate a board, or load additional tools." });
     }
     if (new Set(c.providers.map(p => p.id)).size !== c.providers.length) ctx.addIssue({ code: "custom", path: ["providers"], message: "duplicate provider id" });
-    const builtinProviders = ["faux", "claude-cli", "opencode-cli", "anthropic", "openai", "github-copilot", "openrouter", "google", "xai", "deepseek", "groq", "mistral"];
+    const builtinProviders = ["faux", "claude-cli", "opencode-cli", "anthropic", "openai", "openai-codex", "github-copilot", "openrouter", "google", "xai", "deepseek", "groq", "mistral"];
     if (c.providers.some(p => builtinProviders.includes(p.id))) ctx.addIssue({ code: "custom", path: ["providers"], message: "custom provider id conflicts with a built-in provider" });
     const seen = new Set<string>();
     for (const s of c.mcpServers) {
