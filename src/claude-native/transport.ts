@@ -1,5 +1,5 @@
 // In-process Claude Code transport: one CLI process group and one admitted upstream request per generation.
-// Port of the pinned MIT Hermes DirectSDK client (directsdk.py + bridge.py). POSIX only.
+// Port of the pinned MIT Nous Research DirectSDK client (directsdk.py + bridge.py). POSIX only.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { accessSync, closeSync, constants, fchmodSync, lstatSync, mkdirSync, mkdtempSync, openSync,
   rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Admission } from "./admission.js";
 import { chargedToUsageCredits, FATAL_BILLING_LIMIT, usageCreditsAllowed, usageCreditsChargeError, usageCreditsRejection } from "./billing.js";
 import { claudeHeaderLimit, recordClaudeLimit, type ProviderLimit } from "../provider-limits.js";
-import { CARRIER_TYPE, TOOL_PREFIX, conversationToolPrefix, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
+import { CARRIER_TYPE, conversationToolPrefix, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
 import { ClaudeTransportError, type Block, type NativeRequest, type NativeResponse, type NativeToolCall } from "./types.js";
 
 export const INSTALL_HINT = "Claude Code is not installed (no `claude` on PATH or in the usual install directories). " +
@@ -265,7 +265,7 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     env.ANTHROPIC_BASE_URL = admission.url;
     if (request.max_tokens !== undefined) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(request.max_tokens);
     // Match the selected wire namespace without rewriting signed history.
-    const serverName = toolPrefix === TOOL_PREFIX ? "luna" : "hermes";
+    const serverName = toolPrefix.slice("mcp__".length, -"__".length);
     const mcp = { mcpServers: { [serverName]: { command: process.execPath, args: [INERT_MCP, join(root, "tools.json")] } } };
     const args = ["-p", "--model", nativeModel(request.model), "--input-format", "stream-json",
       "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--tools", "",

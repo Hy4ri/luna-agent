@@ -1,21 +1,36 @@
-// Native history, request body, and model routes. Port of directsdk.py / model_catalog.py (pinned MIT Hermes DirectSDK).
+// Native history, request body, and model routes. Port of directsdk.py / model_catalog.py (pinned MIT Nous Research DirectSDK).
 import { createHash } from "node:crypto";
 import type { Block, Frame, NativeMessage, NativeReplayMetadata, NativeRequest, NativeTool, Projection } from "./types.js";
 
 /** Private to this transport: DirectSDK maps it back to Luna's names. It is part of signed replay content. */
 export const TOOL_PREFIX = "mcp__luna__";
-export const LEGACY_TOOL_PREFIX = "mcp__hermes__";
-
-/** Old carriers have no wirePrefix. Keep their signed messages and inventory names unchanged. */
+/** Read the namespace from saved native messages; never rename signed tool-use blocks. */
 export function conversationToolPrefix(messages: NativeMessage[]): string {
+  let prefix: string | undefined;
+  const accept = (value: unknown) => {
+    if (typeof value !== "string" || !/^mcp__[A-Za-z0-9_-]+__$/.test(value)) {
+      throw new Error("Unsupported native tool prefix");
+    }
+    if (prefix !== undefined && prefix !== value) throw new Error("Conflicting native tool namespaces");
+    prefix = value;
+  };
   for (const message of messages) {
     for (const detail of message.reasoning_details ?? []) {
       if (!isObject(detail) || detail.type !== CARRIER_TYPE) continue;
-      if (detail.wirePrefix === undefined || detail.wirePrefix === LEGACY_TOOL_PREFIX) return LEGACY_TOOL_PREFIX;
-      if (detail.wirePrefix !== TOOL_PREFIX) throw new Error("Unsupported native tool prefix");
+      if (detail.wirePrefix !== undefined) accept(detail.wirePrefix);
+      // Older carriers have no namespace marker. Infer it from their original tool-use names.
+      if (!Array.isArray(detail.messages)) continue;
+      for (const native of detail.messages) {
+        if (!isObject(native) || !Array.isArray(native.content)) continue;
+        for (const block of native.content) {
+          if (!isObject(block) || block.type !== "tool_use" || typeof block.name !== "string") continue;
+          const match = /^mcp__[A-Za-z0-9_-]+?__/.exec(block.name);
+          if (match) accept(match[0]);
+        }
+      }
     }
   }
-  return TOOL_PREFIX;
+  return prefix ?? TOOL_PREFIX;
 }
 export const CARRIER_TYPE = "claude-subscription-directsdk-experimental.native_assistant";
 
@@ -186,14 +201,14 @@ export function nativeContextWindow(model: string): number {
   catch { return 200_000; }
 }
 
-/** Bottom-up map over a schema tree, as Hermes' schema_sanitizer._rewrite. Never mutates its input. */
+/** Bottom-up map over a schema tree, as the upstream schema_sanitizer._rewrite. Never mutates its input. */
 function rewrite(schema: unknown, fn: (node: Json) => unknown): unknown {
   if (Array.isArray(schema)) return schema.map(item => rewrite(item, fn));
   if (!isObject(schema)) return schema;
   return fn(Object.fromEntries(Object.entries(schema).map(([k, v]) => [k, rewrite(v, fn)])));
 }
 
-/** Hermes strip_nullable_unions(keep_nullable_hint=False): collapse a nullable union to its single non-null branch. */
+/** Upstream strip_nullable_unions(keep_nullable_hint=False): collapse a nullable union to its single non-null branch. */
 function stripNullableUnions(schema: unknown): unknown {
   const collapse = (node: Json): unknown => {
     for (const key of ["anyOf", "oneOf"]) {
