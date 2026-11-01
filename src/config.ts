@@ -83,7 +83,7 @@ export const ConfigSchema = z
       side_question: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
       session_title: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
       review: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
-      video: z.strictObject({ model: z.string().min(1) }).optional(),
+      video: z.strictObject({ provider: z.string().min(1).optional(), model: z.string().min(1) }).optional(),
       vision: z.strictObject({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
     }).prefault({}),
     vision: z.strictObject({

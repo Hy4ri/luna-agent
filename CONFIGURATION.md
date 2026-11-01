@@ -1359,7 +1359,7 @@ Unsupported APIs/models return a structured error rather than sending the video 
 {
   "auxiliary": {
     "vision": { "provider": "openrouter", "model": "google/gemini-2.5-flash" },
-    "video": { "model": "google/gemini-2.5-flash" }
+    "video": { "provider": "openrouter", "model": "google/gemini-2.5-flash" }
   },
   "video": {
     "blocked_paths": [],
@@ -1369,6 +1369,7 @@ Unsupported APIs/models return a structured error rather than sending the video 
 }
 ```
 
+An `auxiliary.video` entry with `provider` and `model` is authoritative. A model-only entry stays valid.
 The video model uses this precedence: `auxiliary.video.model`, `auxiliary.vision.model`,
 `AUXILIARY_VIDEO_MODEL`, `AUXILIARY_VISION_MODEL`, then the resolved catalog model.
 The video model override keeps the resolved vision provider. Credentials, endpoint overrides, and headers come from `Models.getAuth`.

@@ -32,7 +32,16 @@ const helpText = computed(() => {
 })
 const advancedNames: Record<string, string[]> = { vision: ['history_budget_bytes', 'long_edge', 'hard_bytes', 'max_calls_per_image', 'subagent_max_calls_per_image', 'profiles'], processes: ['retentionHours', 'maxOutputBytes'], 'image_gen.openai-codex': ['codexHome', 'codexCommand'], learn: ['files'] }
 const childFields = computed(() => Object.entries(safeSchema.value.properties || {}).filter(([name]) => isVisibleSetting([...props.path, name])))
-const primaryFields = computed(() => childFields.value.filter(([name]) => !advancedNames[full.value]?.includes(name)))
+const hasModelPair = computed(() => props.path.length >= 2 && safeSchema.value.type === 'object' && !isModelOverride.value && safeSchema.value.properties?.provider && safeSchema.value.properties?.model && !(safeSchema.value.required || []).some((n: string) => n === 'provider' || n === 'model'))
+const idFields = computed(() => hasModelPair.value ? childFields.value.filter(([name]) => name === 'provider' || name === 'model') : [])
+const primaryFields = computed(() => childFields.value.filter(([name]) => !advancedNames[full.value]?.includes(name) && !(hasModelPair.value && (name === 'provider' || name === 'model'))))
+const pairValue = computed(() => value.value?.provider && value.value?.model ? value.value.provider + '/' + value.value.model : undefined)
+function choosePair(selected?: string) {
+  const next = { ...(value.value || {}) }
+  delete next.provider; delete next.model
+  if (selected) { const slash = selected.indexOf('/'); next.provider = selected.slice(0, slash); next.model = selected.slice(slash + 1) }
+  props.set(props.path, next)
+}
 const advancedFields = computed(() => childFields.value.filter(([name]) => advancedNames[full.value]?.includes(name)))
 const descriptionId = computed(() => helpText.value ? 'help-' + encodeURIComponent(JSON.stringify(props.path)) : undefined)
 const overrides = inject('settingsOverrides', computed<string[]>(() => []))
@@ -106,7 +115,6 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
   <div v-if="isVisibleSetting(path)" class="field-root">
   <p v-if="override" class="field-help override-notice">{{ override }} overrides this saved value. Change the environment variable to change the effective value.</p>
   <DisabledItemsField v-if="full === 'disabledTools' || full === 'disabledSkills'" :kind="full === 'disabledTools' ? 'tools' : 'skills'" :value="value || []" :disabled="disabled" @change="set(path, $event)" />
-  <label v-else-if="full === 'auxiliary.video'" class="field-label"><span>Video analysis model</span><input class="input" type="text" :value="value?.model || ''" data-setting="auxiliary.video.model" aria-label="Video analysis model" placeholder="Use image-analysis model or provider default" @input="set(path, ($event.target as HTMLInputElement).value.trim() ? { model: ($event.target as HTMLInputElement).value.trim() } : undefined)" /><small>Optional exact video model ID. Leave blank to use the image-analysis model or provider default.</small></label>
   <label v-else-if="isConst" class="field-label"><span>{{ text }}</span><input class="input readonly-value" :value="safeSchema.const ?? safeSchema.enum[0]" readonly v-bind="attrs" /><small v-if="helpText" :id="descriptionId">{{ helpText }}</small></label>
   <div v-else-if="variants.length" class="field-stack">
     <label class="field-label"><span>Transport</span><select class="input" :value="value?.transport || variants[0].properties.transport.const" :data-setting="full + '.transport'" :aria-label="text + ' Transport'" @change="chooseTransport(($event.target as HTMLSelectElement).value)"><option v-for="variant in variants" :key="variant.properties.transport.const" :value="variant.properties.transport.const">{{ variant.properties.transport.const }}</option></select></label>
@@ -125,7 +133,7 @@ function titleCase(value: string) { return value.replace(/-/g, ' ').replace(/^./
   </details>
   <component :is="nestedObject ? 'details' : 'div'" v-else-if="safeSchema.type === 'object' && safeSchema.properties" :class="nestedObject ? 'field-group' : 'field-stack'" :data-field-group="full">
     <summary v-if="nestedObject"><ChevronRight :size="15" /><span>{{ text }}</span></summary>
-    <div :class="['field-stack', { 'group-body': nestedObject }]"><p v-if="helpText && path.length > 1" :id="descriptionId" class="field-help">{{ helpText }}</p><ComponentField v-for="[name, schema] in primaryFields" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /><details v-if="advancedFields.length" class="field-group subtle-group"><summary><ChevronRight :size="15" /><span>Advanced options</span></summary><div class="field-stack group-body"><ComponentField v-for="[name, schema] in advancedFields" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /></div></details></div>
+    <div :class="['field-stack', { 'group-body': nestedObject }]"><p v-if="helpText && path.length > 1" :id="descriptionId" class="field-help">{{ helpText }}</p><div v-if="hasModelPair" class="field-label"><span>Model</span><ModelCombobox :model-value="pairValue" empty-label="Use default" :aria-label="text + ' model'" :data-setting="full + '.model'" @change="choosePair($event || '')" /></div><ComponentField v-for="[name, schema] in primaryFields" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /><details v-if="hasModelPair" class="field-group subtle-group"><summary><ChevronRight :size="15" /><span>Custom provider and model IDs</span></summary><div class="field-stack group-body"><ComponentField v-for="[name, schema] in idFields" :key="name" :schema="schema" :path="[...path, name]" :required="false" v-bind="recursive" /></div></details><details v-if="advancedFields.length" class="field-group subtle-group"><summary><ChevronRight :size="15" /><span>Advanced options</span></summary><div class="field-stack group-body"><ComponentField v-for="[name, schema] in advancedFields" :key="name" :schema="schema" :path="[...path, name]" :required="(safeSchema.required || []).includes(name)" v-bind="recursive" /></div></details></div>
   </component>
   <component :is="path.length > 1 ? 'details' : 'div'" v-else-if="safeSchema.type === 'object'" :class="path.length > 1 ? 'field-group' : 'field-stack'" :data-field-group="full">
     <summary v-if="path.length > 1"><ChevronRight :size="15" /><span>{{ text }}</span><small>{{ Object.keys(value || {}).length }} entries</small></summary>

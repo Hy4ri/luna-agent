@@ -73,6 +73,7 @@ export function labelFor(path: (string | number)[]): string {
   if (full === 'providers' || /providers\.\d+\.models\.\d+\.vision$/.test(full)) return full === 'providers' ? fieldTitles.providers! : 'Supports images'
   if (full === 'auxiliary.video') return 'Video analysis model'
   if (full === 'auxiliary.video.model') return 'Video analysis model ID'
+  if (full === 'auxiliary.video.provider') return 'Video analysis provider ID'
   if (full === 'auxiliary.vision') return 'Auxiliary image analysis'
   if (full === 'web.providers' || full === 'browser.providers') return 'Provider options'
   if (full === 'browser.provider') return 'Browser provider'
