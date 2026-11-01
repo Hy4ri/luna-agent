@@ -1659,6 +1659,14 @@ Native background processes use that environment and retain their output central
 Files named by an assistant `MEDIA:` directive are fetched on demand from the source worker.
 For sessions created through the API, existing answer attachments keep their source after execution transfers.
 
+### Session model identity and changes
+
+Each session's `active-model` system prompt section identifies its resolved provider and model ID.
+Changing the model through `PATCH /v1/sessions/:id` records a durable `luna.model-changed` entry.
+Its data includes `previous`, `model`, and `text`; the event also enters model context and appears in chat history.
+Selecting the same model or changing only thinking level or instructions does not create a model-change event.
+Clearing the model records that no model is selected. Model changes do not start an assistant turn.
+
 ### Lightweight session history
 
 `GET /v1/sessions/:id?view=ui&limit=100` requests a display-only projection.

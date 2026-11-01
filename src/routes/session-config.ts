@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import { homedir } from "node:os";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { configure, type ConversationId } from "@earendil-works/pi-durable";
+import { AgentDoc, configure, type ConversationId } from "@earendil-works/pi-durable";
 import { ExecTarget } from "../workers.js";
 import { context, ProcessOwner } from "../luna.js";
 import { isRunning } from "../session-status.js";
@@ -117,14 +117,26 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
       return err(c, 400, "unknown model");
     if (b.thinkingLevel && !THINKING_LEVELS.includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
     if (b.model !== undefined) await opts.limitContinuer?.cancel(Number(conv.id), "Session model changed.");
-    await conv.configure(
-      {
+    const changed = await serial(String(conv.id), () => harness.commit(async (tx) => {
+      if (await isRunning(tx, conv.id)) return false;
+      const previous = (await tx.doc(AgentDoc, conv.id)).model;
+      await configure(tx, conv.id, {
         ...(b.model !== undefined && { model: b.model }),
         ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }),
         ...(b.instructions !== undefined && { instructions: b.instructions || null }),
-      },
-      context,
-    );
+      });
+      const model = (await tx.doc(AgentDoc, conv.id)).model;
+      if (b.model !== undefined && (previous?.provider !== model?.provider || previous?.modelId !== model?.modelId)) {
+        const text = model ? `Model changed to ${model.provider}/${model.modelId}.` : "Session model cleared; no model is selected.";
+        await tx.appendEntry(conv.id, {
+          kind: "luna.model-changed",
+          data: { previous: previous ?? null, model: model ?? null, text },
+          model: [{ role: "system", content: `[Session event] ${text}`, timestamp: Date.now() }],
+        });
+      }
+      return true;
+    }, context));
+    if (!changed) return err(c, 409, "Cannot change the model or agent settings while busy.");
     return c.json({ ok: true });
   });
 
