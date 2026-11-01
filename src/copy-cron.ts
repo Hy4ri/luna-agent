@@ -1,10 +1,12 @@
-// Copy Hermes script jobs into Luna's native store without activating them or changing Hermes.
+// Copy source script jobs into Luna's native store without activating them or changing the source.
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { CronStore } from './scheduler.js';
 const data='/.luna';
-const source=JSON.parse(readFileSync('/.hermes/cron/jobs.json','utf8')).jobs;
+const sourcePath=process.env.MIGRATION_SOURCE;
+assert.ok(sourcePath,'MIGRATION_SOURCE must name the source jobs JSON file');
+const source=JSON.parse(readFileSync(sourcePath,'utf8')).jobs;
 const copied=JSON.parse(readFileSync(data+'/migration/cron-source.json','utf8'));
 const python=process.env.MIGRATION_PYTHON!;
 assert.ok(python,'MIGRATION_PYTHON is required');

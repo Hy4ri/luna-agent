@@ -189,7 +189,7 @@ export function prepareNativeRequest(
           const details = carrierDetails(block.textSignature, model.id);
           if (details) {
             if (native.reasoning_details) throw new Error("Duplicate Claude native assistant carriers");
-            // DirectSDK compares the visible projection before restoring any signed native blocks.
+            // Compare the visible projection before restoring any signed native blocks.
             native.reasoning_details = details;
           }
         }
@@ -284,7 +284,7 @@ export function validateNativeResponse(value: unknown, model: string): asserts v
   }
 }
 
-/** One CLI process group and one admitted upstream request per generation. Never return partial tool batches. */
+/** One CLI process group and one admitted API request per generation. Never return partial tool batches. */
 export async function runNativeRequest(request: NativeRequest, options: {
   executable: string; signal?: AbortSignal;
   onText: (text: string) => void; onThinking: (text: string) => void;

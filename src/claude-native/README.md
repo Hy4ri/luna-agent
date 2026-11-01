@@ -1,6 +1,6 @@
 # Native Claude replay transport
 
-Luna's `claude-cli` provider drives the official Claude Code CLI in-process. No Python or Hermes install is used.
+Luna's `claude-cli` provider drives the official Claude Code CLI in-process. No Python or separate agent installation is used.
 One generation is one CLI process group and one admitted upstream Messages request.
 
 ## Files
@@ -16,9 +16,9 @@ One generation is one CLI process group and one admitted upstream Messages reque
 
 ## Upstream provenance
 
-Ported from [NousResearch/hermes-official-plugins, claude-subscription-directsdk](https://github.com/NousResearch/hermes-official-plugins/tree/f98c0999c6dd4e59680addc8f3480208018ab5b0/claude-subscription-directsdk),
+Ported from Nous Research’s `claude-subscription-directsdk` plugin,
 pinned commit `f98c0999c6dd4e59680addc8f3480208018ab5b0`. License: `UPSTREAM_LICENSE` (MIT, Nous Research and contributors).
-Windows support, the Hermes client API, and request fields Luna never sends were dropped.
+Windows support, the upstream client API, and request fields Luna never sends were dropped.
 
 The billing guard and chronological tool-change design also draw on
 [earendil-works/pi-claude-code](https://github.com/earendil-works/pi-claude-code/tree/70abb65186592ca788b29b3db22c3160d629c41f),
@@ -31,7 +31,11 @@ Deliberate Luna changes, kept from the Python version:
 - A queried tool-result mismatch returns HTTP 400 before forwarding. Luna never accepts synthetic denials as host results.
 - Native token/context-limit stop reasons take precedence over tool calls. A truncated batch never executes.
 
-Keep the `mcp__hermes__` wire prefix. It is private to this transport and part of signed replay content.
+New conversations use the `luna` MCP server and `mcp__luna__` wire prefix.
+Each new native carrier records its wire prefix. For older carriers without this marker, Luna reads
+the namespace from their stored native tool-use names and selects the matching MCP server.
+Signed native messages are never renamed. Conflicting namespaces fail before spawning the CLI.
+The carrier type and temporary-directory names remain unchanged.
 The session id and native cwd must stay stable for one conversation; both sit in the cached prompt prefix.
 
 ## Safety and qualification

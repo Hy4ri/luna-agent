@@ -1,9 +1,37 @@
-// Native history, request body, and model routes. Port of directsdk.py / model_catalog.py (pinned MIT Hermes DirectSDK).
+// Native history, request body, and model routes.
 import { createHash } from "node:crypto";
 import type { Block, Frame, NativeMessage, NativeReplayMetadata, NativeRequest, NativeTool, Projection } from "./types.js";
 
-/** Private to this transport: DirectSDK maps it back to Luna's names. It is part of signed replay content. */
-export const TOOL_PREFIX = "mcp__hermes__";
+/** Private wire namespace, mapped back to Luna's tool names. It is part of signed replay content. */
+export const TOOL_PREFIX = "mcp__luna__";
+/** Read the namespace from saved native messages; never rename signed tool-use blocks. */
+export function conversationToolPrefix(messages: NativeMessage[]): string {
+  let prefix: string | undefined;
+  const accept = (value: unknown) => {
+    if (typeof value !== "string" || !/^mcp__[A-Za-z0-9_-]+__$/.test(value)) {
+      throw new Error("Unsupported native tool prefix");
+    }
+    if (prefix !== undefined && prefix !== value) throw new Error("Conflicting native tool namespaces");
+    prefix = value;
+  };
+  for (const message of messages) {
+    for (const detail of message.reasoning_details ?? []) {
+      if (!isObject(detail) || detail.type !== CARRIER_TYPE) continue;
+      if (detail.wirePrefix !== undefined) accept(detail.wirePrefix);
+      // Older carriers have no namespace marker. Infer it from their original tool-use names.
+      if (!Array.isArray(detail.messages)) continue;
+      for (const native of detail.messages) {
+        if (!isObject(native) || !Array.isArray(native.content)) continue;
+        for (const block of native.content) {
+          if (!isObject(block) || block.type !== "tool_use" || typeof block.name !== "string") continue;
+          const match = /^mcp__[A-Za-z0-9_-]+?__/.exec(block.name);
+          if (match) accept(match[0]);
+        }
+      }
+    }
+  }
+  return prefix ?? TOOL_PREFIX;
+}
 export const CARRIER_TYPE = "claude-subscription-directsdk-experimental.native_assistant";
 
 type Json = Record<string, unknown>;
@@ -69,7 +97,7 @@ export function conversationSessionId(system: string, frames: Frame[]): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export function prepareHistory(messages: NativeMessage[], names?: Map<string, string>): {
+export function prepareHistory(messages: NativeMessage[], names?: Map<string, string>, toolPrefix = conversationToolPrefix(messages)): {
   system: string; frames: Frame[]; assistantBoundaries: number[];
 } {
   const system: string[] = [];
@@ -109,7 +137,7 @@ export function prepareHistory(messages: NativeMessage[], names?: Map<string, st
       blocks = contentBlocks(message.content);
       for (const call of projection(message).tool_calls) {
         // A call outside the inventory replays as the model named it.
-        const name = names === undefined || names.has(call.name) ? TOOL_PREFIX + (names?.get(call.name) ?? call.name) : call.name;
+        const name = names === undefined || names.has(call.name) ? toolPrefix + (names?.get(call.name) ?? call.name) : call.name;
         blocks.push({ type: "tool_use", id: call.id, name, input: call.input });
       }
       frameRole = "assistant";
@@ -173,14 +201,14 @@ export function nativeContextWindow(model: string): number {
   catch { return 200_000; }
 }
 
-/** Bottom-up map over a schema tree, as Hermes' schema_sanitizer._rewrite. Never mutates its input. */
+/** Bottom-up map over a schema tree. Never mutates its input. */
 function rewrite(schema: unknown, fn: (node: Json) => unknown): unknown {
   if (Array.isArray(schema)) return schema.map(item => rewrite(item, fn));
   if (!isObject(schema)) return schema;
   return fn(Object.fromEntries(Object.entries(schema).map(([k, v]) => [k, rewrite(v, fn)])));
 }
 
-/** Hermes strip_nullable_unions(keep_nullable_hint=False): collapse a nullable union to its single non-null branch. */
+/** Collapse a nullable union to its single non-null branch. */
 function stripNullableUnions(schema: unknown): unknown {
   const collapse = (node: Json): unknown => {
     for (const key of ["anyOf", "oneOf"]) {
@@ -213,8 +241,8 @@ export function normalizeInputSchema(schema: Json): Json {
 
 export interface ToolManifestEntry { name: string; description: string; inputSchema: Json }
 
-/** Keep the live MCP inventory separate from the fixed initial upstream declarations. */
-export function buildBody(request: NativeRequest): {
+/** Keep the live MCP inventory separate from the fixed initial API declarations. */
+export function buildBody(request: NativeRequest, toolPrefix = conversationToolPrefix(request.messages)): {
   body: string; manifest: ToolManifestEntry[]; names: Map<string, string>; replayMetadata?: NativeReplayMetadata;
 } {
   const body: Json = {};
@@ -242,7 +270,7 @@ export function buildBody(request: NativeRequest): {
   };
   const definition = (name: string, description: unknown, parameters: unknown): Json => {
     if (!isObject(parameters) || typeof description !== "string") throw new Error("Tool schema must be an object and description a string");
-    return { name: TOOL_PREFIX + nativeName(name), description, input_schema: normalizeInputSchema(parameters) };
+    return { name: toolPrefix + nativeName(name), description, input_schema: normalizeInputSchema(parameters) };
   };
   const definitions = (tools: NativeTool[]): Json[] => {
     const seen = new Set<string>();
@@ -254,7 +282,7 @@ export function buildBody(request: NativeRequest): {
   };
 
   const current = definitions(request.tools);
-  const manifest: ToolManifestEntry[] = current.map(tool => ({ name: String(tool.name).slice(TOOL_PREFIX.length),
+  const manifest: ToolManifestEntry[] = current.map(tool => ({ name: String(tool.name).slice(toolPrefix.length),
     description: tool.description as string, inputSchema: tool.input_schema as Json }));
   let replayMetadata: NativeReplayMetadata | undefined;
   if (request.replayMetadata) {
@@ -276,7 +304,7 @@ export function buildBody(request: NativeRequest): {
         }
         if (block.type === "tool_removal") {
           const tool = block.tool as { name: string };
-          return { type: "tool_removal", tool: { type: "tool_reference", name: TOOL_PREFIX + nativeName(tool.name) } };
+          return { type: "tool_removal", tool: { type: "tool_reference", name: toolPrefix + nativeName(tool.name) } };
         }
         return structuredClone(block);
       }) })),

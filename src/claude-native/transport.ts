@@ -1,5 +1,4 @@
-// In-process Claude Code transport: one CLI process group and one admitted upstream request per generation.
-// Port of the pinned MIT Hermes DirectSDK client (directsdk.py + bridge.py). POSIX only.
+// In-process Claude Code transport: one CLI process group and one admitted API request per generation. POSIX only.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { accessSync, closeSync, constants, fchmodSync, lstatSync, mkdirSync, mkdtempSync, openSync,
   rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -9,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Admission } from "./admission.js";
 import { chargedToUsageCredits, FATAL_BILLING_LIMIT, usageCreditsAllowed, usageCreditsChargeError, usageCreditsRejection } from "./billing.js";
 import { claudeHeaderLimit, recordClaudeLimit, type ProviderLimit } from "../provider-limits.js";
-import { CARRIER_TYPE, TOOL_PREFIX, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
+import { CARRIER_TYPE, conversationToolPrefix, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
 import { ClaudeTransportError, type Block, type NativeRequest, type NativeResponse, type NativeToolCall } from "./types.js";
 
 export const INSTALL_HINT = "Claude Code is not installed (no `claude` on PATH or in the usual install directories). " +
@@ -20,7 +19,7 @@ export const LOGGED_OUT_HINT = "Claude Code is installed but has no usable login
 
 const UPSTREAM = "https://api.anthropic.com";
 const DRAIN_GRACE_MS = 10_000;
-// Native's own codes for errors it answers without a relayed upstream status.
+// Native's own codes for errors it answers without a relayed API status.
 const NATIVE_ERROR_STATUS: Record<string, number> = {
   rate_limit: 429, billing_error: 402, authentication_failed: 401, overloaded: 529, server_error: 503,
 };
@@ -64,7 +63,7 @@ function resolveClaude(command: string, env: NodeJS.ProcessEnv): string | undefi
 
 /**
  * Copy the daemon environment; refuse API-key or custom-backend fallback before anything spawns.
- * An explicit environment (offline qualification only) is used as given, as DirectSDK's Client(env=...).
+ * An explicit environment (offline qualification only) is used as given.
  */
 function childEnvironment(explicit?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = { ...(explicit ?? process.env) };
@@ -209,7 +208,7 @@ export interface RunOptions {
   onThinking: (text: string) => void;
   /** Longest silence between native events, and the per-socket admission timeout. */
   timeoutMs?: number;
-  /** Offline qualification only: a complete child environment whose ANTHROPIC_BASE_URL is the relay's upstream. */
+  /** Offline qualification only: a complete child environment whose ANTHROPIC_BASE_URL is the relay's target. */
   env?: NodeJS.ProcessEnv;
 }
 
@@ -217,8 +216,9 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
   const { signal } = options;
   const timeoutMs = options.timeoutMs ?? 180_000;
   if (signal?.aborted) throw aborted();
-  const { body, manifest, names, replayMetadata } = buildBody(request);
-  const { system, frames, assistantBoundaries } = prepareHistory(request.messages, names);
+  const toolPrefix = conversationToolPrefix(request.messages);
+  const { body, manifest, names, replayMetadata } = buildBody(request, toolPrefix);
+  const { system, frames, assistantBoundaries } = prepareHistory(request.messages, names, toolPrefix);
   // A legacy signed carrier can restore several native messages for one Luna assistant.
   const nativeReplay = replayMetadata ? { ...replayMetadata,
     systemInjections: replayMetadata.systemInjections?.map(injection => {
@@ -263,8 +263,9 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     writeFileSync(join(root, "system.md"), system);
     env.ANTHROPIC_BASE_URL = admission.url;
     if (request.max_tokens !== undefined) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(request.max_tokens);
-    // Keep the `hermes` server name: the mcp__hermes__ wire prefix is part of signed replay content.
-    const mcp = { mcpServers: { hermes: { command: process.execPath, args: [INERT_MCP, join(root, "tools.json")] } } };
+    // Match the selected wire namespace without rewriting signed history.
+    const serverName = toolPrefix.slice("mcp__".length, -"__".length);
+    const mcp = { mcpServers: { [serverName]: { command: process.execPath, args: [INERT_MCP, join(root, "tools.json")] } } };
     const args = ["-p", "--model", nativeModel(request.model), "--input-format", "stream-json",
       "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--tools", "",
       "--system-prompt-file", join(root, "system.md"), "--settings", join(root, "settings.json"),
@@ -395,9 +396,9 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     for (const block of blocks) {
       if (block.type !== "tool_use") continue;
       // Native sometimes drops the prefix on an offered tool; carry the offered name so replay does not teach the slip.
-      if (lunaNames.has(block.name as string)) block.name = TOOL_PREFIX + block.name;
+      if (lunaNames.has(block.name as string)) block.name = toolPrefix + block.name;
       const wire = block.name as string;
-      const name = wire.startsWith(TOOL_PREFIX) ? wire.slice(TOOL_PREFIX.length) : wire;
+      const name = wire.startsWith(toolPrefix) ? wire.slice(toolPrefix.length) : wire;
       calls.push({ id: block.id as string, type: "function",
         function: { name: lunaNames.get(name) ?? name, arguments: JSON.stringify(block.input) } });
     }
@@ -426,8 +427,8 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
       role: "assistant", content: text || null, tool_calls: calls.length ? calls : null,
       reasoning_content: blocks.filter(b => b.type === "thinking").map(b => (b.thinking as string | undefined) ?? "").join("") || null,
     };
-    message.reasoning_details = [{ type: CARRIER_TYPE, version: 1, messages: assistants, projection: projection(message) }];
-    // An upstream refusal is terminal. The cut-off call stays in the carrier but never becomes actionable.
+    message.reasoning_details = [{ type: CARRIER_TYPE, version: 1, wirePrefix: toolPrefix, messages: assistants, projection: projection(message) }];
+    // An API refusal is terminal. The cut-off call stays in the carrier but never becomes actionable.
     const refused = assistants.some(a => a.stop_reason === "refusal");
     if (refused) {
       const details = assistants.find(a => a.stop_details && typeof a.stop_details === "object")?.stop_details ?? {};
