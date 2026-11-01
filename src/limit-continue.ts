@@ -292,7 +292,7 @@ export class LimitContinuer {
       }
 
       if (!policy.enabled) {
-        for (const [id, w] of Object.entries(doc.waits)) {
+        for (const id of Object.keys(doc.waits)) {
           const chain = doc.chains[id];
           if (chain) {
             chain.lastOutcome = "paused";
@@ -319,7 +319,7 @@ export class LimitContinuer {
         return { waits: {} as Record<string, LimitWait> };
       }
 
-      for (const [rKey, claim] of Object.entries(doc.routes)) {
+      for (const claim of Object.values(doc.routes)) {
         if (claim.activeSessionId && claim.activeRequestId) {
           const sub = await tx.submissionByRequest(claim.activeSessionId as ConversationId, claim.activeRequestId);
           const waiting = doc.waits[String(claim.activeSessionId)];

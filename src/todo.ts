@@ -6,7 +6,6 @@ import type { JsonValue } from "@earendil-works/chord";
 import { defineDoc, defineExtension, defineTool } from "@earendil-works/pi-durable";
 
 export type TaskStatus = "pending" | "in_progress" | "completed" | "deleted";
-export type TaskAction = "create" | "update" | "list" | "get" | "delete" | "clear";
 export type Task = {
   id: number;
   subject: string;

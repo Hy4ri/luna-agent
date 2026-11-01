@@ -518,7 +518,7 @@ onUnmounted(() => {
             <p v-else class="cron-help">
               Imported interval: every {{ editor.intervalMs / 60000 }} minutes. The interval is preserved.
             </p>
-            <p class="cron-help">Schedules use server local time ({{ jobs[0]?.timezone || "local" }}). Use five cron fields or @daily, @hourly, @weekly.</p>
+            <p class="cron-help">Schedules use server local time. Use five cron fields or @daily, @hourly, @weekly.</p>
             <label class="cron-field">
               <span>Prompt</span>
               <textarea dir="auto" aria-label="Prompt" v-model="editor.prompt" rows="5" />

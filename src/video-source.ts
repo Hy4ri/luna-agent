@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { mkdir, mkdtemp, open, realpath, rm, stat as fileStat, writeFile } from "node:fs/promises";
-import { extname, join, resolve, sep } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";

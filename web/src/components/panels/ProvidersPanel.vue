@@ -2,7 +2,7 @@
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
-import { json, api, post } from "@/lib/api";
+import { json, post } from "@/lib/api";
 import { loadModels } from "@/stores/models";
 
 import { useSettingsMutation } from "./useSettingsMutation";

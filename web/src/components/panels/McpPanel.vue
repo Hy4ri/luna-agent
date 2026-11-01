@@ -2,7 +2,7 @@
 import { ref, watch, onMounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
-import { json, api, post } from "@/lib/api";
+import { json, post } from "@/lib/api";
 
 import { useSettingsMutation } from "./useSettingsMutation";
 const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();

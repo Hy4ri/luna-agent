@@ -489,11 +489,6 @@ export function resetEvidence(
   return undefined;
 }
 
-/** Reset time in epoch ms, when the message names one. Backward-compatible helper. */
-export function resetTime(text: string, now: number, defaultTz: string): number | undefined {
-  return resetEvidence(text, now, defaultTz)?.resetAt;
-}
-
 /** Extract explicit HTTP status code from wrapper/body instead of searching arbitrary numbers. */
 function extractExplicitHttpStatus(text: string): number | undefined {
   const payload = extractJsonPayload(text);

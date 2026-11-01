@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { ChevronRight } from "@lucide/vue";
-import { json, api, post } from "@/lib/api";
+import { json, post } from "@/lib/api";
 
 const loading = ref(true);
 const errorMsg = ref("");

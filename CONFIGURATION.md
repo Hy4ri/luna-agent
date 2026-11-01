@@ -211,13 +211,6 @@ loads its shell locally and does not have this browser limitation.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
 
-### Offline script-job import
-
-`src/copy-cron.ts` copies script jobs into Luna's native store, with all imported jobs disabled.
-Set `MIGRATION_SOURCE` to the source jobs JSON file and `MIGRATION_PYTHON` to the Python runner.
-The importer requires the existing `/.luna/migration/cron-source.json` runner metadata and staged scripts.
-It reads the source file without changing it. A missing source path fails before the store is opened.
-
 ### Cron reports in the web UI
 
 Open **Cron** from the sidebar. It opens a floating panel with **Reports**, **Jobs**, and **History**.

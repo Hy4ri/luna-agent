@@ -88,10 +88,6 @@ export async function loadSessions() {
   }
 }
 
-export function setArchivedView(archived: boolean) {
-  history.archived = archived;
-  loadSessions().catch(e => { history.status = (e as Error).message; });
-}
 export function resetHistoryView() {
   history.archived = false; history.searchOpen = false; history.query = "";
 }

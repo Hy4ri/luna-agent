@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { json, api, post } from "@/lib/api";
+import { json } from "@/lib/api";
 import { chat, openSession, sortChildren } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
 

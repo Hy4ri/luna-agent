@@ -30,10 +30,10 @@ import {
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSourceControl } from "@/stores/app";
-import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
+import { chat, openSession, newSession } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
-import { history, toggleFavorite, loadSessions, loadProjects, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
+import { history, toggleFavorite, loadSessions, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
@@ -48,7 +48,6 @@ const collapsed = computed(() => ui.collapsed && !mobile.value);
 defineProps<{ inert?: boolean }>();
 
 const searchInputRef = ref<HTMLInputElement | null>(null);
-const renameInputRef = ref<HTMLInputElement | null>(null);
 const renamingId = ref<string | number | null>(null);
 const renameValue = ref("");
 
@@ -516,7 +515,6 @@ onMounted(() => {
               <!-- Inline rename input -->
               <input dir="auto"
                 v-if="renamingId === s.id"
-                ref="renameInputRef"
                 v-model="renameValue"
                 type="text"
                 class="session-rename"

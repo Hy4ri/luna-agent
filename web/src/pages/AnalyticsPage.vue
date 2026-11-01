@@ -436,7 +436,7 @@ import { analyticsSnapshot as snapshot, loadAnalytics } from "@/stores/analytics
 import { SESSION_STATUS_LABELS } from "@/lib/session-status"
 import type { SessionStatus } from "@/lib/types"
 
-import type { ModelItem, DailyItem, AnalyticsSession } from "./analytics/types"
+import type { DailyItem, AnalyticsSession } from "./analytics/types"
 import { full, compact, usd, pct, when, COLORS, FIELDS } from "./analytics/formatters"
 
 import DailyValuesDialog from "./analytics/DailyValuesDialog.vue"

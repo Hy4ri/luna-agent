@@ -4,7 +4,6 @@ import { ArrowUp, ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
 import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
-import Markdown from "./Markdown.vue";
 import ReportContext from "./ReportContext.vue";
 import AssistantText from "./AssistantText.vue";
 import { assistantTextBlocks, mediaDirectives } from "@/lib/media";
