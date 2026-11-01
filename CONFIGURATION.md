@@ -505,7 +505,7 @@ The Camofox MCP connection controls its cookie/storage session. Share it only be
 Handles can become invalid after a connection restart or provider change. Open a new tab when this occurs.
 
 Select the provider under **Settings → Tools → Browser tools**. It defaults to `disabled`.
-Two browser providers are included: `camofox` and `chromium`. `camofox` reuses a named, enabled MCP connection:
+Three browser providers are included: `camofox`, `moli`, and `chromium`. `camofox` reuses a named, enabled MCP connection:
 
 ```json
 {
@@ -524,6 +524,8 @@ Two browser providers are included: `camofox` and `chromium`. `camofox` reuses a
 
 Camofox and its MCP dependencies must already be installed. Its browser service must already be running.
 This feature does not install or start that service. Use the actual MCP file path and Node command on your host.
+`moli` starts the [Moli](https://github.com/lexmount/moli) binary on a private loopback port (layout and images on, child gets only `PATH`, `HOME`, `LANG`), drives it over CDP with Playwright, and stops it when the provider closes. Options: `browser.providers.moli.executablePath` (required) and `profileDir` (optional, keeps cookies and storage).
+Moli builds layout on demand, so Luna renders a 1x1 image before snapshots, clicks, typing, and scrolling so elements get refs and real geometry. Moli does not play video or match Chrome pixel-for-pixel.
 `chromium` launches a local Chromium-based browser such as Helium through Playwright, on the machine where Luna code runs (main, or a worker).
 It needs `browser.providers.chromium.executablePath` and `pnpm install` on that machine. `headless` defaults to true.
 Tabs share one browser context. Snapshots use Playwright's accessibility snapshot, and refs work with `browser_click` and `browser_type`.

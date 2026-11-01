@@ -7,6 +7,7 @@ import { createRegistry } from "@earendil-works/pi-durable";
 import type { BrowserProvider } from "./browser-tools.js";
 import { createCamofoxBrowserProvider } from "./camofox-browser-provider.js";
 import { createChromiumBrowserProvider } from "./chromium-browser-provider.js";
+import { createMoliBrowserProvider } from "./moli-browser-provider.js";
 import { loadConfig, type LunaConfig } from "./config.js";
 import { McpManager } from "./mcp.js";
 
@@ -32,9 +33,9 @@ export class WorkerServices {
     const { browser } = this.config();
     const provider = browser.provider;
     if (provider === "disabled") return { provider, configured: false, reason: "Browser tools are disabled in the worker configuration." };
-    if (provider === "chromium") {
-      const path = browser.providers.chromium.executablePath;
-      if (!path) return { provider, configured: false, reason: "Set browser.providers.chromium.executablePath to the worker's Helium executable." };
+    if (provider === "chromium" || provider === "moli") {
+      const path = provider === "chromium" ? browser.providers.chromium.executablePath : browser.providers.moli.executablePath;
+      if (!path) return { provider, configured: false, reason: `Set browser.providers.${provider}.executablePath to the worker's browser executable.` };
       try { accessSync(path, constants.X_OK); }
       catch { return { provider, configured: false, reason: "The configured browser executable is missing or not executable on this worker." }; }
     } else if (!this.config().mcpServers.some(server => server.name === browser.providers.camofox.mcpServer && server.enabled !== false)) {
@@ -49,6 +50,7 @@ export class WorkerServices {
     if (!capability.configured) throw new Error(`${capability.reason} Nothing ran. Configure the worker browser, then restart the worker. Do not retry until configuration changes.`);
     this.browserProvider ??= browser.provider === "chromium"
       ? createChromiumBrowserProvider(() => this.config().browser.providers.chromium)
+      : browser.provider === "moli" ? createMoliBrowserProvider(() => this.config().browser.providers.moli)
       : createCamofoxBrowserProvider(() => this.config().browser.providers.camofox, await this.manager());
     return this.browserProvider;
   }

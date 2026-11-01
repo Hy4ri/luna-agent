@@ -124,9 +124,10 @@ export const ConfigSchema = z
       }).prefault({}),
     }).prefault({}),
     browser: z.strictObject({
-      provider: z.enum(["disabled", "camofox", "chromium"]).default("disabled"),
+      provider: z.enum(["disabled", "camofox", "moli", "chromium"]).default("disabled"),
       providers: z.strictObject({
         camofox: z.strictObject({ mcpServer: name.default("camofox") }).prefault({}),
+        moli: z.strictObject({ executablePath: z.string().min(1).optional(), profileDir: z.string().min(1).optional() }).prefault({}),
         chromium: z.strictObject({ executablePath: z.string().min(1).optional(), headless: z.boolean().default(true) }).prefault({}),
       }).prefault({}),
     }).prefault({}),
