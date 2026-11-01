@@ -88,6 +88,9 @@ export const chat = reactive({
   followTick: 0,
   booting: false,
   bootError: "",
+  hasMoreEntries: false,
+  olderCursor: null as number | null,
+  loadingOlder: false,
 });
 
 /** Durable entries live outside deep reactivity (they can be large). Read via `entryList`. */
@@ -275,6 +278,7 @@ function detachView() {
   chat.project = null; chat.machine = null; chat.cwd = null; chat.draftWorker = null; chat.draftCwd = "";
   chat.toolLive = {}; chat.toolStarts = {}; chat.toolResults = {}; chat.activeTools = new Set();
   chat.notices = []; chat.extras = null;
+  chat.hasMoreEntries = false; chat.olderCursor = null; chat.loadingOlder = false;
 }
 function setSession(id: string | null) {
   chat.session = id;
@@ -393,7 +397,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     if (e.result) {
       const output = e.result.structuredOutput;
       const content = typeof output === "string" ? output : Array.isArray(output) ? output : output !== undefined ? JSON.stringify(output, null, 2) : (e.result.diagnostics || []).map((d: any) => d.message || "").join("\n");
-      chat.toolResults[e.toolCallId] = { ...e.result, content, timestamp: Date.now() };
+      chat.toolResults[e.toolCallId] = { ...e.result, content, timestamp: Date.now(), ...(e.entry ? { entryId: e.entry.id } : {}) };
     }
     scheduleExtras(); scheduleContext();
   },
@@ -425,15 +429,25 @@ export async function openSession(id: string | number, reattach = false) {
   chat.title = history.list.find(s => String(s.id) === sid)?.title || "Conversation " + sid;
   restoreDraft();
   let hydrated = false;
+  let snapshotAfter: number | undefined;
   // Hydrate durable history on EVERY attachment. Its subsequent atomic snapshot closes the fetch/subscribe gap.
   activeFeed = watchFeed({
-    path: `/v1/sessions/${sid}/events`, api,
+    path: () => `/v1/sessions/${sid}/events?view=ui${snapshotAfter !== undefined ? `&after=${snapshotAfter}` : ""}`,
+    api,
     beforeConnect: async signal => {
-      const s = await json(`/v1/sessions/${sid}?limit=${hydrated ? 100 : 500}`, { signal, timeoutMs: 30000 });
+      const s = await json(`/v1/sessions/${sid}?view=ui&limit=100`, { signal, timeoutMs: 30000 });
       if (epoch !== chat.epoch || signal.aborted) return;
       // The server returns append-only, fork-aware history. Keep the already loaded older rows.
-      if (!hydrated) entries = new Map();
+      if (!hydrated) {
+        entries = new Map();
+        chat.hasMoreEntries = !!s.hasMore;
+        chat.olderCursor = s.nextCursor ?? (s.hasMore && s.entries.length ? s.entries[s.entries.length - 1].id : null);
+      }
       for (const e of s.entries) entries.set(e.id, markRaw(e));
+      const entryIds = s.entries.map((e: any) => e.id);
+      if (entryIds.length) {
+        snapshotAfter = Math.max(...entryIds);
+      }
       hydrated = true; chat.rev++;
       chat.project = s.project ?? history.list.find(row => String(row.id) === sid)?.project ?? null;
       chat.machine = s.machine ?? null;
@@ -448,6 +462,43 @@ export async function openSession(id: string | number, reattach = false) {
     },
   });
 }
+
+/** Loads older entries using the cursor pagination contract. */
+export async function loadOlderEntries() {
+  const sid = chat.session, epoch = chat.epoch;
+  if (!sid || chat.loadingOlder || !chat.hasMoreEntries) return;
+  // Fall back to the lowest currently loaded entry id if olderCursor is not set
+  let before = chat.olderCursor;
+  if (before === null || before === undefined) {
+    const minId = Math.min(...entries.keys());
+    if (Number.isFinite(minId)) before = minId;
+  }
+  if (before === null || before === undefined) return;
+
+  chat.loadingOlder = true;
+  try {
+    const s = await json<{ entries: any[]; hasMore?: boolean; nextCursor?: number | null }>(
+      `/v1/sessions/${sid}?view=ui&limit=100&before=${before}`,
+      { timeoutMs: 30000 },
+    );
+    if (chat.session !== sid || chat.epoch !== epoch) return;
+    for (const e of s.entries || []) {
+      entries.set(e.id, markRaw(e));
+    }
+    chat.hasMoreEntries = !!s.hasMore;
+    chat.olderCursor = s.nextCursor ?? (s.hasMore && s.entries?.length ? s.entries[s.entries.length - 1].id : null);
+    chat.rev++;
+  } catch (err: any) {
+    if (chat.session === sid && chat.epoch === epoch) {
+      addErr("Failed to load older messages: " + (err.message || String(err)));
+    }
+  } finally {
+    if (chat.session === sid && chat.epoch === epoch) {
+      chat.loadingOlder = false;
+    }
+  }
+}
+
 /** Starts an empty, local-only conversation. The server session is created on the first message (see `createSession`). */
 export async function newSession(project?: number | string | null, worker?: number | null): Promise<boolean> {
   if (!leavePages()) return false;
