@@ -13,8 +13,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   createProvider, createAssistantMessageEventStream, getCurrentTools, getCurrentSystemPrompt,
-  type ProviderStreams, type AssistantMessage, type TextContent, type ThinkingContent, type ToolCall, type Message, type Tool, type ImageContent,
+  type ProviderStreams, type AssistantMessage, type TextContent, type ToolCall, type Message, type Tool, type ImageContent,
 } from "@earendil-works/pi-ai";
+import { createStreamDeltas } from "./cli-stream.js";
 
 const run = promisify(execFile);
 const PROVIDER_ID = "opencode-cli";
@@ -365,26 +366,8 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
   };
   void (async () => {
-    let text: TextContent | undefined, thinking: ThinkingContent | undefined;
-    let textIndex = -1, thinkingIndex = -1;
-    const textDelta = (delta: string) => {
-      if (!text) {
-        text = { type: "text", text: "" };
-        textIndex = message.content.push(text) - 1;
-        events.push({ type: "text_start", contentIndex: textIndex, partial: message });
-      }
-      text.text += delta;
-      if (delta) events.push({ type: "text_delta", contentIndex: textIndex, delta, partial: message });
-    };
-    const thinkingDelta = (delta: string) => {
-      if (!thinking) {
-        thinking = { type: "thinking", thinking: "" };
-        thinkingIndex = message.content.push(thinking) - 1;
-        events.push({ type: "thinking_start", contentIndex: thinkingIndex, partial: message });
-      }
-      thinking.thinking += delta;
-      if (delta) events.push({ type: "thinking_delta", contentIndex: thinkingIndex, delta, partial: message });
-    };
+    const { textDelta, thinkingDelta, getText, getThinking, getTextIndex, getThinkingIndex } =
+      createStreamDeltas(message, events);
     let conv: Conv | undefined;
     try {
       events.push({ type: "start", partial: message });
@@ -471,8 +454,10 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       clearTimeout(flushTimer);
       message.usage.totalTokens = message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite;
 
-      if (thinking) events.push({ type: "thinking_end", contentIndex: thinkingIndex, content: thinking.thinking, partial: message });
-      if (text) events.push({ type: "text_end", contentIndex: textIndex, content: text.text, partial: message });
+      const thinking = getThinking();
+      const text = getText();
+      if (thinking) events.push({ type: "thinking_end", contentIndex: getThinkingIndex(), content: thinking.thinking, partial: message });
+      if (text) events.push({ type: "text_end", contentIndex: getTextIndex(), content: text.text, partial: message });
       for (const held of batch) {
         const call: ToolCall = { type: "toolCall", id: held.id, name: held.name, arguments: held.args as ToolCall["arguments"] };
         const contentIndex = message.content.push(call) - 1;

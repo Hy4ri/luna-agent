@@ -1,5 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
+import type net from 'node:net';
 import tls from 'node:tls';
 import { URL } from 'node:url';
 import { randomBytes } from 'node:crypto';
@@ -9,6 +10,71 @@ export interface Block {
   type: string;
   [key: string]: unknown;
 }
+
+export interface WireMessage {
+  role?: string;
+  content?: unknown;
+  cache_control?: unknown;
+  [key: string]: unknown;
+}
+
+export interface WireBlock {
+  type: string;
+  text?: string;
+  cache_control?: unknown;
+  [key: string]: unknown;
+}
+
+export type WireBlockPosition = [messageIndex: number, blockIndex: number, block: WireBlock];
+
+export interface AnthropicMessageStartEvent {
+  type: 'message_start';
+  message: Record<string, unknown>;
+}
+
+export interface AnthropicContentBlockStartEvent {
+  type: 'content_block_start';
+  index: number;
+  content_block: Record<string, unknown>;
+}
+
+export interface AnthropicContentBlockDeltaEvent {
+  type: 'content_block_delta';
+  index: number;
+  delta: {
+    type: string;
+    text?: string;
+    thinking?: string;
+    signature?: string;
+    partial_json?: string;
+    citation?: unknown;
+    [key: string]: unknown;
+  };
+}
+
+export interface AnthropicContentBlockStopEvent {
+  type: 'content_block_stop';
+  index: number;
+}
+
+export interface AnthropicMessageDeltaEvent {
+  type: 'message_delta';
+  delta?: Record<string, unknown>;
+  usage?: Record<string, unknown>;
+}
+
+export interface AnthropicMessageStopEvent {
+  type: 'message_stop';
+}
+
+export type AnthropicStreamEvent =
+  | AnthropicMessageStartEvent
+  | AnthropicContentBlockStartEvent
+  | AnthropicContentBlockDeltaEvent
+  | AnthropicContentBlockStopEvent
+  | AnthropicMessageDeltaEvent
+  | AnthropicMessageStopEvent
+  | { type: string; [key: string]: unknown };
 
 export class QueriedTurnMismatch extends Error {
   constructor(message = 'Native request does not match Luna host tool results') {
@@ -72,7 +138,7 @@ function _breakpoints(value: unknown): number {
   return count;
 }
 
-function _frame_first(messages: any[], queried: Block[] | undefined): boolean {
+function _frame_first(messages: WireMessage[], queried: Block[] | undefined): boolean {
   if (!queried || queried.length === 0) return false;
   if (messages.some(m => m.role === 'assistant')) return false;
   const first = messages.find(m => m.role === 'user');
@@ -89,7 +155,7 @@ function _frame_first(messages: any[], queried: Block[] | undefined): boolean {
   }
   if (starts.length !== 1 || starts[0] === 0) return false;
   const k = starts[0]!;
-  if (!content.slice(0, k).every((b: any) => b && typeof b === 'object' && b.type === 'text')) return false;
+  if (!content.slice(0, k).every((b: unknown) => b && typeof b === 'object' && (b as Record<string, unknown>).type === 'text')) return false;
   first.content = [...content.slice(k, k + queried.length), ...content.slice(0, k), ...content.slice(k + queried.length)];
   return true;
 }
@@ -242,8 +308,8 @@ export function stableRequestContext(payload: Buffer, queried: Block[] | undefin
         }
       }
       const k = hits.length === 1 ? hits[0] : undefined;
-      if (k !== undefined && k > 0 && blocks.slice(0, k).every((b: any) => b && typeof b === 'object' && b.type === 'text' && Object.keys(b).every(key => ['type', 'text', 'cache_control'].includes(key)))) {
-        const mark = blocks.slice(0, k).find((b: any) => b && 'cache_control' in b)?.cache_control;
+      if (k !== undefined && k > 0 && blocks.slice(0, k).every((b: unknown) => b && typeof b === 'object' && (b as Record<string, unknown>).type === 'text' && Object.keys(b as Record<string, unknown>).every(key => ['type', 'text', 'cache_control'].includes(key)))) {
+        const mark = (blocks.slice(0, k).find((b: unknown) => b && typeof b === 'object' && 'cache_control' in (b as Record<string, unknown>)) as Record<string, unknown> | undefined)?.cache_control;
         blocks.splice(0, k);
         if (mark !== undefined && blocks.length > 0) {
           const firstBlock = blocks[0];
@@ -264,12 +330,12 @@ const UNCACHEABLE = ['thinking', 'redacted_thinking'];
 const LOOKBACK = 20;
 const MAX_BREAKPOINTS = 4;
 
-function _opens_turn(message: any): boolean {
+function _opens_turn(message: WireMessage): boolean {
   const content = message.content;
-  return message.role === 'user' && (typeof content === 'string' || (Array.isArray(content) && content.some(b => !b || typeof b !== 'object' || b.type !== 'tool_result')));
+  return message.role === 'user' && (typeof content === 'string' || (Array.isArray(content) && content.some(b => !b || typeof b !== 'object' || (b as Record<string, unknown>).type !== 'tool_result')));
 }
 
-function _keep_turn_mark(body: any, messages: any[], last: number, target: [number, number, any]): boolean {
+function _keep_turn_mark(body: unknown, messages: WireMessage[], last: number, target: WireBlockPosition): boolean {
   let opening: number | undefined = undefined;
   for (let i = last - 1; i >= 0; i--) {
     if (_opens_turn(messages[i]!)) {
@@ -281,7 +347,7 @@ function _keep_turn_mark(body: any, messages: any[], last: number, target: [numb
   let thought: number | undefined = undefined;
   for (let i = opening + 1; i <= last; i++) {
     const m = messages[i];
-    if (m && m.role === 'assistant' && Array.isArray(m.content) && m.content.some((b: any) => b && typeof b === 'object' && UNCACHEABLE.includes(b.type))) {
+    if (m && m.role === 'assistant' && Array.isArray(m.content) && m.content.some((b: unknown) => b && typeof b === 'object' && UNCACHEABLE.includes((b as Record<string, unknown>).type as string))) {
       thought = i;
       break;
     }
@@ -346,28 +412,30 @@ function _keep_turn_mark(body: any, messages: any[], last: number, target: [numb
 export function pinMessageBreakpoint(payload: Buffer, queried: Block[] | undefined): Buffer {
   if (!queried || queried.length === 0) return payload;
   try {
-    const body = JSON.parse(payload.toString('utf8'));
-    const messages: any[] = body.messages;
+    const body = JSON.parse(payload.toString('utf8')) as { messages?: WireMessage[] };
+    const messages = body.messages;
+    if (!Array.isArray(messages)) return payload;
     const reordered = _frame_first(messages, queried);
-    const blocks: [number, number, any][] = [];
-    messages.forEach((m, i) => { if (Array.isArray(m.content)) m.content.forEach((b: any, j: number) => blocks.push([i, j, b])); });
+    const blocks: WireBlockPosition[] = [];
+    messages.forEach((m, i) => { if (Array.isArray(m.content)) (m.content as WireBlock[]).forEach((b, j) => { if (b && typeof b === 'object') blocks.push([i, j, b]); }); });
     const marked = blocks.filter(([, , b]) => b && typeof b === 'object' && !Array.isArray(b) && 'cache_control' in b);
     if (marked.length === 0) return payload;
     let last = -1;
     messages.forEach((m, i) => { if (m.role === 'assistant') last = i; });
     const stable = blocks.filter(([i]) => i <= last);
-    const newest = last + 1 < messages.length ? messages[last + 1] : {};
+    const newest: WireMessage = last + 1 < messages.length ? messages[last + 1]! : {};
     if (newest.role === 'user' && Array.isArray(newest.content)) {
-      const prefix: [number, number, any][] = [];
-      for (let j = 0; j < Math.min(newest.content.length, queried.length); j++) {
-        if (!deepEqual(_plain(newest.content[j]), _plain(queried[j]))) break;
-        prefix.push([last + 1, j, newest.content[j]]);
+      const prefix: WireBlockPosition[] = [];
+      const newestContent = newest.content as WireBlock[];
+      for (let j = 0; j < Math.min(newestContent.length, queried.length); j++) {
+        if (!deepEqual(_plain(newestContent[j]), _plain(queried[j]))) break;
+        prefix.push([last + 1, j, newestContent[j]!]);
       }
       // A breakpoint on unchanged results before a changed tool_result measured no hit (#33): stop at the assistant.
-      const rest = newest.content.slice(prefix.length);
+      const rest = newestContent.slice(prefix.length);
       if (!(rest.length && rest[0] && typeof rest[0] === 'object' && rest[0].type === 'tool_result')) stable.push(...prefix);
     }
-    let target: [number, number, any] | undefined;
+    let target: WireBlockPosition | undefined;
     for (let k = stable.length - 1; k >= 0; k--) {
       const b = stable[k]![2];
       if (b && typeof b === 'object' && !Array.isArray(b) && !UNCACHEABLE.includes(b.type)) { target = stable[k]; break; }
@@ -395,10 +463,11 @@ export function restoreQueriedTurn(payload: Buffer, queried: Block[] | undefined
     throw new QueriedTurnMismatch();
   };
 
-  const bareText = (block: unknown): boolean => {
+  const bareText = (block: unknown): block is { type: 'text'; text: string; [key: string]: unknown } => {
     if (!block || typeof block !== 'object') return false;
+    const b = block as Record<string, unknown>;
     const keys = Object.keys(block).sort();
-    return keys.length === 2 && keys[0] === 'text' && keys[1] === 'type' && (block as any).type === 'text' && typeof (block as any).text === 'string';
+    return keys.length === 2 && keys[0] === 'text' && keys[1] === 'type' && b.type === 'text' && typeof b.text === 'string';
   };
 
   const restoreContent = (sent: unknown, host: unknown): unknown => {
@@ -406,7 +475,7 @@ export function restoreQueriedTurn(payload: Buffer, queried: Block[] | undefined
       const text = (value: unknown): string | null => {
         if (typeof value === 'string') return value;
         if (Array.isArray(value) && value.every(b => bareText(b))) {
-          return value.map((b: any) => b.text).join('');
+          return value.map(b => b.text).join('');
         }
         return null;
       };
@@ -465,8 +534,8 @@ export function restoreQueriedTurn(payload: Buffer, queried: Block[] | undefined
         while (hostEnd < host.length && bareText(host[hostEnd])) hostEnd++;
         let sentEnd = j + 1;
         while (sentEnd < sent.length && bareText(sent[sentEnd])) sentEnd++;
-        const original = host.slice(i, hostEnd).map((b: any) => b.text).join('');
-        const actual = sent.slice(j, sentEnd).map((b: any) => b.text).join('');
+        const original = (host.slice(i, hostEnd) as Array<{ text: string }>).map(b => b.text).join('');
+        const actual = (sent.slice(j, sentEnd) as Array<{ text: string }>).map(b => b.text).join('');
         const ok = hostEnd === host.length ? actual.startsWith(original) : actual === original;
         if (!ok) return unmatched();
         restored.push(...JSON.parse(JSON.stringify(host.slice(i, hostEnd))));
@@ -495,13 +564,13 @@ export function restoreQueriedTurn(payload: Buffer, queried: Block[] | undefined
     if (!Array.isArray(native)) return unmatched();
 
     const resultIds = queried
-      .filter((b: any): b is Record<string, unknown> => !!b && typeof b === 'object' && b.type === 'tool_result')
+      .filter((b: unknown): b is Record<string, unknown> => !!b && typeof b === 'object' && (b as Record<string, unknown>).type === 'tool_result')
       .map(b => b.tool_use_id);
     if (resultIds.some(id => typeof id !== 'string' || !id) || new Set(resultIds).size !== resultIds.length) {
       return unmatched();
     }
     const nativeIds = native
-      .filter((b: any): b is Record<string, unknown> => !!b && typeof b === 'object' && b.type === 'tool_result')
+      .filter((b: unknown): b is Record<string, unknown> => !!b && typeof b === 'object' && (b as Record<string, unknown>).type === 'tool_result')
       .map(b => b.tool_use_id);
     if (!deepEqual(resultIds, nativeIds)) return unmatched();
 
@@ -516,7 +585,7 @@ export function restoreQueriedTurn(payload: Buffer, queried: Block[] | undefined
 }
 
 export class Capture {
-  message: Record<string, any> | undefined = undefined;
+  message: Record<string, unknown> | undefined = undefined;
   complete = false;
   private pending = '';
   private decoder = new StringDecoder('utf8');
@@ -537,69 +606,69 @@ export class Capture {
       const data = dataLines.join('\n');
       if (data) {
         try {
-          this.event(JSON.parse(data));
+          this.event(JSON.parse(data) as AnthropicStreamEvent);
         } catch {}
       }
     }
   }
 
-  private event(event: any): void {
+  private event(event: AnthropicStreamEvent): void {
     switch (event.type) {
       case 'message_start':
-        this._start(event);
+        this._start(event as AnthropicMessageStartEvent);
         break;
       case 'content_block_start':
-        this._block_start(event);
+        this._block_start(event as AnthropicContentBlockStartEvent);
         break;
       case 'content_block_delta':
-        this._block_delta(event);
+        this._block_delta(event as AnthropicContentBlockDeltaEvent);
         break;
       case 'content_block_stop':
-        this._block_stop(event);
+        this._block_stop(event as AnthropicContentBlockStopEvent);
         break;
       case 'message_delta':
-        this._delta(event);
+        this._delta(event as AnthropicMessageDeltaEvent);
         break;
       case 'message_stop':
-        this._stop(event);
+        this._stop(event as AnthropicMessageStopEvent);
         break;
     }
   }
 
-  private _start(event: any): void {
+  private _start(event: AnthropicMessageStartEvent): void {
     this.message = structuredClone(event.message);
   }
 
-  private _block_start(event: any): void {
+  private _block_start(event: AnthropicContentBlockStartEvent): void {
     if (this.message && Array.isArray(this.message.content)) {
       this.message.content.push(structuredClone(event.content_block));
     }
   }
 
-  private _block_delta(event: any): void {
+  private _block_delta(event: AnthropicContentBlockDeltaEvent): void {
     if (!this.message || !Array.isArray(this.message.content)) return;
     const delta = event.delta;
-    const block = this.message.content[event.index];
+    const block = (this.message.content as Array<Record<string, unknown>>)[event.index];
     if (!block) return;
     const map: Record<string, string> = { text_delta: 'text', thinking_delta: 'thinking', signature_delta: 'signature' };
     const field = map[delta.type];
     if (field) {
-      block[field] = (block[field] || '') + delta[field];
+      block[field] = ((block[field] as string | undefined) || '') + (delta[field] as string | undefined ?? '');
     } else if (delta.type === 'input_json_delta') {
       const index = event.index;
-      this.arguments[index] = (this.arguments[index] || '') + delta.partial_json;
+      this.arguments[index] = (this.arguments[index] || '') + (delta.partial_json ?? '');
     } else if (delta.type === 'citations_delta') {
-      if (!Array.isArray(block.citations)) block.citations = [];
-      block.citations.push(structuredClone(delta.citation));
+      const citations = Array.isArray(block.citations) ? block.citations : (block.citations = []);
+      citations.push(structuredClone(delta.citation));
     }
   }
 
-  private _block_stop(event: any): void {
+  private _block_stop(event: AnthropicContentBlockStopEvent): void {
     const index = event.index;
     if (index in this.arguments && this.message && Array.isArray(this.message.content)) {
       const raw = this.arguments[index]!;
       delete this.arguments[index];
-      const block = this.message.content[index];
+      const block = (this.message.content as Array<Record<string, unknown>>)[index];
       if (block) {
         try {
           block.input = raw.trim() ? JSON.parse(raw) : {};
@@ -610,16 +679,16 @@ export class Capture {
     }
   }
 
-  private _delta(event: any): void {
+  private _delta(event: AnthropicMessageDeltaEvent): void {
     if (!this.message) return;
     if (event.delta) Object.assign(this.message, structuredClone(event.delta));
     if (event.usage) {
       if (!this.message.usage) this.message.usage = {};
-      Object.assign(this.message.usage, structuredClone(event.usage));
+      Object.assign(this.message.usage as Record<string, unknown>, structuredClone(event.usage));
     }
   }
 
-  private _stop(_event: any): void {
+  private _stop(_event: AnthropicMessageStopEvent): void {
     this.complete = Boolean(this.message && this.message.stop_reason && Object.keys(this.arguments).length === 0);
   }
 }
@@ -747,8 +816,8 @@ export class Admission {
       });
     });
 
-    const addr = server.address() as any;
-    const url = `http://127.0.0.1:${addr.port}${prefix}`;
+    const addr = server.address() as net.AddressInfo | null;
+    const url = `http://127.0.0.1:${addr ? addr.port : 0}${prefix}`;
 
     const admission = new Admission(server, url, u, timeoutMs, queried, replayMetadata);
     server.on('request', (req, res) => admission.handleRequest(req, res, prefix));
@@ -803,12 +872,12 @@ export class Admission {
     const chunks: Buffer[] = [];
     req.on('data', c => chunks.push(c));
     req.on('end', async () => {
-      let payload: any = Buffer.concat(chunks);
+      let payload: Buffer = Buffer.concat(chunks);
       try {
         try {
           payload = restoreQueriedTurn(payload, this.queried);
-        } catch (err: any) {
-          this.unrestored = err.message;
+        } catch (err: unknown) {
+          this.unrestored = (err as Error).message;
           this.status = 400;
           this.failure = 'QueriedTurnMismatch';
           const errBody = Buffer.from('{"type":"error","error":{"type":"invalid_request_error","message":"Native request does not match Luna host tool results"}}', 'utf8');
@@ -848,7 +917,7 @@ export class Admission {
         }
 
         let upstreamReq: http.ClientRequest;
-        let proxySocket: any = null;
+        let proxySocket: net.Socket | null = null;
 
         if (target.protocol === 'https:') {
           if (this.proxy) {
@@ -878,7 +947,7 @@ export class Admission {
             });
 
             const tlsSocket = tls.connect({
-              socket: proxySocket,
+              socket: proxySocket!,
               servername: target.hostname,
             });
 
@@ -923,7 +992,7 @@ export class Admission {
           } else res.destroy();
         });
 
-        upstreamReq.write(payload as any);
+        upstreamReq.write(payload);
         upstreamReq.end();
 
         upstreamReq.on('response', proxyRes => {
@@ -961,9 +1030,9 @@ export class Admission {
             resetIdle();
             if (proxyRes.statusCode === 200) {
               // A malformed SSE event leaves the capture incomplete; it must not throw out of an event handler.
-              try { this.capture.feed(chunk as any); } catch (err) { this.failure ??= (err as Error).name || 'Error'; }
+              try { this.capture.feed(chunk as Buffer); } catch (err) { this.failure ??= (err as Error).name || 'Error'; }
             } else if (this.errorBody.length < 65536) {
-              this.errorBody = Buffer.concat([this.errorBody, chunk as any]);
+              this.errorBody = Buffer.concat([this.errorBody, chunk as Buffer]);
             }
             res.write(chunk);
           });
@@ -980,8 +1049,8 @@ export class Admission {
           });
         });
 
-      } catch (err: any) {
-        this.failure = err.name || 'Error';
+      } catch (err: unknown) {
+        this.failure = (err as Error).name || 'Error';
         if (!res.headersSent) {
           res.statusCode = 500;
           res.end();
