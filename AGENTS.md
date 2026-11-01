@@ -39,19 +39,61 @@ pnpm run chat               # Run the interactive CLI client (src/cli.ts)
 
 ### Verification
 
-This repo has **no tests**. Do not write, add, or restore test files, `verify-*.ts` scripts, fixtures, or test harnesses. Check changes with the TypeScript compiler only:
-
 ```bash
-pnpm run typecheck          # Backend (tsc -p .)
+pnpm run typecheck          # Backend (tsc -p .), includes test/
+pnpm test                   # Unit tests (node:test via tsx), offline, no keys
 pnpm run typecheck:web      # Frontend, when web/ changed
 pnpm run build:web          # Frontend build, when web/ changed
 ```
 
 ### Verification Rules for Changes
 
-1. **Before opening a PR:** Run `pnpm run typecheck`, plus `pnpm run typecheck:web` and `pnpm run build:web` if `web/` changed.
-2. **No tests:** Do not add regression tests for features or bug fixes. Do not add `test` or `verify*` scripts to `package.json`.
-3. **Exit codes:** Run checks unpiped so nonzero exit codes are preserved. Never report a timed-out or nonzero command as passing.
+1. **Before opening a PR:** Run `pnpm run typecheck` and `pnpm test`, plus `pnpm run typecheck:web` and `pnpm run build:web` if `web/` changed.
+2. **Exit codes:** Run checks unpiped so nonzero exit codes are preserved. Never report a timed-out or nonzero command as passing.
+
+---
+
+## Testing
+
+The suite is small on purpose. An earlier suite of about 95 per-feature `verify-*.ts` scripts (14k lines) was deleted because it cost more than it caught. Do not rebuild it.
+
+### A test must pay for its upkeep
+
+Before adding a test, answer three questions. If any answer is missing, do not add the test.
+
+1. Which observable contract does it protect?
+2. Which credible regression makes it fail?
+3. Why does no existing test already catch that regression?
+
+### What gets tested
+
+- **Pure logic with a bug history:** prompt-cache transforms and history (`src/claude-native/`), limit classification (`src/limit-reset.ts`), cron schedules (`src/cron-expr.ts`), request projections (`src/tool-visibility.ts`), media directives.
+- **Security invariants:** confined reads, credential paths, MCP child environment, non-loopback bind without `LUNA_TOKEN`, strict config validation.
+- **Durable stores:** one round trip per SQLite store, only when the store has logic beyond plain SQL.
+
+A bug fix in these areas must add a regression test that **fails on the code before the fix**. Features, UI changes, and runtime wiring do not need a test; prove them with the three-layer check.
+
+### What does not get tested
+
+- Live providers, live CLIs (`claude`, `opencode`), or anything that needs a network or a real credential.
+- Browser, Playwright, or UI smoke tests. Vue component snapshots.
+- Behavior owned by a dependency (`pi-durable`, `pi-ai`, Zod, Hono), or config that only passes values through.
+- Source text (import or string greps), unless the text itself is the contract, such as a persisted key.
+
+### Rules
+
+- **Location:** tests live only in `test/*.test.ts` and use `node:test` with `node:assert/strict`. Adding a test dependency needs approval.
+- **One contract, one owner:** test each behavior once, at the strongest boundary that observes it. Extend an existing table or file before creating a new file.
+- **A test must be able to fail:** do not assert values the code under test produced, do not mock the behavior you assert, and always `await` `assert.rejects`.
+- **Test the real implementation:** call exported functions. Do not copy production logic into a test. Avoid mocks; never patch globals unless no other option exists.
+- **No test-only seams:** do not add exports, parameters, flags, or globals to production code only for tests. A clock parameter that production code already uses (for example `classifyLimit(message, now)`) is fine.
+- **Fixtures are recordings:** inputs captured from real providers or retired implementations go in `test/fixtures/` as JSON. Never edit a recording by hand to make a test pass; re-capture it and say why in the PR.
+- **Isolation:** create every `dataDir` or working directory with `mkdtempSync` and remove it in `after`. Close databases and servers before removal. Restore every changed environment variable. Bind servers to `127.0.0.1` port `0`.
+- **Time:** pass the clock or advance mock timers. Never sleep to wait for a state, and never assert wall-clock speed. Poll real events only with a deadline in milliseconds.
+- **Known bugs:** a confirmed, unfixed bug may keep its failing test with `{ todo: "bug: <summary or issue link>" }`. The fix PR removes `todo`. Never use `todo` or `skip` to hide a test that passes or fails at random.
+- **Flakes:** fix a flaky test or delete it. Never absorb it with a longer timeout, a retry, or a skip.
+- **Budget:** the whole suite runs in seconds. A single test that takes more than about one second does real work you can name; remove that work or justify it in the PR.
+- **Moving coverage:** when you delete or move a test, name the test that still proves the contract.
 
 ---
 
@@ -64,6 +106,7 @@ luna-pi/
 ├── flake.nix                   # Nix devShell (nodejs_26, pnpm, sqlite)
 ├── pnpm-workspace.yaml         # allowBuilds allowlist and patchedDependencies
 ├── patches/                    # pnpm patches for @earendil-works/pi-ai and pi-durable
+├── test/                       # node:test unit tests (*.test.ts), recorded fixtures/, helper processes in support/
 ├── src/
 │   ├── daemon.ts               # Process entrypoint: loads config, enforces auth, starts server
 │   ├── runtime.ts              # Central wiring: builds models, MCP, extensions, harness, schedulers
@@ -137,12 +180,12 @@ A capability is complete only when all three layers are verified:
 ### 4. Data Directory Isolation (`dataDir`)
 - All persistent runtime state (`luna.db`, `memory.db`, `cron.db`, `learn.db`, `recall.db`, `auth.json`, `mcp.json`, `skills/`, `processes/`, `uploads/`, `generated/`; legacy `generated-images/`) must live under `cfg.dataDir` (default `~/.luna`).
 - Never hardcode database or state file paths relative to `process.cwd()` or the repository root.
-- In verification scripts, always create an isolated temporary directory (`mkdtempSync`) for `dataDir` and clean it up on exit.
+- In tests, always create an isolated temporary directory (`mkdtempSync`) for `dataDir` and clean it up on exit.
 
 ### 5. Prompt Caching & Token Budgets
 - `pi-durable` sends a stable per-conversation `sessionId` and re-sends system prompt sections only when their content changes.
 - **Keep system sections deterministic:** Never inject per-turn timestamps, random IDs, or unstable sort orders into always-on system sections (`identity`, `memory`, `skills`, `board`).
-- **Enforce strict character caps:** Always-on prompt sections (`SOUL.md`, `USER.md`, `MEMORY.md` at 4000 chars each in `src/runtime.ts`; memory digest at 3000 chars in `src/memory.ts`; skill descriptions at <=300 chars in `src/skills.ts`) must truncate excess text and append a clear `[truncated: ...]` marker pointing to the full source.
+- **Enforce strict character caps:** Always-on prompt sections (`SOUL.md`, `USER.md`, `MEMORY.md` at 4000 chars each in `src/runtime.ts`; memory section at 3000 chars in `src/memory.ts`) must truncate excess text and append a clear `[truncated: ...]` marker pointing to the full source. Skill descriptions are shown in every prompt; the skill lint in `src/improve.ts` rejects descriptions over 300 chars.
 - **Defer MCP schemas:** MCP tools default to `defer: true` (`src/mcp.ts`) and are discovered on demand via `tool_search`. Keep this default so every model call does not carry every MCP tool schema.
 - **Compaction ownership:** Context compaction is executed by `pi-durable` with stock defaults; Luna sets no compaction policy. Check whether a context behavior lives in `pi-durable` or `luna-pi` before modifying code.
 
@@ -188,6 +231,7 @@ git checkout main && git pull origin main
 git checkout -b feat/short-description      # or fix/..., refactor/..., docs/..., test/..., chore/...
 # implement changes and run the checks:
 pnpm run typecheck
+pnpm test
 pnpm run typecheck:web
 pnpm run build:web
 git commit -m "feat(scope): concise summary"

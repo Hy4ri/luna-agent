@@ -6,6 +6,7 @@
     "chat": "tsx src/cli.ts",
     "connect": "tsx src/cli.ts connect",
     "typecheck": "tsc -p .",
+    "test": "node --import tsx --test --test-reporter=spec 'test/**/*.test.ts'",
     "worker": "tsx src/worker.ts",
     "build:web": "vite build -c web/vite.config.ts",
     "dev:web": "vite -c web/vite.config.ts",
