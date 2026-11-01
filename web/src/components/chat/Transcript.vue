@@ -150,6 +150,28 @@ const timeline = computed((): { key: string; entry?: any; job?: any }[] => {
   for (const job of jobs.slice(at)) rows.push({ key: `side:${job.id}`, job });
   return rows;
 });
+// Paint the newest rows first. Older rows of the loaded page follow in the next task, so opening a
+// long session does not build every message before the first frame. Each session switch starts again.
+const FIRST_ROWS = 30;
+const allRows = ref(false);
+let rowsTimer: ReturnType<typeof setTimeout> | undefined, rowsFrame: number | undefined;
+function resetRows() {
+  allRows.value = false;
+  clearTimeout(rowsTimer); if (rowsFrame !== undefined) cancelAnimationFrame(rowsFrame);
+  rowsTimer = rowsFrame = undefined;
+}
+function scheduleRows() {
+  if (allRows.value || timeline.value.length <= FIRST_ROWS || rowsFrame !== undefined || rowsTimer !== undefined) return;
+  const epoch = chat.epoch;
+  rowsFrame = requestAnimationFrame(() => {
+    rowsFrame = undefined;
+    rowsTimer = setTimeout(() => { rowsTimer = undefined; if (epoch === chat.epoch) allRows.value = true; });
+  });
+}
+watch(() => chat.epoch, () => { resetRows(); scheduleRows(); });
+watch(() => timeline.value.length, scheduleRows, { immediate: true });
+onBeforeUnmount(resetRows);
+const shownTimeline = computed(() => allRows.value || timeline.value.length <= FIRST_ROWS ? timeline.value : timeline.value.slice(-FIRST_ROWS));
 const results = computed(() => {
   const map = new Map<string, any>(Object.entries(chat.toolResults));
   for (const entry of entryList.value) for (const message of entry.model || []) {
@@ -205,7 +227,7 @@ function backgroundReport(entry: any, message: any): boolean {
 
 <template>
   <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll" @wheel.passive="markIntent" @touchmove.passive="markIntent" @pointerdown="handlePointerDown">
-    <div v-if="chat.hasMoreEntries" class="load-older-bar">
+    <div v-if="chat.hasMoreEntries && (allRows || timeline.length <= FIRST_ROWS)" class="load-older-bar">
       <button
         type="button"
         class="load-older-btn"
@@ -216,7 +238,7 @@ function backgroundReport(entry: any, message: any): boolean {
       </button>
     </div>
     <Welcome v-if="!entryList.length && !pending.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
-    <template v-for="row in timeline" :key="row.key">
+    <template v-for="row in shownTimeline" :key="row.key">
       <SideJobCard v-if="row.job" :job="row.job" />
       <template v-else v-for="entry in [row.entry]" :key="entry.id">
         <div v-if="entry.kind === 'pi.reset'" class="msg muted">— context reset —</div>

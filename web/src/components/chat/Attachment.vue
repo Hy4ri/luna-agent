@@ -5,8 +5,12 @@ import { Download, FileText, FileWarning } from "@lucide/vue";
 import { chat, loadMedia } from "@/stores/chat";
 import { openImage } from "@/stores/image-viewer";
 import { saveFile } from "@/lib/platform";
+import { useNearViewport } from "@/lib/near-viewport";
 const props = defineProps<{ url: string; name: string; type: string }>();
-watchEffect(() => loadMedia(props.url));
+const root = ref<HTMLElement | null>(null);
+// Fetch media only when it approaches the visible part of the transcript.
+const near = useNearViewport(root);
+watchEffect(() => { if (near.value) loadMedia(props.url); });
 const state = computed(() => chat.media[props.url]);
 const saveError = ref("");
 async function download() {
@@ -26,7 +30,7 @@ function size(n?: number) {
 </script>
 
 <template>
-  <div class="attachment" :data-attachment="type">
+  <div ref="root" class="attachment" :data-attachment="type">
     <div v-if="state?.error" class="att-file att-missing" role="alert">
       <FileWarning :size="18" aria-hidden="true" />
       <span class="att-meta"><span class="att-name">{{ name }}</span><span class="att-sub">{{ state.error }}</span></span>

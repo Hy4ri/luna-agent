@@ -48,14 +48,14 @@ function grow() {
 }
 
 async function fetchMentionCards(pid: number | null, force = false) {
+  if (!force && pid !== null && loadedPid.value === pid && boardCards.value.length > 0) return;
+  const ticket = ++loadTicket;
   if (pid === null) {
     boardCards.value = [];
     loadedPid.value = null;
     mentionCardError.value = "";
     return;
   }
-  if (!force && loadedPid.value === pid && boardCards.value.length > 0) return;
-  const ticket = ++loadTicket;
   try {
     const data = await json<{ cards: MentionCard[] }>(`/v1/projects/${pid}/board`);
     if (ticket !== loadTicket) return;
@@ -104,6 +104,7 @@ const {
 const { handleFileChange, handleDrop } = useComposerLifecycle({
   inputRef,
   activeProjectId,
+  mentionOpen,
   fetchMentionCards,
   grow,
   clearMatches,

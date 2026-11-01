@@ -275,17 +275,21 @@ export async function boot() {
   if (savedServer !== serverUrl.value) setServerUrl(savedServer);
   const chat = chatStore, models = modelsStore, sessions = sessionsStore, composer = composerStore;
   chat.chat.booting = true;
+  let remembered: Promise<void> | undefined;
   try {
-    const badge = await import("@/pages/cron/badge");
-    if (own !== bootGeneration) return;
+    // The badge chunk is needed only after boot. Fetch it alongside the health check.
+    const badgeModule = import("@/pages/cron/badge");
+    badgeModule.catch(() => {});
     if (isDesktop && !serverUrl.value) return showLogin();
     const response = await fetch(url("/health"), { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]), cache: "no-store" });
     if (!response.ok) throw Object.assign(new Error("Daemon is not available"), { status: response.status });
     const hl = await response.json();
     if (own !== bootGeneration) return;
     if (hl.auth && !token.value) return showLogin();
-    await rememberConnection();
-    if (own !== bootGeneration) return;
+    // Remembering addresses is a separate read that never fails. Do not delay the transcript behind it.
+    remembered = rememberConnection();
+    // The list stream registers before its initial invalidation. Let that event load the list once.
+    chat.startListFeed();
     const sessionToOpen = chat.chat.session;
     const sessionOpenTask = sessionToOpen
       ? chat.openSession(sessionToOpen, true)
@@ -293,11 +297,12 @@ export async function boot() {
     await Promise.all([
       models.loadModels(),
       sessions.loadProjects(),
-      sessions.loadSessions(),
+      ...(sessionPane ? [sessions.loadSessions()] : []),
       sessionOpenTask,
+      remembered,
     ]);
+    const badge = await badgeModule;
     if (own !== bootGeneration) return;
-    chat.startListFeed();
     needsBoot = false; bootFailures = 0; bootFailureAt = 0; bootDelay = 1000;
     reportConnectionFailure(bootFailureSource, false); chat.chat.bootError = "";
     if (routeNotice) { chat.addErr(routeNotice, "muted"); routeNotice = ""; }
@@ -307,6 +312,9 @@ export async function boot() {
   } catch (e) {
     if (own !== bootGeneration || controller.signal.aborted || ui.login || (e as Error).message === "unauthorized") return;
     if ((e as { status?: number }).status === 401) return showLogin("Token rejected");
+    // Route recovery needs the saved addresses that this boot was reading.
+    await remembered;
+    if (own !== bootGeneration || controller.signal.aborted || ui.login) return;
     needsBoot = true; chat.chat.connected = false;
     chat.chat.bootError = "Reconnecting…";
     bootFailureAt ||= Date.now(); bootFailures++;

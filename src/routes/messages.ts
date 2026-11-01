@@ -319,16 +319,13 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
           event: "side_jobs",
           data: JSON.stringify({ jobs: sideCommands.list(String(conv.id)).map(jobView) }),
         });
-        let snapshot = projectSnapshotImages(ev.snapshot, conv.id);
-        if (isUi) {
-          if (afterId !== undefined) {
-            snapshot = {
-              ...snapshot,
-              entries: (snapshot.entries || []).filter((e) => e.id > afterId),
-            };
-          }
-          snapshot = projectAgentEventForUi(snapshot) as typeof snapshot;
+        // Drop hydrated entries before walking and validating their embedded image data.
+        let snapshot = ev.snapshot;
+        if (isUi && afterId !== undefined) {
+          snapshot = { ...snapshot, entries: snapshot.entries.filter((e) => e.id > afterId) };
         }
+        snapshot = projectSnapshotImages(snapshot, conv.id);
+        if (isUi) snapshot = projectAgentEventForUi(snapshot) as typeof snapshot;
         await stream.writeSSE({
           event: "snapshot",
           data: JSON.stringify(snapshot),
@@ -336,13 +333,11 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         ev.start(async (events) => {
           try {
             for (const event of withSubmissions(events)) {
-              let projected = projectAgentEvent(event, conv.id);
-              if (isUi) {
-                if (projected.type === "snapshot" && afterId !== undefined) {
-                  projected = { ...projected, entries: projected.entries.filter(entry => entry.id > afterId) };
-                }
-                projected = projectAgentEventForUi(projected);
-              }
+              const source = isUi && event.type === "snapshot" && afterId !== undefined
+                ? { ...event, entries: event.entries.filter(entry => entry.id > afterId) }
+                : event;
+              let projected = projectAgentEvent(source, conv.id);
+              if (isUi) projected = projectAgentEventForUi(projected);
               await stream.writeSSE({ event: projected.type, data: JSON.stringify(projected) });
             }
           } catch {

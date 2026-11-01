@@ -1670,10 +1670,17 @@ Clearing the model records that no model is selected. Model changes do not start
 ### Lightweight session history
 
 `GET /v1/sessions/:id?view=ui&limit=100` requests a display-only projection.
-System messages omit their sections (`sections: {}`, `sectionsOmitted: true`).
+System messages omit their sections (`sections: {}`, `sectionsOmitted: true`) and their
+tool-definition changes (`toolsAdded`/`toolsRemoved` removed, `toolsOmitted: true`).
+Assistant content blocks omit provider replay signatures (`textSignature`, `thinkingSignature`).
 Tool-result text blocks larger than 8 KiB include only a 2 KiB head and tail,
 with `truncated: { originalBytes }`. UTF-8 boundaries remain intact.
 Stored entries, provider context, and the default API response are unchanged.
+The UI projection returns `contextUsage: null` to avoid scanning the active context
+before showing messages. Add `context=1` to include the complete estimate. After attaching
+the event stream, the UI fetches `?view=ui&limit=1&context=1` once to refresh both the
+estimate and custom documents. `GET /v1/sessions/:id/context` remains available for later
+context-only updates.
 
 The response includes `hasMore` and `nextCursor`. Pass that cursor as `before`
 to fetch older entries in descending order. The web UI loads 100 entries first

@@ -37,6 +37,8 @@ export function truncateToolText(text: string): { text: string; truncated?: Trun
  * Project an entry for the lightweight UI view (?view=ui):
  * 1. Strips system sections: system messages with sections return `sections: {}` and `sectionsOmitted: true`.
  * 2. Truncates toolResult text blocks > 8KB to 2KB head + 2KB tail with a `truncated: { originalBytes }` marker.
+ * 3. Drops data that only providers read: system tool-definition changes (`toolsOmitted: true` marks it) and
+ *    assistant text/thinking signatures. These were half of a typical history page.
  *
  * Does not mutate the original entry.
  */
@@ -48,15 +50,30 @@ export function projectEntryForUi(entry: EntryRecord): EntryRecord {
   let modelChanged = false;
   const projectedModel: Message[] = entry.model.map((msg) => {
     if (msg.role === "system") {
-      if (msg.sections && Object.keys(msg.sections).length > 0) {
-        modelChanged = true;
-        return {
-          ...msg,
-          sections: {},
-          sectionsOmitted: true,
-        } as Message;
-      }
-      return msg;
+      const sections = !!msg.sections && Object.keys(msg.sections).length > 0;
+      const tools = msg.toolsAdded !== undefined || msg.toolsRemoved !== undefined;
+      if (!sections && !tools) return msg;
+      modelChanged = true;
+      const { toolsAdded: _added, toolsRemoved: _removed, ...rest } = msg;
+      return {
+        ...(tools ? rest : msg),
+        ...(sections ? { sections: {}, sectionsOmitted: true } : {}),
+        ...(tools ? { toolsOmitted: true } : {}),
+      } as Message;
+    }
+
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      let signed = false;
+      const content = msg.content.map((block) => {
+        const b = block as unknown as Record<string, unknown>;
+        if (b.textSignature === undefined && b.thinkingSignature === undefined) return block;
+        signed = true;
+        const { textSignature: _text, thinkingSignature: _thinking, ...rest } = b;
+        return rest as unknown as typeof block;
+      });
+      if (!signed) return msg;
+      modelChanged = true;
+      return { ...msg, content };
     }
 
     if (msg.role === "toolResult") {

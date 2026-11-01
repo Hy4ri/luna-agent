@@ -6,16 +6,25 @@ export const SUPPORTED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "i
 export type SupportedImageMime = (typeof SUPPORTED_IMAGE_MIMES)[number];
 
 const SUPPORTED_MIME_SET = new Set<string>(SUPPORTED_IMAGE_MIMES);
-const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
+const EQUALS = 61;
+const withoutPadding = (value: string) => {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === EQUALS) end--;
+  return end;
+};
 
-/** Validate base64 string syntax and canonical padding, consistent with upload-input. */
+/**
+ * Standard-alphabet base64 with at most two final '=' and canonical trailing bits.
+ * One native decode and encode replaces a full-string regex: the decoder drops or translates every
+ * character outside the standard alphabet, so any such character changes the re-encoded text.
+ * Session views validate every embedded image on every read, so this is a hot path.
+ */
 export function isValidBase64(value: string): boolean {
-  if (!value || value.length % 4 === 1 || !BASE64_PATTERN.test(value)) return false;
-  try {
-    return Buffer.from(value, "base64").toString("base64").replace(/=+$/, "") === value.replace(/=+$/, "");
-  } catch {
-    return false;
-  }
+  const end = withoutPadding(value);
+  if (end === 0 || value.length - end > 2 || value.length % 4 === 1) return false;
+  const encoded = Buffer.from(value, "base64").toString("base64");
+  const encodedEnd = withoutPadding(encoded);
+  return encodedEnd === end && encoded.substring(0, encodedEnd) === value.substring(0, end);
 }
 
 /** Check if a MIME type is one of the supported raster image formats (case-insensitive). */
@@ -28,15 +37,34 @@ export interface ExtractedImageBlock {
   readonly data: string;
 }
 
-/** Check if a candidate object is a supported base64 image block (not a luna-upload ref). */
-export function isBase64ImageBlock(obj: unknown): obj is { type: "image"; mimeType: string; data: string } {
+type ImageCandidate = { type: "image"; mimeType: string; data: string };
+/** Supported inline image fields, before the costly base64 check. */
+function isImageCandidate(obj: unknown): obj is ImageCandidate {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
   const rec = obj as Record<string, unknown>;
-  if (rec.type !== "image") return false;
-  if (!isSupportedImageMime(rec.mimeType)) return false;
-  if (typeof rec.data !== "string" || !rec.data) return false;
-  if (rec.data.startsWith("luna-upload:")) return false;
-  return isValidBase64(rec.data);
+  return rec.type === "image" && isSupportedImageMime(rec.mimeType) && typeof rec.data === "string" && !!rec.data &&
+    !rec.data.startsWith("luna-upload:");
+}
+
+/** Check if a candidate object is a supported base64 image block (not a luna-upload ref). */
+export function isBase64ImageBlock(obj: unknown): obj is ImageCandidate {
+  return isImageCandidate(obj) && isValidBase64(obj.data);
+}
+
+// Committed entries are immutable and their IDs are never reused for other content, so every view
+// of an entry would validate the same megabytes again. Remember each verdict by entry, block position
+// and length. The length and edge guard recomputes when a caller passes other content under a reused ID.
+const VALIDITY_LIMIT = 4096;
+const validity = new Map<string, boolean>();
+function validImage(entryId: unknown, position: number, data: string): boolean {
+  if (typeof entryId !== "number") return isValidBase64(data);
+  const key = `${entryId}:${position}:${data.length}:${data.slice(0, 24)}:${data.slice(-24)}`;
+  const known = validity.get(key);
+  if (known !== undefined) return known;
+  const valid = isValidBase64(data);
+  validity.set(key, valid);
+  if (validity.size > VALIDITY_LIMIT) validity.delete(validity.keys().next().value!);
+  return valid;
 }
 
 /**
@@ -45,6 +73,8 @@ export function isBase64ImageBlock(obj: unknown): obj is { type: "image"; mimeTy
  */
 export function collectEntryImages(value: unknown): ExtractedImageBlock[] {
   const images: ExtractedImageBlock[] = [];
+  const entryId = (value as { id?: unknown } | null)?.id;
+  let candidates = 0;
 
   function walk(val: unknown): void {
     if (!val || typeof val !== "object") return;
@@ -54,7 +84,7 @@ export function collectEntryImages(value: unknown): ExtractedImageBlock[] {
       }
       return;
     }
-    if (isBase64ImageBlock(val)) {
+    if (isImageCandidate(val) && validImage(entryId, candidates++, val.data)) {
       images.push({
         mimeType: val.mimeType.toLowerCase() as SupportedImageMime,
         data: val.data,
@@ -86,7 +116,7 @@ export function getImageBlockAt(entry: EntryRecord, index: number): ExtractedIma
  * Never mutates original.
  */
 export function projectEntryImages<T extends EntryRecord>(entry: T, viewSessionId: string | number): T {
-  let counter = 0;
+  let counter = 0, candidates = 0;
   const sid = encodeURIComponent(String(viewSessionId));
   const eid = entry.id;
 
@@ -101,7 +131,7 @@ export function projectEntryImages<T extends EntryRecord>(entry: T, viewSessionI
       });
       return changed ? mapped : val;
     }
-    if (isBase64ImageBlock(val)) {
+    if (isImageCandidate(val) && validImage(eid, candidates++, val.data)) {
       const idx = counter++;
       const canonicalMime = val.mimeType.toLowerCase() as SupportedImageMime;
       const projected = {

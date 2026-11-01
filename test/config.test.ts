@@ -1,10 +1,12 @@
 // Contract: config is validated strictly. Unknown or conflicting settings fail at load time instead of being ignored,
 // the documented example always loads, and a non-loopback bind needs LUNA_TOKEN.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { bindRefusal, parseConfig } from "../src/config.js";
+import { SettingsStore } from "../src/settings.js";
 
 const base = "/srv/luna";
 const parse = (raw: unknown, env: NodeJS.ProcessEnv = {}) => parseConfig(raw, base, env);
@@ -56,4 +58,26 @@ test("a non-loopback bind is refused without LUNA_TOKEN", () => {
   for (const host of ["0.0.0.0", "::", "192.168.1.20", "luna.lan"]) assert.match(bindRefusal(host, undefined) ?? "", /LUNA_TOKEN/, host);
   assert.equal(bindRefusal("0.0.0.0", ""), bindRefusal("0.0.0.0", undefined), "an empty token is no token");
   assert.equal(bindRefusal("0.0.0.0", "t"), undefined);
+});
+
+test("live settings: external edits, saves, and invalid files apply on the next read; callers get private copies", () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-settings-"));
+  try {
+    const path = join(dir, "luna.config.json");
+    writeFileSync(path, JSON.stringify({ dataDir: dir, provider: "faux", model: "faux", busyInput: { mode: "queue" } }));
+    const settings = new SettingsStore(path, dir);
+    const copy = settings.resolved();
+    copy.busyInput.mode = "steer";
+    assert.equal(settings.resolved().busyInput.mode, "queue");
+    settings.update(c => { c.busyInput.mode = "interrupt"; });
+    assert.equal(settings.resolved().busyInput.mode, "interrupt");
+    const raw = JSON.parse(readFileSync(path, "utf8"));
+    raw.busyInput.mode = "steer";
+    writeFileSync(path, JSON.stringify(raw)); // in place: same inode
+    assert.equal(settings.resolved().busyInput.mode, "steer");
+    assert.equal(settings.resolved({ ...process.env, LUNA_MODEL: "other" }).model, "other");
+    assert.equal(settings.resolved().model, "faux");
+    writeFileSync(path, "{");
+    assert.throws(() => settings.resolved());
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

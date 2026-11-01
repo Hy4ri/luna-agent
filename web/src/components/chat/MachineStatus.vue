@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { Check, Monitor } from '@lucide/vue';
 import { chat } from '@/stores/chat';
 import { openPanel } from '@/stores/app';
@@ -34,15 +34,15 @@ async function refresh() {
   const sid = chat.session, epoch = chat.epoch;
   try {
     await loadWorkers();
-    if (sid) {
+    if (sid && chat.connected && epoch === chat.epoch) {
       const r = await json(`/v1/sessions/${sid}/machine`);
       if (epoch === chat.epoch && sid === chat.session) { chat.machine = r.machine; chat.cwd = r.cwd; }
     }
   } catch { /* Keep last state; the main connection indicator reports a failed main connection. */ }
   finally { polling = false; }
 }
-watch(() => chat.session, refresh);
-onMounted(() => { refresh(); timer = setInterval(refresh, 5000); });
+// Session hydration supplies the initial machine and cwd. Poll only for later external changes.
+onMounted(() => { void loadWorkers(); timer = setInterval(refresh, 5000); });
 onUnmounted(() => clearInterval(timer));
 </script>
 <template>

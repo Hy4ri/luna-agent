@@ -164,7 +164,8 @@ const hasBody = computed(() => {
         <a v-if="child" href="#" @click.prevent.stop="openSession(child)">Child {{ child }}</a>
         <ChevronRight :size="13" class="disclosure-chevron" aria-hidden="true" />
       </summary>
-      <template v-if="view === 'generic'">
+      <!-- Closed tools need only their summary. Build output views only when opened. -->
+      <template v-if="expanded && view === 'generic'">
         <div v-if="argumentsText" class="tool-section"><span class="tool-section-label">Arguments</span><pre>{{ argumentsText }}</pre></div>
         <div v-if="state !== 'failed' && output" class="tool-section"><span class="tool-section-label">Output</span><pre>{{ output }}</pre></div>
         <div v-if="isTruncated" class="tool-truncated-bar">
@@ -179,7 +180,7 @@ const hasBody = computed(() => {
           <span v-if="fetchError" class="tool-truncated-err">{{ fetchError }}</span>
         </div>
       </template>
-      <template v-else>
+      <template v-else-if="expanded">
         <div v-if="hasBody" class="tool-section" :data-view="view">
           <template v-if="view === 'edit'">
             <span class="tool-section-label">{{ editApplied ? 'Diff' : 'Requested change (not applied, no line numbers)' }}</span>
@@ -242,7 +243,9 @@ const hasBody = computed(() => {
         </div>
         <details v-if="argumentsText" class="tool-raw"><summary>Raw arguments</summary><pre>{{ argumentsText }}</pre></details>
       </template>
-      <SessionImage v-for="(image, i) in images" :key="i" class="tool-image" :image="image" :alt="name + ' result'" />
+      <template v-if="expanded">
+        <SessionImage v-for="(image, i) in images" :key="i" class="tool-image" :image="image" :alt="name + ' result'" />
+      </template>
     </details>
     <div v-if="state === 'failed' && view === 'bash' && split.exit !== undefined" class="tool-error"><span class="tool-section-label">Exited with code {{ split.exit }}</span><TerminalView :text="body" /></div>
     <div v-else-if="state === 'failed'" class="tool-error"><span class="tool-section-label">Error</span><pre>{{ output || 'The tool failed without error details.' }}</pre></div>
