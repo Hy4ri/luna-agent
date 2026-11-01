@@ -248,8 +248,10 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
   });
 
   // ---- Evidence-backed proposals: only the user-facing routes approve or verify changes. ----
-  const lessonView = (l: ReturnType<LearnStore["lesson"]> & {}) => {
+  const lessonView = (l: ReturnType<LearnStore["lesson"]> & {}, includeEvidence = true) => {
     const L = opts.learn!.store;
+    const evidenceList = includeEvidence ? L.evidence(l.id) : [];
+    const evidenceCount = includeEvidence ? evidenceList.length : L.evidenceCount(l.id);
     return {
       ...l,
       needs_guard: !!l.needs_guard,
@@ -266,7 +268,8 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
           : l.status === "verified"
             ? "user-verified observation"
             : "not verified",
-      evidence: L.evidence(l.id).map((s) => ({
+      evidenceCount,
+      evidence: evidenceList.map((s) => ({
         id: s.id,
         kind: s.kind,
         session: s.conv,
@@ -280,13 +283,59 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
 
   const learnOff = (c: HonoContext) => (opts.learn ? undefined : err(c, 404, "learning disabled"));
 
-  app.get("/v1/lessons", (c) => learnOff(c) ?? c.json({
-        lessons: opts.learn!.store.lessons().map(lessonView),
-        unassigned: opts.learn!.store.pendingCount(),
-        projection: opts.learn!.store.projectionState(opts.memory),
-        metrics: opts.learn!.store.metrics(),
-      }),
-  );
+  app.get("/v1/lessons", (c) => {
+    const no = learnOff(c);
+    if (no) return no;
+    const historyStatuses = ["rejected", "retired", "replaced"];
+    const all = opts.learn!.store.lessons();
+    const historyLessons = all.filter((l) => historyStatuses.includes(l.status));
+    const historyCount = historyLessons.length;
+
+    if (c.req.query("history") === "1") {
+      const rawOffset = Number(c.req.query("offset"));
+      const rawLimit = Number(c.req.query("limit"));
+      const offset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+      const limit = Number.isSafeInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 100) : 20;
+
+      const paged = historyLessons.slice(offset, offset + limit).map((l) => ({
+        id: l.id,
+        claim: l.claim,
+        status: l.status,
+        note: l.note,
+        evidence: [] as [],
+        evidenceCount: opts.learn!.store.evidenceCount(l.id),
+      }));
+      const nextOffset = offset + limit < historyCount ? offset + limit : null;
+
+      return c.json({
+        lessons: paged,
+        historyCount,
+        nextOffset,
+      });
+    }
+
+    const activeLessons = all
+      .filter((l) => !historyStatuses.includes(l.status))
+      .map((l) => lessonView(l, true));
+
+    return c.json({
+      lessons: activeLessons,
+      historyCount,
+      unassigned: opts.learn!.store.pendingCount(),
+      projection: opts.learn!.store.projectionState(opts.memory),
+      metrics: opts.learn!.store.metrics(),
+    });
+  });
+
+  app.get("/v1/lessons/:id", (c) => {
+    const no = learnOff(c);
+    if (no) return no;
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such lesson");
+    const l = opts.learn!.store.lesson(id);
+    if (!l) return err(c, 404, "no such lesson");
+    return c.json(lessonView(l, true));
+  });
 
   app.post("/v1/lessons/scan", async (c) => {
     const no = learnOff(c);

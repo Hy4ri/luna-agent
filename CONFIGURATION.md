@@ -457,7 +457,9 @@ No replacement job is created. Idle capture makes **zero model calls**; review o
 session or after a relevant correction. There is no automatic replay evaluator or automatic policy promotion.
 
 HTTP routes:
-- `GET /v1/lessons`: lessons, evidence, assessments, changes, observations, projection state, metrics.
+- `GET /v1/lessons`: active lessons, evidence, assessments, changes, observations, projection state, metrics, and `historyCount`.
+- `GET /v1/lessons?history=1&offset=0&limit=20`: lightweight history summaries for rejected, retired, and replaced lessons. Returns `historyCount` and `nextOffset` (null at the end). Offset must be nonnegative; limit is bounded to 1–100. Evidence is loaded through the detail route.
+- `GET /v1/lessons/:id`: full lesson detail, including evidence. The history panel fetches this on expansion.
 - `POST /v1/lessons/scan`: deterministic idle capture (respects capture configuration).
 - `POST /v1/lessons/:id/approve|reject|rollback|reconcile`: user decisions; `reject` accepts an optional `note`.
 - `POST /v1/lessons/:id/verify`: user confirmation, body `{ "observation": <id> }`.
@@ -1657,6 +1659,28 @@ Native background processes use that environment and retain their output central
 Files named by an assistant `MEDIA:` directive are fetched on demand from the source worker.
 For sessions created through the API, existing answer attachments keep their source after execution transfers.
 
+### Lightweight session history
+
+`GET /v1/sessions/:id?view=ui&limit=100` requests a display-only projection.
+System messages omit their sections (`sections: {}`, `sectionsOmitted: true`).
+Tool-result text blocks larger than 8 KiB include only a 2 KiB head and tail,
+with `truncated: { originalBytes }`. UTF-8 boundaries remain intact.
+Stored entries, provider context, and the default API response are unchanged.
+
+The response includes `hasMore` and `nextCursor`. Pass that cursor as `before`
+to fetch older entries in descending order. The web UI loads 100 entries first
+and provides a **Load older messages** button. Reconnecting retains loaded history.
+
+`GET /v1/sessions/:id/events?view=ui&after=<entryId>` uses the same projection.
+The atomic SSE snapshot contains only entries newer than the hydrated page's newest
+entry. This closes the fetch/subscribe gap without resending the entire transcript.
+Default SSE clients continue to receive the full snapshot.
+
+`GET /v1/sessions/:id/entries/:entryId/tool-result?toolCallId=<id>` retrieves
+full tool text when the user selects **Show full output**. It requires the normal
+bearer token and checks entry visibility through the session's fork lineage.
+The `entryId` identifies the result entry, not the assistant tool-call entry.
+
 ### Session image transport
 
 Session detail responses and both SSE streams replace embedded PNG, JPEG, GIF, and WebP
@@ -1785,6 +1809,9 @@ requests and reuses successful snapshots for up to three seconds. `generatedAt` 
 when the snapshot was built; session statuses reflect that time. Use
 `GET /v1/analytics?refresh=true` to bypass snapshot reuse (an active refresh is shared).
 The Analytics Refresh button uses this option. Failed refreshes can be retried.
+A delayed scan warms the cache 30 seconds after startup. Scans release the harness
+queue between conversations and yield during entry paging. Analytics is eventually
+consistent across conversations, not one atomic point-in-time database snapshot.
 
 The web UI retains the last snapshot while the analytics window is closed and refreshes
 it on reopen. Changing the server or authentication token clears this client snapshot.
@@ -1836,7 +1863,7 @@ The first request after daemon startup still needs a full retained-history scan.
 
 ### Workspace Git status
 
-`GET /v1/sessions/:id/git` reads the session execution machine and working directory. It returns `state` (`ok`, `not-repository`, `unavailable`, or `error`). Successful reads include `branch`, `upstream`, `ahead`, `behind`, `added`, `deleted`, `untracked`, `conflicts`, and `files` (path, two-character status, added/deleted counts, binary flag). Totals compare tracked staged and unstaged changes with HEAD; untracked contents are excluded. Ahead/behind uses local upstream information without fetching. Reads share a four-second workspace cache. The UI refreshes every five seconds while visible and on focus. This endpoint never changes Git state.
+`GET /v1/sessions/:id/git` reads the session execution machine and working directory. It returns `state` (`ok`, `not-repository`, `unavailable`, or `error`). Successful reads include `branch`, `upstream`, `ahead`, `behind`, `added`, `deleted`, `untracked`, `conflicts`, and `files` (path, two-character status, added/deleted counts, binary flag). Totals compare tracked staged and unstaged changes with HEAD; untracked contents are excluded. Ahead/behind uses local upstream information without fetching. Reads share a four-second workspace cache. The UI shares one poller across both Git status displays and refreshes every five seconds while visible and on focus. This endpoint never changes Git state.
 
 ## GitHub workspace
 

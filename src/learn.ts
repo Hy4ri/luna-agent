@@ -273,6 +273,9 @@ export class LearnStore {
     const rows = this.db.prepare("SELECT * FROM lessons ORDER BY updated DESC").all() as unknown as LessonRow[];
     return status ? rows.filter((r) => status.includes(r.status)) : rows;
   }
+  evidenceCount(lesson: number) {
+    return (this.db.prepare("SELECT COUNT(*) AS count FROM signals WHERE lesson=?").get(lesson) as { count: number }).count;
+  }
   evidence(lesson: number) { return this.db.prepare("SELECT * FROM signals WHERE lesson=? ORDER BY id").all(lesson) as unknown as SignalRow[]; }
   sessions(lesson: number) { return (this.db.prepare("SELECT COUNT(DISTINCT conv) n FROM signals WHERE lesson=?").get(lesson) as { n: number }).n; }
 

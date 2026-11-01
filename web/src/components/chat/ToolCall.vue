@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Check, X, LoaderCircle, ChevronRight, Circle, CircleDot } from '@lucide/vue';
 import { chat, openSession, toolArgsText } from '@/stores/chat';
+import { json as fetchJson } from '@/lib/api';
 import { formatTime, formatDateIso } from '@/lib/message';
 import { toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits } from '@/lib/tool-view';
 import Markdown from './Markdown.vue';
@@ -13,8 +14,69 @@ import SessionExchange from './tool/SessionExchange.vue';
 const props = defineProps<{ id: string; name: string; args?: unknown; result?: any; timestamp?: number | string }>();
 const expanded = ref(false);
 const result = computed(() => props.result ?? chat.toolResults[props.id]);
+const fullOutputFetched = ref<string | null>(null);
+const fetchingFullOutput = ref(false);
+const fetchError = ref<string | null>(null);
+
+// Reset cached full text and error whenever the tool result identity changes
+watch(
+  () => [chat.session, chat.epoch, props.id, result.value?.entryId],
+  () => {
+    fullOutputFetched.value = null;
+    fetchError.value = null;
+    fetchingFullOutput.value = false;
+  },
+);
+
+const isTruncated = computed(() => {
+  if (fullOutputFetched.value !== null) return false;
+  const res = result.value;
+  if (!res) return false;
+  if (Array.isArray(res.content)) {
+    return res.content.some((b: any) => b.type === 'text' && b.truncated);
+  }
+  return false;
+});
+
+const truncatedOriginalBytes = computed(() => {
+  const res = result.value;
+  if (!res || !Array.isArray(res.content)) return undefined;
+  const block = res.content.find((b: any) => b.type === 'text' && b.truncated);
+  return block?.truncated?.originalBytes;
+});
+
+async function fetchFullOutput() {
+  const eid = result.value?.entryId;
+  const sid = chat.session;
+  const epoch = chat.epoch;
+  const callId = props.id;
+  if (!sid || eid === undefined || fetchingFullOutput.value) return;
+  fetchingFullOutput.value = true;
+  fetchError.value = null;
+  try {
+    const data = await fetchJson<{ text: string }>(
+      `/v1/sessions/${encodeURIComponent(sid)}/entries/${eid}/tool-result?toolCallId=${encodeURIComponent(callId)}`,
+    );
+    if (chat.session === sid && chat.epoch === epoch && props.id === callId && result.value?.entryId === eid) {
+      if (typeof data?.text === 'string') {
+        fullOutputFetched.value = data.text;
+      } else {
+        fetchError.value = "Full output empty or missing.";
+      }
+    }
+  } catch (e: any) {
+    if (chat.session === sid && chat.epoch === epoch && props.id === callId) {
+      fetchError.value = e?.message || "Failed to load full output";
+    }
+  } finally {
+    if (chat.session === sid && chat.epoch === epoch && props.id === callId) {
+      fetchingFullOutput.value = false;
+    }
+  }
+}
 const state = computed(() => result.value ? result.value.isError === true ? 'failed' : 'complete' : chat.activeTools.has(props.id) ? 'running' : 'pending');
 const output = computed(() => {
+  if (fullOutputFetched.value !== null) return fullOutputFetched.value;
   if (!result.value) return chat.toolLive[props.id] || '';
   const content = result.value.content;
   if (typeof content === 'string') return content;
@@ -105,6 +167,17 @@ const hasBody = computed(() => {
       <template v-if="view === 'generic'">
         <div v-if="argumentsText" class="tool-section"><span class="tool-section-label">Arguments</span><pre>{{ argumentsText }}</pre></div>
         <div v-if="state !== 'failed' && output" class="tool-section"><span class="tool-section-label">Output</span><pre>{{ output }}</pre></div>
+        <div v-if="isTruncated" class="tool-truncated-bar">
+          <button
+            type="button"
+            class="code-more"
+            :disabled="fetchingFullOutput"
+            @click.stop="fetchFullOutput"
+          >
+            {{ fetchingFullOutput ? "Fetching full output…" : `Show full output (${Math.round((truncatedOriginalBytes || 0) / 1024)} KB)` }}
+          </button>
+          <span v-if="fetchError" class="tool-truncated-err">{{ fetchError }}</span>
+        </div>
       </template>
       <template v-else>
         <div v-if="hasBody" class="tool-section" :data-view="view">
@@ -156,6 +229,17 @@ const hasBody = computed(() => {
           <pre v-else>{{ body }}</pre>
         </div>
         <ul v-if="notes.length && state !== 'failed' && view !== 'bash'" class="tool-notes"><li v-for="(n, i) in notes" :key="i">{{ n }}</li></ul>
+        <div v-if="isTruncated" class="tool-truncated-bar">
+          <button
+            type="button"
+            class="code-more"
+            :disabled="fetchingFullOutput"
+            @click.stop="fetchFullOutput"
+          >
+            {{ fetchingFullOutput ? "Fetching full output…" : `Show full output (${Math.round((truncatedOriginalBytes || 0) / 1024)} KB)` }}
+          </button>
+          <span v-if="fetchError" class="tool-truncated-err">{{ fetchError }}</span>
+        </div>
         <details v-if="argumentsText" class="tool-raw"><summary>Raw arguments</summary><pre>{{ argumentsText }}</pre></details>
       </template>
       <SessionImage v-for="(image, i) in images" :key="i" class="tool-image" :image="image" :alt="name + ' result'" />
@@ -166,3 +250,9 @@ const hasBody = computed(() => {
     <div v-if="formatTime(timestamp)" class="tool-footer"><time :datetime="formatDateIso(timestamp)" :title="fullDate">{{ formatTime(timestamp) }}</time></div>
   </div>
 </template>
+
+<style scoped>
+.tool-truncated-bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px 8px; }
+.tool-truncated-bar .code-more { margin: 0; padding: 0; }
+.tool-truncated-err { font-size: 11px; color: var(--destructive); }
+</style>

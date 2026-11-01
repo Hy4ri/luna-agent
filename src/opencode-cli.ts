@@ -504,10 +504,26 @@ const FALLBACK = ["big-pickle", "beam-free", "deepseek-v4.1-flash-free", "flint-
 /** Fallback models that accept images (the live list reports this itself). */
 const FALLBACK_VISION = new Set(["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "mimo-v2.6-flash-free", "nemotron-3.5-super-vl-free"]);
 
+let versionCheck: { executable: string; expires: number; promise: Promise<boolean> } | undefined;
+export function invalidateOpencodeStatus() { versionCheck = undefined; }
+function checkOpencodeAvailable(): Promise<boolean> {
+  const executable = opencodeExecutable();
+  if (versionCheck?.executable === executable && versionCheck.expires > Date.now()) return versionCheck.promise;
+  const entry = { executable, expires: Date.now() + 60_000, promise: Promise.resolve(false) };
+  entry.promise = run(executable, ["--version"], { timeout: 10_000 }).then(() => true, () => {
+    if (versionCheck === entry) versionCheck = undefined;
+    return false;
+  });
+  versionCheck = entry;
+  return entry.promise;
+}
+
 export function opencodeCliProvider() {
   return createProvider({
     id: PROVIDER_ID, name: "OpenCode (CLI)",
-    auth: { apiKey: { name: "OpenCode CLI", resolve: async () =>
+    auth: { apiKey: { name: "OpenCode CLI",
+      check: async () => await checkOpencodeAvailable() ? { type: "api_key" as const, source: "opencode CLI" } : undefined,
+      resolve: async () =>
       (await run(opencodeExecutable(), ["--version"], { timeout: 10_000 }).then(() => true, () => false))
         ? { auth: {}, source: "opencode CLI" } : undefined } },
     models: FALLBACK.map(id => ({

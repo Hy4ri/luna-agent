@@ -1,5 +1,7 @@
 import type { Hono, Context as HonoContext } from "hono";
 import type { RouteCtx } from "./context.js";
+import { invalidateOpencodeStatus } from "../opencode-cli.js";
+import { invalidateClaudeLoginStatus } from "../claude-native/status.js";
 
 export function registerSettings(app: Hono, ctx: RouteCtx): void {
   const { opts, err } = ctx;
@@ -72,6 +74,8 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
       }
       opts.settings.replace(b.config, b.revision);
       const warnings = await opts.settings.apply(old);
+      invalidateClaudeLoginStatus();
+      invalidateOpencodeStatus();
       return c.json({ ...opts.settings.view(), warnings });
     } catch (e) {
       return err(c, (e as Error).message.includes("Reload before") ? 409 : 400, (e as Error).message);
@@ -103,6 +107,8 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
 
   app.post("/v1/models/refresh", async (c) => {
     if (!opts.providers) return err(c, 404, "providers disabled");
+    invalidateClaudeLoginStatus();
+    invalidateOpencodeStatus();
     return c.json({ refresh: await opts.providers.refreshCatalog() });
   });
 

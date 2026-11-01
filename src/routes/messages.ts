@@ -11,6 +11,7 @@ import { SKILLCRAFT_USAGE, parseSkillcraft, skillcraftPrompt } from "../skillcra
 import { LEARN_USAGE, learnPrompt, parseLearn } from "../learn-command.js";
 import { parseUploadInput as parseInput, type UploadInput } from "../upload-input.js";
 import { projectAgentEvent, projectSnapshotImages } from "../session-images.js";
+import { projectAgentEventForUi } from "../session-history-view.js";
 import { context } from "../luna.js";
 import { isRunning } from "../session-status.js";
 import type { SideInput } from "../side-commands.js";
@@ -299,6 +300,9 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
   app.get("/v1/sessions/:id/events", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
+    const isUi = c.req.query("view") === "ui";
+    const afterParam = c.req.query("after");
+    const afterId = afterParam !== undefined && Number.isSafeInteger(Number(afterParam)) ? Number(afterParam) : undefined;
     return streamSSE(c, async (stream) => {
       const ev = await watchEvents(harness, conv.id, context);
       let finish!: () => void;
@@ -315,14 +319,30 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
           event: "side_jobs",
           data: JSON.stringify({ jobs: sideCommands.list(String(conv.id)).map(jobView) }),
         });
+        let snapshot = projectSnapshotImages(ev.snapshot, conv.id);
+        if (isUi) {
+          if (afterId !== undefined) {
+            snapshot = {
+              ...snapshot,
+              entries: (snapshot.entries || []).filter((e) => e.id > afterId),
+            };
+          }
+          snapshot = projectAgentEventForUi(snapshot) as typeof snapshot;
+        }
         await stream.writeSSE({
           event: "snapshot",
-          data: JSON.stringify(projectSnapshotImages(ev.snapshot, conv.id)),
+          data: JSON.stringify(snapshot),
         });
         ev.start(async (events) => {
           try {
             for (const event of withSubmissions(events)) {
-              const projected = projectAgentEvent(event, conv.id);
+              let projected = projectAgentEvent(event, conv.id);
+              if (isUi) {
+                if (projected.type === "snapshot" && afterId !== undefined) {
+                  projected = { ...projected, entries: projected.entries.filter(entry => entry.id > afterId) };
+                }
+                projected = projectAgentEventForUi(projected);
+              }
               await stream.writeSSE({ event: projected.type, data: JSON.stringify(projected) });
             }
           } catch {

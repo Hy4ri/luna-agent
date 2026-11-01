@@ -1,6 +1,6 @@
 // Conversation history list + projects for the sidebar. Port of vanilla sidebar.js data logic.
 import { reactive } from "vue";
-import { api, json, post } from "@/lib/api";
+import { api, json, post, serverUrl, token } from "@/lib/api";
 import { notify } from "@/lib/platform";
 import { sessionState, SESSION_STATUS_LABELS } from "@/lib/session-status";
 import type { Project, SessionMeta, SessionStatus } from "@/lib/types";
@@ -32,13 +32,30 @@ export function setDrill(key: string | null) {
   try { key === null ? localStorage.removeItem(DRILL_KEY) : localStorage.setItem(DRILL_KEY, key); } catch {}
 }
 
-export async function loadProjects() {
-  history.projects = sortProjects((await json<{ projects: Project[] }>("/v1/projects").catch(() => ({ projects: [] as Project[] }))).projects || []);
-  const saved = localStorage.getItem("luna.project");
-  if (!saved || !history.projects.some(p => String(p.id) === saved)) {
-    if (history.projects.length) localStorage.setItem("luna.project", String(history.projects[0].id));
-    else localStorage.removeItem("luna.project");
+let inFlightProjects: { origin: string; credential: string; promise: Promise<void> } | null = null;
+
+export async function loadProjects(): Promise<void> {
+  const origin = serverUrl.value, credential = token.value;
+  if (inFlightProjects && inFlightProjects.origin === origin && inFlightProjects.credential === credential) {
+    return inFlightProjects.promise;
   }
+
+  const task = (async () => {
+    const res = await json<{ projects: Project[] }>("/v1/projects").catch(() => ({ projects: [] as Project[] }));
+    if (origin !== serverUrl.value || credential !== token.value) return;
+    history.projects = sortProjects(res.projects || []);
+    const saved = localStorage.getItem("luna.project");
+    if (!saved || !history.projects.some(p => String(p.id) === saved)) {
+      if (history.projects.length) localStorage.setItem("luna.project", String(history.projects[0].id));
+      else localStorage.removeItem("luna.project");
+    }
+  })();
+
+  const current = { origin, credential, promise: task };
+  inFlightProjects = current;
+  const cleanup = () => { if (inFlightProjects === current) inFlightProjects = null; };
+  task.then(cleanup, cleanup);
+  return task;
 }
 
 const favoriteBusy = new Set<number>();
@@ -72,20 +89,35 @@ function notifyChanges(list: SessionMeta[]) {
 }
 
 let historyRequest = 0;
-export async function loadSessions() {
-  const request = ++historyRequest;
-  const r = await json<{ sessions: SessionMeta[] }>("/v1/sessions");
-  if (request !== historyRequest) return;
-  history.list = r.sessions;
-  notifyChanges(r.sessions);
-  const active = history.list.find(s => String(s.id) === String(chat.session));
-  if (active?.title) chat.title = active.title;
-  if (chat.session && !active) {
-    const sid = chat.session;
-    const response = await api(`/v1/sessions/${sid}?limit=1`);
-    if (request !== historyRequest) return;
-    if (response.status === 404 && sid === chat.session) clearConversation();
+let inFlightSessions: { origin: string; credential: string; promise: Promise<void> } | null = null;
+
+export async function loadSessions(): Promise<void> {
+  const origin = serverUrl.value, credential = token.value;
+  if (inFlightSessions && inFlightSessions.origin === origin && inFlightSessions.credential === credential) {
+    return inFlightSessions.promise;
   }
+
+  const task = (async () => {
+    const request = ++historyRequest;
+    const r = await json<{ sessions: SessionMeta[] }>("/v1/sessions");
+    if (request !== historyRequest || origin !== serverUrl.value || credential !== token.value) return;
+    history.list = r.sessions;
+    notifyChanges(r.sessions);
+    const active = history.list.find(s => String(s.id) === String(chat.session));
+    if (active?.title) chat.title = active.title;
+    if (chat.session && !active) {
+      const sid = chat.session;
+      const response = await api(`/v1/sessions/${sid}?limit=1`);
+      if (request !== historyRequest || origin !== serverUrl.value || credential !== token.value) return;
+      if (response.status === 404 && sid === chat.session) clearConversation();
+    }
+  })();
+
+  const current = { origin, credential, promise: task };
+  inFlightSessions = current;
+  const cleanup = () => { if (inFlightSessions === current) inFlightSessions = null; };
+  task.then(cleanup, cleanup);
+  return task;
 }
 
 export function resetHistoryView() {

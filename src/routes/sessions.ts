@@ -24,6 +24,7 @@ import {
 import type { ConversationMeta } from "../conversations.js";
 import type { RecoverySummary } from "../limit-continue.js";
 import { projectEntryImages } from "../session-images.js";
+import { projectEntryForUi, extractFullToolResult } from "../session-history-view.js";
 import { activeContextTokens } from "../context-usage.js";
 import { type RouteCtx, type ActiveConversation } from "./context.js";
 import { createSessionRows } from "./session-rows.js";
@@ -288,11 +289,42 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     return w ? { id: w.id, name: w.name, online: w.online } : { id: worker, name: null, online: false };
   };
 
+  app.get("/v1/sessions/:id/entries/:entryId/tool-result", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const entryId = Number(c.req.param("entryId"));
+    if (!Number.isSafeInteger(entryId) || entryId < 0) return err(c, 400, "invalid entryId");
+    const page = await conv
+      .entries({ minEntryId: entryId as never, maxEntryId: entryId as never }, 1, undefined, context)
+      .catch(() => undefined);
+    const entry = page?.items[0];
+    if (!entry || entry.id !== entryId) return err(c, 404, "no such entry in this session");
+    const toolCallId = c.req.query("toolCallId");
+    const result = extractFullToolResult(entry, toolCallId);
+    if (!result) return err(c, 404, "no tool result found in this entry");
+    c.header("Cache-Control", "private, no-store");
+    return c.json({
+      entryId: entry.id,
+      toolCallId: result.toolCallId,
+      toolName: result.toolName,
+      text: result.text,
+      originalBytes: result.originalBytes,
+      truncated: result.truncated,
+    });
+  });
+
   app.get("/v1/sessions/:id", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
-    const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 500);
-    const page = await conv.entries({ order: "descending" }, limit, undefined, context);
+    const requestedLimit = Number(c.req.query("limit") ?? 50);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(Math.floor(requestedLimit), 500)) : 50;
+    const beforeParam = c.req.query("before");
+    const beforeId = beforeParam ? Number(beforeParam) : undefined;
+    if (beforeId !== undefined && (!Number.isSafeInteger(beforeId) || beforeId < 0)) return err(c, 400, "invalid before cursor");
+    const cursor = beforeId !== undefined && Number.isSafeInteger(beforeId)
+      ? { after: beforeId, order: "descending" as const }
+      : undefined;
+    const page = await conv.entries({ order: "descending" }, limit, cursor, context);
     const a = await conv.agent(context);
     const usage = await harness.snapshot(UsageDoc, conv.id, context).catch(() => undefined);
     const kids = await harness.snapshot(Children, conv.id, context).catch(() => undefined);
@@ -312,6 +344,13 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
         recovery: running ? null : ((await opts.limitContinuer?.recovery(tx, conv.id)) ?? null),
       };
     }, context);
+
+    const isUiView = c.req.query("view") === "ui";
+    const mappedEntries = page.items.map((entry) => {
+      const imgProjected = projectEntryImages(entry, conv.id);
+      return isUiView ? projectEntryForUi(imgProjected) : imgProjected;
+    });
+
     return c.json({
       id: conv.id,
       project: opts.conversations?.projects.projectOf(Number(conv.id)) ?? null,
@@ -338,7 +377,9 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       todos: (todo?.tasks ?? []).filter((t) => t.status !== "deleted"),
       questions: ask?.pending ?? [],
       goal: goal?.goal ?? null,
-      entries: page.items.map((entry) => projectEntryImages(entry, conv.id)),
+      entries: mappedEntries,
+      hasMore: page.next !== undefined,
+      nextCursor: page.next ? (page.next.after as number) : null,
     });
   });
 }

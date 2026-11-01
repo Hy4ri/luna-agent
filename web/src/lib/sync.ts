@@ -3,7 +3,7 @@ import { reportConnectionFailure } from "./connections";
 import type { ApiOptions, HttpError } from "./api";
 
 export interface FeedOptions {
-  path: string;
+  path: string | (() => string);
   api: (path: string, init?: ApiOptions) => Promise<Response>;
   beforeConnect?: (signal: AbortSignal) => unknown;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,7 +21,7 @@ export function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }: F
   let controller: AbortController | undefined, timer: ReturnType<typeof setTimeout> | undefined;
   let connecting = false, lastEventAt = 0;
   let consecutiveFailures = 0, firstFailureAt = 0;
-  const failureSource = Symbol(path);
+  const failureSource = Symbol(typeof path === "function" ? "dynamic-feed" : path);
 
   function recordTransportFailure() {
     consecutiveFailures++;
@@ -63,7 +63,8 @@ export function watchFeed({ path, api, beforeConnect, onEvent, onDisconnect }: F
 
       // Stream connection and first frame deadline: 10s. Timeout API disabled for SSE.
       arm(CONNECT_TIMEOUT);
-      const response = await api(path, {
+      const requestPath = typeof path === "function" ? path() : path;
+      const response = await api(requestPath, {
         signal: abort.signal,
         headers: { accept: "text/event-stream" },
         cache: "no-store",

@@ -56,7 +56,7 @@ function handleBeforeToggle(e: Event) {
   const open = (e as any).newState === "open";
   document.getElementById("model")?.setAttribute("aria-expanded", String(open));
   if (open) {
-    void loadModels();
+    void loadModels({ force: true });
     position();
     searchOpen.value = false;
     void nextTick(() => searchButton.value?.focus());

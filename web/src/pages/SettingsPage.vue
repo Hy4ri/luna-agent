@@ -183,7 +183,7 @@ async function saveSettings() {
     saved.value = res
     draft.value = structuredClone(res.config)
     baseline.value = JSON.stringify(draft.value)
-    await loadModels()
+    await loadModels({ force: true })
     scheduleContext()
     const warn = (res.warnings || []).join(' ')
     statusText.value = (res.restartRequired ? 'Saved. Applied live except startup settings: restart Luna to apply those.' : 'Settings saved and applied. New sessions and subagents use the new defaults.') + (warn ? ' ' + warn : '')
@@ -209,7 +209,7 @@ async function refreshModels() {
   modelRefreshMessage.value = ''
   try {
     const result = await post('/v1/models/refresh')
-    if (!await loadModels()) throw new Error('Refresh finished, but the updated catalog could not be loaded. Try again.')
+    if (!await loadModels({ force: true })) throw new Error('Refresh finished, but the updated catalog could not be loaded. Try again.')
     const errors = Object.entries(result.refresh.errors).map(([id, message]) => `${id}: ${message}`)
     modelRefreshMessage.value = errors.length ? `Refresh incomplete. ${errors.join('; ')}` : 'Model catalog refreshed.'
   } catch (e: any) { modelRefreshMessage.value = e.message || 'Model refresh failed. Existing models are kept.' }

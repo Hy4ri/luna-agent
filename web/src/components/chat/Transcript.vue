@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
 import { ArrowUp, ArrowDown, X } from "@lucide/vue";
-import { chat, entryList, activityLabel, dismissNotice, openSession } from "@/stores/chat";
+import { chat, entryList, activityLabel, dismissNotice, openSession, loadOlderEntries } from "@/stores/chat";
 import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import ReportContext from "./ReportContext.vue";
@@ -153,7 +153,7 @@ const timeline = computed((): { key: string; entry?: any; job?: any }[] => {
 const results = computed(() => {
   const map = new Map<string, any>(Object.entries(chat.toolResults));
   for (const entry of entryList.value) for (const message of entry.model || []) {
-    if (message.role === 'toolResult') map.set(message.toolCallId, message);
+    if (message.role === 'toolResult') map.set(message.toolCallId, { ...message, entryId: entry.id });
   }
   return map;
 });
@@ -205,6 +205,16 @@ function backgroundReport(entry: any, message: any): boolean {
 
 <template>
   <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll" @wheel.passive="markIntent" @touchmove.passive="markIntent" @pointerdown="handlePointerDown">
+    <div v-if="chat.hasMoreEntries" class="load-older-bar">
+      <button
+        type="button"
+        class="load-older-btn"
+        :disabled="chat.loadingOlder"
+        @click="loadOlderEntries"
+      >
+        {{ chat.loadingOlder ? "Loading older messages…" : "Load older messages" }}
+      </button>
+    </div>
     <Welcome v-if="!entryList.length && !pending.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
     <template v-for="row in timeline" :key="row.key">
       <SideJobCard v-if="row.job" :job="row.job" />
@@ -255,7 +265,7 @@ function backgroundReport(entry: any, message: any): boolean {
             <div dir="auto" v-if="message.stopReason === 'error' && message.errorMessage" class="msg err">{{ message.errorMessage }}</div>
             <MessageFooter v-if="messageText(message.content)" :text="messageText(message.content)" :timestamp="message.timestamp" :entry-id="entry.id" />
           </div>
-          <ToolCall v-else-if="message.role === 'toolResult' && !calls.has(message.toolCallId)" :id="message.toolCallId" :name="message.toolName || 'tool'" :args="chat.toolStarts[message.toolCallId]?.args" :result="message" />
+          <ToolCall v-else-if="message.role === 'toolResult' && !calls.has(message.toolCallId)" :id="message.toolCallId" :name="message.toolName || 'tool'" :args="chat.toolStarts[message.toolCallId]?.args" :result="{ ...message, entryId: entry.id }" />
         </template>
     </template>
     </template>
@@ -284,5 +294,28 @@ function backgroundReport(entry: any, message: any): boolean {
 </template>
 
 <style scoped>
+.load-older-bar { display: flex; justify-content: center; padding: 10px 0 4px; }
+.load-older-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.load-older-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.load-older-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .queued-dock { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-height: 30%; overflow: auto; padding: 8px max(24px, calc((100% - 760px) / 2)) 0; }
 </style>

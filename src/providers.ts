@@ -26,6 +26,7 @@ import type { ModelRef } from "./scheduler.js";
 import type { SettingsStore } from "./settings.js";
 import { claudeCliProvider } from "./claude-cli.js";
 import { opencodeCliProvider } from "./opencode-cli.js";
+import { invalidateClaudeLoginStatus } from "./claude-native/status.js";
 
 /** Codex subscription (ChatGPT OAuth, chatgpt.com/backend-api). It uses the Codex plan quota, not the Sign in with ChatGPT sharing quota of `openai`. */
 const openaiCodexProvider = (): Provider => ({ ...baseOpenaiCodexProvider(), name: "OpenAI Codex" });
@@ -331,21 +332,20 @@ export class ProviderManager {
   // ---- status ----
   async list() {
     const custom = new Set(this.state.custom.map((c) => c.id));
-    const out = [];
-    for (const p of this.models.getProviders()) {
+    const providers = this.models.getProviders();
+    return Promise.all(providers.map(async (p) => {
       let check: { source?: string; type: AuthType } | undefined, error: string | null = null;
       try { check = await this.models.checkAuth(p.id); } catch (e) { error = (e as Error).message; }
       const oauth = p.auth.oauth;
-      out.push({
+      return {
         id: p.id, name: p.name, custom: custom.has(p.id),
         apiKey: !!p.auth.apiKey,
         oauth: oauth ? { name: oauth.name, label: oauth.loginLabel ?? null, subscription: !!oauth.isSubscription } : null,
         connected: !!check, via: check?.type ?? null, source: check?.source ?? null, error,
         models: p.getModels().length,
         ...(custom.has(p.id) ? { def: this.state.custom.find((c) => c.id === p.id) } : {}),
-      });
-    }
-    return out;
+      };
+    }));
   }
 
   private provider(id: string) {
@@ -356,6 +356,7 @@ export class ProviderManager {
 
   /** Store an API key through the provider's own API-key login, answering its secret prompt with `key`. */
   async setApiKey(providerId: string, key: string) {
+    if (providerId === "claude-cli") invalidateClaudeLoginStatus();
     const p = this.provider(providerId);
     if (!p.auth.apiKey?.login) throw new Error(`${p.name} has no API-key login`);
     if (!key.trim()) throw new Error("key is empty");
@@ -370,6 +371,7 @@ export class ProviderManager {
 
   /** Remove the stored credential (API key or OAuth tokens). Environment variables are not touched. */
   async logout(providerId: string) {
+    if (providerId === "claude-cli") invalidateClaudeLoginStatus();
     this.provider(providerId);
     await this.models.logout(providerId);
   }
@@ -377,6 +379,7 @@ export class ProviderManager {
   // ---- custom providers ----
   async addCustom(input: { id?: unknown; name?: unknown; api?: unknown; baseUrl?: unknown; key?: unknown; models?: unknown }) {
     const id = String(input.id ?? "").trim().toLowerCase();
+    if (id === "claude-cli") invalidateClaudeLoginStatus();
     if (!ID_RE.test(id)) throw new Error("id: lowercase letters, digits and -, max 40");
     if (this.models.getProvider(id)) throw new Error(`provider ${id} already exists`);
     const api = String(input.api ?? "openai-completions") as CustomApi;
@@ -424,6 +427,7 @@ export class ProviderManager {
   }
 
   async removeCustom(id: string) {
+    if (id === "claude-cli") invalidateClaudeLoginStatus();
     const i = this.state.custom.findIndex((c) => c.id === id);
     if (i < 0) throw new Error("not a custom provider");
     if (this.settings && this.settings.read().subagents.provider === id) throw new Error("Provider is selected as the subagent default");
@@ -461,7 +465,10 @@ export class ProviderManager {
       }),
     };
     this.models.login(providerId, type, interaction, { getDeviceId: () => this.deviceId(), agentName: "Luna" })
-      .then(() => { st.status = "done"; })
+      .then(() => {
+        st.status = "done";
+        if (providerId === "claude-cli") invalidateClaudeLoginStatus();
+      })
       .catch((e: Error) => { if (st.status === "running") { st.status = "error"; st.error = e?.message ?? String(e); } })
       .finally(() => { st.prompt = null; st.pending = undefined; touch(); });
     return this.view(st);

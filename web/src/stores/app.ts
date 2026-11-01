@@ -286,9 +286,17 @@ export async function boot() {
     if (hl.auth && !token.value) return showLogin();
     await rememberConnection();
     if (own !== bootGeneration) return;
-    await Promise.all([models.loadModels(), sessions.loadProjects(), sessions.loadSessions()]);
+    const sessionToOpen = chat.chat.session;
+    const sessionOpenTask = sessionToOpen
+      ? chat.openSession(sessionToOpen, true)
+      : (composer.restoreDraft(), Promise.resolve());
+    await Promise.all([
+      models.loadModels(),
+      sessions.loadProjects(),
+      sessions.loadSessions(),
+      sessionOpenTask,
+    ]);
     if (own !== bootGeneration) return;
-    if (chat.chat.session) await chat.openSession(chat.chat.session, true); else composer.restoreDraft();
     chat.startListFeed();
     needsBoot = false; bootFailures = 0; bootFailureAt = 0; bootDelay = 1000;
     reportConnectionFailure(bootFailureSource, false); chat.chat.bootError = "";

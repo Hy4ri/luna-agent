@@ -38,24 +38,36 @@ export const modelLabel = computed(() => {
 export function setSelectedModel(m: ModelRef | null | undefined) { models.selected = m ? { provider: m.provider, modelId: m.modelId } : null; }
 
 let pinQueue: Promise<unknown> = Promise.resolve();
+let inFlightPins: { origin: string; credential: string; promise: Promise<boolean> } | null = null;
 function pinOperation(body?: object): Promise<boolean> {
   const origin = serverUrl.value, credential = token.value;
+  if (!body && inFlightPins && inFlightPins.origin === origin && inFlightPins.credential === credential) {
+    return inFlightPins.promise;
+  }
   const operation = pinQueue.then(async () => {
     if (origin !== serverUrl.value || credential !== token.value) return false;
     // Remove legacy data only after the server has saved it. Failed imports can retry.
     const legacy = readPins();
     if (legacy.length) {
       const imported = await post<{ pins: string[] }>("/v1/models/pins", { action: "import", pins: legacy });
+      if (origin !== serverUrl.value || credential !== token.value) return false;
       models.pins = imported.pins;
       localStorage.removeItem(PIN_KEY);
     }
     const result = body
       ? await post<{ pins: string[] }>("/v1/models/pins", body)
       : await json<{ pins: string[] }>("/v1/models/pins");
+    if (origin !== serverUrl.value || credential !== token.value) return false;
     models.pins = result.pins;
     return true;
   }).catch(e => { addErr((e as Error).message); return false; });
   pinQueue = operation;
+  if (!body) {
+    const current = { origin, credential, promise: operation };
+    inFlightPins = current;
+    const cleanup = () => { if (inFlightPins === current) inFlightPins = null; };
+    operation.then(cleanup, cleanup);
+  }
   return operation;
 }
 export function togglePin(key: string): Promise<boolean> {
@@ -65,19 +77,47 @@ export function movePin(key: string, direction: -1 | 1): Promise<boolean> {
   return pinOperation({ action: "move", key, direction });
 }
 
-export async function loadModels() {
-  await pinOperation();
-  try {
-    const r = await json<{ models: ModelInfo[]; default: ModelRef | null; refresh: typeof models.refresh }>("/v1/models");
-    models.list = r.models; models.defaultModel = r.default; models.refresh = r.refresh;
-  } catch {
-    // Keep the last usable catalog when the server is unavailable.
-    models.loaded = true;
-    return false;
+export interface LoadModelsOptions {
+  force?: boolean;
+}
+
+let inFlightModels: { origin: string; credential: string; promise: Promise<boolean> } | null = null;
+let modelsRequest = 0;
+let catalogFresh: { origin: string; credential: string; expires: number } | undefined;
+
+export async function loadModels(options?: LoadModelsOptions): Promise<boolean> {
+  const origin = serverUrl.value, credential = token.value;
+  if (!options?.force && catalogFresh?.origin === origin && catalogFresh.credential === credential && catalogFresh.expires > Date.now()) return true;
+  if (!options?.force && inFlightModels && inFlightModels.origin === origin && inFlightModels.credential === credential) {
+    return inFlightModels.promise;
   }
-  models.loaded = true;
-  if (!chat.session) setSelectedModel(models.draft.model ?? models.defaultModel);
-  return true;
+
+  const generation = ++modelsRequest;
+  const task = (async () => {
+    await pinOperation();
+    if (generation !== modelsRequest || origin !== serverUrl.value || credential !== token.value) return false;
+    try {
+      const r = await json<{ models: ModelInfo[]; default: ModelRef | null; refresh: typeof models.refresh }>("/v1/models");
+      if (generation !== modelsRequest || origin !== serverUrl.value || credential !== token.value) return false;
+      models.list = r.models; models.defaultModel = r.default; models.refresh = r.refresh;
+      catalogFresh = { origin, credential, expires: Date.now() + 30_000 };
+    } catch {
+      // Keep the last usable catalog when the server is unavailable.
+      if (generation === modelsRequest && origin === serverUrl.value && credential === token.value) {
+        models.loaded = true;
+      }
+      return false;
+    }
+    models.loaded = true;
+    if (!chat.session) setSelectedModel(models.draft.model ?? models.defaultModel);
+    return true;
+  })();
+
+  const current = { origin, credential, promise: task };
+  inFlightModels = current;
+  const cleanup = () => { if (inFlightModels === current) inFlightModels = null; };
+  task.then(cleanup, cleanup);
+  return task;
 }
 
 /** Selects a draft model, or updates the open server conversation. */

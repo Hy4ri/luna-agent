@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { GitBranch, FilePlus, FileMinus, FilePen, FileQuestion, FileSymlink, Files, FileWarning, File } from '@lucide/vue';
-import { chat } from '@/stores/chat';
-import { json, serverUrl } from '@/lib/api';
 import { railCollapsed } from '@/lib/rail-collapse';
-import type { GitStatus } from '../../../../src/git-status';
+import { gitStatus as data, registerGitStatusInstance } from '@/stores/git-status';
+
 defineProps<{ docked?: boolean }>();
-const data = ref<GitStatus | null>(null);
+
 function fileStatus(status: string) {
   if (status === '??') return { icon: FileQuestion, label: 'Untracked file' };
   if (status.includes('U') || status === 'AA' || status === 'DD') return { icon: FileWarning, label: 'Merge conflict' };
@@ -18,42 +17,30 @@ function fileStatus(status: string) {
   if (status.includes('T')) return { icon: FilePen, label: 'File type changed' };
   return { icon: File, label: 'Changed file' };
 }
+
 function statusTitle(status: string) {
   const describe = (code: string) => ({ M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied', T: 'type changed', U: 'unmerged' })[code];
   if (status === '??') return 'Untracked file';
   return [fileStatus(status).label, describe(status[0]!) && `Staged: ${describe(status[0]!)}`, describe(status[1]!) && `Unstaged: ${describe(status[1]!)}`].filter(Boolean).join(' · ');
 }
+
 const root = ref<HTMLElement | null>(null);
-let visible = false, generation = 0;
-let timer: ReturnType<typeof setInterval> | undefined;
 let observer: IntersectionObserver | undefined;
-let controller: AbortController | undefined;
-async function refresh() {
-  if (!visible || document.hidden || !chat.session || controller) return;
-  const sid = chat.session, epoch = chat.epoch, own = generation;
-  const request = new AbortController(); controller = request;
-  try {
-    const result = await json<GitStatus>(`/v1/sessions/${sid}/git`, { signal: request.signal });
-    if (own === generation && sid === chat.session && epoch === chat.epoch) data.value = result;
-  } catch (e) {
-    if (own === generation && !request.signal.aborted) data.value = { state: 'error', message: (e as Error).message };
-  } finally { if (controller === request) controller = undefined; }
-}
-function reset() {
-  generation++; controller?.abort(); controller = undefined; data.value = null; void refresh();
-}
-watch([() => chat.session, () => chat.cwd, () => chat.machine?.id, serverUrl], reset);
-function visibility() { if (document.hidden) { controller?.abort(); controller = undefined; } else void refresh(); }
+let instanceHandle: ReturnType<typeof registerGitStatusInstance> | undefined;
+
 onMounted(() => {
-  observer = new IntersectionObserver(entries => { visible = entries.some(e => e.isIntersecting); if (visible) void refresh(); });
+  instanceHandle = registerGitStatusInstance(root);
+  observer = new IntersectionObserver(entries => {
+    const isVisible = entries.some(e => e.isIntersecting);
+    instanceHandle?.setVisible(isVisible);
+  });
   // Observe the host container so a hidden Git module can discover a new repository.
   if (root.value?.parentElement) observer.observe(root.value.parentElement);
-  timer = setInterval(refresh, 5000);
-  window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', visibility);
 });
+
 onUnmounted(() => {
-  generation++; controller?.abort(); observer?.disconnect(); clearInterval(timer);
-  window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', visibility);
+  observer?.disconnect();
+  instanceHandle?.unregister();
 });
 </script>
 <template>

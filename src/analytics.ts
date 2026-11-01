@@ -1,5 +1,6 @@
 import type { Models, Usage } from "@earendil-works/pi-ai";
 import { UsageDoc, type ConversationId, type EntryId } from "@earendil-works/pi-durable";
+import { setImmediate } from "node:timers/promises";
 import { context } from "./luna.js";
 import { isRunning, readSessionStatus, type SessionStatus } from "./session-status.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
@@ -132,315 +133,253 @@ export function createAnalyticsReader(harness: Harness, models?: Models) {
   };
 }
 
-/** One consistent view of retained ledgers and their own dated response history.
- * Usage documents include undated compaction attempts. They must not be rebuilt from entries.
- * Fork scans include inherited entries; counting only their owning conversation prevents duplication.
+interface ConversationSessionData {
+  status: SessionStatus;
+  statusReason: string | null;
+  lastActivity: string | null;
+  createdAt: string | null;
+  worker: number | null;
+  lastTs: number | null;
+  createdTs: number | null;
+  subagentCount: number;
+}
+
+/** Reads retained ledgers and dated response history across conversations.
+ * Work is split across bounded per-conversation commits so analytics does not hold
+ * the global mutation queue. The returned snapshot represents an eventually consistent view.
  */
 export async function readAnalytics(harness: Harness, models?: Models, cache?: AnalyticsCache) {
-  return harness.commit(async tx => {
-    const started = performance.now();
-    const timings = { scanMs: 0, aggregationMs: 0, metadataMs: 0, entriesScanned: 0, conversationsScanned: 0, cacheHits: 0 };
-    const modelMap = new Map<string, AnalyticsModel>();
-    const daily = new Map<string, Map<string, AnalyticsModel["daily"][number]>>();
-    const toolMap = new Map<string, AnalyticsMetrics>();
-    const totals = empty();
-    const sessionRows: AnalyticsSession[] = [];
-    const statusBreakdown: Record<string, number> = {};
-    let metaDb: ReturnType<typeof conversationStorage>["db"] | undefined;
-    try { metaDb = conversationStorage(harness).db; } catch { metaDb = undefined; }
+  const started = performance.now();
+  const timings = { scanMs: 0, aggregationMs: 0, metadataMs: 0, entriesScanned: 0, conversationsScanned: 0, cacheHits: 0 };
+  const modelMap = new Map<string, AnalyticsModel>();
+  const daily = new Map<string, Map<string, AnalyticsModel["daily"][number]>>();
+  const toolMap = new Map<string, AnalyticsMetrics>();
+  const totals = empty();
+  const sessionRows: AnalyticsSession[] = [];
+  const statusBreakdown: Record<string, number> = {};
+  let metaDb: ReturnType<typeof conversationStorage>["db"] | undefined;
+  try { metaDb = conversationStorage(harness).db; } catch { metaDb = undefined; }
 
-    const metadataStarted = performance.now();
-    const conversationMeta = new Map<number, { title: string | null; archived: number; pinned: number }>();
-    if (metaDb) {
-      try {
-        const rows = metaDb.prepare("SELECT id, title, archived, pinned FROM luna_conversations").all() as
-          { id: number; title: string | null; archived: number; pinned: number }[];
-        for (const row of rows) conversationMeta.set(row.id, row);
-      } catch {}
+  const metadataStarted = performance.now();
+  const conversationMeta = new Map<number, { title: string | null; archived: number; pinned: number }>();
+  if (metaDb) {
+    try {
+      const rows = metaDb.prepare("SELECT id, title, archived, pinned FROM luna_conversations").all() as
+        { id: number; title: string | null; archived: number; pinned: number }[];
+      for (const row of rows) conversationMeta.set(row.id, row);
+    } catch {}
+  }
+
+  // Project mapping
+  const projectLinks = new Map<number, number>();
+  const projectNames = new Map<number, string>();
+  projectNames.set(0, "General");
+  if (metaDb) {
+    try {
+      const projRows = metaDb.prepare("SELECT id, name FROM luna_projects").all() as { id: number; name: string }[];
+      for (const r of projRows) projectNames.set(r.id, r.name);
+      const linkRows = metaDb.prepare("SELECT conversation_id, project_id FROM luna_session_projects").all() as { conversation_id: number; project_id: number }[];
+      for (const r of linkRows) projectLinks.set(r.conversation_id, r.project_id);
+    } catch {}
+  }
+
+  timings.metadataMs = performance.now() - metadataStarted;
+
+  // Global aggregates
+  const toolCallsGlobal = new Map<string, number>();
+  const toolErrorsGlobal = new Map<string, number>();
+  const skillGlobal = new Map<string, { invocations: number; sessions: Set<string>; lastUsed: number | null }>();
+  const projectStatsMap = new Map<number, { usage: AnalyticsMetrics; sessions: number }>();
+  const workerStatsMap = new Map<string, { worker: number | null; sessions: number; usage: AnalyticsMetrics }>();
+  const dailyErrors = new Map<string, { responses: number; errors: number; aborted: number }>();
+  const projectDailyMap = new Map<string, { date: string; projectId: number; projectName: string; responses: number; usage: AnalyticsMetrics }>();
+
+  const getModel = (key: string) => {
+    let row = modelMap.get(key);
+    if (!row) {
+      const slash = key.indexOf("/");
+      const provider = slash < 0 ? key : key.slice(0, slash), model = slash < 0 ? "" : key.slice(slash + 1);
+      const catalog = models?.getModel(provider, model);
+      const rates = catalog?.cost;
+      row = { key, provider, model, usage: empty(), sessions: 0, responses: 0, errors: 0, aborted: 0,
+        firstSeen: null, lastSeen: null, rates: rates ? {
+          input: valid(rates.input) ? rates.input : 0, output: valid(rates.output) ? rates.output : 0,
+          cacheRead: valid(rates.cacheRead) ? rates.cacheRead : 0, cacheWrite: valid(rates.cacheWrite) ? rates.cacheWrite : 0,
+        } : null, daily: [] };
+      modelMap.set(key, row); daily.set(key, new Map());
     }
+    return row;
+  };
 
-    // Project mapping
-    const projectLinks = new Map<number, number>();
-    const projectNames = new Map<number, string>();
-    projectNames.set(0, "General");
-    if (metaDb) {
-      try {
-        const projRows = metaDb.prepare("SELECT id, name FROM luna_projects").all() as { id: number; name: string }[];
-        for (const r of projRows) projectNames.set(r.id, r.name);
-        const linkRows = metaDb.prepare("SELECT conversation_id, project_id FROM luna_session_projects").all() as { conversation_id: number; project_id: number }[];
-        for (const r of linkRows) projectLinks.set(r.conversation_id, r.project_id);
-      } catch {}
-    }
-
-    timings.metadataMs = performance.now() - metadataStarted;
-
-    // Global aggregates
-    const toolCallsGlobal = new Map<string, number>();
-    const toolErrorsGlobal = new Map<string, number>();
-    const skillGlobal = new Map<string, { invocations: number; sessions: Set<string>; lastUsed: number | null }>();
-    const projectStatsMap = new Map<number, { usage: AnalyticsMetrics; sessions: number }>();
-    const workerStatsMap = new Map<string, { worker: number | null; sessions: number; usage: AnalyticsMetrics }>();
-    const dailyErrors = new Map<string, { responses: number; errors: number; aborted: number }>();
-    const projectDailyMap = new Map<string, { date: string; projectId: number; projectName: string; responses: number; usage: AnalyticsMetrics }>();
-
-    const getModel = (key: string) => {
-      let row = modelMap.get(key);
-      if (!row) {
-        const slash = key.indexOf("/");
-        const provider = slash < 0 ? key : key.slice(0, slash), model = slash < 0 ? "" : key.slice(slash + 1);
-        const catalog = models?.getModel(provider, model);
-        const rates = catalog?.cost;
-        row = { key, provider, model, usage: empty(), sessions: 0, responses: 0, errors: 0, aborted: 0,
-          firstSeen: null, lastSeen: null, rates: rates ? {
-            input: valid(rates.input) ? rates.input : 0, output: valid(rates.output) ? rates.output : 0,
-            cacheRead: valid(rates.cacheRead) ? rates.cacheRead : 0, cacheWrite: valid(rates.cacheWrite) ? rates.cacheWrite : 0,
-          } : null, daily: [] };
-        modelMap.set(key, row); daily.set(key, new Map());
+  // Phase 1: Read conversation list and parent relations in one initial commit
+  const conversationList: { id: ConversationId; parent: unknown }[] = [];
+  await harness.commit(async tx => {
+    let cursor;
+    do {
+      const page = await tx.scanConversations({ order: "ascending" }, 100, cursor);
+      for (const conversation of page.items) {
+        conversationList.push({ id: conversation.id, parent: (conversation as unknown as { parent?: unknown }).parent ?? null });
       }
-      return row;
-    };
-    const loadPart = async (id: ConversationId, previous?: ConversationPart): Promise<ConversationPart> => {
-      const scanStarted = performance.now();
-      timings.conversationsScanned++;
-      // Reusing an entry summary must never replace the authoritative usage ledger.
-      if (previous?.lastEntryId && !(await tx.entry(previous.lastEntryId))) previous = undefined;
-      const usage = await tx.doc(UsageDoc, id);
-      const part: ConversationPart = {
-        generation: cache?.generations.get(String(id)) ?? 0,
-        lastEntryId: previous?.lastEntryId,
-        fallbackTitle: previous?.fallbackTitle ?? undefined,
-        ledger: JSON.parse(JSON.stringify({ models: Object.entries(usage.models), tools: Object.entries(usage.tools) })),
-        responses: previous ? previous.responses.slice() : [],
-        userTurns: 0,
-        assistantTurns: 0,
-        toolCalls: [],
-        toolErrors: [],
-        totalToolCalls: 0,
-        totalToolErrors: 0,
-        skillCounts: [],
-        skillLastUsed: [],
-      };
-      const callMap = new Map<string, number>(previous?.toolCalls);
-      const errMap = new Map<string, number>(previous?.toolErrors);
-      const skillMap = new Map<string, number>(previous?.skillCounts);
-      const skillLast = new Map<string, number>(previous?.skillLastUsed);
-      let userTurns = previous?.userTurns ?? 0, assistantTurns = previous?.assistantTurns ?? 0;
-      let cursor;
-      do {
-        const page = await tx.scanEntries({ conversationId: id, minEntryId: previous?.lastEntryId, order: "ascending" }, 200, cursor);
-        for (const entry of page.items) {
-          timings.entriesScanned++;
-          if (previous?.lastEntryId !== undefined && entry.id <= previous.lastEntryId) continue;
-          part.lastEntryId = entry.id;
-          if (entry.conversationId !== id) continue;
-          for (const message of entry.model ?? []) {
-            const role = (message as unknown as { role?: string }).role;
-            if (role === "user") {
-              userTurns++;
-            } else if (role === "assistant") {
-              assistantTurns++;
-              const provider = (message as unknown as { provider?: string }).provider;
-              const model = (message as unknown as { model?: string }).model;
-              if (provider && model) {
-                part.responses.push({ key: `${provider}/${model}`, stopReason: (message as unknown as { stopReason?: string }).stopReason, timestamp: (message as unknown as { timestamp?: unknown }).timestamp, usage: (message as unknown as { usage?: Usage }).usage });
-              } else {
-                // still count as response for turn metrics even without provider/model
-                // push with unknown key to keep error/abort tracking consistent with ledger
-                const k = provider || model ? `${provider ?? "unknown"}/${model ?? "unknown"}` : "unknown/unknown";
-                // only push if we can identify; otherwise skip to avoid polluting model stats
-                if (provider || model) part.responses.push({ key: k, stopReason: (message as unknown as { stopReason?: string }).stopReason, timestamp: (message as unknown as { timestamp?: unknown }).timestamp, usage: (message as unknown as { usage?: Usage }).usage });
-              }
-              const content = (message as unknown as { content?: unknown }).content;
-              if (Array.isArray(content)) {
-                for (const block of content as Array<{ type?: string; name?: string; arguments?: Record<string, unknown> }>) {
-                  if (block?.type === "toolCall" && typeof block.name === "string") {
-                    const name = block.name;
-                    callMap.set(name, (callMap.get(name) ?? 0) + 1);
-                    if (name === "skill_view" && block.arguments && typeof block.arguments.name === "string" && !block.arguments.file_path) {
-                      const sname = block.arguments.name as string;
-                      skillMap.set(sname, (skillMap.get(sname) ?? 0) + 1);
-                      const ts = (message as unknown as { timestamp?: number }).timestamp;
-                      const t = typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();
-                      const prev = skillLast.get(sname) ?? 0;
-                      if (t > prev) skillLast.set(sname, t);
+      cursor = page.next;
+    } while (cursor);
+  }, context);
+  // Count sessions actually read; deletion can occur between commits.
+
+  // Purges can run through raw SQL and have no conversation publication.
+  if (cache) {
+    const retained = new Set(conversationList.map(c => String(c.id)));
+    for (const id of cache.parts.keys()) if (!retained.has(id)) cache.parts.delete(id);
+    for (const id of cache.generations.keys()) if (!retained.has(id)) cache.generations.delete(id);
+  }
+
+  // Build parent id map for fork depth
+  const parentIdMap = new Map<string, string | null>();
+  for (const c of conversationList) {
+    const raw = c.parent as unknown;
+    let pid: string | null = null;
+    if (raw != null) {
+      if (typeof raw === "number" || typeof raw === "string") pid = String(raw);
+      else if (typeof raw === "object") {
+        const o = raw as Record<string, unknown>;
+        const cand = o.id ?? o.conversationId ?? o.conversation_id ?? (o as { parent?: unknown }).parent;
+        if (cand != null) pid = String(cand);
+        else if (typeof (o as { at?: unknown }).at === "number") {
+          pid = null;
+        }
+      }
+    }
+    parentIdMap.set(String(c.id), pid);
+  }
+  const forkDepthOf = (id: string): number => {
+    let depth = 0, cur: string | null = parentIdMap.get(id) ?? null;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      depth++;
+      cur = parentIdMap.get(cur) ?? null;
+      if (depth > 20) break;
+    }
+    return depth;
+  };
+
+  // Phase 2: Per-conversation reads with independent commits
+  let lastYield = performance.now();
+  for (const c of conversationList) {
+    if (performance.now() - lastYield >= 20) {
+      await setImmediate();
+      lastYield = performance.now();
+    }
+    const id = c.id;
+    const parent = c.parent;
+    const k = String(id);
+    let part = cache?.parts.get(k);
+
+    const neededPart = !part || part.generation !== (cache?.generations.get(k) ?? 0);
+    const needFallbackTitle = !conversationMeta.get(Number(id))?.title && (part?.fallbackTitle === undefined);
+
+    let sessionData: ConversationSessionData;
+    if (neededPart || needFallbackTitle) {
+      const genBefore = cache?.generations.get(k) ?? 0;
+      const epochBefore = cache?.epoch ?? 0;
+      if (!neededPart) timings.cacheHits++;
+      const res = await harness.commit(async tx => {
+        if (!(await tx.conversation(id))) return undefined;
+        let loadedPart: ConversationPart | undefined;
+        if (neededPart) {
+          const scanStarted = performance.now();
+          timings.conversationsScanned++;
+          let prev = part;
+          if (prev?.lastEntryId && !(await tx.entry(prev.lastEntryId))) prev = undefined;
+          const usage = await tx.doc(UsageDoc, id);
+          loadedPart = {
+            generation: genBefore,
+            lastEntryId: prev?.lastEntryId,
+            fallbackTitle: prev?.fallbackTitle ?? undefined,
+            ledger: JSON.parse(JSON.stringify({ models: Object.entries(usage.models), tools: Object.entries(usage.tools) })),
+            responses: prev ? prev.responses.slice() : [],
+            userTurns: 0,
+            assistantTurns: 0,
+            toolCalls: [],
+            toolErrors: [],
+            totalToolCalls: 0,
+            totalToolErrors: 0,
+            skillCounts: [],
+            skillLastUsed: [],
+          };
+          const callMap = new Map<string, number>(prev?.toolCalls);
+          const errMap = new Map<string, number>(prev?.toolErrors);
+          const skillMap = new Map<string, number>(prev?.skillCounts);
+          const skillLast = new Map<string, number>(prev?.skillLastUsed);
+          let userTurns = prev?.userTurns ?? 0, assistantTurns = prev?.assistantTurns ?? 0;
+          let cursor;
+          let pageYieldAt = performance.now();
+          do {
+            if (performance.now() - pageYieldAt >= 20) {
+              await setImmediate();
+              pageYieldAt = performance.now();
+            }
+            const page = await tx.scanEntries({ conversationId: id, minEntryId: prev?.lastEntryId, order: "ascending" }, 200, cursor);
+            for (const entry of page.items) {
+              timings.entriesScanned++;
+              if (prev?.lastEntryId !== undefined && entry.id <= prev.lastEntryId) continue;
+              loadedPart.lastEntryId = entry.id;
+              if (entry.conversationId !== id) continue;
+              for (const message of entry.model ?? []) {
+                const role = (message as unknown as { role?: string }).role;
+                if (role === "user") {
+                  userTurns++;
+                } else if (role === "assistant") {
+                  assistantTurns++;
+                  const provider = (message as unknown as { provider?: string }).provider;
+                  const model = (message as unknown as { model?: string }).model;
+                  if (provider && model) {
+                    loadedPart.responses.push({ key: `${provider}/${model}`, stopReason: (message as unknown as { stopReason?: string }).stopReason, timestamp: (message as unknown as { timestamp?: unknown }).timestamp, usage: (message as unknown as { usage?: Usage }).usage });
+                  } else {
+                    const mk = provider || model ? `${provider ?? "unknown"}/${model ?? "unknown"}` : "unknown/unknown";
+                    if (provider || model) loadedPart.responses.push({ key: mk, stopReason: (message as unknown as { stopReason?: string }).stopReason, timestamp: (message as unknown as { timestamp?: unknown }).timestamp, usage: (message as unknown as { usage?: Usage }).usage });
+                  }
+                  const content = (message as unknown as { content?: unknown }).content;
+                  if (Array.isArray(content)) {
+                    for (const block of content as Array<{ type?: string; name?: string; arguments?: Record<string, unknown> }>) {
+                      if (block?.type === "toolCall" && typeof block.name === "string") {
+                        const name = block.name;
+                        callMap.set(name, (callMap.get(name) ?? 0) + 1);
+                        if (name === "skill_view" && block.arguments && typeof block.arguments.name === "string" && !block.arguments.file_path) {
+                          const sname = block.arguments.name as string;
+                          skillMap.set(sname, (skillMap.get(sname) ?? 0) + 1);
+                          const ts = (message as unknown as { timestamp?: number }).timestamp;
+                          const t = typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();
+                          const p = skillLast.get(sname) ?? 0;
+                          if (t > p) skillLast.set(sname, t);
+                        }
+                      }
                     }
+                  }
+                } else if (role === "toolResult") {
+                  const toolName = (message as unknown as { toolName?: string }).toolName;
+                  const isError = !!(message as unknown as { isError?: boolean }).isError;
+                  if (isError) {
+                    const errKey = toolName ?? "_unknown";
+                    errMap.set(errKey, (errMap.get(errKey) ?? 0) + 1);
                   }
                 }
               }
-            } else if (role === "toolResult") {
-              const toolName = (message as unknown as { toolName?: string }).toolName;
-              const isError = !!(message as unknown as { isError?: boolean }).isError;
-              if (isError) {
-                const key = toolName ?? "_unknown";
-                errMap.set(key, (errMap.get(key) ?? 0) + 1);
-              }
             }
-          }
+            cursor = page.next;
+          } while (cursor);
+          loadedPart.userTurns = userTurns;
+          loadedPart.assistantTurns = assistantTurns;
+          loadedPart.totalToolCalls = [...callMap.values()].reduce((a, b) => a + b, 0);
+          loadedPart.totalToolErrors = [...errMap.values()].reduce((a, b) => a + b, 0);
+          loadedPart.toolCalls = [...callMap.entries()];
+          loadedPart.toolErrors = [...errMap.entries()];
+          loadedPart.skillCounts = [...skillMap.entries()];
+          loadedPart.skillLastUsed = [...skillLast.entries()];
+          timings.scanMs += performance.now() - scanStarted;
         }
-        cursor = page.next;
-      } while (cursor);
-      part.userTurns = userTurns;
-      part.assistantTurns = assistantTurns;
-      part.totalToolCalls = [...callMap.values()].reduce((a, b) => a + b, 0);
-      part.totalToolErrors = [...errMap.values()].reduce((a, b) => a + b, 0);
-      part.toolCalls = [...callMap.entries()];
-      part.toolErrors = [...errMap.entries()];
-      part.skillCounts = [...skillMap.entries()];
-      part.skillLastUsed = [...skillLast.entries()];
-      timings.scanMs += performance.now() - scanStarted;
-      return part;
-    };
 
-    // First collect conversation list and parent map
-    let cursor, sessions = 0;
-    const conversationList: { id: ConversationId; parent: unknown }[] = [];
-    do {
-      const page = await tx.scanConversations({ order: "ascending" }, 100, cursor);
-      for (const conversation of page.items) { sessions++; conversationList.push({ id: conversation.id, parent: (conversation as unknown as { parent?: unknown }).parent ?? null }); }
-      cursor = page.next;
-    } while (cursor);
-
-    // Purges can run through raw SQL and have no conversation publication.
-    if (cache) {
-      const retained = new Set(conversationList.map(c => String(c.id)));
-      for (const id of cache.parts.keys()) if (!retained.has(id)) cache.parts.delete(id);
-      for (const id of cache.generations.keys()) if (!retained.has(id)) cache.generations.delete(id);
-    }
-
-    // Build parent id map for fork depth
-    const parentIdMap = new Map<string, string | null>();
-    for (const c of conversationList) {
-      const raw = c.parent as unknown;
-      let pid: string | null = null;
-      if (raw != null) {
-        if (typeof raw === "number" || typeof raw === "string") pid = String(raw);
-        else if (typeof raw === "object") {
-          const o = raw as Record<string, unknown>;
-          const cand = o.id ?? o.conversationId ?? o.conversation_id ?? (o as { parent?: unknown }).parent;
-          if (cand != null) pid = String(cand);
-          else if (typeof (o as { at?: unknown }).at === "number") {
-            // parent is { at: number, id? } - try to find id in map via at? Not reliable; leave null
-            pid = null;
-          }
-        }
-      }
-      parentIdMap.set(String(c.id), pid);
-    }
-    const forkDepthOf = (id: string): number => {
-      let depth = 0, cur: string | null = parentIdMap.get(id) ?? null;
-      const seen = new Set<string>();
-      while (cur && !seen.has(cur)) {
-        seen.add(cur);
-        depth++;
-        cur = parentIdMap.get(cur) ?? null;
-        if (depth > 20) break;
-      }
-      return depth;
-    };
-
-    const readConversation = async (id: ConversationId, parent: unknown) => {
-      const k = String(id);
-      let part = cache?.parts.get(k);
-      if (!part || part.generation !== (cache?.generations.get(k) ?? 0)) {
-        const gen = cache?.generations.get(k) ?? 0, at = cache?.epoch;
-        part = await loadPart(id, part);
-        if (cache && (cache.generations.get(k) ?? 0) === gen && cache.epoch === at) cache.parts.set(k, part);
-      } else { timings.cacheHits++; }
-      for (const [key, metrics] of part.ledger.models) {
-        const row = getModel(key); row.sessions++;
-        add(row.usage, metrics); add(totals, metrics);
-      }
-      for (const [name, metrics] of part.ledger.tools) {
-        let total = toolMap.get(name);
-        if (!total) { total = empty(); toolMap.set(name, total); }
-        add(total, metrics);
-      }
-      // global tool call / error aggregation
-      for (const [name, cnt] of part.toolCalls) toolCallsGlobal.set(name, (toolCallsGlobal.get(name) ?? 0) + cnt);
-      for (const [name, cnt] of part.toolErrors) toolErrorsGlobal.set(name, (toolErrorsGlobal.get(name) ?? 0) + cnt);
-      for (const [sname, cnt] of part.skillCounts) {
-        let entry = skillGlobal.get(sname);
-        if (!entry) { entry = { invocations: 0, sessions: new Set<string>(), lastUsed: null }; skillGlobal.set(sname, entry); }
-        entry.invocations += cnt;
-        entry.sessions.add(k);
-        const last = part.skillLastUsed.find(([n]) => n === sname)?.[1] ?? null;
-        if (last != null && (entry.lastUsed == null || last > entry.lastUsed)) entry.lastUsed = last;
-      }
-
-      for (const message of part.responses) {
-        const row = getModel(message.key);
-        row.responses++;
-        if (message.stopReason === "error") row.errors++;
-        if (message.stopReason === "aborted") row.aborted++;
-        const timestamp = message.timestamp;
-        if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) continue;
-        const date = new Date(timestamp);
-        if (!Number.isFinite(date.getTime())) continue;
-        const iso = date.toISOString();
-        if (row.firstSeen === null || iso < row.firstSeen) row.firstSeen = iso;
-        if (row.lastSeen === null || iso > row.lastSeen) row.lastSeen = iso;
-        const dateKey = iso.slice(0, 10), dates = daily.get(row.key)!;
-        let bucket = dates.get(dateKey);
-        if (!bucket) { bucket = { date: dateKey, responses: 0, usage: empty() }; dates.set(dateKey, bucket); }
-        bucket.responses++;
-        if (message.usage) add(bucket.usage, message.usage);
-        // global daily errors
-        let dErr = dailyErrors.get(dateKey);
-        if (!dErr) { dErr = { responses: 0, errors: 0, aborted: 0 }; dailyErrors.set(dateKey, dErr); }
-        dErr.responses++;
-        if (message.stopReason === "error") dErr.errors++;
-        if (message.stopReason === "aborted") dErr.aborted++;
-        // project daily
-        const pid = projectLinks.get(Number(id)) ?? 0;
-        const pname = projectNames.get(pid) ?? "General";
-        const pdKey = `${pid}|${dateKey}`;
-        let pd = projectDailyMap.get(pdKey);
-        if (!pd) { pd = { date: dateKey, projectId: pid, projectName: pname, responses: 0, usage: empty() }; projectDailyMap.set(pdKey, pd); }
-        pd.responses++;
-        if (message.usage) add(pd.usage, message.usage);
-      }
-      // Per-session rollup
-      const sessionUsage = empty();
-      for (const [, metrics] of part.ledger.models) add(sessionUsage, metrics);
-      let sessResponses = 0, sessErrors = 0, sessAborted = 0;
-      for (const m of part.responses) { sessResponses++; if (m.stopReason === "error") sessErrors++; if (m.stopReason === "aborted") sessAborted++; }
-      const sessModels = [...new Set(part.ledger.models.map(([k]) => k))].sort();
-      // Session status/meta
-      let status: SessionStatus = "ready", statusReason: string | null = null;
-      let lastActivity: string | null = null, createdAt: string | null = null, worker: number | null = null;
-      let lastTs: number | null = null, createdTs: number | null = null;
-      try {
-        const running = await isRunning(tx, id);
-        const s = await readSessionStatus(tx, id, running);
-        status = s.status; statusReason = s.statusReason;
-        const ts = await newestMessageTime(tx, id);
-        if (ts !== null) { lastTs = ts; lastActivity = new Date(ts).toISOString(); }
-        const createdRaw: unknown = (await tx.doc(SessionCreated, id)).at;
-        if (typeof createdRaw === "number" && Number.isFinite(createdRaw)) { createdTs = createdRaw; createdAt = new Date(createdRaw).toISOString(); }
-        try {
-          const target = await (tx.doc as unknown as (doc: unknown, id: ConversationId) => Promise<{ worker: number | null }>)(ExecTarget as unknown as never, id).catch(() => null);
-          if (target && typeof (target as { worker: unknown }).worker !== "undefined") worker = (target as { worker: number | null }).worker ?? null;
-        } catch {}
-      } catch {}
-      // subagent count
-      let subagentCount = 0;
-      try {
-        const children = await tx.doc(Children, id);
-        subagentCount = Array.isArray((children as { children?: unknown[] }).children) ? (children as { children: unknown[] }).children.length : 0;
-      } catch {}
-      const forkDepth = forkDepthOf(k);
-      let durationMs: number | null = null;
-      if (lastTs != null && createdTs != null) durationMs = Math.max(0, lastTs - createdTs);
-      const totalTurns = part.userTurns + part.assistantTurns;
-      const avgTokensPerTurn = totalTurns ? sessionUsage.totalTokens / totalTurns : null;
-      // Title/meta from sqlite if available
-      let title: string | null = null, archived = false, pinned = false;
-      if (metaDb) {
-        try {
-          const row = conversationMeta.get(Number(id));
-          if (row) { title = row.title ?? null; archived = !!row.archived; pinned = !!row.pinned; }
-        } catch {}
-        if (!title && part.fallbackTitle === undefined) {
+        let fallbackTitle: string | null = null;
+        if (needFallbackTitle) {
           try {
             const titleScanStarted = performance.now();
             const titleEntries = await tx.scanEntries({ conversationId: id, order: "ascending" }, 30);
@@ -449,122 +388,272 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
             const first = titleEntries.items.find(e => e.kind === "pi.user");
             const txt = (first as unknown as { model?: Array<{ content?: unknown }> })?.model?.[0]?.content ?? "";
             const t = typeof txt === "string" ? txt : Array.isArray(txt) ? (txt as Array<{ text?: string }>).map((b) => b.text || "").join(" ") : "";
-            part.fallbackTitle = t.replace(/\s+/g, " ").slice(0, 60) || null;
+            fallbackTitle = t.replace(/\s+/g, " ").slice(0, 60) || null;
           } catch {}
         }
-      }
-      title ??= part.fallbackTitle ?? null;
-      statusBreakdown[status] = (statusBreakdown[status] ?? 0) + 1;
-      const pid = projectLinks.get(Number(id)) ?? 0;
-      const pname = projectNames.get(pid) ?? null;
-      // project stats accumulation
-      let ps = projectStatsMap.get(pid);
-      if (!ps) { ps = { usage: empty(), sessions: 0 }; projectStatsMap.set(pid, ps); }
-      ps.sessions++;
-      add(ps.usage, sessionUsage as unknown as Partial<Usage>);
-      // worker stats
-      const wKey = worker == null ? "main" : String(worker);
-      let ws = workerStatsMap.get(wKey);
-      if (!ws) { ws = { worker, sessions: 0, usage: empty() }; workerStatsMap.set(wKey, ws); }
-      ws.sessions++;
-      add(ws.usage, sessionUsage as unknown as Partial<Usage>);
 
-      sessionRows.push({
-        id: String(id), title, archived, pinned, parent: parent ?? null,
-        status, statusReason, lastActivity, createdAt, worker,
-        usage: sessionUsage, responses: sessResponses, errors: sessErrors, aborted: sessAborted, models: sessModels,
-        turns: { user: part.userTurns, assistant: part.assistantTurns },
-        durationMs,
-        subagentCount,
-        forkDepth,
-        toolCalls: part.totalToolCalls,
-        toolErrors: part.totalToolErrors,
-        skills: part.skillCounts.map(([n]) => n),
-        avgTokensPerTurn,
-        projectId: pid,
-        projectName: pname,
-      });
-    };
-    for (const c of conversationList) await readConversation(c.id, c.parent);
-    // Most recent activity first
-    sessionRows.sort((a, b) => (b.lastActivity ?? b.createdAt ?? "").localeCompare(a.lastActivity ?? a.createdAt ?? "") || Number(b.id) - Number(a.id));
-    for (const row of modelMap.values()) row.daily = [...daily.get(row.key)!.values()].sort((a, b) => a.date.localeCompare(b.date));
+        let sStatus: SessionStatus = "ready", sStatusReason: string | null = null;
+        let sLastActivity: string | null = null, sCreatedAt: string | null = null, sWorker: number | null = null;
+        let sLastTs: number | null = null, sCreatedTs: number | null = null;
+        try {
+          const running = await isRunning(tx, id);
+          const s = await readSessionStatus(tx, id, running);
+          sStatus = s.status; sStatusReason = s.statusReason;
+          const ts = await newestMessageTime(tx, id);
+          if (ts !== null) { sLastTs = ts; sLastActivity = new Date(ts).toISOString(); }
+          const createdRaw: unknown = (await tx.doc(SessionCreated, id)).at;
+          if (typeof createdRaw === "number" && Number.isFinite(createdRaw)) { sCreatedTs = createdRaw; sCreatedAt = new Date(createdRaw).toISOString(); }
+          try {
+            const target = await (tx.doc as unknown as (doc: unknown, id: ConversationId) => Promise<{ worker: number | null }>)(ExecTarget as unknown as never, id).catch(() => null);
+            if (target && typeof (target as { worker: unknown }).worker !== "undefined") sWorker = (target as { worker: number | null }).worker ?? null;
+          } catch {}
+        } catch {}
+        let sSubagentCount = 0;
+        try {
+          const children = await tx.doc(Children, id);
+          sSubagentCount = Array.isArray((children as { children?: unknown[] }).children) ? (children as { children: unknown[] }).children.length : 0;
+        } catch {}
 
-    // Build derived aggregates
-    const toolsDetailed: AnalyticsToolDetailed[] = [...toolMap.entries()].map(([name, usage]) => {
-      const calls = toolCallsGlobal.get(name) ?? 0;
-      const errors = toolErrorsGlobal.get(name) ?? 0;
-      return { name, calls, errors, errorRate: calls ? errors / calls : null, usage };
-    }).sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
-    // include tools that were called but have no ledger usage (e.g., pure read without token reporting)
-    for (const [name, calls] of toolCallsGlobal.entries()) {
-      if (!toolMap.has(name)) {
-        const errors = toolErrorsGlobal.get(name) ?? 0;
-        toolsDetailed.push({ name, calls, errors, errorRate: calls ? errors / calls : null, usage: empty() });
+        return {
+          part: loadedPart,
+          fallbackTitle,
+          sessionData: {
+            status: sStatus, statusReason: sStatusReason, lastActivity: sLastActivity,
+            createdAt: sCreatedAt, worker: sWorker, lastTs: sLastTs, createdTs: sCreatedTs,
+            subagentCount: sSubagentCount,
+          },
+        };
+      }, context);
+
+      if (!res) { cache?.parts.delete(k); continue; }
+      if (res.part) {
+        part = res.part;
+        if (res.fallbackTitle !== null) part.fallbackTitle = res.fallbackTitle;
+        // Verify generation/epoch validity before publishing into cache
+        if (cache && (cache.generations.get(k) ?? 0) === genBefore && cache.epoch === epochBefore) {
+          cache.parts.set(k, part);
+        }
+      } else if (part && res.fallbackTitle !== null) {
+        part.fallbackTitle = res.fallbackTitle;
       }
+      sessionData = res.sessionData;
+    } else {
+      timings.cacheHits++;
+      const cachedSessionData = await harness.commit(async tx => {
+        if (!(await tx.conversation(id))) return undefined;
+        let sStatus: SessionStatus = "ready", sStatusReason: string | null = null;
+        let sLastActivity: string | null = null, sCreatedAt: string | null = null, sWorker: number | null = null;
+        let sLastTs: number | null = null, sCreatedTs: number | null = null;
+        try {
+          const running = await isRunning(tx, id);
+          const s = await readSessionStatus(tx, id, running);
+          sStatus = s.status; sStatusReason = s.statusReason;
+          const ts = await newestMessageTime(tx, id);
+          if (ts !== null) { sLastTs = ts; sLastActivity = new Date(ts).toISOString(); }
+          const createdRaw: unknown = (await tx.doc(SessionCreated, id)).at;
+          if (typeof createdRaw === "number" && Number.isFinite(createdRaw)) { sCreatedTs = createdRaw; sCreatedAt = new Date(createdRaw).toISOString(); }
+          try {
+            const target = await (tx.doc as unknown as (doc: unknown, id: ConversationId) => Promise<{ worker: number | null }>)(ExecTarget as unknown as never, id).catch(() => null);
+            if (target && typeof (target as { worker: unknown }).worker !== "undefined") sWorker = (target as { worker: number | null }).worker ?? null;
+          } catch {}
+        } catch {}
+        let sSubagentCount = 0;
+        try {
+          const children = await tx.doc(Children, id);
+          sSubagentCount = Array.isArray((children as { children?: unknown[] }).children) ? (children as { children: unknown[] }).children.length : 0;
+        } catch {}
+        return {
+          status: sStatus, statusReason: sStatusReason, lastActivity: sLastActivity,
+          createdAt: sCreatedAt, worker: sWorker, lastTs: sLastTs, createdTs: sCreatedTs,
+          subagentCount: sSubagentCount,
+        };
+      }, context);
+      if (!cachedSessionData) { cache?.parts.delete(k); continue; }
+      sessionData = cachedSessionData;
     }
-    toolsDetailed.sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
 
-    const skills: AnalyticsSkill[] = [...skillGlobal.entries()].map(([name, v]) => ({
-      name, invocations: v.invocations, sessions: v.sessions.size, lastUsed: v.lastUsed ? new Date(v.lastUsed).toISOString() : null,
-    })).sort((a, b) => b.invocations - a.invocations || a.name.localeCompare(b.name));
+    if (!part) continue;
 
-    const projects: AnalyticsProject[] = [...projectStatsMap.entries()].map(([id, v]) => ({
-      id, name: projectNames.get(id) ?? String(id), sessions: v.sessions, usage: v.usage,
-    })).sort((a, b) => b.usage.totalTokens - a.usage.totalTokens);
+    // Aggregate conversation part into global models & tools
+    for (const [key, metrics] of part.ledger.models) {
+      const row = getModel(key); row.sessions++;
+      add(row.usage, metrics); add(totals, metrics);
+    }
+    for (const [name, metrics] of part.ledger.tools) {
+      let total = toolMap.get(name);
+      if (!total) { total = empty(); toolMap.set(name, total); }
+      add(total, metrics);
+    }
+    for (const [name, cnt] of part.toolCalls) toolCallsGlobal.set(name, (toolCallsGlobal.get(name) ?? 0) + cnt);
+    for (const [name, cnt] of part.toolErrors) toolErrorsGlobal.set(name, (toolErrorsGlobal.get(name) ?? 0) + cnt);
+    for (const [sname, cnt] of part.skillCounts) {
+      let entry = skillGlobal.get(sname);
+      if (!entry) { entry = { invocations: 0, sessions: new Set<string>(), lastUsed: null }; skillGlobal.set(sname, entry); }
+      entry.invocations += cnt;
+      entry.sessions.add(k);
+      const last = part.skillLastUsed.find(([n]) => n === sname)?.[1] ?? null;
+      if (last != null && (entry.lastUsed == null || last > entry.lastUsed)) entry.lastUsed = last;
+    }
 
-    const workers: AnalyticsWorker[] = [...workerStatsMap.values()].map(v => ({
-      worker: v.worker, sessions: v.sessions, usage: v.usage, label: v.worker == null ? "main" : `worker #${v.worker}`,
-    })).sort((a, b) => (a.worker ?? -1) - (b.worker ?? -1));
+    for (const message of part.responses) {
+      const row = getModel(message.key);
+      row.responses++;
+      if (message.stopReason === "error") row.errors++;
+      if (message.stopReason === "aborted") row.aborted++;
+      const timestamp = message.timestamp;
+      if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) continue;
+      const date = new Date(timestamp);
+      if (!Number.isFinite(date.getTime())) continue;
+      const iso = date.toISOString();
+      if (row.firstSeen === null || iso < row.firstSeen) row.firstSeen = iso;
+      if (row.lastSeen === null || iso > row.lastSeen) row.lastSeen = iso;
+      const dateKey = iso.slice(0, 10), dates = daily.get(row.key)!;
+      let bucket = dates.get(dateKey);
+      if (!bucket) { bucket = { date: dateKey, responses: 0, usage: empty() }; dates.set(dateKey, bucket); }
+      bucket.responses++;
+      if (message.usage) add(bucket.usage, message.usage);
+      let dErr = dailyErrors.get(dateKey);
+      if (!dErr) { dErr = { responses: 0, errors: 0, aborted: 0 }; dailyErrors.set(dateKey, dErr); }
+      dErr.responses++;
+      if (message.stopReason === "error") dErr.errors++;
+      if (message.stopReason === "aborted") dErr.aborted++;
+      const pid = projectLinks.get(Number(id)) ?? 0;
+      const pname = projectNames.get(pid) ?? "General";
+      const pdKey = `${pid}|${dateKey}`;
+      let pd = projectDailyMap.get(pdKey);
+      if (!pd) { pd = { date: dateKey, projectId: pid, projectName: pname, responses: 0, usage: empty() }; projectDailyMap.set(pdKey, pd); }
+      pd.responses++;
+      if (message.usage) add(pd.usage, message.usage);
+    }
 
-    const reliability = {
-      byModel: [...modelMap.values()].map(m => ({
-        key: m.key, provider: m.provider, model: m.model, responses: m.responses, errors: m.errors, aborted: m.aborted,
-        errorRate: m.responses ? m.errors / m.responses : null, abortRate: m.responses ? m.aborted / m.responses : null,
-      })).sort((a, b) => (b.errorRate ?? 0) - (a.errorRate ?? 0)),
-      dailyErrors: [...dailyErrors.entries()].map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date)),
-    };
+    const sessionUsage = empty();
+    for (const [, metrics] of part.ledger.models) add(sessionUsage, metrics);
+    let sessResponses = 0, sessErrors = 0, sessAborted = 0;
+    for (const m of part.responses) { sessResponses++; if (m.stopReason === "error") sessErrors++; if (m.stopReason === "aborted") sessAborted++; }
+    const sessModels = [...new Set(part.ledger.models.map(([km]) => km))].sort();
 
-    const projectDaily = [...projectDailyMap.values()].sort((a, b) => a.date.localeCompare(b.date) || a.projectId - b.projectId);
+    const forkDepth = forkDepthOf(k);
+    let durationMs: number | null = null;
+    if (sessionData.lastTs != null && sessionData.createdTs != null) durationMs = Math.max(0, sessionData.lastTs - sessionData.createdTs);
+    const totalTurns = part.userTurns + part.assistantTurns;
+    const avgTokensPerTurn = totalTurns ? sessionUsage.totalTokens / totalTurns : null;
 
-    // Content actions: derived from toolCallsGlobal
-    const contentActions = {
-      reads: toolCallsGlobal.get("read") ?? 0,
-      writes: toolCallsGlobal.get("write") ?? 0,
-      edits: toolCallsGlobal.get("edit") ?? 0,
-      bashes: (toolCallsGlobal.get("bash") ?? 0) + (toolCallsGlobal.get("machine_exec") ?? 0),
-      boards: toolCallsGlobal.get("board") ?? 0,
-    };
+    let title: string | null = null, archived = false, pinned = false;
+    if (metaDb) {
+      try {
+        const row = conversationMeta.get(Number(id));
+        if (row) { title = row.title ?? null; archived = !!row.archived; pinned = !!row.pinned; }
+      } catch {}
+    }
+    title ??= part.fallbackTitle ?? null;
+    statusBreakdown[sessionData.status] = (statusBreakdown[sessionData.status] ?? 0) + 1;
+    const pid = projectLinks.get(Number(id)) ?? 0;
+    const pname = projectNames.get(pid) ?? null;
 
-    timings.aggregationMs = Math.max(0, performance.now() - started - timings.scanMs - timings.metadataMs);
-    return {
-      performance: timings,
-      generatedAt: new Date().toISOString(),
-      scope: "All retained conversations, including archived sessions and subagents. Deleted conversations are excluded. Fork history is counted only at its original owner.",
-      totals, sessions,
-      models: [...modelMap.values()].sort((a, b) => a.key.localeCompare(b.key)),
-      tools: [...toolMap].sort(([a], [b]) => a.localeCompare(b)).map(([name, usage]) => ({ name, usage })),
-      toolsDetailed,
-      skills,
-      projects,
-      workers,
-      reliability,
-      projectDaily,
-      contentActions,
-      sessionsList: sessionRows,
-      statusBreakdown,
-      notes: [
-        "Model totals come from recorded usage ledgers and include compaction attempts. They survive context reset and compaction.",
-        "Costs are recorded USD estimates, not invoices or subscription charges. Current catalog rates do not recalculate historical costs.",
-        "Zero cost can mean unpriced usage, a subscription adapter, or a zero rate. It does not prove usage was free.",
-        "Uncached input is not proof of a cache miss. Providers do not report a separate cache-miss counter.",
-        "Reasoning tokens are part of output. One-hour cache writes are part of cache writes. Optional counters sum reported values only.",
-        "Daily charts and response counts use retained assistant messages. Undated compaction attempts are excluded, so chart sums can differ from ledger totals.",
-        "Tool-reported usage is shown separately and is not added to model totals because it can overlap.",
-        "Per-session status reflects the snapshot time. Refresh to update active, failed, or waiting sessions.",
-        "Tool calls and skill invocations are counted from retained entries. Fork parents do not duplicate child tool history.",
-        "Project and worker breakdowns use luna_session_projects and ExecTarget. General holds sessions without a project.",
-      ],
-    };
-  }, context);
+    let ps = projectStatsMap.get(pid);
+    if (!ps) { ps = { usage: empty(), sessions: 0 }; projectStatsMap.set(pid, ps); }
+    ps.sessions++;
+    add(ps.usage, sessionUsage as unknown as Partial<Usage>);
+
+    const wKey = sessionData.worker == null ? "main" : String(sessionData.worker);
+    let ws = workerStatsMap.get(wKey);
+    if (!ws) { ws = { worker: sessionData.worker, sessions: 0, usage: empty() }; workerStatsMap.set(wKey, ws); }
+    ws.sessions++;
+    add(ws.usage, sessionUsage as unknown as Partial<Usage>);
+
+    sessionRows.push({
+      id: String(id), title, archived, pinned, parent: parent ?? null,
+      status: sessionData.status, statusReason: sessionData.statusReason, lastActivity: sessionData.lastActivity, createdAt: sessionData.createdAt, worker: sessionData.worker,
+      usage: sessionUsage, responses: sessResponses, errors: sessErrors, aborted: sessAborted, models: sessModels,
+      turns: { user: part.userTurns, assistant: part.assistantTurns },
+      durationMs,
+      subagentCount: sessionData.subagentCount,
+      forkDepth,
+      toolCalls: part.totalToolCalls,
+      toolErrors: part.totalToolErrors,
+      skills: part.skillCounts.map(([n]) => n),
+      avgTokensPerTurn,
+      projectId: pid,
+      projectName: pname,
+    });
+  }
+
+  // Phase 3: Global Aggregates outside commits
+  sessionRows.sort((a, b) => (b.lastActivity ?? b.createdAt ?? "").localeCompare(a.lastActivity ?? a.createdAt ?? "") || Number(b.id) - Number(a.id));
+  for (const row of modelMap.values()) row.daily = [...daily.get(row.key)!.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+  const toolsDetailed: AnalyticsToolDetailed[] = [...toolMap.entries()].map(([name, usage]) => {
+    const calls = toolCallsGlobal.get(name) ?? 0;
+    const errors = toolErrorsGlobal.get(name) ?? 0;
+    return { name, calls, errors, errorRate: calls ? errors / calls : null, usage };
+  }).sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
+  for (const [name, calls] of toolCallsGlobal.entries()) {
+    if (!toolMap.has(name)) {
+      const errors = toolErrorsGlobal.get(name) ?? 0;
+      toolsDetailed.push({ name, calls, errors, errorRate: calls ? errors / calls : null, usage: empty() });
+    }
+  }
+  toolsDetailed.sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
+
+  const skills: AnalyticsSkill[] = [...skillGlobal.entries()].map(([name, v]) => ({
+    name, invocations: v.invocations, sessions: v.sessions.size, lastUsed: v.lastUsed ? new Date(v.lastUsed).toISOString() : null,
+  })).sort((a, b) => b.invocations - a.invocations || a.name.localeCompare(b.name));
+
+  const projects: AnalyticsProject[] = [...projectStatsMap.entries()].map(([id, v]) => ({
+    id, name: projectNames.get(id) ?? String(id), sessions: v.sessions, usage: v.usage,
+  })).sort((a, b) => b.usage.totalTokens - a.usage.totalTokens);
+
+  const workers: AnalyticsWorker[] = [...workerStatsMap.values()].map(v => ({
+    worker: v.worker, sessions: v.sessions, usage: v.usage, label: v.worker == null ? "main" : `worker #${v.worker}`,
+  })).sort((a, b) => (a.worker ?? -1) - (b.worker ?? -1));
+
+  const reliability = {
+    byModel: [...modelMap.values()].map(m => ({
+      key: m.key, provider: m.provider, model: m.model, responses: m.responses, errors: m.errors, aborted: m.aborted,
+      errorRate: m.responses ? m.errors / m.responses : null, abortRate: m.responses ? m.aborted / m.responses : null,
+    })).sort((a, b) => (b.errorRate ?? 0) - (a.errorRate ?? 0)),
+    dailyErrors: [...dailyErrors.entries()].map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date)),
+  };
+
+  const projectDaily = [...projectDailyMap.values()].sort((a, b) => a.date.localeCompare(b.date) || a.projectId - b.projectId);
+
+  const contentActions = {
+    reads: toolCallsGlobal.get("read") ?? 0,
+    writes: toolCallsGlobal.get("write") ?? 0,
+    edits: toolCallsGlobal.get("edit") ?? 0,
+    bashes: (toolCallsGlobal.get("bash") ?? 0) + (toolCallsGlobal.get("machine_exec") ?? 0),
+    boards: toolCallsGlobal.get("board") ?? 0,
+  };
+
+  timings.aggregationMs = Math.max(0, performance.now() - started - timings.scanMs - timings.metadataMs);
+  return {
+    performance: timings,
+    generatedAt: new Date().toISOString(),
+    scope: "All retained conversations, including archived sessions and subagents. Deleted conversations are excluded. Fork history is counted only at its original owner.",
+    totals, sessions: sessionRows.length,
+    models: [...modelMap.values()].sort((a, b) => a.key.localeCompare(b.key)),
+    tools: [...toolMap].sort(([a], [b]) => a.localeCompare(b)).map(([name, usage]) => ({ name, usage })),
+    toolsDetailed,
+    skills,
+    projects,
+    workers,
+    reliability,
+    projectDaily,
+    contentActions,
+    sessionsList: sessionRows,
+    statusBreakdown,
+    notes: [
+      "Model totals come from recorded usage ledgers and include compaction attempts. They survive context reset and compaction.",
+      "Costs are recorded USD estimates, not invoices or subscription charges. Current catalog rates do not recalculate historical costs.",
+      "Zero cost can mean unpriced usage, a subscription adapter, or a zero rate. It does not prove usage was free.",
+      "Uncached input is not proof of a cache miss. Providers do not report a separate cache-miss counter.",
+      "Reasoning tokens are part of output. One-hour cache writes are part of cache writes. Optional counters sum reported values only.",
+      "Daily charts and response counts use retained assistant messages. Undated compaction attempts are excluded, so chart sums can differ from ledger totals.",
+      "Tool-reported usage is shown separately and is not added to model totals because it can overlap.",
+      "Per-session status reflects the snapshot time. Refresh to update active, failed, or waiting sessions.",
+      "Tool calls and skill invocations are counted from retained entries. Fork parents do not duplicate child tool history.",
+      "Project and worker breakdowns use luna_session_projects and ExecTarget. General holds sessions without a project.",
+      "Analytics uses an eventually consistent multi-read snapshot across conversations to avoid monopolizing the mutation queue.",
+    ],
+  };
 }
