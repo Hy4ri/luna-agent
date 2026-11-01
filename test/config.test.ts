@@ -1,0 +1,59 @@
+// Contract: config is validated strictly. Unknown or conflicting settings fail at load time instead of being ignored,
+// the documented example always loads, and a non-loopback bind needs LUNA_TOKEN.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+import { bindRefusal, parseConfig } from "../src/config.js";
+
+const base = "/srv/luna";
+const parse = (raw: unknown, env: NodeJS.ProcessEnv = {}) => parseConfig(raw, base, env);
+const rejects = (raw: unknown, pattern: RegExp) => assert.throws(() => parse(raw), pattern, JSON.stringify(raw));
+const stdio = (name: string) => ({ name, transport: "stdio", command: "x" });
+const provider = (id: string) => ({ id, name: id, api: "openai-completions", baseUrl: "https://example.com/v1", models: [{ id: "m" }] });
+
+test("luna.config.example.json loads", () => {
+  const raw = JSON.parse(readFileSync(new URL("../luna.config.example.json", import.meta.url), "utf8"));
+  assert.doesNotThrow(() => parse(raw));
+});
+
+test("unknown keys fail at the root and in nested objects", () => {
+  rejects({ provider: "faux", typo: 1 }, /\(root\)|typo/);
+  rejects({ provider: "faux", server: { host: "127.0.0.1", prot: 1 } }, /server/);
+  rejects({ provider: "faux", mcpServers: [{ ...stdio("a"), envv: {} }] }, /mcpServers/);
+  rejects({ provider: "faux", providers: [{ ...provider("p"), models: [{ id: "m", ctx: 1 }] }] }, /providers/);
+});
+
+test("unknown extensions and duplicate names fail", () => {
+  rejects({ provider: "faux", extensions: ["coding", "nope"] }, /extensions/);
+  rejects({ provider: "faux", extensions: ["coding", "coding"] }, /duplicate extension/);
+  rejects({ provider: "faux", providers: [provider("p"), provider("p")] }, /duplicate provider id/);
+  rejects({ provider: "faux", providers: [provider("openai")] }, /conflicts with a built-in provider/);
+  rejects({ provider: "faux", mcpServers: [stdio("a"), stdio("a")] }, /duplicate MCP server name "a"/);
+});
+
+test("cross-field rules fail", () => {
+  rejects({ provider: "anthropic" }, /model is required for provider anthropic/);
+  rejects({ provider: "faux", subagents: { provider: "anthropic" } }, /provider and model must be set together/);
+  rejects({ provider: "faux", subagents: { profiles: { r: { tools: ["delegate_task"] } } } }, /Child profiles cannot delegate/);
+});
+
+test("environment overrides apply before validation and are validated too", () => {
+  const c = parse({ provider: "faux" }, { LUNA_HOST: "0.0.0.0", LUNA_PORT: "9000", LUNA_DATA: "state" });
+  assert.equal(c.server.host, "0.0.0.0");
+  assert.equal(c.server.port, 9000);
+  assert.equal(c.dataDir, join(base, "state"), "relative dataDir resolves against the config directory");
+  assert.throws(() => parse({ provider: "faux" }, { LUNA_PORT: "0" }), /server\.port/);
+});
+
+test("skill directories: dataDir/skills first, then configured directories", () => {
+  const c = parse({ provider: "faux", dataDir: "/d", skillDirs: ["extra"] });
+  assert.deepEqual(c.allSkillDirs, ["/d/skills", join(base, "extra")]);
+});
+
+test("a non-loopback bind is refused without LUNA_TOKEN", () => {
+  for (const host of ["127.0.0.1", "localhost", "::1"]) assert.equal(bindRefusal(host, undefined), undefined, host);
+  for (const host of ["0.0.0.0", "::", "192.168.1.20", "luna.lan"]) assert.match(bindRefusal(host, undefined) ?? "", /LUNA_TOKEN/, host);
+  assert.equal(bindRefusal("0.0.0.0", ""), bindRefusal("0.0.0.0", undefined), "an empty token is no token");
+  assert.equal(bindRefusal("0.0.0.0", "t"), undefined);
+});

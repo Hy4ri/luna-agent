@@ -1,7 +1,7 @@
 // Luna HTTP/SSE daemon: loads LUNA_CONFIG (default ./luna.config.json), starts the full runtime and serves the API.
 // Env overrides: LUNA_DATA, LUNA_CWD, LUNA_PROVIDER, LUNA_MODEL, LUNA_HOST, LUNA_PORT. Secret: LUNA_TOKEN.
 import { serve } from "@hono/node-server";
-import { loadConfig } from "./config.js";
+import { bindRefusal, loadConfig } from "./config.js";
 import { startRuntime } from "./runtime.js";
 import { daemonConnection } from "./connection.js";
 import { createApp } from "./server.js";
@@ -10,8 +10,9 @@ let cfg;
 try { cfg = loadConfig(); } catch (e) { console.error((e as Error).message); process.exit(1); }
 const { host, port, publicUrls } = cfg.server;
 const token = process.env.LUNA_TOKEN;
-if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1" && !token) {
-  console.error("refusing to bind non-loopback host without LUNA_TOKEN");
+const refusal = bindRefusal(host, token);
+if (refusal) {
+  console.error(refusal);
   process.exit(1);
 }
 
