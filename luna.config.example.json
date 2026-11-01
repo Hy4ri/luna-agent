@@ -146,6 +146,9 @@
       "camofox": {
         "mcpServer": "camofox"
       },
+      "moli": {
+        "executablePath": "/path/to/moli"
+      },
       "chromium": {
         "headless": true
       }

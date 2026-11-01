@@ -49,7 +49,7 @@ export type EnvMethod = typeof ENV_METHODS[number];
 export const HANDLE_METHODS = new Set<EnvMethod>(["openBinaryReader", "openTextLineReader", "openDirReader"]);
 export const HANDLE_OPS = new Set(["info", "read", "scanLines", "readLine", "next", "close"]);
 
-export interface BrowserCapability { provider: "disabled" | "chromium" | "camofox"; configured: boolean; reason?: string }
+export interface BrowserCapability { provider: "disabled" | "chromium" | "camofox" | "moli"; configured: boolean; reason?: string }
 
 export interface Capabilities {
   browser?: BrowserCapability;

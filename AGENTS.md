@@ -99,7 +99,7 @@ luna-pi/
 │   ├── image-gen.ts            # image_generate tool and provider manager
 │   ├── plugins/image_gen/      # Image generation provider adapters (e.g. openai-codex)
 │   ├── web-tools.ts            # Native web_search and web_extract tools + ddgs-web-provider.ts
-│   ├── browser-tools.ts        # Native browser_* tools + camofox-browser-provider.ts
+│   ├── browser-tools.ts        # Native browser_* tools + camofox/moli/chromium providers
 │   ├── busy-input.ts           # Interrupt / queue / steer policies for active turns
 │   ├── busy-tools.ts           # Background process tools (process_start, process_manage)
 │   ├── side-commands.ts        # Ephemeral side questions (/btw) without polluting main context

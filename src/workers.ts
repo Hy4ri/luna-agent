@@ -164,7 +164,7 @@ export class WorkerHub {
       }
       const browser = hello.capabilities.browser;
       if (browser !== undefined && (!browser || typeof browser !== "object" ||
-        !["disabled", "chromium", "camofox"].includes(browser.provider) || typeof browser.configured !== "boolean" ||
+        !["disabled", "chromium", "camofox", "moli"].includes(browser.provider) || typeof browser.configured !== "boolean" ||
         (browser.reason !== undefined && typeof browser.reason !== "string"))) {
         ws.close(4000, "invalid browser capability"); return;
       }
