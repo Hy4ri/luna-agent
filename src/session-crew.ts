@@ -279,6 +279,8 @@ export function createSessionCrewExtension(o: CrewDeps) {
 interface Pending { lead: ConversationId; member: number; noticeId: string; content: string; state: string }
 
 async function inspect(tx: Tx, member: ConversationId, title: (id: number) => string | null): Promise<Pending | undefined> {
+  // A deleted member has no documents to read and no report to deliver.
+  if (!await tx.conversation(member)) return undefined;
   const lead = await crewLead(tx, member);
   if (!lead) return undefined;
   const row = (await tx.doc(Crew, lead)).members.find(m => m.id === Number(member));
@@ -326,7 +328,9 @@ export class CrewNotifier {
       let cursor;
       do {
         const page = await tx.scanConversations({}, 100, cursor);
-        for (const conv of page.items) if (!conv.owner) for (const m of (await tx.doc(Crew, conv.id)).members) if (!m.stopped) found.push(m.id);
+        for (const conv of page.items) if (!conv.owner) for (const m of (await tx.doc(Crew, conv.id)).members) {
+          if (!m.stopped && await tx.conversation(m.id as ConversationId)) found.push(m.id);
+        }
         cursor = page.next;
       } while (cursor);
       return found;
