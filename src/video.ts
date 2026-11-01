@@ -10,6 +10,14 @@ type Ref = { provider: string; modelId: string };
 export const VIDEO_PROMPT = "Fully describe everything: visuals, motion, audio cues, text overlays, scene transitions. Then answer: ";
 export async function resolveVideoClient(models: Models, cfg: Config, active: Ref, env = process.env): Promise<Model<any> | undefined> {
   const explicit = cfg.auxiliary.vision;
+  const chosen = cfg.auxiliary.video;
+  if (chosen?.provider) {
+    // An explicit video provider and model is authoritative.
+    try {
+      const model = models.getModel(chosen.provider, chosen.model);
+      if (model && await models.getAuth(model)) return model;
+    } catch { /* Fall through to the automatic route. */ }
+  }
   const providers = explicit ? [explicit.provider] : [...new Set([active.provider, "openrouter", "nous"])];
   for (const provider of providers) {
     try {
