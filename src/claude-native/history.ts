@@ -1,8 +1,8 @@
-// Native history, request body, and model routes. Port of directsdk.py / model_catalog.py (pinned MIT Nous Research DirectSDK).
+// Native history, request body, and model routes.
 import { createHash } from "node:crypto";
 import type { Block, Frame, NativeMessage, NativeReplayMetadata, NativeRequest, NativeTool, Projection } from "./types.js";
 
-/** Private to this transport: DirectSDK maps it back to Luna's names. It is part of signed replay content. */
+/** Private wire namespace, mapped back to Luna's tool names. It is part of signed replay content. */
 export const TOOL_PREFIX = "mcp__luna__";
 /** Read the namespace from saved native messages; never rename signed tool-use blocks. */
 export function conversationToolPrefix(messages: NativeMessage[]): string {
@@ -201,14 +201,14 @@ export function nativeContextWindow(model: string): number {
   catch { return 200_000; }
 }
 
-/** Bottom-up map over a schema tree, as the upstream schema_sanitizer._rewrite. Never mutates its input. */
+/** Bottom-up map over a schema tree. Never mutates its input. */
 function rewrite(schema: unknown, fn: (node: Json) => unknown): unknown {
   if (Array.isArray(schema)) return schema.map(item => rewrite(item, fn));
   if (!isObject(schema)) return schema;
   return fn(Object.fromEntries(Object.entries(schema).map(([k, v]) => [k, rewrite(v, fn)])));
 }
 
-/** Upstream strip_nullable_unions(keep_nullable_hint=False): collapse a nullable union to its single non-null branch. */
+/** Collapse a nullable union to its single non-null branch. */
 function stripNullableUnions(schema: unknown): unknown {
   const collapse = (node: Json): unknown => {
     for (const key of ["anyOf", "oneOf"]) {
@@ -241,7 +241,7 @@ export function normalizeInputSchema(schema: Json): Json {
 
 export interface ToolManifestEntry { name: string; description: string; inputSchema: Json }
 
-/** Keep the live MCP inventory separate from the fixed initial upstream declarations. */
+/** Keep the live MCP inventory separate from the fixed initial API declarations. */
 export function buildBody(request: NativeRequest, toolPrefix = conversationToolPrefix(request.messages)): {
   body: string; manifest: ToolManifestEntry[]; names: Map<string, string>; replayMetadata?: NativeReplayMetadata;
 } {

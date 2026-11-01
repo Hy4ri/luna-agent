@@ -1,5 +1,4 @@
-// In-process Claude Code transport: one CLI process group and one admitted upstream request per generation.
-// Port of the pinned MIT Nous Research DirectSDK client (directsdk.py + bridge.py). POSIX only.
+// In-process Claude Code transport: one CLI process group and one admitted API request per generation. POSIX only.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { accessSync, closeSync, constants, fchmodSync, lstatSync, mkdirSync, mkdtempSync, openSync,
   rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -20,7 +19,7 @@ export const LOGGED_OUT_HINT = "Claude Code is installed but has no usable login
 
 const UPSTREAM = "https://api.anthropic.com";
 const DRAIN_GRACE_MS = 10_000;
-// Native's own codes for errors it answers without a relayed upstream status.
+// Native's own codes for errors it answers without a relayed API status.
 const NATIVE_ERROR_STATUS: Record<string, number> = {
   rate_limit: 429, billing_error: 402, authentication_failed: 401, overloaded: 529, server_error: 503,
 };
@@ -64,7 +63,7 @@ function resolveClaude(command: string, env: NodeJS.ProcessEnv): string | undefi
 
 /**
  * Copy the daemon environment; refuse API-key or custom-backend fallback before anything spawns.
- * An explicit environment (offline qualification only) is used as given, as DirectSDK's Client(env=...).
+ * An explicit environment (offline qualification only) is used as given.
  */
 function childEnvironment(explicit?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = { ...(explicit ?? process.env) };
@@ -209,7 +208,7 @@ export interface RunOptions {
   onThinking: (text: string) => void;
   /** Longest silence between native events, and the per-socket admission timeout. */
   timeoutMs?: number;
-  /** Offline qualification only: a complete child environment whose ANTHROPIC_BASE_URL is the relay's upstream. */
+  /** Offline qualification only: a complete child environment whose ANTHROPIC_BASE_URL is the relay's target. */
   env?: NodeJS.ProcessEnv;
 }
 
@@ -429,7 +428,7 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
       reasoning_content: blocks.filter(b => b.type === "thinking").map(b => (b.thinking as string | undefined) ?? "").join("") || null,
     };
     message.reasoning_details = [{ type: CARRIER_TYPE, version: 1, wirePrefix: toolPrefix, messages: assistants, projection: projection(message) }];
-    // An upstream refusal is terminal. The cut-off call stays in the carrier but never becomes actionable.
+    // An API refusal is terminal. The cut-off call stays in the carrier but never becomes actionable.
     const refused = assistants.some(a => a.stop_reason === "refusal");
     if (refused) {
       const details = assistants.find(a => a.stop_details && typeof a.stop_details === "object")?.stop_details ?? {};
