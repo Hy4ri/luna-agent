@@ -14,6 +14,7 @@ import {
   Search,
   Archive,
   ChevronRight,
+  ChevronLeft,
   Pin,
   Ellipsis,
   Pencil,
@@ -23,7 +24,6 @@ import {
   Trash2,
   Settings as SettingsIcon,
   LoaderCircle,
-  Monitor,
   ChartNoAxesColumn,
   GitBranch,
   Star,
@@ -33,10 +33,11 @@ import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics,
 import { chat, openSession, newSession, clearConversation } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
-import { history, toggleFavorite, loadSessions, loadProjects, toggleGroup, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
+import { history, toggleFavorite, loadSessions, loadProjects, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
+import { ago } from "@/lib/mention-sources";
 
 const PruneSessionsDialog = defineAsyncComponent(() => import("./PruneSessionsDialog.vue"));
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -80,64 +81,63 @@ function sortSessions(sessions: any[]) {
 }
 
 type Machine = { key: string; id: number | null; name: string; online: boolean };
-type Group = { key: string; name: string; project: number | null; favorite?: boolean; sessions: any[]; machine?: Machine; head?: boolean };
+type Folder = { key: string; name: string; project: number | null; favorite?: boolean; sessions: any[] };
 
-/** With more than one machine, history is machine, then project. One machine keeps the flat project list. */
+/** Machines appear only when workers exist. Each session belongs to one machine. */
 const machines = computed<Machine[]>(() => workers.list.length
   ? [{ key: "main", id: null, name: "This host", online: true }, ...workers.list.map(w => ({ key: String(w.id), id: w.id, name: w.name, online: w.online }))]
   : []);
+const machineOf = (s: any) => machines.value.find(m => m.id === (s.worker ?? null));
 
-const groups = computed<Group[]>(() => {
-  const filtered = filteredSessions.value;
-  if (history.projects.length === 0 && !machines.value.length) {
-    return [{ key: "none", name: "Chats", project: null, sessions: sortSessions(filtered) }];
-  }
+/** One folder per project, plus "Chats" for sessions without a named project. History opens one folder at a time. */
+const folders = computed<Folder[]>(() => {
+  const list = history.list.filter(s => !!s.archived === history.archived);
   const named = sortProjects(history.projects).filter(p => !p.general);
   const isNamed = (s: any) => !!s.project && named.some(p => p.id === s.project);
-  if (!machines.value.length) {
-    const result: Group[] = [];
-    for (const p of named) {
-      const pSessions = filtered.filter(s => Number(s.project) === Number(p.id));
-      if (pSessions.length > 0 || !history.query) {
-        result.push({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, sessions: sortSessions(pSessions) });
-      }
-    }
-    const noneSessions = filtered.filter(s => !isNamed(s));
-    if (noneSessions.length > 0 || !history.query) {
-      result.splice(result.filter(g => g.favorite).length, 0, { key: "none", name: "Chats", project: null, sessions: sortSessions(noneSessions) });
-    }
-    return result;
-  }
-  const result: Group[] = [];
-  for (const m of machines.value) {
-    const here = filtered.filter(s => (s.worker ?? null) === m.id);
-    const part: Group[] = [];
-    for (const p of named) {
-      const pSessions = here.filter(s => Number(s.project) === Number(p.id));
-      // The host has a directory for every project. A worker lists a project once it is linked there or has sessions.
-      const linked = m.id === null ? !!p.cwd : !!p.workerDirs?.some(d => d.worker === m.id);
-      if (pSessions.length > 0 || (linked && !history.query)) {
-        part.push({ key: `${m.key}:${p.id}`, name: p.name, project: p.id, favorite: p.favorite, sessions: sortSessions(pSessions), machine: m });
-      }
-    }
-    const noneSessions = here.filter(s => !isNamed(s));
-    if (noneSessions.length > 0 || (m.id === null && !history.query)) {
-      part.splice(part.filter(g => g.favorite).length, 0, { key: `${m.key}:none`, name: "Chats", project: null, sessions: sortSessions(noneSessions), machine: m });
-    }
-    if (part.length || !history.query) {
-      if (!part.length) part.push({ key: `${m.key}:none`, name: "Chats", project: null, sessions: [], machine: m });
-      part[0]!.head = true;
-      result.push(...part);
-    }
-  }
+  const result: Folder[] = named.map(p => ({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, sessions: sortSessions(list.filter(s => Number(s.project) === Number(p.id))) }));
+  result.splice(result.filter(f => f.favorite).length, 0, { key: "none", name: "Chats", project: null, sessions: sortSessions(list.filter(s => !isNamed(s))) });
   return result;
 });
+/** With no named projects there is nothing to choose, so the only folder is always open. */
+const single = computed(() => folders.value.length === 1);
+const openFolder = computed(() => single.value ? folders.value[0]! : folders.value.find(f => f.key === history.drill) ?? null);
 
-const machineCollapsed = (m: Machine) => !!history.collapsedGroups["m:" + m.key];
-const machineShown = (g: Group) => !g.machine || !machineCollapsed(g.machine);
+/** Device filter inside an open folder: "all" or a machine key. */
+const device = ref("all");
+const deviceMachine = computed(() => machines.value.find(m => m.key === device.value));
+const searching = computed(() => !!history.query.trim());
+/** Search covers every folder. Otherwise the open folder, narrowed to one device when a device is chosen. */
+const visibleSessions = computed(() => {
+  if (searching.value) return sortSessions(filteredSessions.value);
+  const f = openFolder.value;
+  if (!f) return [];
+  return deviceMachine.value ? f.sessions.filter(s => (s.worker ?? null) === deviceMachine.value!.id) : f.sessions;
+});
 
-function isGroupCollapsed(key: string): boolean {
-  return !!history.collapsedGroups[key];
+function drill(key: string | null) {
+  device.value = "all";
+  setDrill(key);
+  if (key === null) nextTick(() => document.querySelector<HTMLButtonElement>("#sessions .folder-open")?.focus());
+  else nextTick(() => document.querySelector<HTMLButtonElement>("#history-back")?.focus());
+}
+
+/** Statuses worth a count on a folder row: everything except idle (ready) and stopped. */
+function folderStates(f: Folder) {
+  const counts = new Map<string, number>();
+  for (const s of f.sessions) {
+    const st = sessionState(s);
+    if (st !== "ready" && st !== "stopped") counts.set(st, (counts.get(st) ?? 0) + 1);
+  }
+  return [...counts].map(([status, count]) => ({ status, count, label: `${count} ${sessionStatusLabel({ status: status as any })}` }));
+}
+const folderTime = (f: Folder) => f.sessions.reduce((m, s) => Math.max(m, s.lastActivity ?? s.createdAt ?? 0), 0);
+const machineCount = (f: Folder, m: Machine) => f.sessions.filter(s => (s.worker ?? null) === m.id).length;
+/** Text after the title of a session row: project while searching, machine when several are shown together. */
+function sessionMeta(s: any) {
+  const parts: string[] = [];
+  if (searching.value) parts.push(folders.value.find(f => f.sessions.includes(s))?.name ?? "Chats");
+  if (machines.value.length && (searching.value || !deviceMachine.value)) parts.push(machineOf(s)?.name ?? "Unknown machine");
+  return parts.join(" · ");
 }
 
 async function handleNewChat(projectId?: number | string | null, worker?: number | null) {
@@ -434,110 +434,137 @@ onMounted(() => {
 
       <p id="prune-status" role="status" class="text-muted-foreground text-xs px-3 py-1" v-if="pruneResult && !collapsed">{{ pruneResult }}</p>
 
+      <!-- Open folder: fixed back bar and device filter. Search lists every folder, so it hides this bar. -->
+      <div class="folder-head" v-if="!collapsed && openFolder && !searching">
+        <div class="folder-bar">
+          <button v-if="!single" id="history-back" class="icon-button" aria-label="All projects" title="All projects" @click="drill(null)"><ChevronLeft :size="16" /></button>
+          <Star v-if="openFolder.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
+          <span dir="auto" class="folder-name">{{ openFolder.name }}</span>
+          <DropdownMenu v-if="openFolder.project !== null">
+            <DropdownMenuTrigger as-child>
+              <button class="group-new" :aria-label="'Manage ' + openFolder.name" aria-haspopup="menu"><Ellipsis :size="14" /></button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem @select="toggleFavorite(openFolder.project!)"><Star :size="14" />{{ openFolder.favorite ? 'Unfavourite' : 'Favourite' }}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button
+            class="group-new"
+            :aria-label="'New session in ' + openFolder.name + (deviceMachine ? ' on ' + deviceMachine.name : '')"
+            :title="deviceMachine && !deviceMachine.online ? deviceMachine.name + ' is offline' : 'New session in ' + openFolder.name + (deviceMachine ? ' on ' + deviceMachine.name : '')"
+            :disabled="!!deviceMachine && !deviceMachine.online"
+            @click="handleNewChat(openFolder.project, deviceMachine?.id)"
+          >
+            <Plus :size="14" />
+          </button>
+        </div>
+        <div v-if="machines.length" class="device-chips" role="group" aria-label="Machine">
+          <button class="device-chip" :aria-pressed="device === 'all' ? 'true' : 'false'" @click="device = 'all'">All<span class="device-count">{{ openFolder.sessions.length }}</span></button>
+          <button
+            v-for="m in machines"
+            :key="m.key"
+            class="device-chip"
+            :class="{ offline: !m.online }"
+            :aria-pressed="device === m.key ? 'true' : 'false'"
+            :disabled="machineCount(openFolder, m) === 0 && device !== m.key"
+            :title="m.name + (m.online ? '' : ' (offline)') + (machineCount(openFolder, m) === 0 ? ': no sessions here' : '')"
+            @click="device = m.key"
+          >
+            <span dir="auto" class="device-name">{{ m.name }}</span><span class="device-count">{{ machineCount(openFolder, m) }}</span>
+          </button>
+        </div>
+        <p v-if="deviceMachine && !deviceMachine.online" class="folder-note">{{ deviceMachine.name }} is offline. You can read these sessions, but you cannot start new ones.</p>
+      </div>
+
       <div id="sessions" v-if="!collapsed">
         <div class="eyebrow px-3 py-1 text-xs font-semibold text-muted-foreground" v-if="history.archived">Archived</div>
 
-        <template v-if="groups.length === 0 || groups.every(g => g.sessions.length === 0)">
-          <p class="muted px-3 py-2 text-sm">
-            {{ history.query ? "No matching conversations." : history.archived ? "No archived conversations." : "Your conversations will appear here." }}
-          </p>
+        <!-- Level 1: project folders -->
+        <template v-if="!openFolder && !searching">
+          <button
+            v-for="f in folders"
+            :key="f.key"
+            class="folder-open"
+            :data-project="f.key"
+            :aria-label="f.name + ', ' + f.sessions.length + ' conversations'"
+            @click="drill(f.key)"
+          >
+            <Star v-if="f.favorite" :size="14" fill="currentColor" class="group-star" aria-hidden="true" />
+            <FolderKanban v-else :size="14" class="folder-icon" aria-hidden="true" />
+            <span class="folder-copy">
+              <span dir="auto" class="folder-title">{{ f.name }}</span>
+              <span class="folder-sub">
+                <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
+                <span v-for="st in folderStates(f)" :key="st.status" class="folder-state session-state" :data-status="st.status" role="img" :aria-label="st.label" :title="st.label"><span class="session-state-dot" aria-hidden="true"></span>{{ st.count }}</span>
+              </span>
+            </span>
+            <span v-if="machines.length && f.sessions.length" class="folder-machines" role="img" :aria-label="machines.map(m => m.name + ' ' + machineCount(f, m)).join(', ')" :title="machines.map(m => m.name + ': ' + machineCount(f, m)).join('\n')">
+              <template v-for="m in machines" :key="m.key"><span v-if="machineCount(f, m)" :class="{ offline: !m.online }" :style="{ flexGrow: machineCount(f, m) }"></span></template>
+            </span>
+            <span class="folder-count">{{ f.sessions.length }}</span>
+            <ChevronRight :size="14" class="folder-chevron" aria-hidden="true" />
+          </button>
         </template>
 
-        <template v-for="g in groups" :key="g.key">
-          <div v-if="g.head && g.machine" class="machine-header" :class="{ offline: !g.machine.online }" :data-machine="g.machine.key">
-            <button class="group-toggle" :aria-expanded="!machineCollapsed(g.machine) ? 'true' : 'false'" @click="toggleGroup('m:' + g.machine.key)">
-              <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !machineCollapsed(g.machine) }" />
-              <Monitor :size="14" />
-              <span dir="auto" class="group-name">{{ g.machine.name }}</span>
-              <span v-if="!g.machine.online" class="machine-state">Offline</span>
-            </button>
-          </div>
-          <div v-show="machineShown(g)" class="session-group" :class="{ 'in-machine': g.machine, offline: g.machine && !g.machine.online }" :data-project="g.key">
-            <div class="group-header">
+        <!-- Level 2: sessions of the open folder, or search results across all folders -->
+        <template v-else>
+          <p v-if="visibleSessions.length === 0" class="muted px-3 py-2 text-sm">
+            {{ searching ? "No matching conversations." : history.archived ? "No archived conversations here." : "Your conversations will appear here." }}
+          </p>
+          <div class="group-body">
+            <div v-for="s in visibleSessions" :key="s.id" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
+              <!-- Inline rename input -->
+              <input dir="auto"
+                v-if="renamingId === s.id"
+                ref="renameInputRef"
+                v-model="renameValue"
+                type="text"
+                class="session-rename"
+                aria-label="Conversation name"
+                maxlength="200"
+                @keydown.enter="saveRename(s)"
+                @keydown.escape="renamingId = null"
+                @blur="saveRename(s)"
+              />
+              <!-- Normal session button -->
               <button
-                class="group-toggle"
-                :aria-expanded="!isGroupCollapsed(g.key) ? 'true' : 'false'"
-                :aria-controls="'group-' + g.key"
-                @click="toggleGroup(g.key)"
+                v-else
+                class="session-open"
+                draggable="true"
+                @dragstart="startSessionDrag($event, s.id)"
+                @dragend="endSessionDrag"
+                :class="{ on: String(s.id) === String(chat.session) }"
+                :aria-current="String(s.id) === String(chat.session) ? 'page' : undefined"
+                :aria-label="sessionTitle(s)"
+                :title="sessionTitle(s) + (s.statusReason ? ' — ' + s.statusReason : '')"
+                @click="setDrawer(false); openSession(s.id)"
               >
-                <ChevronRight :size="14" class="transition-transform" :class="{ 'rotate-90': !isGroupCollapsed(g.key) }" />
-                <FolderKanban :size="14" />
-                <span dir="auto" class="group-name">{{ g.name }}</span>
-                <Star v-if="g.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
-              </button>
-              <DropdownMenu v-if="g.project !== null">
-                <DropdownMenuTrigger as-child>
-                  <button class="group-new" :aria-label="'Manage ' + g.name" aria-haspopup="menu"><Ellipsis :size="14" /></button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem @select="toggleFavorite(g.project)"><Star :size="14" />{{ g.favorite ? 'Unfavourite' : 'Favourite' }}</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <button
-                class="group-new"
-                :aria-label="'New session in ' + g.name + (g.machine ? ' on ' + g.machine.name : '')"
-                :title="g.machine && !g.machine.online ? g.machine.name + ' is offline' : 'New session in ' + g.name + (g.machine ? ' on ' + g.machine.name : '')"
-                :disabled="!!g.machine && !g.machine.online"
-                @click="handleNewChat(g.project, g.machine?.id)"
-              >
-                <Plus :size="14" />
-              </button>
-            </div>
-
-            <div :id="'group-' + g.key" class="group-body">
-              <template v-for="s in g.sessions" :key="s.id">
-                <div v-show="!isGroupCollapsed(g.key) || String(chat.session) === String(s.id) || s.pinned || !['ready', 'stopped'].includes(sessionState(s))" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
-                  <!-- Inline rename input -->
-                  <input dir="auto"
-                    v-if="renamingId === s.id"
-                    ref="renameInputRef"
-                    v-model="renameValue"
-                    type="text"
-                    class="session-rename"
-                    aria-label="Conversation name"
-                    maxlength="200"
-                    @keydown.enter="saveRename(s)"
-                    @keydown.escape="renamingId = null"
-                    @blur="saveRename(s)"
-                  />
-                  <!-- Normal session button -->
-                  <button
-                    v-else
-                    class="session-open"
-                    draggable="true"
-                    @dragstart="startSessionDrag($event, s.id)"
-                    @dragend="endSessionDrag"
-                    :class="{ on: String(s.id) === String(chat.session) }"
-                    :aria-current="String(s.id) === String(chat.session) ? 'page' : undefined"
-                    :aria-label="sessionTitle(s)"
-                    :title="sessionTitle(s) + (s.statusReason ? ' — ' + s.statusReason : '')"
-                    @click="setDrawer(false); openSession(s.id)"
-                  >
-                    <span class="session-pin" aria-hidden="true" v-if="s.pinned">
-                      <Pin :size="12" />
-                    </span>
-                    <span class="session-copy">
-                      <span dir="auto" class="session-title">{{ sessionTitle(s) }}</span>
-                      <span v-if="sessionState(s) !== 'ready'" class="session-status session-state" :data-status="sessionState(s)" :title="s.statusReason || (sessionState(s) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(s))">{{ sessionStatusLabel(s) }}</span>
-                    </span>
-                  </button>
-
-                  <span v-if="sessionState(s) !== 'ready'" class="session-running session-state" :data-status="sessionState(s)" :data-running="['running', 'reviewing'].includes(sessionState(s)) ? 'true' : undefined" role="img" :aria-label="sessionStatusLabel(s)" :title="s.statusReason || sessionStatusLabel(s)">
-                    <LoaderCircle v-if="['running', 'reviewing'].includes(sessionState(s))" :size="14" class="motion-safe:animate-spin" />
-                    <span v-else class="session-state-dot" aria-hidden="true"></span>
+                <span class="session-pin" aria-hidden="true" v-if="s.pinned">
+                  <Pin :size="12" />
+                </span>
+                <span class="session-copy">
+                  <span dir="auto" class="session-title">{{ sessionTitle(s) }}</span>
+                  <span v-if="sessionState(s) !== 'ready' || sessionMeta(s)" class="session-sub">
+                    <span v-if="sessionState(s) !== 'ready'" class="session-status session-state" :data-status="sessionState(s)" :title="s.statusReason || (sessionState(s) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(s))">{{ sessionStatusLabel(s) }}</span>
+                    <span v-if="sessionMeta(s)" dir="auto" class="session-meta" :class="{ offline: machineOf(s) && !machineOf(s)!.online }">{{ sessionMeta(s) }}</span>
                   </span>
+                </span>
+              </button>
 
-                  <button
-                    class="session-manage icon-button"
-                    :aria-label="'Manage ' + sessionTitle(s)"
-                    aria-haspopup="menu"
-                    :aria-expanded="activeMenuSession?.id === s.id ? 'true' : 'false'"
-                    @click="(e) => openSessionMenu(s, e)"
-                  >
-                    <Ellipsis :size="16" />
-                  </button>
-                </div>
-              </template>
+              <span v-if="sessionState(s) !== 'ready'" class="session-running session-state" :data-status="sessionState(s)" :data-running="['running', 'reviewing'].includes(sessionState(s)) ? 'true' : undefined" role="img" :aria-label="sessionStatusLabel(s)" :title="s.statusReason || sessionStatusLabel(s)">
+                <LoaderCircle v-if="['running', 'reviewing'].includes(sessionState(s))" :size="14" class="motion-safe:animate-spin" />
+                <span v-else class="session-state-dot" aria-hidden="true"></span>
+              </span>
+
+              <button
+                class="session-manage icon-button"
+                :aria-label="'Manage ' + sessionTitle(s)"
+                aria-haspopup="menu"
+                :aria-expanded="activeMenuSession?.id === s.id ? 'true' : 'false'"
+                @click="(e) => openSessionMenu(s, e)"
+              >
+                <Ellipsis :size="16" />
+              </button>
             </div>
           </div>
         </template>

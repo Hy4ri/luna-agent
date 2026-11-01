@@ -7,9 +7,9 @@ import type { Project, SessionMeta, SessionStatus } from "@/lib/types";
 import { sortProjects } from "@/lib/projects";
 import { chat, clearConversation } from "./chat";
 
-const GROUPS_KEY = "luna.side.groups";
-function readGroups(): Record<string, boolean> {
-  try { const v = JSON.parse(localStorage.getItem(GROUPS_KEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; }
+const DRILL_KEY = "luna.side.project";
+function readDrill(): string | null {
+  try { return localStorage.getItem(DRILL_KEY); } catch { return null; }
 }
 
 export const history = reactive({
@@ -20,15 +20,16 @@ export const history = reactive({
   query: "",
   /** Inline status line under the history header (errors from row actions). */
   status: "",
-  collapsedGroups: readGroups(),
+  /** Project folder open in the sidebar ("none" for chats without a project), or null for the project list. */
+  drill: readDrill(),
 });
 
 export const sessionTitle = (s: Pick<SessionMeta, "id" | "title">) => s.title || "Conversation " + s.id;
 export const projectName = (id: number | null | undefined) => history.projects.find(p => p.id === id)?.name;
 
-export function toggleGroup(key: string) {
-  history.collapsedGroups[key] = !history.collapsedGroups[key];
-  try { localStorage.setItem(GROUPS_KEY, JSON.stringify(history.collapsedGroups)); } catch {}
+export function setDrill(key: string | null) {
+  history.drill = key;
+  try { key === null ? localStorage.removeItem(DRILL_KEY) : localStorage.setItem(DRILL_KEY, key); } catch {}
 }
 
 export async function loadProjects() {
