@@ -29,6 +29,13 @@ export async function openConversationStorage(path: string) {
     afterWrite?.();
     return result;
   });
-  try { return { storage: await SqliteStorage.open(adapter), store }; }
+  try {
+    const storage = await SqliteStorage.open(adapter);
+    // Status reads filter by conversation plus status/kind and background. The
+    // upstream single-column background index otherwise scans all retained tasks.
+    db.exec(`CREATE INDEX IF NOT EXISTS luna_tasks_by_conversation_status_background ON tasks (conversation_id, status, background, id);
+      CREATE INDEX IF NOT EXISTS luna_tasks_by_conversation_kind_background ON tasks (conversation_id, kind, background, id);`);
+    return { storage, store };
+  }
   catch (e) { await adapter.close(); throw e; }
 }
