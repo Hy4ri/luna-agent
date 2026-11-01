@@ -6,7 +6,7 @@ type Evidence = { id: number; kind: string; session: number; message: number; su
 type Lesson = {
   id: number; claim: string; cause: string | null; scope: "skill" | "memory" | "user" | "project" | "projection"; skill: string | null; status: string;
   proposal: string | null; tests: string[]; fact_key: string | null; note: string | null; needs_guard: boolean;
-  failures: number; version: number | null; sessions: number; current: string | null; evidence: Evidence[]; updated: number;
+  failures: number; version: number | null; sessions: number; current: string | null; evidenceCount?: number; evidence: Evidence[]; updated: number;
   critical: string | null; domain: string; target: string | null; effect: string; currentMatches: boolean | null;
   changes: { id: number; target: string; state: string; before_text: string | null; after_text: string | null }[];
   assessments: { signal: number; role: string; rationale: string }[];
@@ -16,11 +16,17 @@ type Lesson = {
 const loading = ref(true);
 const errorMsg = ref("");
 const lessons = ref<Lesson[]>([]);
+const history = ref<Lesson[]>([]);
+const historyCount = ref(0);
+const historyNextOffset = ref<number | null>(null);
+const loadingMoreHistory = ref(false);
 const unassigned = ref(0);
 const projectionStale = ref(false);
 const dueReview = ref<{ id: number; claim: string }[]>([]);
 const busy = ref<number | "scan" | null>(null);
 const open = ref<Record<number, boolean>>({});
+const openHistory = ref<Record<number, boolean>>({});
+const loadingHistory = ref<Record<number, boolean>>({});
 const showHistory = ref(false);
 
 async function load() {
@@ -28,6 +34,7 @@ async function load() {
   try {
     const r = await json("/v1/lessons");
     lessons.value = r.lessons || [];
+    historyCount.value = r.historyCount || 0;
     unassigned.value = r.unassigned || 0;
     projectionStale.value = !!r.projection?.stale;
     dueReview.value = r.metrics?.dueReview ?? [];
@@ -36,6 +43,57 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+async function loadHistoryPage(offset = 0) {
+  loadingMoreHistory.value = true;
+  try {
+    const r = await json<{ lessons: Lesson[]; historyCount: number; nextOffset: number | null }>(
+      `/v1/lessons?history=1&offset=${offset}&limit=20`
+    );
+    if (offset === 0) {
+      history.value = r.lessons || [];
+    } else {
+      history.value = [...history.value, ...(r.lessons || [])];
+    }
+    historyCount.value = r.historyCount ?? historyCount.value;
+    historyNextOffset.value = r.nextOffset ?? null;
+  } catch (e: any) {
+    errorMsg.value = e.message;
+  } finally {
+    loadingMoreHistory.value = false;
+  }
+}
+
+async function toggleShowHistory() {
+  showHistory.value = !showHistory.value;
+  if (showHistory.value && !history.value.length && historyCount.value > 0) {
+    await loadHistoryPage(0);
+  }
+}
+
+async function toggleHistoryEvidence(l: Lesson) {
+  if (openHistory.value[l.id]) {
+    openHistory.value[l.id] = false;
+    return;
+  }
+  if (!l.evidence || !l.evidence.length) {
+    loadingHistory.value[l.id] = true;
+    try {
+      const full = await json<Lesson>(`/v1/lessons/${l.id}`);
+      l.evidence = full.evidence || [];
+      l.assessments = full.assessments || [];
+      l.observations = full.observations || [];
+      l.changes = full.changes || [];
+      if (full.evidenceCount !== undefined) l.evidenceCount = full.evidenceCount;
+    } catch (e: any) {
+      errorMsg.value = e.message;
+      return;
+    } finally {
+      loadingHistory.value[l.id] = false;
+    }
+  }
+  openHistory.value[l.id] = true;
 }
 
 async function act(l: Lesson, action: "approve" | "reject" | "rollback" | "reconcile" | "verify", observation?: number) {
@@ -72,7 +130,6 @@ const groups = computed(() => [
   { id: "watch", title: "Applied changes", hint: "Applied is not verified. Only relevant later evidence can support improvement.", items: lessons.value.filter(l => ["applied", "verified", "confirmed", "ineffective"].includes(l.status)) },
   { id: "evidence", title: "Collecting evidence", hint: "Original sources need review. Repeated copies do not add support.", items: lessons.value.filter(l => ["candidate", "supported", "corroborated"].includes(l.status) && !l.needs_guard) },
 ]);
-const history = computed(() => lessons.value.filter(l => ["rejected", "retired", "replaced"].includes(l.status)));
 
 /** Bounded linear diff: preserve shared prefix/suffix; replace the changed middle. */
 function diff(a: string, b: string): { t: " " | "-" | "+"; s: string }[] {
@@ -163,11 +220,27 @@ onMounted(load);
       </div>
     </section>
 
-    <section v-if="history.length" class="grid">
-      <button class="link-button" @click="showHistory = !showHistory">{{ showHistory ? "Hide" : "Show" }} rejected and replaced ({{ history.length }})</button>
-      <div v-for="l in showHistory ? history : []" :key="l.id" class="card" :data-lesson="l.id">
+    <section v-if="historyCount > 0" class="grid">
+      <button class="link-button" @click="toggleShowHistory">
+        {{ showHistory ? "Hide" : "Show" }} rejected and replaced ({{ historyCount }})
+      </button>
+      <div v-for="l in showHistory ? history : []" :key="l.id" class="card grid" :data-lesson="l.id">
         <div class="row"><span class="pill">{{ l.status === "confirmed" ? "legacy confirmation" : l.status }}</span><span dir="auto" class="grow">{{ l.claim }}</span></div>
         <div dir="auto" v-if="l.note" class="muted text-xs">{{ l.note }}</div>
+        <button class="link-button" :disabled="loadingHistory[l.id]" @click="toggleHistoryEvidence(l)">
+          {{ loadingHistory[l.id] ? "Loading…" : openHistory[l.id] ? "Hide evidence" : `Evidence (${l.evidenceCount ?? l.evidence?.length ?? 0})` }}
+        </button>
+        <ul v-if="openHistory[l.id]" class="evidence">
+          <li v-for="e in l.evidence" :key="e.id"><span class="muted">{{ e.kind }} · session {{ e.session }} · message {{ e.message }} · {{ when(e.ts) }}</span><br>{{ e.summary }}
+            <div v-if="e.context" class="muted">Task message {{ e.context.task ?? 'unknown' }} · action message {{ e.context.action ?? 'unknown' }}</div>
+            <div v-for="a in (l.assessments || []).filter(a => a.signal === e.id)" :key="a.signal">{{ a.role }}: {{ a.rationale }}</div>
+          </li>
+        </ul>
+      </div>
+      <div v-if="showHistory && historyNextOffset !== null" class="row">
+        <button class="link-button" :disabled="loadingMoreHistory" @click="loadHistoryPage(historyNextOffset)">
+          {{ loadingMoreHistory ? "Loading more…" : "Load more" }}
+        </button>
       </div>
     </section>
   </div>
