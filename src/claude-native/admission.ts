@@ -867,6 +867,7 @@ export class Admission {
               proxyReq.on('connect', (res, socket) => {
                 proxySocket = socket;
                 if (res.statusCode !== 200) {
+                  socket.destroy();
                   reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
                   return;
                 }

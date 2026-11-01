@@ -28,7 +28,7 @@ import { AskDoc, checkAnswer } from "./ask.js";
 import { isRunning, readSessionStatus, markSessionRead, type SessionState } from "./session-status.js";
 import { Children, readChildReport, type ChildRow } from "./delegate-state.js";
 import { readDelegationUsage } from "./delegate-usage.js";
-import { GoalDoc } from "./goal.js";
+import { GoalDoc } from "./goal-doc.js";
 import { GRILL_USAGE, grillPrompt, parseGrill } from "./grill-command.js";
 import { SKILLCRAFT_USAGE, parseSkillcraft, skillcraftPrompt } from "./skillcraft-command.js";
 import { LEARN_USAGE, learnPrompt, parseLearn } from "./learn-command.js";
@@ -1790,7 +1790,7 @@ export function createApp(opts: ServerOptions) {
   });
 
   // ---- webhooks: POST any payload into a session as an input ----
-  app.post("/v1/webhooks/:id", async (c) => {
+  app.post("/v1/webhooks/:id", bodyLimit({ maxSize: 1024 * 1024, onError: (c) => err(c, 413, "webhook payload too large (1 MB max)") }), async (c) => {
     const raw = await c.req.text();
     const source = c.req.query("source") ?? c.req.header("user-agent") ?? "webhook";
     let pretty = raw;

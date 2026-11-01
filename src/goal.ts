@@ -6,42 +6,11 @@
 // One goal per conversation; state lives in a conversation document.
 import { Type } from "typebox";
 import { newestInputBoundary, readSessionHandoff } from "./session-status.js";
-import { configure, defineDoc, defineExtension, defineTool, GenerationTask, hook, section, UsageDoc, type Harness, type ToolExecutionApi } from "@earendil-works/pi-durable";
+import { configure, defineExtension, defineTool, GenerationTask, hook, section, UsageDoc, type Harness, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { Context } from "@earendil-works/chord/context";
 
-export type GoalStatus = "active" | "paused" | "blocked" | "budget_limited" | "complete";
-export type GoalTask = { id: string; title: string; status: "pending" | "complete" | "skipped"; verification?: string; evidence?: string; skipReason?: string };
-export type Goal = {
-  id: string;
-  objective: string;
-  mode: "regular" | "sisyphus";
-  status: GoalStatus;
-  statusReason?: string;
-  verificationContract?: string;
-  tasks: GoalTask[];
-  audit: boolean;
-  runs: number;
-  /** Automatic continuations allowed before the goal pauses; 0 disables continuation. */
-  maxRuns: number;
-  /** Input boundary where an automatic continuation limit stopped work. */
-  limitInput?: number;
-  tokenBudget?: number;
-  baseTokens: number;
-  tokensUsed: number;
-  created: number;
-  lastAudit?: { approved: boolean; report: string; at: number };
-};
-
-export const GoalDoc = defineDoc<{ goal: Goal | null; seq: number }>({
-  checkpointWhen: () => false,
-  kind: "luna.goal",
-  version: 1,
-  scope: "conversation",
-  history: "latest",
-  fork: "initial",
-  initial: () => ({ goal: null, seq: 0 }),
-});
+import { GoalDoc, type Goal, type GoalStatus, type GoalTask } from "./goal-doc.js";
 
 export const DEFAULT_MAX_RUNS = 25;
 const OPEN: GoalStatus[] = ["active", "paused", "blocked", "budget_limited"];

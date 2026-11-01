@@ -2,7 +2,7 @@ import { defineDoc, defineExtension, defineTool, section, type ConversationId, t
 import { Type } from "typebox";
 import { randomUUID } from "node:crypto";
 import { AskDoc } from "./ask.js";
-import { GoalDoc } from "./goal.js";
+import { GoalDoc } from "./goal-doc.js";
 import { classifyLimit } from "./limit-reset.js";
 import { readProviderLimit, type ProviderLimit } from "./provider-limits.js";
 
