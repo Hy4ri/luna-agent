@@ -1,5 +1,5 @@
 // Shared user settings. Credentials and generated OAuth device state are not user configuration.
-import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, chmodSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, chmodSync, unlinkSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigSchema, parseConfig, type LunaConfig } from "./config.js";
@@ -7,9 +7,12 @@ import { ConfigSchema, parseConfig, type LunaConfig } from "./config.js";
 export type Settings = ReturnType<typeof ConfigSchema.parse>;
 const FORM_SCHEMA = ConfigSchema.toJSONSchema();
 const HIDDEN = "<secret: unchanged>";
+// Every environment input of parseConfig, including HOME for `~` expansion.
+const RESOLVE_ENV = ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LUNA_HOST", "LUNA_PORT", "HOME"] as const;
 
 export class SettingsStore {
   private applied: Settings;
+  private resolvedCache?: { file: string; env: string; value: LunaConfig };
   private listeners: ((old: Settings, next: Settings) => Promise<string[]>)[] = [];
   get restartRequired() {
     const next = this.read();
@@ -43,7 +46,25 @@ export class SettingsStore {
     return existsSync(this.path) ? JSON.parse(readFileSync(this.path, "utf8")) : {};
   }
   read(): Settings { return ConfigSchema.parse(this.readRaw()); }
-  resolved(env: NodeJS.ProcessEnv = process.env): LunaConfig { return parseConfig(this.read(), dirname(this.path), env); }
+  /**
+   * Live policy reads call this many times per request. Reuse the validated result until the file changes.
+   * The file identity includes inode and nanosecond change time, so atomic saves and external edits both refresh it.
+   * Callers receive a private copy and may change it freely.
+   */
+  resolved(env: NodeJS.ProcessEnv = process.env): LunaConfig {
+    const file = this.fileIdentity(), envKey = RESOLVE_ENV.map(k => env[k] ?? "\0").join("\n");
+    const cached = this.resolvedCache;
+    if (cached && cached.file === file && cached.env === envKey) return structuredClone(cached.value);
+    const value = parseConfig(this.read(), dirname(this.path), env);
+    this.resolvedCache = { file, env: envKey, value };
+    return structuredClone(value);
+  }
+  private fileIdentity() {
+    try {
+      const s = statSync(this.path, { bigint: true });
+      return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;
+    } catch { return "missing"; }
+  }
   private write(value: Settings) {
     mkdirSync(dirname(this.path), { recursive: true });
     const tmp = this.path + "." + randomUUID() + ".tmp";

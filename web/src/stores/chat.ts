@@ -188,8 +188,16 @@ let extrasTimer: ReturnType<typeof setTimeout> | undefined;
 const answering = new Set<string>();
 async function loadExtras(retries: number, sid: string | null, epoch: number) {
   if (!sid || epoch !== chat.epoch) return;
-  const s = await json(`/v1/sessions/${sid}?limit=1`).catch(() => null);
-  if (!s || sid !== chat.session || epoch !== chat.epoch) return;
+  // One post-attachment read refreshes both custom documents and the context estimate.
+  clearTimeout(contextTimer);
+  const revision = ++contextRevision;
+  const s = await json(`/v1/sessions/${sid}?view=ui&limit=1&context=1`).catch(() => null);
+  if (sid !== chat.session || epoch !== chat.epoch) return;
+  if (revision === contextRevision) {
+    if (s) showContext(s.contextUsage);
+    else chat.context = null;
+  }
+  if (!s) return;
   setExtras(s);
   if (retries && !s.questions.length) extrasTimer = setTimeout(() => loadExtras(retries - 1, sid, epoch), 500);
 }
@@ -319,7 +327,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     retirePending();
     chat.runActive = !!e.run; chat.generationActive = !!e.generation; chat.queuedCount = e.inbox?.length || 0;
     chat.compactions = new Set((e.compactions || []).map((c: any) => c.taskId));
-    chat.contextCompacting = chat.compactions.size > 0; scheduleContext();
+    chat.contextCompacting = chat.compactions.size > 0;
     const slots = [...(e.tools || []), ...(e.nestedTools || [])];
     chat.activeTools = new Set(slots.filter(t => t.status !== "done").map(t => t.callId));
     liveMessage = e.generation?.message ? structuredClone(e.generation.message) : null; syncLive();
@@ -552,19 +560,26 @@ export function stopFeeds() { activeFeed?.stop(); listFeed?.stop(); }
 let listLoading: Promise<void> | undefined, listAgain = false;
 function reloadList(): Promise<void> {
   if (listLoading) { listAgain = true; return listLoading; }
-  listLoading = loadSessions().catch(() => {}).finally(() => {
+  listLoading = loadSessions().finally(() => {
     listLoading = undefined;
-    if (listAgain) { listAgain = false; void reloadList(); }
+    if (listAgain) { listAgain = false; void reloadList().catch(() => {}); }
   });
   return listLoading;
 }
 export function startListFeed() {
   if (sessionPane) return; // The workspace shares list notifications; each tile keeps its own session feed.
   listFeed?.stop();
+  let initial = true;
   listFeed = watchFeed({
     path: "/v1/events", api,
     onEvent: async type => {
-      if (type === "sessions_changed") { void reloadList(); notifySessionPanes(type); return; }
+      if (type === "sessions_changed") {
+        // A failed first list read must retry the feed, not leave an empty sidebar until another commit.
+        const loading = reloadList();
+        if (initial) { await loading; initial = false; }
+        else void loading.catch(() => {});
+        notifySessionPanes(type); return;
+      }
       if (type === "board_changed") { notifySessionPanes(type); boardChanged.value++; }
     },
     onDisconnect: e => e.message !== "unauthorized",
@@ -572,7 +587,7 @@ export function startListFeed() {
 }
 window.addEventListener("message", async event => {
   if (!sessionPane || event.origin !== location.origin || event.source !== window.parent || event.data?.type !== "luna:workspace-event") return;
-  if (event.data.event === "sessions_changed") void reloadList();
+  if (event.data.event === "sessions_changed") void reloadList().catch(() => {});
   if (event.data.event === "board_changed") { boardChanged.value++; }
 });
 function reconnectFeeds() { activeFeed?.reconnect(); listFeed?.reconnect(); }

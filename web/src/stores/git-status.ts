@@ -22,7 +22,7 @@ function isAnyVisible(): boolean {
 }
 
 export async function refreshGitStatus() {
-  if (!isAnyVisible() || !chat.session || controller) return;
+  if (!isAnyVisible() || !chat.session || !chat.connected || controller) return;
 
   const sid = chat.session;
   const epoch = chat.epoch;
@@ -54,8 +54,9 @@ export function resetGitStatus() {
   scheduleRefresh();
 }
 
-// Abort and fence on session / cwd / machine / serverUrl changes
-watch([() => chat.session, () => chat.cwd, () => chat.machine?.id, serverUrl, token], resetGitStatus);
+// Wait for hydration and the atomic snapshot before reading the final execution target.
+// Abort and fence on detach, session / cwd / machine / serverUrl changes.
+watch([() => chat.session, () => chat.connected, () => chat.cwd, () => chat.machine?.id, serverUrl, token], resetGitStatus);
 
 function onVisibilityChange() {
   if (document.hidden) {

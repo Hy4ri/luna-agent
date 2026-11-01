@@ -324,13 +324,16 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     const cursor = beforeId !== undefined && Number.isSafeInteger(beforeId)
       ? { after: beforeId, order: "descending" as const }
       : undefined;
-    const page = await conv.entries({ order: "descending" }, limit, cursor, context);
-    const a = await conv.agent(context);
-    const usage = await harness.snapshot(UsageDoc, conv.id, context).catch(() => undefined);
-    const kids = await harness.snapshot(Children, conv.id, context).catch(() => undefined);
-    const todo = await harness.snapshot(TodoDoc, conv.id, context).catch(() => undefined);
-    const ask = await harness.snapshot(AskDoc, conv.id, context).catch(() => undefined);
-    const goal = await harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined);
+    // Independent reads. Issue them together so one slow read does not queue the others behind it.
+    const [page, a, usage, kids, todo, ask, goal] = await Promise.all([
+      conv.entries({ order: "descending" }, limit, cursor, context),
+      conv.agent(context),
+      harness.snapshot(UsageDoc, conv.id, context).catch(() => undefined),
+      harness.snapshot(Children, conv.id, context).catch(() => undefined),
+      harness.snapshot(TodoDoc, conv.id, context).catch(() => undefined),
+      harness.snapshot(AskDoc, conv.id, context).catch(() => undefined),
+      harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined),
+    ]);
     const { running, ...sessionStatus } = await harness.commit(async (tx) => {
       const running = await isRunning(tx, conv.id);
       const status = await readSessionStatus(tx, conv.id, running);
@@ -368,7 +371,8 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       },
       machine: await machineOf(conv.id),
       usage: usage ?? null,
-      contextUsage: await contextUsage(conv),
+      // Context derivation scans the active transcript. UI clients fetch it separately after hydration.
+      contextUsage: isUiView && c.req.query("context") !== "1" ? null : await contextUsage(conv),
       children: await childViews(conv.id, kids?.children ?? []),
       delegationUsage: kids?.children.length
         ? await harness.commit((tx) => readDelegationUsage(tx, conv.id), context)

@@ -2,12 +2,12 @@
 import type { UserInput } from "@earendil-works/pi-durable";
 import { UploadError, type UploadInput as UploadFile, type UploadMetadata, type UploadStore } from "./uploads.js";
 import { fitVisionImage, loadVisionImage } from "./vision-images.js";
+import { isValidBase64 } from "./session-images.js";
 
 const IMAGE_MIME = /^image\/(png|jpeg|gif|webp)$/;
 const AUDIO_MIME = /^audio\/(mpeg|mp3|wav|x-wav|ogg|webm|mp4|flac)$/;
-const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const validBase64 = (value: string) => BASE64.test(value) && value.length % 4 !== 1 &&
-  Buffer.from(value, "base64").toString("base64").replace(/=+$/, "") === value.replace(/=+$/, "");
+// Uploads and session image views must agree on what counts as base64.
+const validBase64 = isValidBase64;
 export type UploadInput = string | ({ type: "text"; text: string } | { type: "file"; uploadId: string } |
   { type: "image" | "audio"; data: string; mimeType: string; name?: string })[];
 
