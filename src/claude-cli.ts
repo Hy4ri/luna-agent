@@ -60,14 +60,14 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       }
       message.responseId = response.id;
       message.rawStopReason = choice.finish_reason;
-      const text = getText();
-      const thinking = getThinking();
+      const streamedText = getText()?.text ?? "";
+      const streamedThinking = getThinking()?.thinking ?? "";
       const fullText = final.content ?? "";
-      if (!fullText.startsWith(text?.text ?? "")) throw new Error("Claude final text differs from its stream");
-      textDelta(fullText.slice(text?.text.length ?? 0));
+      if (!fullText.startsWith(streamedText)) throw new Error("Claude final text differs from its stream");
+      textDelta(fullText.slice(streamedText.length));
       const fullThinking = final.reasoning_content ?? "";
-      if (!fullThinking.startsWith(thinking?.thinking ?? "")) throw new Error("Claude final thinking differs from its stream");
-      if (fullThinking) thinkingDelta(fullThinking.slice(thinking?.thinking.length ?? 0));
+      if (!fullThinking.startsWith(streamedThinking)) throw new Error("Claude final thinking differs from its stream");
+      if (fullThinking) thinkingDelta(fullThinking.slice(streamedThinking.length));
 
       // Validate the complete batch before any actionable tool event is emitted.
       const calls: ToolCall[] = [];
@@ -89,9 +89,12 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
           throw new Error("Claude tool batch does not match its completion reason");
         }
       }
-      text!.textSignature = nativeResponseCarrier(response);
+      // Reconciliation can create blocks that were absent from the stream, even for empty text.
+      const text = getText()!;
+      const thinking = getThinking();
+      text.textSignature = nativeResponseCarrier(response);
       if (thinking) events.push({ type: "thinking_end", contentIndex: getThinkingIndex(), content: thinking.thinking, partial: message });
-      events.push({ type: "text_end", contentIndex: getTextIndex(), content: text!.text, partial: message });
+      events.push({ type: "text_end", contentIndex: getTextIndex(), content: text.text, partial: message });
       if (choice.finish_reason === "content_filter") throw new Error(final.refusal || fullText || "Claude refused this request");
       for (const call of calls) {
         const contentIndex = message.content.push(call) - 1;
