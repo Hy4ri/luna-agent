@@ -54,6 +54,60 @@ fn notify(app: AppHandle, title: String, body: String) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+/// Native Android download plugin (gen/android/.../DownloadPlugin.kt).
+#[cfg(target_os = "android")]
+use tauri::Manager;
+
+#[cfg(target_os = "android")]
+struct Downloads(tauri::plugin::PluginHandle<tauri::Wry>);
+
+#[cfg(target_os = "android")]
+fn downloads_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("luna-downloads")
+        .setup(|app, api| {
+            app.manage(Downloads(
+                api.register_android_plugin("dev.luna.mobile", "DownloadPlugin")?,
+            ));
+            Ok(())
+        })
+        .build()
+}
+
+/// Save a file to the shared Downloads folder. `data` is base64. Android only: its WebView ignores `<a download>`.
+/// Async so the blocking plugin call stays off the main thread.
+#[tauri::command]
+async fn save_download(
+    app: AppHandle,
+    name: String,
+    mime: String,
+    data: String,
+) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        #[derive(serde::Serialize)]
+        struct Args {
+            name: String,
+            mime: String,
+            data: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct Saved {
+            name: String,
+        }
+        let saved: Saved = app
+            .state::<Downloads>()
+            .0
+            .run_mobile_plugin("save", Args { name, mime, data })
+            .map_err(|e| e.to_string())?;
+        Ok(saved.name)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, name, mime, data);
+        Err("save_download is only available on Android".into())
+    }
+}
+
 #[cfg(desktop)]
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "toggle", "Hide Luna", true, None::<&str>)?;
@@ -106,10 +160,13 @@ pub fn run() {
         }
     });
 
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(downloads_plugin());
+
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![notify])
+        .invoke_handler(tauri::generate_handler![notify, save_download])
         .setup(|_app| {
             #[cfg(desktop)]
             setup_tray(_app)?;
