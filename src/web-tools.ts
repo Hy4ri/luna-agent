@@ -7,7 +7,8 @@ export interface WebExtractRequest { url: string; format?: "markdown" | "text" }
 export interface WebExtractResult { url: string; content: string; format: "markdown" | "text" }
 export interface WebProvider {
   search(request: WebSearchRequest, signal: AbortSignal): Promise<WebSearchResult[]>;
-  extract(request: WebExtractRequest, signal: AbortSignal): Promise<WebExtractResult>;
+  // Search-only providers omit extract.
+  extract?(request: WebExtractRequest, signal: AbortSignal): Promise<WebExtractResult>;
 }
 export function validateWebUrl(value: string): string {
   const url = new URL(value);
@@ -15,13 +16,32 @@ export function validateWebUrl(value: string): string {
     throw new Error("An HTTP(S) URL without embedded credentials is required.");
   return value;
 }
-export function createWebToolsExtension(config: () => { searchProvider: string; extractProvider: string }, providers: ReadonlyMap<string, WebProvider>) {
-  const provider = (operation: "search" | "extract") => {
-    const id = operation === "search" ? config().searchProvider : config().extractProvider;
+export function createWebToolsExtension(config: () => { searchProvider: string; searchFallbacks: readonly string[]; extractProvider: string }, providers: ReadonlyMap<string, WebProvider>) {
+  const provider = (operation: "search" | "extract", id: string) => {
     if (id === "disabled") throw new Error(`Web ${operation} is disabled. Select a provider in Settings > Tools.`);
     const selected = providers.get(id);
     if (!selected) throw new Error(`Web ${operation} provider "${id}" is unavailable.`);
     return selected;
+  };
+  // The selected provider first, then the configured fallbacks. An error or an empty result moves to the next one.
+  const search = async (request: WebSearchRequest, signal: AbortSignal) => {
+    const { searchProvider, searchFallbacks } = config();
+    provider("search", searchProvider);
+    const failures: string[] = [];
+    let empty = false;
+    for (const id of [searchProvider, ...searchFallbacks.filter(f => f !== searchProvider)]) {
+      try {
+        const results = await provider("search", id).search(request, signal);
+        if (results.length) return results;
+        empty = true;
+        failures.push(`${id}: no results`);
+      } catch (error) {
+        signal.throwIfAborted();
+        failures.push(`${id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (empty) return [];
+    throw new Error(failures.length > 1 ? `All web search providers failed. ${failures.join("; ")}` : failures[0]!.replace(/^[^:]+: /, ""));
   };
   return defineExtension({ name: "web-tools", tools: [
     defineTool({
@@ -34,7 +54,7 @@ export function createWebToolsExtension(config: () => { searchProvider: string; 
         const query = args.query.trim();
         if (!query) throw new Error("Search query must not be empty.");
         const count = args.count ?? 5;
-        const results = await provider("search").search({ query, count }, signal);
+        const results = await search({ query, count }, signal);
         signal.throwIfAborted();
         return { output: [{ type: "text" as const, text: JSON.stringify({ results: results.slice(0, count) }) }] };
       },
@@ -47,7 +67,9 @@ export function createWebToolsExtension(config: () => { searchProvider: string; 
         const signal = context.abortSignal ?? new AbortController().signal;
         signal.throwIfAborted();
         validateWebUrl(args.url);
-        const result = await provider("extract").extract({ url: args.url, format: args.format ?? "markdown" }, signal);
+        const selected = provider("extract", config().extractProvider);
+        if (!selected.extract) throw new Error(`Web extract provider "${config().extractProvider}" does not support extraction.`);
+        const result = await selected.extract({ url: args.url, format: args.format ?? "markdown" }, signal);
         signal.throwIfAborted();
         return { output: [{ type: "text" as const, text: JSON.stringify(result) }] };
       },

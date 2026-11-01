@@ -130,8 +130,18 @@
   },
   "web": {
     "searchProvider": "disabled",
+    "searchFallbacks": [],
     "extractProvider": "disabled",
     "providers": {
+      "searxng": {
+        "url": "http://127.0.0.1:8888",
+        "safesearch": "moderate",
+        "timeoutMs": 15000
+      },
+      "freeserp": {
+        "url": "https://freeserp.ai",
+        "timeoutMs": 15000
+      },
       "ddgs": {
         "mcpServer": "ddgs",
         "backend": "auto",

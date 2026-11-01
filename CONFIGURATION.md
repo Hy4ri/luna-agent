@@ -262,10 +262,31 @@ URLs with embedded credentials and non-HTTP(S) protocols are rejected.
 These tools are native and do not require `tool_search` discovery.
 
 Choose each operation's provider in **Settings → Tools → Web tools**.
-Both operations default to `disabled`. DDGS is the only included provider.
-The common tool interface accepts no DDGS options. The DDGS adapter translates requests and normalizes results.
+Both operations default to `disabled`.
+Search providers: `searxng`, `freeserp`, and `ddgs`. The extract provider: `ddgs`.
+The common tool interface accepts no provider options. Each adapter translates requests and normalizes results.
 A new adapter implements `WebProvider` and is registered by the runtime, with its own validated configuration.
+A search-only adapter omits `extract`.
 The common tool implementation does not need to change.
+
+`searchFallbacks` is an ordered list of search providers. When the selected provider fails or returns no results,
+the next one is tried. When every provider fails, the tool error names each provider and its failure.
+Fallbacks never apply when `searchProvider` is `disabled`, and never apply to extraction.
+
+SearXNG calls `GET <url>/search?format=json`. The instance must list `json` under `search.formats` in its `settings.yml`.
+Options: `url` (default `http://127.0.0.1:8888`), `safesearch` (`on`, `moderate`, `off`), and `timeoutMs` (default `15000`).
+FreeSerp calls its keyless `GET <url>/api.php?index=web` endpoint. Options: `url` (default `https://freeserp.ai`) and `timeoutMs`.
+Results with a non-HTTP(S) URL are dropped.
+
+```json
+{
+  "web": {
+    "searchProvider": "searxng",
+    "searchFallbacks": ["freeserp", "ddgs"],
+    "extractProvider": "ddgs"
+  }
+}
+```
 
 DDGS reuses an existing managed MCP connection. Configure that connection under **Tools → MCP servers**.
 Set the DDGS MCP server name to its exact configured name. The connection must be enabled and connected.
@@ -296,7 +317,7 @@ Use an absolute command path if DDGS is not on the daemon's PATH.
 DDGS options remain under `web.providers.ddgs`. Its proxy credentials, if needed, remain in the protected MCP environment (`DDGS_PROXY`).
 Connection timeouts use the existing MCP `timeoutMs`. Cancellation reaches the same managed connection.
 Saving applies web provider selection and option changes to the next tool call.
-A disabled or disconnected selection fails explicitly. There is no silent fallback to another provider.
+A disabled or disconnected selection fails explicitly. Search falls back only to providers listed in `searchFallbacks`.
 
 Run `verify:web-tools` for deterministic runtime checks.
 Run `verify:web-tools:live` to use the installed `/.local/bin/ddgs` against real web pages.

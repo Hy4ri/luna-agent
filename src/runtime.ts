@@ -47,6 +47,7 @@ import { createMoliBrowserProvider } from "./moli-browser-provider.js";
 import { createChromiumBrowserProvider } from "./chromium-browser-provider.js";
 import { createWebToolsExtension } from "./web-tools.js";
 import { createDdgsWebProvider } from "./ddgs-web-provider.js";
+import { createFreeserpWebProvider, createSearxngWebProvider } from "./http-search-providers.js";
 import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
@@ -173,6 +174,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const live = () => settings?.resolved() ?? cfg;
   extensions.push(createWebToolsExtension(() => live().web, new Map([
     ["ddgs", createDdgsWebProvider(() => live().web.providers.ddgs, mcp)],
+    ["searxng", createSearxngWebProvider(() => live().web.providers.searxng, o.fetch)],
+    ["freeserp", createFreeserpWebProvider(() => live().web.providers.freeserp, o.fetch)],
   ])));
   extensions.push(createBrowserToolsExtension(() => live().browser, new Map([
     ["camofox", createCamofoxBrowserProvider(() => live().browser.providers.camofox, mcp)],

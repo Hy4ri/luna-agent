@@ -18,6 +18,7 @@ export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]>
   recall: ["recall"], goal: ["goal"], learn: ["learn"],
 };
 
+export const WEB_SEARCH_PROVIDERS = ["searxng", "freeserp", "ddgs"] as const;
 const name = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/, "1-40 letters, digits, _ or -");
 const common = { name, enabled: z.boolean().optional(), defer: z.boolean().optional(), timeoutMs: z.number().int().positive().optional() };
 const headers = z.record(z.string(), z.string()).optional();
@@ -112,9 +113,20 @@ export const ConfigSchema = z
     providers: z.array(CustomProviderSchema).default([]),
     // Agent-facing web tools use a common interface; options belong to each provider.
     web: z.strictObject({
-      searchProvider: z.enum(["disabled", "ddgs"]).default("disabled"),
+      searchProvider: z.enum(["disabled", ...WEB_SEARCH_PROVIDERS]).default("disabled"),
+      // Tried in order after the selected search provider fails or returns no results.
+      searchFallbacks: z.array(z.enum(WEB_SEARCH_PROVIDERS)).refine(value => new Set(value).size === value.length, "Duplicate fallback providers").default([]),
       extractProvider: z.enum(["disabled", "ddgs"]).default("disabled"),
       providers: z.strictObject({
+        searxng: z.strictObject({
+          url: z.url().refine(u => ["http:", "https:"].includes(new URL(u).protocol), "Use an HTTP(S) URL").default("http://127.0.0.1:8888"),
+          safesearch: z.enum(["on", "moderate", "off"]).default("moderate"),
+          timeoutMs: z.number().int().positive().default(15000),
+        }).prefault({}),
+        freeserp: z.strictObject({
+          url: z.url().refine(u => ["http:", "https:"].includes(new URL(u).protocol), "Use an HTTP(S) URL").default("https://freeserp.ai"),
+          timeoutMs: z.number().int().positive().default(15000),
+        }).prefault({}),
         ddgs: z.strictObject({
           mcpServer: name.default("ddgs"),
           backend: z.string().trim().min(1).default("auto"),
