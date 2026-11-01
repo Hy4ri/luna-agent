@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from "reka-ui";
-import { ExternalLink, X } from "@lucide/vue";
+import { Download, ExternalLink, X } from "@lucide/vue";
 import { closeImage, imageViewer } from "@/stores/image-viewer";
 
 const open = computed({ get: () => !!imageViewer.src, set: v => { if (!v) closeImage(); } });
@@ -38,6 +38,24 @@ async function openOriginal() {
   if (url.startsWith("data:")) url = URL.createObjectURL(await (await fetch(url)).blob());
   window.open(url, "_blank", "noopener");
 }
+// Download via blob + <a download>. Works for blob:, data:, and same-origin URLs, on desktop and mobile browsers.
+async function download() {
+  try {
+    const blob = await (await fetch(imageViewer.src)).blob();
+    const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" } as Record<string, string>)[blob.type] ?? "png";
+    const base = (imageViewer.alt || "image").replace(/\.(png|jpe?g|gif|webp)$/i, "").replace(/[^\w.-]+/g, "_").slice(0, 80) || "image";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${base}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  } catch {
+    void openOriginal();
+  }
+}
 </script>
 
 <template>
@@ -48,6 +66,7 @@ async function openOriginal() {
         <DialogTitle class="sr-only">Image viewer</DialogTitle>
         <DialogDescription class="sr-only">{{ imageViewer.alt || "Image" }}</DialogDescription>
         <div class="iv-bar">
+          <button type="button" class="iv-btn" aria-label="Download image" title="Download image" @click="download"><Download :size="18" aria-hidden="true" /></button>
           <button type="button" class="iv-btn" aria-label="Open original" title="Open original" @click="openOriginal"><ExternalLink :size="18" aria-hidden="true" /></button>
           <DialogClose class="iv-btn" aria-label="Close image" title="Close"><X :size="18" aria-hidden="true" /></DialogClose>
         </div>
