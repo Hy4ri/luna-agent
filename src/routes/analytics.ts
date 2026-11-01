@@ -5,6 +5,12 @@ import type { RouteCtx } from "./context.js";
 export function registerAnalytics(app: Hono, ctx: RouteCtx): void {
   const { opts, harness, err } = ctx;
   const analytics = createAnalyticsReader(harness, opts.models);
+  // Delay the first scan until startup settles. The scan shares its in-flight work
+  // with requests and releases the harness queue between conversations.
+  const warmup = setTimeout(() => {
+    void analytics().catch(() => { console.warn("analytics warm-up failed; the next request can retry"); });
+  }, 30_000);
+  warmup.unref();
 
   app.get("/v1/analytics", async (c) => {
     const started = performance.now();
