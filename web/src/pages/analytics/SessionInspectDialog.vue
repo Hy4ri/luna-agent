@@ -85,8 +85,7 @@
 <script setup lang="ts">
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { AnalyticsSession } from "./types"
-import type { SessionStatus } from "@/lib/types"
-import { SESSION_STATUS_LABELS } from "@/lib/session-status"
+import { statusLabel, statusChipClass } from "@/lib/session-status"
 import { full, compact, usd, pct, when, durationFormat } from "./formatters"
 
 defineProps<{
@@ -97,20 +96,4 @@ defineProps<{
 const emit = defineEmits<{
   (e: "update:open", val: boolean): void
 }>()
-
-function statusLabel(status: SessionStatus): string {
-  return SESSION_STATUS_LABELS[status] || status
-}
-
-function statusChipClass(status: SessionStatus): string {
-  switch (status) {
-    case "running": return "border-blue-500/40 bg-blue-500/10 text-blue-400"
-    case "finished": return "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-    case "needs_approval": return "border-amber-500/40 bg-amber-500/10 text-amber-400"
-    case "needs_input": return "border-purple-500/40 bg-purple-500/10 text-purple-400"
-    case "limit_reached": return "border-orange-500/40 bg-orange-500/10 text-orange-400"
-    case "failed": return "border-destructive/40 bg-destructive/10 text-destructive"
-    default: return "border-border bg-secondary text-foreground"
-  }
-}
 </script>

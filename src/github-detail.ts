@@ -1,4 +1,4 @@
-import { graphql, GhError, type Kind, type Detail, type Comment, type Check } from "./github.js";
+import { graphql, GhError, type Detail, type Comment, type Check } from "./github.js";
 
 type DetailGraphQLResponse = {
   repository: {

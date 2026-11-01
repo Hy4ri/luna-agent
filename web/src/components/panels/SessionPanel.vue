@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
-import { json, api, post } from "@/lib/api";
+import { json, post } from "@/lib/api";
 import { chat, openSession } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
+import { useToast } from "@/lib/toast";
 
 import { loadWorkers, workers } from "@/stores/workers";
 const target = ref("");
@@ -27,16 +28,8 @@ async function moveMachine() {
 const loading = ref(true);
 const errorMsg = ref("");
 const sessionData = ref<any>(null);
-const toasts = ref<string[]>([]);
+const { toasts, toast } = useToast();
 const instructions = ref("");
-
-function toast(text: string) {
-  toasts.value.push(text);
-  setTimeout(() => {
-    const idx = toasts.value.indexOf(text);
-    if (idx !== -1) toasts.value.splice(idx, 1);
-  }, 2500);
-}
 
 async function fetchData() {
   if (!chat.session) {

@@ -52,7 +52,6 @@ async function resolveUrl(value: string, signal?: AbortSignal) {
     throw new Error("SSRF guard: image host must resolve only to public unicast addresses.");
   return { url, address: addresses[0]! };
 }
-export async function assertVisionUrl(value: string): Promise<void> { await resolveUrl(value); }
 class HttpImageError extends Error { constructor(message: string, readonly retry: boolean) { super(message); } }
 async function fetchBytes(value: string, signal: AbortSignal): Promise<Buffer> {
   const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(30_000)]);

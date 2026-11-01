@@ -13,7 +13,6 @@ const props = defineProps<{
   seed: (schema: any) => any; labelFor: (path: (string | number)[]) => string
   helpFor?: (path: (string | number)[]) => string
 }>()
-const modelChoices = inject('settingsModelChoices', computed<{ value: string; label: string }[]>(() => []))
 const draft = inject('settingsDraft', ref<any>(null))
 const disabled = inject('settingsDisabled', computed(() => false))
 const safeSchema = computed(() => props.schema || {})

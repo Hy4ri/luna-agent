@@ -93,23 +93,6 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
   }
 }
 
-/** Connect enabled servers and install each as an extension in `registry`. A failing server is reported, not fatal. */
-export async function installMcpServers(registry: Registry, configs: McpServerConfig[]) {
-  const connections: McpConnection[] = [];
-  const failures: { name: string; error: string }[] = [];
-  for (const cfg of configs) {
-    if (cfg.enabled === false) continue;
-    try {
-      const c = await connectMcpServer(cfg);
-      registry.install(c.extension);
-      connections.push(c);
-    } catch (e) {
-      failures.push({ name: cfg.name, error: e instanceof Error ? e.message : String(e) });
-    }
-  }
-  return { connections, failures, close: async () => { await Promise.all(connections.map((c) => c.close().catch(() => {}))); } };
-}
-
 // ---------------------------------------------------------------- runtime management (web UI)
 
 export interface McpServerInfo {

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { h } from "@/lib/dom";
 // Uses vanilla layout structure faithfully
 </script>
 

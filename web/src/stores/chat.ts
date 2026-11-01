@@ -303,11 +303,10 @@ function queueLive(epoch: number) {
 function retirePending() { if (chat.session && pendingMessages.size) retirePendingEntries(chat.session, new Set(entries.keys())); }
 function putEntry(entry: any) { entries.set(entry.id, markRaw(entry)); chat.rev++; retirePending(); }
 
-function onSessionEvent(type: string, e: any, epoch: number) {
-  if (epoch !== chat.epoch) return;
-  if (type === "side_jobs") { setSideJobs(e.jobs); return; }
-  if (type === "side_job") { putSideJob(e); return; }
-  if (type === "snapshot") {
+const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
+  side_jobs(e) { setSideJobs(e.jobs); },
+  side_job(e) { putSideJob(e); },
+  snapshot(e, epoch) {
     chat.connected = true;
     for (const entry of e.entries || []) entries.set(entry.id, markRaw(entry));
     chat.rev++;
@@ -330,9 +329,13 @@ function onSessionEvent(type: string, e: any, epoch: number) {
       }
     }
     scheduleExtras();
-  } else if (type === "message_start" && e.message.role === "assistant") {
-    chat.generationActive = true; liveMessage = structuredClone(e.message); queueLive(epoch);
-  } else if (type === "message_update") {
+  },
+  message_start(e, epoch) {
+    if (e.message.role === "assistant") {
+      chat.generationActive = true; liveMessage = structuredClone(e.message); queueLive(epoch);
+    }
+  },
+  message_update(e, epoch) {
     chat.generationActive = true;
     liveMessage ||= { role: "assistant", content: [] };
     for (const change of e.changes || []) {
@@ -345,35 +348,46 @@ function onSessionEvent(type: string, e: any, epoch: number) {
       }
     }
     queueLive(epoch);
-  } else if (type === "message_end" || type === "entry_appended") {
+  },
+  message_end(e) {
     for (const record of e.submissions || []) reconcileSubmission(record);
     if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(); }
     putEntry(e.entry); scheduleExtras(); scheduleContext();
-  } else if (type === "run_start") { clearRunNotices(); chat.runActive = true; }
-  else if (type === "run_end") {
+  },
+  entry_appended(e) {
+    for (const record of e.submissions || []) reconcileSubmission(record);
+    if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(); }
+    putEntry(e.entry); scheduleExtras(); scheduleContext();
+  },
+  run_start() { clearRunNotices(); chat.runActive = true; },
+  run_end() {
     chat.runActive = chat.generationActive = false; chat.activeTools = new Set(); liveMessage = null; syncLive();
     scheduleExtras(); scheduleContext();
-  }
-  else if (type === "turn_start") { clearRunNotices(); chat.generationActive = true; }
-  else if (type === "turn_end") chat.generationActive = false;
-  else if (type === "inbox_update") chat.queuedCount = e.items.length;
-  else if (type === "agent_changed") { applyAgent(e.agent); scheduleContext(); }
-  else if (type === "usage_changed") { chat.usage = e.usage ? markRaw(e.usage) : null; scheduleContext(); }
-  else if (type === "compaction_start") { chat.compactions.add(e.taskId); chat.contextCompacting = true; scheduleContext(); }
-  else if (type === "compaction_end") {
+  },
+  turn_start() { clearRunNotices(); chat.generationActive = true; },
+  turn_end() { chat.generationActive = false; },
+  inbox_update(e) { chat.queuedCount = e.items.length; },
+  agent_changed(e) { applyAgent(e.agent); scheduleContext(); },
+  usage_changed(e) { chat.usage = e.usage ? markRaw(e.usage) : null; scheduleContext(); },
+  compaction_start(e) { chat.compactions.add(e.taskId); chat.contextCompacting = true; scheduleContext(); },
+  compaction_end(e) {
     chat.compactions.delete(e.taskId); chat.contextCompacting = chat.compactions.size > 0;
     if (e.error) addErr("Context compaction failed: " + e.error);
     scheduleContext();
-  }
-  else if (type === "tool_execution_start") {
+  },
+  tool_execution_start(e) {
     chat.activeTools.add(e.toolCallId);
     if (!chat.toolStarts[e.toolCallId]) chat.toolStarts[e.toolCallId] = { name: e.toolName, args: e.args, timestamp: Date.now(), taskId: e.taskId };
     if (EXTRA_TOOLS.test(e.toolName)) scheduleExtras(e.toolName === "ask_user_question" ? 3 : 0);
-  } else if (type === "tool_execution_update" && e.output) {
-    const id = e.toolCallId;
-    if ("set" in e.output) chat.toolLive[id] = e.output.set;
-    else chat.toolLive[id] = (chat.toolLive[id] ?? toolArgsText(chat.toolStarts[id]?.args)).slice(e.output.trimStart || 0) + (e.output.append || "");
-  } else if (type === "tool_execution_end") {
+  },
+  tool_execution_update(e) {
+    if (e.output) {
+      const id = e.toolCallId;
+      if ("set" in e.output) chat.toolLive[id] = e.output.set;
+      else chat.toolLive[id] = (chat.toolLive[id] ?? toolArgsText(chat.toolStarts[id]?.args)).slice(e.output.trimStart || 0) + (e.output.append || "");
+    }
+  },
+  tool_execution_end(e) {
     chat.activeTools.delete(e.toolCallId);
     if (e.entry) putEntry(e.entry);
     if (e.result) {
@@ -382,19 +396,24 @@ function onSessionEvent(type: string, e: any, epoch: number) {
       chat.toolResults[e.toolCallId] = { ...e.result, content, timestamp: Date.now() };
     }
     scheduleExtras(); scheduleContext();
-  }
-  else if (type === "task_failed") {
+  },
+  task_failed(e) {
     const call = Object.entries(chat.toolStarts).find(([, tool]) => tool.taskId === e.taskId)?.[0];
     if (call) {
       chat.activeTools.delete(call);
       chat.toolResults[call] = { isError: true, content: e.message, timestamp: Date.now() };
     } else addErr(e.message, "err", "run");
-  }
-  else if (type === "submission") {
+  },
+  submission(e) {
     reconcileSubmission(e.record); retirePending();
     if (e.record.status === "unanswered") addErr(e.record.reason + (e.record.detail ? ": " + (typeof e.record.detail === "string" ? e.record.detail : JSON.stringify(e.record.detail)) : ""), "err", "run");
     scheduleExtras();
-  }
+  },
+};
+
+function onSessionEvent(type: string, e: any, epoch: number) {
+  if (epoch !== chat.epoch) return;
+  sessionEventHandlers[type]?.(e, epoch);
 }
 export const toolArgsText = (args: unknown) => (args ? "args: " + JSON.stringify(args, null, 1) + "\n" : "");
 

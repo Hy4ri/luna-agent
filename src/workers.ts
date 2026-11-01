@@ -11,7 +11,7 @@ import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import { ExecutionError, FileError, type ExecutionEnv, type Result, type ShellExecOptions } from "@earendil-works/pi-durable/env";
 import { CONNECT_PATH, PROTOCOL_VERSION, decodeResult, encode,
-  type BrowserMethod, BROWSER_METHODS, type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
+  type BrowserMethod, type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 
 /** Where a session's file and shell tools run. `worker: null` is the main host. Forks keep their source's machine. */
 export const ExecTarget = defineDoc<{ worker: number | null }>({

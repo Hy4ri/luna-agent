@@ -3,7 +3,7 @@ import { nextTick, reactive, ref, watch } from "vue";
 import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, url } from "@/lib/api";
 import { activeAddress, connection, connectionFailure, findWorkingAddress, preferredAddress, recoveryOpen, rememberConnection, reportConnectionFailure } from "@/lib/connections";
 import { isMobile } from "@/lib/dom";
-import { sections, resolveSettingsRoute } from "@/pages/settings/catalog";
+import { resolveSettingsRoute } from "@/pages/settings/catalog";
 import { sessionPane } from "@/lib/pane";
 import * as chatStore from "./chat";
 import * as modelsStore from "./models";
@@ -11,7 +11,6 @@ import * as sessionsStore from "./sessions";
 import * as composerStore from "./composer";
 
 export type View = "chat" | "analytics" | "source-control" | "settings";
-export const SETTINGS_TABS: readonly string[] = sections.map(section => section.id);
 export const SIDE_MIN = 200, SIDE_MAX = 480, SIDE_DEFAULT = 264;
 
 function savedWidth(): number | null {

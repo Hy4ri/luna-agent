@@ -1,6 +1,6 @@
 // Foreground bash can yield its wait; explicit starts use the same owned process registry.
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withAbortSignal, withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineExtension, defineTool, type ConversationId } from "@earendil-works/pi-durable";

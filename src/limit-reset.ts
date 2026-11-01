@@ -60,23 +60,32 @@ function validateTimezone(tz: string): string {
   return tz;
 }
 
-/** Offset (ms) of `tz` from UTC at instant `at`. Throws on an unknown zone. */
-function zoneOffset(at: number, tz: string): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
-    })
+function partsIn(at: number, tz: string, withTime: boolean | "withSeconds"): Record<string, number> {
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: tz,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  };
+  if (withTime) {
+    options.hourCycle = "h23";
+    options.hour = "numeric";
+    options.minute = "numeric";
+    if (withTime === "withSeconds") {
+      options.second = "numeric";
+    }
+  }
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", options)
       .formatToParts(new Date(at))
       .filter(p => p.type !== "literal")
       .map(p => [p.type, Number(p.value)])
   );
+}
+
+/** Offset (ms) of `tz` from UTC at instant `at`. Throws on an unknown zone. */
+function zoneOffset(at: number, tz: string): number {
+  const parts = partsIn(at, tz, "withSeconds");
   return Date.UTC(parts.year!, parts.month! - 1, parts.day!, parts.hour!, parts.minute!, parts.second!) - Math.floor(at / 1000) * 1000;
 }
 
@@ -94,30 +103,12 @@ function zoned(y: number, mo: number, d: number, h: number, mi: number, tz: stri
 }
 
 function wallDate(at: number, tz: string) {
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "numeric", day: "numeric" })
-      .formatToParts(new Date(at))
-      .filter(x => x.type !== "literal")
-      .map(x => [x.type, Number(x.value)])
-  );
+  const p = partsIn(at, tz, false);
   return { y: p.year!, mo: p.month! - 1, d: p.day! };
 }
 
 function wallDateTime(at: number, tz: string) {
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-    })
-      .formatToParts(new Date(at))
-      .filter(x => x.type !== "literal")
-      .map(x => [x.type, Number(x.value)])
-  );
+  const p = partsIn(at, tz, true);
   return { y: p.year!, mo: p.month! - 1, d: p.day!, h: p.hour!, mi: p.minute! };
 }
 
@@ -487,11 +478,6 @@ export function resetEvidence(
   }
 
   return undefined;
-}
-
-/** Reset time in epoch ms, when the message names one. Backward-compatible helper. */
-export function resetTime(text: string, now: number, defaultTz: string): number | undefined {
-  return resetEvidence(text, now, defaultTz)?.resetAt;
 }
 
 /** Extract explicit HTTP status code from wrapper/body instead of searching arbitrary numbers. */

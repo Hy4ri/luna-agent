@@ -141,6 +141,263 @@ async function isChild(tx: Tx, id: ConversationId) {
   return (await tx.scanEntries({ conversationId: id, order: "ascending", ...after }, 30)).items.some(e => e.kind === "delegate.child");
 }
 
+type ClassifiedLimit = {
+  kind: "wait" | "fatal" | "none";
+  resetAt?: number;
+  resetSource?: string;
+  exact?: boolean;
+};
+
+function classifyTurnLimit(failure: NonNullable<Awaited<ReturnType<typeof readTurnFailure>>>, failedAt: number): ClassifiedLimit {
+  const extLimit = failure.limit as (ProviderLimit & { receivedAt?: number; response?: string }) | undefined;
+  const responseText = extLimit?.response ?? failure.message;
+  const fallback = classifyLimit(responseText, failedAt) as ClassifiedLimit;
+  const structuredReset = extLimit && latestLimitReset(extLimit);
+  const hasUnknownStructuredWindow = extLimit?.kind === "wait" && extLimit.windows.some(w => w.resetAt === null);
+
+  if (fallback.kind === "fatal" || extLimit?.kind === "fatal") {
+    return { kind: "fatal" };
+  }
+  if (structuredReset !== undefined) {
+    return {
+      kind: "wait",
+      resetAt: structuredReset,
+      resetSource: fallback.resetSource ?? "quota_timestamp",
+      exact: !hasUnknownStructuredWindow,
+    };
+  }
+  if (fallback.kind === "wait") {
+    return {
+      kind: "wait",
+      resetAt: fallback.resetAt,
+      resetSource: fallback.resetSource ?? "message",
+      exact: fallback.resetAt !== undefined && !hasUnknownStructuredWindow && (fallback.exact ?? false),
+    };
+  }
+  if (extLimit?.kind === "wait") {
+    return {
+      kind: "wait",
+      resetAt: undefined,
+      resetSource: "unknown_window",
+      exact: false,
+    };
+  }
+  return fallback;
+}
+
+function computeEvidenceFloor(
+  cls: ClassifiedLimit,
+  extLimit: (ProviderLimit & { receivedAt?: number; response?: string }) | undefined,
+  failedAt: number,
+  graceForEvidence: number,
+  firstBackoffMs: number,
+): number {
+  const hasUnknownStructuredWindow = extLimit?.kind === "wait" && extLimit.windows.some(w => w.resetAt === null);
+  const knownWindow = extLimit?.windows.reduce((latest, window) => Math.max(latest, window.resetAt ?? 0), 0) ?? 0;
+  const uncertainEvidence = hasUnknownStructuredWindow || cls.resetAt === undefined || cls.resetAt <= failedAt;
+  return Math.max(
+    cls.resetAt !== undefined ? cls.resetAt + graceForEvidence : 0,
+    knownWindow ? knownWindow + graceForEvidence : 0,
+    uncertainEvidence ? failedAt + firstBackoffMs : 0,
+  );
+}
+
+function resolveWaitTiming(
+  cls: ClassifiedLimit,
+  extLimit: (ProviderLimit & { receivedAt?: number; response?: string }) | undefined,
+  failedAt: number,
+  attempt: number,
+  now: number,
+  routeCooldown: number,
+  backoff: number[],
+  grace: number,
+  jitterMs: number,
+): { resumeAt: number; isExact: boolean } {
+  const hasUnknownStructuredWindow = extLimit?.kind === "wait" && extLimit.windows.some(w => w.resetAt === null);
+  const knownReset = extLimit?.kind === "wait"
+    ? extLimit.windows.reduce((latest, w) => Math.max(latest, w.resetAt ?? 0), 0)
+    : 0;
+
+  if (hasUnknownStructuredWindow || cls.resetAt === undefined || cls.resetAt <= failedAt) {
+    const fallbackStep = backoff[Math.min(attempt, backoff.length) - 1]!;
+    const minResume = Math.max(
+      failedAt + fallbackStep,
+      knownReset ? knownReset + grace : 0,
+      cls.resetAt !== undefined ? cls.resetAt + grace : 0,
+      routeCooldown,
+    );
+    return {
+      resumeAt: Math.max(minResume, now) + jitterMs,
+      isExact: false,
+    };
+  }
+
+  const isExact = cls.exact ?? true;
+  const repeatedFailureFloor = attempt > 1 ? failedAt + backoff[Math.min(attempt, backoff.length) - 1]! : 0;
+  return {
+    resumeAt: Math.max(cls.resetAt + grace, now, routeCooldown, repeatedFailureFloor) + jitterMs,
+    isExact,
+  };
+}
+
+function releaseActiveClaim(claim: RouteClaim | undefined): void {
+  if (!claim) return;
+  delete claim.activeSessionId;
+  delete claim.activeRequestId;
+  delete claim.claimedAt;
+}
+
+function pauseChain(
+  doc: LimitWaitsDocValue,
+  id: number | string,
+  params: {
+    boundary: number;
+    generation: number;
+    provider: string;
+    model: string;
+    firstFailedAt: number;
+    deadline: number;
+    attemptsAdmitted: number;
+    resetSource?: string;
+    reason: string;
+  },
+): void {
+  const sid = String(id);
+  doc.chains ??= {};
+  doc.chains[sid] = {
+    boundary: params.boundary,
+    generation: params.generation,
+    provider: params.provider,
+    model: params.model,
+    firstFailedAt: params.firstFailedAt,
+    deadline: params.deadline,
+    attemptsAdmitted: params.attemptsAdmitted,
+    requestId: requestId(Number(id), { boundary: params.boundary, generation: params.generation } as LimitWait),
+    resetSource: params.resetSource,
+    lastOutcome: "paused",
+    deliveryAttempts: 0,
+    deliveryPausedReason: params.reason,
+    cancelled: true,
+  };
+  delete doc.waits[sid];
+}
+
+async function pruneStaleReferences(tx: Tx, doc: LimitWaitsDocValue): Promise<void> {
+  const ids = new Set([...Object.keys(doc.waits), ...Object.keys(doc.chains ?? {}),
+    ...Object.values(doc.routes ?? {}).flatMap(route => route.activeSessionId ? [String(route.activeSessionId)] : [])]);
+  for (const id of ids) {
+    if (await tx.conversation(Number(id) as ConversationId)) continue;
+    delete doc.waits[id];
+    delete doc.chains?.[id];
+    for (const claim of Object.values(doc.routes ?? {})) {
+      if (String(claim.activeSessionId) !== id) continue;
+      releaseActiveClaim(claim);
+    }
+  }
+}
+
+async function reconcileActiveRouteClaims(tx: Tx, doc: LimitWaitsDocValue, now: number, graceMs: number): Promise<void> {
+  for (const claim of Object.values(doc.routes ?? {})) {
+    if (claim.activeSessionId && claim.activeRequestId) {
+      const sub = await tx.submissionByRequest(claim.activeSessionId as ConversationId, claim.activeRequestId);
+      const waiting = doc.waits[String(claim.activeSessionId)];
+      const pendingDelivery = !sub && waiting && requestId(claim.activeSessionId, waiting) === claim.activeRequestId;
+      const stillActive = sub?.status === "queued" || sub?.status === "placed" || !!pendingDelivery;
+      if (sub && !stillActive) {
+        // Every settled probe, including a non-quota failure, gets spacing. check() has
+        // already recorded a later quota reset before this claim can be released.
+        claim.cooldownUntil = Math.max(claim.cooldownUntil ?? 0, now + graceMs);
+      }
+      if (!stillActive) {
+        releaseActiveClaim(claim);
+      }
+    }
+  }
+}
+
+async function reconcileWaitEntry(
+  tx: Tx,
+  doc: LimitWaitsDocValue,
+  id: string,
+  w: LimitWait,
+  now: number,
+  policy: AutoContinuePolicy,
+  effectiveDeadline: (savedDeadline: number | undefined, firstFailedAt: number | undefined) => number,
+  modelRef: (tx: Tx, cid: ConversationId) => Promise<ModelRef>,
+  skip?: (id: number) => boolean,
+): Promise<LimitWait | undefined> {
+  const numId = Number(id);
+  const cid = numId as ConversationId;
+
+  if (!w.generation || !w.provider || !w.model || skip?.(numId)) {
+    delete doc.waits[id];
+    return undefined;
+  }
+
+  doc.chains ??= {};
+  if (!doc.chains[id]) {
+    const failure = await readTurnFailure(tx, cid);
+    const firstFailedAt = w.firstFailedAt ?? failure?.failedAt;
+    // A later legacy attempt cannot prove its original lifetime. Pause, do not grant a fresh budget.
+    const uncertain = firstFailedAt === undefined || (w.firstFailedAt === undefined && w.attempt > 1);
+    doc.chains[id] = {
+      boundary: w.boundary, generation: w.generation, provider: w.provider, model: w.model,
+      firstFailedAt: firstFailedAt ?? now, deadline: w.deadline ?? (firstFailedAt ?? now) + policy.maxWaitHours * 3_600_000,
+      attemptsAdmitted: Math.max(0, w.attempt - 1), requestId: requestId(numId, w), deliveryAttempts: w.deliveryAttempts ?? 0,
+      lastOutcome: uncertain ? "paused" : "scheduled", cancelled: uncertain,
+      ...(uncertain ? { deliveryPausedReason: "Legacy recovery lifetime cannot be verified. Retry manually." } : {}),
+    };
+    w.firstFailedAt = firstFailedAt ?? now;
+    w.deadline = doc.chains[id].deadline;
+  }
+
+  const reqId = requestId(numId, w);
+  const existingSub = await tx.submissionByRequest(cid, reqId);
+  if (existingSub) {
+    const chain = doc.chains[id];
+    if (chain) {
+      chain.attemptsAdmitted = Math.max(chain.attemptsAdmitted, w.attempt);
+      chain.lastOutcome = "admitted";
+      if (existingSub.entry !== undefined) {
+        chain.entry = Number(existingSub.entry);
+      }
+    }
+    delete doc.waits[id];
+    return undefined;
+  }
+
+  const currentBoundary = await newestInputBoundary(tx, cid);
+  if (w.boundary !== currentBoundary || await needsUser(tx, cid, w.boundary)) {
+    delete doc.waits[id];
+    return undefined;
+  }
+
+  const ref = await modelRef(tx, cid);
+  if (w.provider !== ref.provider || w.model !== ref.modelId) {
+    delete doc.waits[id];
+    return undefined;
+  }
+
+  const chain = doc.chains[id];
+  const deadline = effectiveDeadline(w.deadline ?? chain?.deadline, w.firstFailedAt ?? chain?.firstFailedAt);
+
+  if (chain?.cancelled) {
+    delete doc.waits[id];
+    return undefined;
+  }
+
+  if (w.attempt > policy.maxAttempts || Math.max(now, w.resumeAt, w.nextDeliveryAt ?? 0) > deadline) {
+    if (chain) {
+      chain.lastOutcome = "paused";
+      chain.deliveryPausedReason = w.attempt > policy.maxAttempts ? "Max attempts exceeded" : "Max recovery deadline exceeded";
+    }
+    delete doc.waits[id];
+    return undefined;
+  }
+
+  return { ...w };
+}
+
 async function needsUser(tx: Tx, id: ConversationId, boundary: number) {
   if ((await tx.doc(InboxDoc, id)).items.length) return true;
   const ask = await tx.doc(AskDoc, id);
@@ -277,22 +534,10 @@ export class LimitContinuer {
 
       // Session-scoped recovery survives hard deletion of individual conversations.
       // Prune stale references before reading their transcript or migrating legacy waits.
-      const ids = new Set([...Object.keys(doc.waits), ...Object.keys(doc.chains),
-        ...Object.values(doc.routes).flatMap(route => route.activeSessionId ? [String(route.activeSessionId)] : [])]);
-      for (const id of ids) {
-        if (await tx.conversation(Number(id) as ConversationId)) continue;
-        delete doc.waits[id];
-        delete doc.chains[id];
-        for (const claim of Object.values(doc.routes)) {
-          if (String(claim.activeSessionId) !== id) continue;
-          delete claim.activeSessionId;
-          delete claim.activeRequestId;
-          delete claim.claimedAt;
-        }
-      }
+      await pruneStaleReferences(tx, doc);
 
       if (!policy.enabled) {
-        for (const [id, w] of Object.entries(doc.waits)) {
+        for (const id of Object.keys(doc.waits)) {
           const chain = doc.chains[id];
           if (chain) {
             chain.lastOutcome = "paused";
@@ -319,24 +564,7 @@ export class LimitContinuer {
         return { waits: {} as Record<string, LimitWait> };
       }
 
-      for (const [rKey, claim] of Object.entries(doc.routes)) {
-        if (claim.activeSessionId && claim.activeRequestId) {
-          const sub = await tx.submissionByRequest(claim.activeSessionId as ConversationId, claim.activeRequestId);
-          const waiting = doc.waits[String(claim.activeSessionId)];
-          const pendingDelivery = !sub && waiting && requestId(claim.activeSessionId, waiting) === claim.activeRequestId;
-          const stillActive = sub?.status === "queued" || sub?.status === "placed" || !!pendingDelivery;
-          if (sub && !stillActive) {
-            // Every settled probe, including a non-quota failure, gets spacing. check() has
-            // already recorded a later quota reset before this claim can be released.
-            claim.cooldownUntil = Math.max(claim.cooldownUntil ?? 0, now + (this.o.graceMs ?? 60_000));
-          }
-          if (!stillActive) {
-            delete claim.activeSessionId;
-            delete claim.activeRequestId;
-            delete claim.claimedAt;
-          }
-        }
-      }
+      await reconcileActiveRouteClaims(tx, doc, now, this.o.graceMs ?? 60_000);
 
       for (const w of Object.values(doc.waits)) {
         const rKey = routeKey(w.provider, w.model);
@@ -348,75 +576,13 @@ export class LimitContinuer {
 
       const validWaits: Record<string, LimitWait> = {};
       for (const [id, w] of Object.entries(doc.waits)) {
-        const numId = Number(id);
-        const cid = numId as ConversationId;
-
-        if (!w.generation || !w.provider || !w.model || this.o.skip?.(numId)) {
-          delete doc.waits[id];
-          continue;
-        }
-
-        if (!doc.chains[id]) {
-          const failure = await readTurnFailure(tx, cid);
-          const firstFailedAt = w.firstFailedAt ?? failure?.failedAt;
-          // A later legacy attempt cannot prove its original lifetime. Pause, do not grant a fresh budget.
-          const uncertain = firstFailedAt === undefined || (w.firstFailedAt === undefined && w.attempt > 1);
-          doc.chains[id] = {
-            boundary: w.boundary, generation: w.generation, provider: w.provider, model: w.model,
-            firstFailedAt: firstFailedAt ?? now, deadline: w.deadline ?? (firstFailedAt ?? now) + policy.maxWaitHours * 3_600_000,
-            attemptsAdmitted: Math.max(0, w.attempt - 1), requestId: requestId(numId, w), deliveryAttempts: w.deliveryAttempts ?? 0,
-            lastOutcome: uncertain ? "paused" : "scheduled", cancelled: uncertain,
-            ...(uncertain ? { deliveryPausedReason: "Legacy recovery lifetime cannot be verified. Retry manually." } : {}),
-          };
-          w.firstFailedAt = firstFailedAt ?? now;
-          w.deadline = doc.chains[id].deadline;
-        }
-
-        const reqId = requestId(numId, w);
-        const existingSub = await tx.submissionByRequest(cid, reqId);
-        if (existingSub) {
-          const chain = doc.chains[id];
-          if (chain) {
-            chain.attemptsAdmitted = Math.max(chain.attemptsAdmitted, w.attempt);
-            chain.lastOutcome = "admitted";
-            if (existingSub.entry !== undefined) {
-              chain.entry = Number(existingSub.entry);
-            }
-          }
-          delete doc.waits[id];
-          continue;
-        }
-
-        const currentBoundary = await newestInputBoundary(tx, cid);
-        if (w.boundary !== currentBoundary || await needsUser(tx, cid, w.boundary)) {
-          delete doc.waits[id];
-          continue;
-        }
-
-        const ref = await this.model(tx, cid);
-        if (w.provider !== ref.provider || w.model !== ref.modelId) {
-          delete doc.waits[id];
-          continue;
-        }
-
-        const chain = doc.chains[id];
-        const deadline = this.effectiveDeadline(w.deadline ?? chain?.deadline, w.firstFailedAt ?? chain?.firstFailedAt);
-
-        if (chain?.cancelled) {
-          delete doc.waits[id];
-          continue;
-        }
-
-        if (w.attempt > policy.maxAttempts || Math.max(now, w.resumeAt, w.nextDeliveryAt ?? 0) > deadline) {
-          if (chain) {
-            chain.lastOutcome = "paused";
-            chain.deliveryPausedReason = w.attempt > policy.maxAttempts ? "Max attempts exceeded" : "Max recovery deadline exceeded";
-          }
-          delete doc.waits[id];
-          continue;
-        }
-
-        validWaits[id] = { ...w };
+        const validated = await reconcileWaitEntry(
+          tx, doc, id, w, now, policy,
+          (s, f) => this.effectiveDeadline(s, f),
+          (t, cid) => this.model(t, cid),
+          this.o.skip,
+        );
+        if (validated) validWaits[id] = validated;
       }
 
       for (const id of Object.keys(doc.chains)) {
@@ -459,44 +625,7 @@ export class LimitContinuer {
 
       const extLimit = failure.limit as (ProviderLimit & { receivedAt?: number; response?: string }) | undefined;
       const failedAt = extLimit?.receivedAt ?? failure.failedAt ?? now;
-      const responseText = extLimit?.response ?? failure.message;
-
-      const fallback = classifyLimit(responseText, failedAt) as {
-        kind: "wait" | "fatal" | "none";
-        resetAt?: number;
-        resetSource?: string;
-        exact?: boolean;
-      };
-      const structuredReset = extLimit && latestLimitReset(extLimit);
-      const hasUnknownStructuredWindow = extLimit?.kind === "wait" && extLimit.windows.some(w => w.resetAt === null);
-
-      let cls: { kind: "wait" | "fatal" | "none"; resetAt?: number; resetSource?: string; exact?: boolean };
-      if (fallback.kind === "fatal" || extLimit?.kind === "fatal") {
-        cls = { kind: "fatal" };
-      } else if (structuredReset !== undefined) {
-        cls = {
-          kind: "wait",
-          resetAt: structuredReset,
-          resetSource: fallback.resetSource ?? "quota_timestamp",
-          exact: !hasUnknownStructuredWindow,
-        };
-      } else if (fallback.kind === "wait") {
-        cls = {
-          kind: "wait",
-          resetAt: fallback.resetAt,
-          resetSource: fallback.resetSource ?? "message",
-          exact: fallback.resetAt !== undefined && !hasUnknownStructuredWindow && (fallback.exact ?? false),
-        };
-      } else if (extLimit?.kind === "wait") {
-        cls = {
-          kind: "wait",
-          resetAt: undefined,
-          resetSource: "unknown_window",
-          exact: false,
-        };
-      } else {
-        cls = fallback;
-      }
+      const cls = classifyTurnLimit(failure, failedAt);
 
       if (cls.kind !== "wait") return undefined;
 
@@ -510,12 +639,12 @@ export class LimitContinuer {
       // Quota evidence applies to all waiters, even if this session was cancelled or exhausted its budget.
       const observedRoute = routeKey(ref.provider, ref.modelId);
       const graceForEvidence = this.o.graceMs ?? 60_000;
-      const knownWindow = extLimit?.windows.reduce((latest, window) => Math.max(latest, window.resetAt ?? 0), 0) ?? 0;
-      const uncertainEvidence = hasUnknownStructuredWindow || cls.resetAt === undefined || cls.resetAt <= failedAt;
-      const evidenceFloor = Math.max(
-        cls.resetAt !== undefined ? cls.resetAt + graceForEvidence : 0,
-        knownWindow ? knownWindow + graceForEvidence : 0,
-        uncertainEvidence ? failedAt + (this.o.backoffMs?.[0] ?? 120_000) : 0,
+      const evidenceFloor = computeEvidenceFloor(
+        cls,
+        extLimit,
+        failedAt,
+        graceForEvidence,
+        this.o.backoffMs?.[0] ?? 120_000,
       );
       const observed = doc.routes[observedRoute];
       doc.routes[observedRoute] = { ...observed, cooldownUntil: Math.max(observed?.cooldownUntil ?? 0, evidenceFloor) };
@@ -564,7 +693,7 @@ export class LimitContinuer {
 
       if (attempt > policy.maxAttempts) {
         this.o.log(`auto-continue ${id}: stopped after ${policy.maxAttempts} attempts`);
-        doc.chains[String(id)] = {
+        pauseChain(doc, id, {
           boundary: failure.boundary,
           generation: failure.generation,
           provider: ref.provider,
@@ -572,21 +701,16 @@ export class LimitContinuer {
           firstFailedAt,
           deadline: chainDeadline,
           attemptsAdmitted: priorAdmitted,
-          requestId: requestId(id, { boundary: failure.boundary, generation: failure.generation } as LimitWait),
           resetSource: cls.resetSource,
-          lastOutcome: "paused",
-          deliveryAttempts: 0,
-          deliveryPausedReason: `Stopped after ${policy.maxAttempts} attempts`,
-          cancelled: true,
-        };
-        delete doc.waits[String(id)];
+          reason: `Stopped after ${policy.maxAttempts} attempts`,
+        });
         return undefined;
       }
 
       const deadline = this.effectiveDeadline(chainDeadline, firstFailedAt);
       if (now > deadline) {
         this.o.log(`auto-continue ${id}: stopped after reaching maxWaitHours deadline`);
-        doc.chains[String(id)] = {
+        pauseChain(doc, id, {
           boundary: failure.boundary,
           generation: failure.generation,
           provider: ref.provider,
@@ -594,14 +718,9 @@ export class LimitContinuer {
           firstFailedAt,
           deadline,
           attemptsAdmitted: priorAdmitted,
-          requestId: requestId(id, { boundary: failure.boundary, generation: failure.generation } as LimitWait),
           resetSource: cls.resetSource,
-          lastOutcome: "paused",
-          deliveryAttempts: 0,
-          deliveryPausedReason: "Recovery lifetime deadline exceeded",
-          cancelled: true,
-        };
-        delete doc.waits[String(id)];
+          reason: "Recovery lifetime deadline exceeded",
+        });
         return undefined;
       }
 
@@ -613,34 +732,23 @@ export class LimitContinuer {
       const route = doc.routes[rKey];
       const routeCooldown = route?.cooldownUntil ?? 0;
 
-      const knownReset = extLimit?.kind === "wait"
-        ? extLimit.windows.reduce((latest, w) => Math.max(latest, w.resetAt ?? 0), 0)
-        : 0;
-
-      let resumeAt: number;
-      let isExact = false;
-
-      if (hasUnknownStructuredWindow || cls.resetAt === undefined || cls.resetAt <= failedAt) {
-        const fallbackStep = backoff[Math.min(attempt, backoff.length) - 1]!;
-        const minResume = Math.max(
-          failedAt + fallbackStep,
-          knownReset ? knownReset + grace : 0,
-          cls.resetAt !== undefined ? cls.resetAt + grace : 0,
-          routeCooldown
-        );
-        resumeAt = Math.max(minResume, now) + jitterMs;
-        isExact = false;
-      } else {
-        isExact = cls.exact ?? true;
-        const repeatedFailureFloor = attempt > 1 ? failedAt + backoff[Math.min(attempt, backoff.length) - 1]! : 0;
-        resumeAt = Math.max(cls.resetAt + grace, now, routeCooldown, repeatedFailureFloor) + jitterMs;
-      }
+      const { resumeAt, isExact } = resolveWaitTiming(
+        cls,
+        extLimit,
+        failedAt,
+        attempt,
+        now,
+        routeCooldown,
+        backoff,
+        grace,
+        jitterMs,
+      );
 
       doc.routes[rKey] = { ...route, cooldownUntil: Math.max(routeCooldown, resumeAt) };
 
       if (resumeAt > deadline || (resumeAt - now > policy.maxWaitHours * 3_600_000)) {
         this.o.log(`auto-continue ${id}: reset exceeds the recovery time limit`);
-        doc.chains[String(id)] = {
+        pauseChain(doc, id, {
           boundary: failure.boundary,
           generation: failure.generation,
           provider: ref.provider,
@@ -648,14 +756,9 @@ export class LimitContinuer {
           firstFailedAt,
           deadline,
           attemptsAdmitted: priorAdmitted,
-          requestId: requestId(id, { boundary: failure.boundary, generation: failure.generation } as LimitWait),
           resetSource: cls.resetSource,
-          lastOutcome: "paused",
-          deliveryAttempts: 0,
-          deliveryPausedReason: "Scheduled resume is beyond maxWaitHours",
-          cancelled: true,
-        };
-        delete doc.waits[String(id)];
+          reason: "Scheduled resume is beyond maxWaitHours",
+        });
         return undefined;
       }
 
@@ -865,9 +968,7 @@ export class LimitContinuer {
           const rKey = routeKey(current.provider, current.model);
           delete doc.waits[String(id)];
           if (doc.routes?.[rKey]?.activeSessionId === id) {
-            delete doc.routes[rKey].activeSessionId;
-            delete doc.routes[rKey].activeRequestId;
-            delete doc.routes[rKey].claimedAt;
+            releaseActiveClaim(doc.routes[rKey]);
           }
           const chain = doc.chains?.[String(id)];
           if (chain) {
@@ -904,9 +1005,7 @@ export class LimitContinuer {
 
         const rKey = routeKey(w.provider, w.model);
         if (doc.routes[rKey]?.activeSessionId === id) {
-          delete doc.routes[rKey].activeSessionId;
-          delete doc.routes[rKey].activeRequestId;
-          delete doc.routes[rKey].claimedAt;
+          releaseActiveClaim(doc.routes[rKey]);
         }
 
         const deliveryAttempts = (w.deliveryAttempts ?? 0) + 1;
@@ -964,9 +1063,7 @@ export class LimitContinuer {
       if (claim?.activeSessionId === id && claim.activeRequestId) {
         const sub = await tx.submissionByRequest(id as ConversationId, claim.activeRequestId);
         if (sub?.status !== "queued" && sub?.status !== "placed") {
-          delete claim.activeSessionId;
-          delete claim.activeRequestId;
-          delete claim.claimedAt;
+          releaseActiveClaim(claim);
         }
       }
 

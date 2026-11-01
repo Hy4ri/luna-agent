@@ -23,11 +23,6 @@ export async function openMedia(path: string): Promise<{ size: number; stream: R
   } catch (e) { await file.close(); throw e; }
 }
 
-export async function readSideMedia(path: string): Promise<Uint8Array> {
-  const { stream } = await openMedia(path);
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
 /** Stream a named file, or a JSON error that says why it is unavailable. */
 export async function mediaResponse(c: HonoContext, media: ResolvedMedia | undefined) {
   if (!media) return c.json({ error: "no such media" }, 404);

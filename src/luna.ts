@@ -22,13 +22,13 @@ export interface LunaOptions {
   afterFailedRun?: () => "keep" | "continue" | "withdraw";
   /** Push an operator alert (parked task, failed session). Errors are logged, never thrown. */
   alert?: (title: string, body: string) => Promise<void>;
-  /** SQLite file; defaults to ./luna.db */
-  dbPath?: string;
+  /** Conversation SQLite file under the data directory, or ":memory:". */
+  dbPath: string;
   /** Model catalog with providers already set. */
   models: Models;
   cwd?: string;
-  /** Durable memory SQLite file; defaults to ./memory.db. Pass a MemoryStore to share one; `false` disables memory. */
-  memory?: MemoryStore | string | false;
+  /** Durable memory SQLite file under the data directory, a shared MemoryStore, or `false` to disable memory. */
+  memory: MemoryStore | string | false;
   /** Directories scanned for SKILL.md skills; omit to disable the skills extension. */
   skillDirs?: string[];
   /** Registry extension names hidden from every session, read on every call. */
@@ -63,7 +63,7 @@ export async function openLuna(opts: LunaOptions) {
     catch (error) { opts.log?.(`process notification: ${error instanceof Error ? error.message : String(error)}`); }
   }, {
     ...opts.processes,
-    directory: opts.processDirectory ?? ((opts.dbPath ?? "luna.db") === ":memory:" ? undefined : join(dirname(opts.dbPath ?? "luna.db"), "processes")),
+    directory: opts.processDirectory ?? (opts.dbPath === ":memory:" ? undefined : join(dirname(opts.dbPath), "processes")),
     log: opts.log,
   });
   if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); }
@@ -72,10 +72,10 @@ export async function openLuna(opts: LunaOptions) {
   for (const e of opts.extensions ?? []) registry.install(e);
   if (opts.skillDirs?.length) registry.install(createSkillsExtension({ dirs: opts.skillDirs, disabled: opts.disabledSkills }));
   if (opts.memory !== false) {
-    const memory = opts.memory instanceof MemoryStore ? opts.memory : new MemoryStore(opts.memory ?? "memory.db");
+    const memory = opts.memory instanceof MemoryStore ? opts.memory : new MemoryStore(opts.memory);
     registry.install(createMemoryExtension(memory));
   }
-  const { storage, store } = await openConversationStorage(opts.dbPath ?? "luna.db");
+  const { storage, store } = await openConversationStorage(opts.dbPath);
   const harness = await Harness.open(
     storage,
     {

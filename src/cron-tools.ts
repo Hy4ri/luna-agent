@@ -35,7 +35,7 @@ function jobDetail(store: CronStore, j: Job, active: number[]) {
   const running = store.queryRuns({ jobId: j.id, status: "running", limit: 5 });
   return [
     `job ${j.id} "${j.name}" ${j.enabled ? "enabled" : "disabled"}`,
-    `schedule: ${j.intervalMs ? `every ${j.intervalMs}ms` : j.expr} (${j.timezone}); next run ${when(j.nextRun)}`,
+    `schedule: ${j.intervalMs ? `every ${j.intervalMs}ms` : j.expr} (${Intl.DateTimeFormat().resolvedOptions().timeZone}); next run ${when(j.nextRun)}`,
     `type: ${j.execution ? `script ${JSON.stringify(j.execution.command)}${j.execution.cwd ? ` in ${j.execution.cwd}` : ""}` : "agent"}`,
     `model: ${j.model ? `${j.model.provider}/${j.model.modelId}` : "default"}; report policy: ${j.reportPolicy}`,
     `grace: ${j.graceMs ? `${j.graceMs / 1000}s` : "none (late slots run)"}; timeout: ${j.timeoutMs ? `${j.timeoutMs / 1000}s` : "default"}; retries: ${j.retries}`,

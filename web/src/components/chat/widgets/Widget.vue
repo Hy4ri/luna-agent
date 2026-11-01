@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onMounted, onUnmounted } from "vue";
-import { parseWidget, type Widget } from "@/lib/widgets/schema";
-import { compileExpr } from "@/lib/widgets/expr";
+import { ref, computed, defineAsyncComponent, onUnmounted } from "vue";
+import { parseWidget } from "@/lib/widgets/schema";
 const ChartWidget = defineAsyncComponent(() => import("./ChartWidget.vue"));
 const PlotWidget = defineAsyncComponent(() => import("./PlotWidget.vue"));
 import { copyToClipboard } from "@/lib/message";

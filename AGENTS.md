@@ -69,6 +69,7 @@ luna-pi/
 │   ├── runtime.ts              # Central wiring: builds models, MCP, extensions, harness, schedulers
 │   ├── luna.ts                 # openLuna() wrapper around pi-durable harness + coding/memory/skills
 │   ├── server.ts               # Hono HTTP/SSE API routes and static web asset serving
+│   ├── routes/                 # Route handler modules registered by server.ts
 │   ├── config.ts               # Strict Zod ConfigSchema and path/env resolution
 │   ├── settings.ts             # SettingsStore: live config reading, validation, and atomic writes
 │   ├── cli.ts                  # Interactive terminal client against the daemon HTTP/SSE API

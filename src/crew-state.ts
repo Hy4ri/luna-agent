@@ -2,7 +2,7 @@
 // The lead owns the member list. Each member records its lead. Neither document passes to a fork.
 import { defineDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
 import { classifyLimit } from "./limit-reset.js";
-import { isRunning, readSessionHandoff, readSessionStatus } from "./session-status.js";
+import { readCommonSessionReport } from "./session-status.js";
 
 export type CrewRow = {
   id: number; spawnKey: string; task: string; requests: string[]; brief?: string;
@@ -64,32 +64,8 @@ export async function readCrewReport(tx: Tx, lead: ConversationId, id: number): 
   const row = (await tx.doc(Crew, lead)).members.find(m => m.id === id);
   const base: CrewReport = { id, state: "idle" };
   if (!row || !await tx.conversation(cid)) return { ...base, state: "failed", reason: "Session no longer exists.", error: { class: "deleted", detail: "Session no longer exists." } };
-  const latest = row.requests.at(-1);
-  if (latest) base.requestId = latest;
-  let pending = false;
-  for (const request of row.requests) {
-    const submission = await tx.submissionByRequest(cid, request);
-    if (!submission || submission.status === "queued" || submission.status === "placed") pending = true;
-    if (request !== latest || !submission) continue;
-    if (submission.status === "unanswered") { base.state = "unanswered"; base.reason = submission.reason; }
-    else if (submission.type === "input" && submission.status === "done") {
-      base.state = "done";
-      const entry = await tx.entry(submission.answer);
-      base.answer = (entry?.model ?? []).flatMap(m => m.role === "assistant" ? m.content : [])
-        .flatMap(c => c.type === "text" ? [c.text] : []).join("\n");
-    }
-  }
-  const running = pending || await isRunning(tx, cid);
-  if (running) base.state = "running";
-  const latestSubmission = latest ? await tx.submissionByRequest(cid, latest) : undefined;
-  const handoff = await readSessionHandoff(tx, cid);
-  const status = await readSessionStatus(tx, cid, running);
-  if (handoff && latestSubmission?.entry !== undefined && handoff.boundary >= Number(latestSubmission.entry)) {
-    base.state = handoff.status; base.reason = handoff.reason; base.boundary = handoff.boundary;
-  } else if (!running && ["failed", "limit_reached", "stopped"].includes(status.status)) {
-    base.state = status.status === "stopped" ? "stopped" : "failed";
-    base.reason = status.statusReason ?? status.status;
-  }
+  const { report } = await readCommonSessionReport(tx, cid, row.requests);
+  Object.assign(base, report);
   if (row.stopped) { base.state = "stopped"; base.reason = "stopped by the lead"; }
   if ((base.state === "failed" || base.state === "unanswered") && base.reason) {
     const detail = base.reason;

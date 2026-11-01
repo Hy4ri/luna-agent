@@ -209,7 +209,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
 
         <!-- Line chart rendering -->
         <g v-else class="lines">
-          <template v-for="(ser, sIdx) in activeSeries" :key="ser.name">
+          <template v-for="ser in activeSeries" :key="ser.name">
             <!-- Line path -->
             <path
               :d="
@@ -254,7 +254,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
             stroke-dasharray="2 2"
             stroke-width="1"
           />
-          <template v-for="(ser, sIdx) in activeSeries" :key="ser.name">
+          <template v-for="ser in activeSeries" :key="ser.name">
             <circle
               v-if="Number.isFinite(ser.data[hoveredIndex])"
               :cx="scaleX(hoveredIndex)"
@@ -275,7 +275,7 @@ const unitSuffix = computed(() => (props.widget.yUnit ? ` ${props.widget.yUnit}`
         <span class="readout-x">{{ xPoints[hoveredIndex] }}</span>
         <div class="readout-items">
           <span
-            v-for="(ser, sIdx) in activeSeries"
+            v-for="ser in activeSeries"
             :key="ser.name"
             class="readout-item"
             :style="{ color: `var(--chart-${colorIndex(ser)})` }"

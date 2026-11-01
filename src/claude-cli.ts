@@ -5,8 +5,9 @@ import { ClaudeTransportError } from "./claude-native/types.js";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
   createProvider, createAssistantMessageEventStream, getCurrentTools, clampThinkingLevel,
-  type ProviderStreams, type AssistantMessage, type Model, type TextContent, type ThinkingContent, type ToolCall,
+  type ProviderStreams, type AssistantMessage, type Model, type ToolCall,
 } from "@earendil-works/pi-ai";
+import { createStreamDeltas } from "./cli-stream.js";
 import { prepareNativeRequest, runNativeRequest, nativeResponseCarrier, validateNativeResponse } from "./claude-native.js";
 import { nativeContextWindow } from "./claude-native/history.js";
 import { FATAL_BILLING_LIMIT } from "./claude-native/billing.js";
@@ -26,26 +27,8 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
   };
   void (async () => {
-    let text: TextContent | undefined, thinking: ThinkingContent | undefined;
-    let textIndex = -1, thinkingIndex = -1;
-    const textDelta = (delta: string) => {
-      if (!text) {
-        text = { type: "text", text: "" };
-        textIndex = message.content.push(text) - 1;
-        events.push({ type: "text_start", contentIndex: textIndex, partial: message });
-      }
-      text.text += delta;
-      if (delta) events.push({ type: "text_delta", contentIndex: textIndex, delta, partial: message });
-    };
-    const thinkingDelta = (delta: string) => {
-      if (!thinking) {
-        thinking = { type: "thinking", thinking: "" };
-        thinkingIndex = message.content.push(thinking) - 1;
-        events.push({ type: "thinking_start", contentIndex: thinkingIndex, partial: message });
-      }
-      thinking.thinking += delta;
-      if (delta) events.push({ type: "thinking_delta", contentIndex: thinkingIndex, delta, partial: message });
-    };
+    const { textDelta, thinkingDelta, getText, getThinking, getTextIndex, getThinkingIndex } =
+      createStreamDeltas(message, events);
     try {
       events.push({ type: "start", partial: message });
       if (model.api !== "anthropic-messages") throw new Error("Claude CLI requires the anthropic-messages API");
@@ -77,6 +60,8 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       }
       message.responseId = response.id;
       message.rawStopReason = choice.finish_reason;
+      const text = getText();
+      const thinking = getThinking();
       const fullText = final.content ?? "";
       if (!fullText.startsWith(text?.text ?? "")) throw new Error("Claude final text differs from its stream");
       textDelta(fullText.slice(text?.text.length ?? 0));
@@ -105,8 +90,8 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
         }
       }
       text!.textSignature = nativeResponseCarrier(response);
-      if (thinking) events.push({ type: "thinking_end", contentIndex: thinkingIndex, content: thinking.thinking, partial: message });
-      events.push({ type: "text_end", contentIndex: textIndex, content: text!.text, partial: message });
+      if (thinking) events.push({ type: "thinking_end", contentIndex: getThinkingIndex(), content: thinking.thinking, partial: message });
+      events.push({ type: "text_end", contentIndex: getTextIndex(), content: text!.text, partial: message });
       if (choice.finish_reason === "content_filter") throw new Error(final.refusal || fullText || "Claude refused this request");
       for (const call of calls) {
         const contentIndex = message.content.push(call) - 1;
