@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Models } from "@earendil-works/pi-ai";
-import { createRegistry, defineDoc, Harness, ROOT_CONVERSATION_ID, type Extension, type Registry } from "@earendil-works/pi-durable";
+import { createRegistry, defineDoc, defineExtension, section, Harness, ROOT_CONVERSATION_ID, type Extension, type Registry } from "@earendil-works/pi-durable";
 import { openConversationStorage, registerConversationStorage } from "./conversation-storage.js";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
@@ -67,6 +67,11 @@ export async function openLuna(opts: LunaOptions) {
     log: opts.log,
   });
   if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); }
+  registry.install(defineExtension({ name: "active-model", sections: [section("active-model", ({ agent }) =>
+    agent.model
+      ? `Active model for this session: ${agent.model.provider}/${agent.model.modelId}.`
+      : "No model is selected for this session.",
+  )] }));
   registry.install(SessionStatusExtension);
   registry.install(GenUiExtension);
   for (const e of opts.extensions ?? []) registry.install(e);

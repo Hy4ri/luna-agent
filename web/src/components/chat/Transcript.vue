@@ -221,6 +221,7 @@ function backgroundReport(entry: any, message: any): boolean {
       <template v-else v-for="entry in [row.entry]" :key="entry.id">
         <div v-if="entry.kind === 'pi.reset'" class="msg muted">— context reset —</div>
         <div v-else-if="entry.kind === 'pi.compaction'" class="msg muted">— earlier messages compacted —</div>
+        <div v-else-if="entry.kind === 'luna.model-changed'" class="msg muted">{{ entry.data?.text }}</div>
         <template v-else v-for="(message, mi) in (entry.model || [])" :key="mi">
           <details v-if="message.role === 'user' && backgroundReport(entry, message)" class="background-report" :data-entry="entry.id">
             <summary>Background report</summary>
