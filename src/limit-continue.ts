@@ -275,6 +275,22 @@ export class LimitContinuer {
       doc.chains ??= {};
       doc.routes ??= {};
 
+      // Session-scoped recovery survives hard deletion of individual conversations.
+      // Prune stale references before reading their transcript or migrating legacy waits.
+      const ids = new Set([...Object.keys(doc.waits), ...Object.keys(doc.chains),
+        ...Object.values(doc.routes).flatMap(route => route.activeSessionId ? [String(route.activeSessionId)] : [])]);
+      for (const id of ids) {
+        if (await tx.conversation(Number(id) as ConversationId)) continue;
+        delete doc.waits[id];
+        delete doc.chains[id];
+        for (const claim of Object.values(doc.routes)) {
+          if (String(claim.activeSessionId) !== id) continue;
+          delete claim.activeSessionId;
+          delete claim.activeRequestId;
+          delete claim.claimedAt;
+        }
+      }
+
       if (!policy.enabled) {
         for (const [id, w] of Object.entries(doc.waits)) {
           const chain = doc.chains[id];
