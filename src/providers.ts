@@ -18,6 +18,7 @@ import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-co
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { groqProvider } from "@earendil-works/pi-ai/providers/groq";
 import { mistralProvider } from "@earendil-works/pi-ai/providers/mistral";
+import { openaiCodexProvider as baseOpenaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { openaiProvider } from "./openai-context.js";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
@@ -26,9 +27,12 @@ import type { SettingsStore } from "./settings.js";
 import { claudeCliProvider } from "./claude-cli.js";
 import { opencodeCliProvider } from "./opencode-cli.js";
 
+/** Codex subscription (ChatGPT OAuth, chatgpt.com/backend-api). It uses the Codex plan quota, not the Sign in with ChatGPT sharing quota of `openai`. */
+const openaiCodexProvider = (): Provider => ({ ...baseOpenaiCodexProvider(), name: "OpenAI Codex" });
+
 /** Built-in providers offered in the UI. Each brings its own catalog, API-key auth and (where supported) OAuth login. */
 export const BUILTIN_PROVIDERS: ((fetchImpl?: typeof fetch) => Provider)[] = [
-  claudeCliProvider, opencodeCliProvider, anthropicProvider, openaiProvider, githubCopilotProvider, openrouterProvider, googleProvider,
+  claudeCliProvider, opencodeCliProvider, anthropicProvider, openaiProvider, openaiCodexProvider, githubCopilotProvider, openrouterProvider, googleProvider,
   xaiProvider, deepseekProvider, groqProvider, mistralProvider,
 ];
 
