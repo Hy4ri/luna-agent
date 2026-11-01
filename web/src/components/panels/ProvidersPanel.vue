@@ -50,7 +50,7 @@ async function saveApiKey(providerId: string) {
   try {
     await post(`/v1/providers/${providerId}/key`, { key }, "PUT");
     apiKeys.value[providerId] = "";
-    await loadModels();
+    await loadModels({ force: true });
     await fetchData();
     toast("API key saved");
   } catch (e: any) {
@@ -62,7 +62,7 @@ async function disconnectProvider(providerId: string, name: string) {
   if (confirm(`Remove the stored ${name} credential?`)) {
     try {
       await json(`/v1/providers/${providerId}/credential`, { method: "DELETE" });
-      await loadModels();
+      await loadModels({ force: true });
       await fetchData();
       toast("Disconnected");
     } catch (e: any) {
@@ -75,7 +75,7 @@ async function removeCustomProvider(providerId: string) {
   if (confirm(`Remove provider ${providerId}?`)) {
     try {
       await json(`/v1/providers/custom/${providerId}`, { method: "DELETE" });
-      await loadModels();
+      await loadModels({ force: true });
       await fetchData();
       toast("Provider removed");
     } catch (e: any) {
@@ -101,7 +101,7 @@ async function addCustomProvider() {
     customBaseUrl.value = "";
     customKey.value = "";
     customModels.value = "";
-    await loadModels();
+    await loadModels({ force: true });
     await fetchData();
     toast("Custom provider added");
   } catch (e: any) {
@@ -150,7 +150,7 @@ function pollLogin(loginId: string) {
       if (l.status === "running") {
         pollLogin(loginId);
       } else {
-        await loadModels();
+        await loadModels({ force: true });
         emit("changed");
         if (l.status === "done") {
           setTimeout(fetchData, 800);

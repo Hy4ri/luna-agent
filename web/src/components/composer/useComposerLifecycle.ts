@@ -1,7 +1,7 @@
 import { watch, onMounted, onBeforeUnmount, nextTick, type Ref } from "vue";
 import { addAttachment, captureAttachmentContext, restoreDraft, composer } from "@/stores/composer";
 import { history, loadProjects } from "@/stores/sessions";
-import { loadModels } from "@/stores/models";
+import { loadModels, models } from "@/stores/models";
 import { boardChanged, focusInput } from "@/stores/app";
 import { chat } from "@/stores/chat";
 
@@ -98,7 +98,7 @@ export function useComposerLifecycle(options: {
     document.addEventListener("paste", handlePaste);
     document.addEventListener("pointerdown", handleOutsideClick);
     if (!history.projects.length) void loadProjects();
-    void loadModels();
+    if (!models.loaded) void loadModels();
     if (activeProjectId.value !== null) void fetchMentionCards(activeProjectId.value, true);
     restoreDraft();
     if (inputRef.value) {
