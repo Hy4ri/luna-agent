@@ -31,7 +31,10 @@ Deliberate Luna changes, kept from the Python version:
 - A queried tool-result mismatch returns HTTP 400 before forwarding. Luna never accepts synthetic denials as host results.
 - Native token/context-limit stop reasons take precedence over tool calls. A truncated batch never executes.
 
-Keep the `mcp__hermes__` wire prefix. It is private to this transport and part of signed replay content.
+New conversations use the `luna` MCP server and `mcp__luna__` wire prefix.
+Each new native carrier records its wire prefix. Existing carriers without this marker retain the
+legacy `hermes` server and `mcp__hermes__` prefix for the conversation. Signed native messages are never renamed.
+The carrier type and temporary-directory names remain unchanged.
 The session id and native cwd must stay stable for one conversation; both sit in the cached prompt prefix.
 
 ## Safety and qualification

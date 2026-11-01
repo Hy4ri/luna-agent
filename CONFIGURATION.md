@@ -577,7 +577,8 @@ experimental, so pin the opencode version you tested.
 ## Claude CLI provider
 
 The `claude-cli` provider uses the installed Claude Code login. It requires a recent official
-Claude Code CLI. The transport runs inside the daemon; it does not require Python or a Hermes installation.
+Claude Code CLI. The transport runs inside the daemon; it does not require Python or a separate agent installation.
+New conversations use the `luna` MCP namespace. Legacy signed replay retains its original namespace without rewriting signed messages.
 `LUNA_CLAUDE_EXECUTABLE` selects the Claude executable. Otherwise Luna searches for `claude` on PATH,
 then the usual installation directories, including `~/.local/bin`.
 Use `claude auth login`, `CLAUDE_CODE_OAUTH_TOKEN`, or `CLAUDE_CONFIG_DIR` for authentication.

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Admission } from "./admission.js";
 import { chargedToUsageCredits, FATAL_BILLING_LIMIT, usageCreditsAllowed, usageCreditsChargeError, usageCreditsRejection } from "./billing.js";
 import { claudeHeaderLimit, recordClaudeLimit, type ProviderLimit } from "../provider-limits.js";
-import { CARRIER_TYPE, TOOL_PREFIX, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
+import { CARRIER_TYPE, TOOL_PREFIX, conversationToolPrefix, buildBody, conversationSessionId, nativeModel, prepareHistory, projection } from "./history.js";
 import { ClaudeTransportError, type Block, type NativeRequest, type NativeResponse, type NativeToolCall } from "./types.js";
 
 export const INSTALL_HINT = "Claude Code is not installed (no `claude` on PATH or in the usual install directories). " +
@@ -217,8 +217,9 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
   const { signal } = options;
   const timeoutMs = options.timeoutMs ?? 180_000;
   if (signal?.aborted) throw aborted();
-  const { body, manifest, names, replayMetadata } = buildBody(request);
-  const { system, frames, assistantBoundaries } = prepareHistory(request.messages, names);
+  const toolPrefix = conversationToolPrefix(request.messages);
+  const { body, manifest, names, replayMetadata } = buildBody(request, toolPrefix);
+  const { system, frames, assistantBoundaries } = prepareHistory(request.messages, names, toolPrefix);
   // A legacy signed carrier can restore several native messages for one Luna assistant.
   const nativeReplay = replayMetadata ? { ...replayMetadata,
     systemInjections: replayMetadata.systemInjections?.map(injection => {
@@ -263,8 +264,9 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     writeFileSync(join(root, "system.md"), system);
     env.ANTHROPIC_BASE_URL = admission.url;
     if (request.max_tokens !== undefined) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(request.max_tokens);
-    // Keep the `hermes` server name: the mcp__hermes__ wire prefix is part of signed replay content.
-    const mcp = { mcpServers: { hermes: { command: process.execPath, args: [INERT_MCP, join(root, "tools.json")] } } };
+    // Match the selected wire namespace without rewriting signed history.
+    const serverName = toolPrefix === TOOL_PREFIX ? "luna" : "hermes";
+    const mcp = { mcpServers: { [serverName]: { command: process.execPath, args: [INERT_MCP, join(root, "tools.json")] } } };
     const args = ["-p", "--model", nativeModel(request.model), "--input-format", "stream-json",
       "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--tools", "",
       "--system-prompt-file", join(root, "system.md"), "--settings", join(root, "settings.json"),
@@ -395,9 +397,9 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
     for (const block of blocks) {
       if (block.type !== "tool_use") continue;
       // Native sometimes drops the prefix on an offered tool; carry the offered name so replay does not teach the slip.
-      if (lunaNames.has(block.name as string)) block.name = TOOL_PREFIX + block.name;
+      if (lunaNames.has(block.name as string)) block.name = toolPrefix + block.name;
       const wire = block.name as string;
-      const name = wire.startsWith(TOOL_PREFIX) ? wire.slice(TOOL_PREFIX.length) : wire;
+      const name = wire.startsWith(toolPrefix) ? wire.slice(toolPrefix.length) : wire;
       calls.push({ id: block.id as string, type: "function",
         function: { name: lunaNames.get(name) ?? name, arguments: JSON.stringify(block.input) } });
     }
@@ -426,7 +428,7 @@ export async function runClaude(request: NativeRequest, options: RunOptions): Pr
       role: "assistant", content: text || null, tool_calls: calls.length ? calls : null,
       reasoning_content: blocks.filter(b => b.type === "thinking").map(b => (b.thinking as string | undefined) ?? "").join("") || null,
     };
-    message.reasoning_details = [{ type: CARRIER_TYPE, version: 1, messages: assistants, projection: projection(message) }];
+    message.reasoning_details = [{ type: CARRIER_TYPE, version: 1, wirePrefix: toolPrefix, messages: assistants, projection: projection(message) }];
     // An upstream refusal is terminal. The cut-off call stays in the carrier but never becomes actionable.
     const refused = assistants.some(a => a.stop_reason === "refusal");
     if (refused) {

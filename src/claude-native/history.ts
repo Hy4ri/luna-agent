@@ -3,7 +3,20 @@ import { createHash } from "node:crypto";
 import type { Block, Frame, NativeMessage, NativeReplayMetadata, NativeRequest, NativeTool, Projection } from "./types.js";
 
 /** Private to this transport: DirectSDK maps it back to Luna's names. It is part of signed replay content. */
-export const TOOL_PREFIX = "mcp__hermes__";
+export const TOOL_PREFIX = "mcp__luna__";
+export const LEGACY_TOOL_PREFIX = "mcp__hermes__";
+
+/** Old carriers have no wirePrefix. Keep their signed messages and inventory names unchanged. */
+export function conversationToolPrefix(messages: NativeMessage[]): string {
+  for (const message of messages) {
+    for (const detail of message.reasoning_details ?? []) {
+      if (!isObject(detail) || detail.type !== CARRIER_TYPE) continue;
+      if (detail.wirePrefix === undefined || detail.wirePrefix === LEGACY_TOOL_PREFIX) return LEGACY_TOOL_PREFIX;
+      if (detail.wirePrefix !== TOOL_PREFIX) throw new Error("Unsupported native tool prefix");
+    }
+  }
+  return TOOL_PREFIX;
+}
 export const CARRIER_TYPE = "claude-subscription-directsdk-experimental.native_assistant";
 
 type Json = Record<string, unknown>;
@@ -69,7 +82,7 @@ export function conversationSessionId(system: string, frames: Frame[]): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export function prepareHistory(messages: NativeMessage[], names?: Map<string, string>): {
+export function prepareHistory(messages: NativeMessage[], names?: Map<string, string>, toolPrefix = conversationToolPrefix(messages)): {
   system: string; frames: Frame[]; assistantBoundaries: number[];
 } {
   const system: string[] = [];
@@ -109,7 +122,7 @@ export function prepareHistory(messages: NativeMessage[], names?: Map<string, st
       blocks = contentBlocks(message.content);
       for (const call of projection(message).tool_calls) {
         // A call outside the inventory replays as the model named it.
-        const name = names === undefined || names.has(call.name) ? TOOL_PREFIX + (names?.get(call.name) ?? call.name) : call.name;
+        const name = names === undefined || names.has(call.name) ? toolPrefix + (names?.get(call.name) ?? call.name) : call.name;
         blocks.push({ type: "tool_use", id: call.id, name, input: call.input });
       }
       frameRole = "assistant";
@@ -214,7 +227,7 @@ export function normalizeInputSchema(schema: Json): Json {
 export interface ToolManifestEntry { name: string; description: string; inputSchema: Json }
 
 /** Keep the live MCP inventory separate from the fixed initial upstream declarations. */
-export function buildBody(request: NativeRequest): {
+export function buildBody(request: NativeRequest, toolPrefix = conversationToolPrefix(request.messages)): {
   body: string; manifest: ToolManifestEntry[]; names: Map<string, string>; replayMetadata?: NativeReplayMetadata;
 } {
   const body: Json = {};
@@ -242,7 +255,7 @@ export function buildBody(request: NativeRequest): {
   };
   const definition = (name: string, description: unknown, parameters: unknown): Json => {
     if (!isObject(parameters) || typeof description !== "string") throw new Error("Tool schema must be an object and description a string");
-    return { name: TOOL_PREFIX + nativeName(name), description, input_schema: normalizeInputSchema(parameters) };
+    return { name: toolPrefix + nativeName(name), description, input_schema: normalizeInputSchema(parameters) };
   };
   const definitions = (tools: NativeTool[]): Json[] => {
     const seen = new Set<string>();
@@ -254,7 +267,7 @@ export function buildBody(request: NativeRequest): {
   };
 
   const current = definitions(request.tools);
-  const manifest: ToolManifestEntry[] = current.map(tool => ({ name: String(tool.name).slice(TOOL_PREFIX.length),
+  const manifest: ToolManifestEntry[] = current.map(tool => ({ name: String(tool.name).slice(toolPrefix.length),
     description: tool.description as string, inputSchema: tool.input_schema as Json }));
   let replayMetadata: NativeReplayMetadata | undefined;
   if (request.replayMetadata) {
@@ -276,7 +289,7 @@ export function buildBody(request: NativeRequest): {
         }
         if (block.type === "tool_removal") {
           const tool = block.tool as { name: string };
-          return { type: "tool_removal", tool: { type: "tool_reference", name: TOOL_PREFIX + nativeName(tool.name) } };
+          return { type: "tool_removal", tool: { type: "tool_reference", name: toolPrefix + nativeName(tool.name) } };
         }
         return structuredClone(block);
       }) })),
