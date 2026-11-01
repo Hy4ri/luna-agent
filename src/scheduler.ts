@@ -5,11 +5,50 @@ import { DatabaseSync } from "node:sqlite";
 import { execFile } from "node:child_process";
 import { context } from "./luna.js";
 import { nextRun, parseCron } from "./cron-expr.js";
-import type { Extension, Harness } from "@earendil-works/pi-durable";
+import type { Conversation, ConversationId, EntryId, Extension, Harness, Submission, SubmissionId } from "@earendil-works/pi-durable";
 
 export interface ModelRef { provider: string; modelId: string }
 export interface ScriptExecution { command: string[]; cwd?: string }
 export type ReportPolicy = "always" | "changes" | "failures";
+
+type RunStatus = "running" | "ok" | "error" | "skipped";
+
+type TableColumnRow = { name: string };
+type JobDbRow = {
+  id: number;
+  name: string;
+  expr: string;
+  prompt: string;
+  enabled: number;
+  next_run: number | null;
+  model: string | null;
+  execution?: string | null;
+  interval_ms?: number | null;
+  report_policy: string;
+  deleted_at?: number | null;
+  grace_ms?: number | null;
+  timeout_ms?: number | null;
+  retries?: number;
+};
+type RunDbRow = {
+  id: number;
+  job_id: number;
+  slot: number;
+  started_at: number;
+  ended_at: number | null;
+  status: RunStatus;
+  reason?: string | null;
+  attempt?: number;
+  retry_at?: number | null;
+  deadline_at?: number | null;
+  conversation_id: string | null;
+  submission_id: string | null;
+  output: string | null;
+  error: string | null;
+  job_name?: string | null;
+  report?: number;
+  read_at?: number | null;
+};
 
 export interface Job {
   id: number;
@@ -118,7 +157,7 @@ export class CronStore {
       );`);
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const jobColumns = new Set((this.db.prepare("PRAGMA table_info(jobs)").all() as any[]).map(c => c.name));
+      const jobColumns = new Set((this.db.prepare("PRAGMA table_info(jobs)").all() as unknown as TableColumnRow[]).map(c => c.name));
       if (!jobColumns.has("execution")) this.db.exec("ALTER TABLE jobs ADD COLUMN execution TEXT");
       if (!jobColumns.has("interval_ms")) this.db.exec("ALTER TABLE jobs ADD COLUMN interval_ms INTEGER");
       if (!jobColumns.has("report_policy")) this.db.exec("ALTER TABLE jobs ADD COLUMN report_policy TEXT NOT NULL DEFAULT 'always'");
@@ -130,7 +169,7 @@ export class CronStore {
 
       this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_active_name ON jobs(name) WHERE deleted_at IS NULL;");
 
-      const runColumns = new Set((this.db.prepare("PRAGMA table_info(runs)").all() as any[]).map(c => c.name));
+      const runColumns = new Set((this.db.prepare("PRAGMA table_info(runs)").all() as unknown as TableColumnRow[]).map(c => c.name));
       const hasReportCol = runColumns.has("report");
       if (!runColumns.has("job_name")) this.db.exec("ALTER TABLE runs ADD COLUMN job_name TEXT NOT NULL DEFAULT ''");
       if (!hasReportCol) {
@@ -153,7 +192,7 @@ export class CronStore {
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 
-  private job(r: any): Job {
+  private job(r: JobDbRow): Job {
     return {
       id: r.id,
       name: r.name,
@@ -173,7 +212,7 @@ export class CronStore {
     };
   }
 
-  private run(r: any): Run {
+  private run(r: RunDbRow): Run {
     return {
       id: r.id,
       jobId: r.job_id,
@@ -209,17 +248,17 @@ export class CronStore {
   }
 
   getJob(id: number): Job | undefined {
-    const r = this.db.prepare("SELECT * FROM jobs WHERE id=? AND (deleted_at IS NULL)").get(id);
+    const r = this.db.prepare("SELECT * FROM jobs WHERE id=? AND (deleted_at IS NULL)").get(id) as JobDbRow | undefined;
     return r ? this.job(r) : undefined;
   }
 
   getJobAny(id: number): Job | undefined {
-    const r = this.db.prepare("SELECT * FROM jobs WHERE id=?").get(id);
+    const r = this.db.prepare("SELECT * FROM jobs WHERE id=?").get(id) as JobDbRow | undefined;
     return r ? this.job(r) : undefined;
   }
 
   listJobs(): Job[] {
-    return this.db.prepare("SELECT * FROM jobs WHERE deleted_at IS NULL ORDER BY id").all().map((r) => this.job(r));
+    return (this.db.prepare("SELECT * FROM jobs WHERE deleted_at IS NULL ORDER BY id").all() as unknown as JobDbRow[]).map((r) => this.job(r));
   }
 
   updateJob(id: number, patch: { name?: string; expr?: string; prompt?: string; enabled?: boolean; reportPolicy?: ReportPolicy } & JobOptions, now = Date.now()): Job {
@@ -273,7 +312,7 @@ export class CronStore {
     if (!j) throw new Error("no such job " + id);
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const active = this.db.prepare("SELECT COUNT(*) as c FROM runs WHERE job_id=? AND status='running'").get(id) as any;
+      const active = this.db.prepare("SELECT COUNT(*) as c FROM runs WHERE job_id=? AND status='running'").get(id) as { c: number } | undefined;
       if (active && active.c > 0) {
         throw new Error("cannot delete job while running");
       }
@@ -298,11 +337,11 @@ export class CronStore {
   }
 
   dueJobs(now: number): Job[] {
-    return this.db.prepare("SELECT * FROM jobs WHERE deleted_at IS NULL AND enabled=1 AND next_run<=? ORDER BY next_run").all(now).map((r) => this.job(r));
+    return (this.db.prepare("SELECT * FROM jobs WHERE deleted_at IS NULL AND enabled=1 AND next_run<=? ORDER BY next_run").all(now) as unknown as JobDbRow[]).map((r) => this.job(r));
   }
 
   earliest(): number | null {
-    const r: any = this.db.prepare("SELECT MIN(next_run) m FROM jobs WHERE deleted_at IS NULL AND enabled=1").get();
+    const r = this.db.prepare("SELECT MIN(next_run) m FROM jobs WHERE deleted_at IS NULL AND enabled=1").get() as { m: number | null } | undefined;
     return r?.m ?? null;
   }
 
@@ -310,7 +349,7 @@ export class CronStore {
   claim(job: Job, now: number): Run | undefined {
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const freshJob = this.db.prepare("SELECT * FROM jobs WHERE id=? AND deleted_at IS NULL").get(job.id) as any;
+      const freshJob = this.db.prepare("SELECT * FROM jobs WHERE id=? AND deleted_at IS NULL").get(job.id) as JobDbRow | undefined;
       if (!freshJob || !freshJob.enabled) {
         this.db.exec("COMMIT");
         return undefined;
@@ -330,7 +369,7 @@ export class CronStore {
         this.db.prepare(
           "INSERT OR IGNORE INTO runs(job_id,slot,started_at,ended_at,status,error,reason,job_name,report,read_at) VALUES(?,?,?,?,'skipped',?,?,?,0,NULL)"
         ).run(job.id, slot, now, now,
-          missed ? `skipped: slot ${new Date(slot).toISOString()} was ${Math.round((now - slot) / 1000)}s late (grace ${Math.round(freshJob.grace_ms / 1000)}s)` : "skipped: previous run still running",
+          missed ? `skipped: slot ${new Date(slot).toISOString()} was ${Math.round((now - slot) / 1000)}s late (grace ${Math.round((freshJob.grace_ms ?? 0) / 1000)}s)` : "skipped: previous run still running",
           missed ? "missed" : "overlap", freshJob.name);
         this.db.prepare("UPDATE jobs SET next_run=? WHERE id=?").run(
           freshJob.interval_ms ? Math.max(now, slot) + freshJob.interval_ms : nextRun(freshJob.expr, Math.max(now, slot)),
@@ -351,7 +390,7 @@ export class CronStore {
       );
       this.db.exec("COMMIT");
       if (!info.changes) return undefined;
-      return this.run(this.db.prepare("SELECT * FROM runs WHERE job_id=? AND slot=?").get(job.id, slot));
+      return this.run(this.db.prepare("SELECT * FROM runs WHERE job_id=? AND slot=?").get(job.id, slot) as RunDbRow);
     } catch (e) {
       this.db.exec("ROLLBACK");
       throw e;
@@ -362,7 +401,7 @@ export class CronStore {
   claimManual(job: Job, now: number): Run {
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const freshJob = this.db.prepare("SELECT * FROM jobs WHERE id=? AND deleted_at IS NULL").get(job.id) as any;
+      const freshJob = this.db.prepare("SELECT * FROM jobs WHERE id=? AND deleted_at IS NULL").get(job.id) as JobDbRow | undefined;
       if (!freshJob) throw new Error("no such job " + job.id);
 
       const active = this.db.prepare("SELECT id FROM runs WHERE job_id=? AND status='running'").get(job.id);
@@ -388,7 +427,7 @@ export class CronStore {
   /** Fix the run's deadline once. Returns the stored value (the first one wins). */
   fixDeadline(runId: number, at: number): number {
     this.db.prepare("UPDATE runs SET deadline_at=? WHERE id=? AND deadline_at IS NULL").run(at, runId);
-    return (this.db.prepare("SELECT deadline_at d FROM runs WHERE id=?").get(runId) as any).d;
+    return (this.db.prepare("SELECT deadline_at d FROM runs WHERE id=?").get(runId) as { d: number }).d;
   }
 
   /** A retry is waiting: record the next attempt and when it is due. The failed attempt's ids stay until it starts. */
@@ -408,7 +447,7 @@ export class CronStore {
   finish(runId: number, status: "ok" | "error", output: string | null, error: string | null, now = Date.now(), reason: string | null = null) {
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const run = this.db.prepare("SELECT * FROM runs WHERE id=?").get(runId) as any;
+      const run = this.db.prepare("SELECT * FROM runs WHERE id=?").get(runId) as RunDbRow | undefined;
       if (!run) {
         this.db.exec("COMMIT");
         return;
@@ -435,7 +474,7 @@ export class CronStore {
           const trimmedOutput = (output || "").trim();
           const prevOk = this.db.prepare(
             "SELECT output FROM runs WHERE job_id=? AND status='ok' AND id < ? AND report=1 ORDER BY id DESC LIMIT 1"
-          ).get(run.job_id, runId) as any;
+          ).get(run.job_id, runId) as { output: string | null } | undefined;
           if (!prevOk) {
             shouldReport = true;
           } else {
@@ -457,7 +496,7 @@ export class CronStore {
 
   reports(options: { history?: boolean; jobId?: number; before?: number; limit?: number } = {}): Run[] {
     const { history = false, jobId, before, limit = 50 } = options;
-    const params: any[] = [];
+    const params: (string | number)[] = [];
     let query = `
       SELECT r.* FROM runs r
       WHERE r.report=1 AND r.status != 'running'
@@ -482,11 +521,11 @@ export class CronStore {
     query += " ORDER BY r.id DESC LIMIT ?";
     params.push(limit);
 
-    return this.db.prepare(query).all(...params).map((r) => this.run(r));
+    return (this.db.prepare(query).all(...params) as unknown as RunDbRow[]).map((r) => this.run(r));
   }
 
   unreadCount(): number {
-    const r = this.db.prepare(`SELECT COUNT(*) as c FROM (${inboxIds})`).get() as any;
+    const r = this.db.prepare(`SELECT COUNT(*) as c FROM (${inboxIds})`).get() as { c: number } | undefined;
     return r?.c ?? 0;
   }
 
@@ -507,28 +546,28 @@ export class CronStore {
     else if (!history) where.push("status IN ('running','error')");
     if (jobId !== undefined) { where.push("job_id=?"); params.push(jobId); }
     if (before !== undefined) { where.push("id<?"); params.push(before); }
-    return this.db.prepare(`SELECT * FROM runs WHERE ${where.join(" AND ") || "1=1"} ORDER BY id DESC LIMIT ?`)
-      .all(...params, limit).map(r => this.run(r));
+    return (this.db.prepare(`SELECT * FROM runs WHERE ${where.join(" AND ") || "1=1"} ORDER BY id DESC LIMIT ?`)
+      .all(...params, limit) as unknown as RunDbRow[]).map(r => this.run(r));
   }
 
   lastRun(jobId: number): Run | undefined {
-    const r = this.db.prepare("SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT 1").get(jobId);
+    const r = this.db.prepare("SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT 1").get(jobId) as RunDbRow | undefined;
     return r ? this.run(r) : undefined;
   }
 
   runs(jobId?: number, limit = 50): Run[] {
     const q = jobId === undefined ? this.db.prepare("SELECT * FROM runs ORDER BY id DESC LIMIT ?").all(limit)
       : this.db.prepare("SELECT * FROM runs WHERE job_id=? ORDER BY id DESC LIMIT ?").all(jobId, limit);
-    return q.map((r) => this.run(r));
+    return (q as unknown as RunDbRow[]).map((r) => this.run(r));
   }
 
   getRun(id: number): Run | undefined {
-    const r = this.db.prepare("SELECT * FROM runs WHERE id=?").get(id);
+    const r = this.db.prepare("SELECT * FROM runs WHERE id=?").get(id) as RunDbRow | undefined;
     return r ? this.run(r) : undefined;
   }
 
   unfinished(): Run[] {
-    return this.db.prepare("SELECT * FROM runs WHERE status='running' ORDER BY id").all().map((r) => this.run(r));
+    return (this.db.prepare("SELECT * FROM runs WHERE status='running' ORDER BY id").all() as unknown as RunDbRow[]).map((r) => this.run(r));
   }
 
   close() { this.db.close(); }
@@ -778,7 +817,7 @@ export class Scheduler {
         if (!run.submissionId) {
           // Crash window: the conversation was recorded, the submission may or may not have been admitted.
           // submit() with the same requestId returns the existing submission, or admits it once.
-          const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
+          const conv = run.conversationId ? await harness.conversation(Number(run.conversationId) as ConversationId, context) : undefined;
           if (!conv) throw new Interrupted("interrupted before the run started (no conversation recorded)");
           this.guard(a);
           const sub = await conv.submit({ type: "input", content: job.prompt, requestId: this.requestId(run, run.attempt) }, context);
@@ -786,10 +825,10 @@ export class Scheduler {
           this.o.log(`recovering run ${run.id} (reconciled submission)`);
           return this.settle(run, sub, conv, a);
         }
-        const sub = await harness.submission(run.submissionId as any, context);
+        const sub = await harness.submission(Number(run.submissionId) as SubmissionId, context);
         if (!sub) throw new Interrupted("submission not found on recovery");
         this.o.log(`recovering run ${run.id}`);
-        const conv = run.conversationId ? await harness.conversation(run.conversationId as any, context) : undefined;
+        const conv = run.conversationId ? await harness.conversation(Number(run.conversationId) as ConversationId, context) : undefined;
         return this.settle(run, sub, conv, a);
       };
       await this.execute(job, run, a, resume);
@@ -798,18 +837,18 @@ export class Scheduler {
 
   private timeoutMs() { const t = this.o.runTimeoutMs; return typeof t === "function" ? t() : t; }
 
-  private async answerText(conv: { context(c: any): Promise<any> } | undefined, id: unknown): Promise<string | null> {
-    if (!conv) return null;
+  private async answerText(conv: Conversation | undefined, id: EntryId | undefined): Promise<string | null> {
+    if (!conv || !id) return null;
     const view = await conv.context(context);
-    const e = view.entries.find((x: any) => x.id === id);
+    const e = view.entries.find((x) => x.id === id);
     const msg = e?.model?.[0];
     if (!msg) return null;
     return typeof msg.content === "string" ? msg.content
-      : (msg.content as any[]).filter((c) => c.type === "text").map((c) => c.text).join("");
+      : Array.isArray(msg.content) ? msg.content.flatMap((c) => c.type === "text" ? [c.text] : []).join("") : "";
   }
 
   /** Wait for the submission. Resolves with the answer text; throws if it did not finish. */
-  private async settle(run: Run, sub: { wait(c: any): Promise<any>; abort(c: any): Promise<any> }, conv: { context(c: any): Promise<any>; abort(c: any): Promise<void> } | undefined, a: ActiveRun): Promise<string | null> {
+  private async settle(run: Run, sub: Submission, conv: Conversation | undefined, a: ActiveRun): Promise<string | null> {
     // Submission.abort() only withdraws a queued input; once the turn has started it returns "already_placed"
     // and cancels nothing. Aborting the run's own (ownerless) conversation cancels the live turn.
     a.abort = async () => { if ((await sub.abort(context)) === "already_placed") await conv?.abort(context); };

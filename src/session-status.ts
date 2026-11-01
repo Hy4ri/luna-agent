@@ -198,3 +198,56 @@ export async function readSessionStatus(tx: Tx, id: ConversationId, running: boo
 
   return state("finished");
 }
+
+export type CommonSessionReport = {
+  state: "running" | "done" | "failed" | "unanswered" | "idle" | "needs_input" | "needs_approval" | "stopped";
+  requestId?: string;
+  answer?: string;
+  reason?: string;
+  boundary?: number;
+};
+
+/** Shared resolution of child/member session status over a list of request IDs. */
+export async function readCommonSessionReport(
+  tx: Tx,
+  cid: ConversationId,
+  requests: string[],
+): Promise<{ report: CommonSessionReport; running: boolean; latestSubmission?: Awaited<ReturnType<Tx["submissionByRequest"]>> }> {
+  const base: CommonSessionReport = { state: "idle" };
+  const latest = requests.at(-1);
+  if (latest) base.requestId = latest;
+
+  let pending = false;
+  for (const request of requests) {
+    const submission = await tx.submissionByRequest(cid, request);
+    if (!submission || submission.status === "queued" || submission.status === "placed") pending = true;
+    if (request !== latest || !submission) continue;
+    if (submission.status === "unanswered") {
+      base.state = "unanswered";
+      base.reason = submission.reason;
+    } else if (submission.type === "input" && submission.status === "done") {
+      base.state = "done";
+      const entry = await tx.entry(submission.answer);
+      base.answer = (entry?.model ?? []).flatMap(m => m.role === "assistant" ? m.content : [])
+        .flatMap(c => c.type === "text" ? [c.text] : []).join("\n");
+    }
+  }
+
+  const running = pending || await isRunning(tx, cid);
+  if (running) base.state = "running";
+
+  const handoff = await readSessionHandoff(tx, cid);
+  const status = await readSessionStatus(tx, cid, running);
+  const latestSubmission = latest ? await tx.submissionByRequest(cid, latest) : undefined;
+
+  if (handoff && latestSubmission?.entry !== undefined && handoff.boundary >= Number(latestSubmission.entry)) {
+    base.state = handoff.status;
+    base.reason = handoff.reason;
+    base.boundary = handoff.boundary;
+  } else if (!running && ["failed", "limit_reached", "stopped"].includes(status.status)) {
+    base.state = status.status === "stopped" ? "stopped" : "failed";
+    base.reason = status.statusReason ?? status.status;
+  }
+
+  return { report: base, running, latestSubmission };
+}

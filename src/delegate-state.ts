@@ -1,7 +1,7 @@
 // Shared delegation state. Documents own identity; transcript scans are for legacy rows only.
 import type { JsonValue } from "@earendil-works/chord";
 import { defineDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
-import { isRunning, newestInputBoundary, readSessionHandoff, readSessionStatus } from "./session-status.js";
+import { newestInputBoundary, readCommonSessionReport } from "./session-status.js";
 
 export const DELEGATE_MESSAGE = "delegate.msg";
 export const DELEGATE_CHILD = "delegate.child";
@@ -59,33 +59,8 @@ export async function readChildReport(tx: Tx, parent: ConversationId, id: number
   const base: ChildReport = { id, state: "idle", resultStatus: "not_requested", ...(row?.cwd ? { cwd: row.cwd } : {}) };
   if (!row || !await tx.conversation(cid)) return { ...base, state: "failed", reason: "Child conversation no longer exists." };
   const requests = await childRequests(tx, parent, id);
-  const latest = requests.at(-1);
-  if (latest) base.requestId = latest;
-  let pending = false;
-  for (const request of requests) {
-    const submission = await tx.submissionByRequest(cid, request);
-    if (!submission || submission.status === "queued" || submission.status === "placed") pending = true;
-    if (request !== latest || !submission) continue;
-    if (submission.status === "unanswered") { base.state = "unanswered"; base.reason = submission.reason; }
-    else if (submission.type === "input" && submission.status === "done") {
-      base.state = "done";
-      const entry = await tx.entry(submission.answer);
-      base.answer = (entry?.model ?? []).flatMap(m => m.role === "assistant" ? m.content : [])
-        .flatMap(c => c.type === "text" ? [c.text] : []).join("\n");
-    }
-  }
-  const running = pending || await isRunning(tx, cid);
-  if (running) base.state = "running";
-  const status = await readSessionStatus(tx, cid, running);
-  const handoff = await readSessionHandoff(tx, cid);
-  const latestSubmission = latest ? await tx.submissionByRequest(cid, latest) : undefined;
-  if (handoff && latestSubmission?.entry !== undefined && handoff.boundary >= Number(latestSubmission.entry)) {
-    base.state = handoff.status; base.reason = handoff.reason; base.boundary = handoff.boundary;
-  }
-  else if (!running && ["failed", "limit_reached", "stopped"].includes(status.status)) {
-    base.state = status.status === "stopped" ? "stopped" : "failed";
-    base.reason = status.statusReason ?? status.status;
-  }
+  const { report, latestSubmission } = await readCommonSessionReport(tx, cid, requests);
+  Object.assign(base, report);
   const contract = await tx.doc(ChildResult, cid);
   if (contract.schema) {
     // A result belongs to the placed input boundary, not a previous steering turn.
