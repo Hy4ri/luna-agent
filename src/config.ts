@@ -238,6 +238,12 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
   };
 }
 
+/** A non-loopback bind exposes the full agent API, so it needs LUNA_TOKEN. Returns the refusal, or undefined. */
+export function bindRefusal(host: string, token: string | undefined): string | undefined {
+  if (host === "127.0.0.1" || host === "localhost" || host === "::1" || token) return undefined;
+  return "refusing to bind non-loopback host without LUNA_TOKEN";
+}
+
 /** Load LUNA_CONFIG (default ./luna.config.json). A missing default file means all defaults. */
 export function loadConfig(path = process.env.LUNA_CONFIG): LunaConfig {
   const file = resolve(path ?? "luna.config.json");
