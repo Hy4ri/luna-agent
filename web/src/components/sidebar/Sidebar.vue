@@ -309,7 +309,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', menuKey, true);
 });
 onMounted(() => {
-  loadWorkers().catch(() => {});
+  loadWorkers().catch((e) => console.warn("Failed to load workers:", e));
   document.addEventListener('pointerdown', outsideMenu);
   document.addEventListener('keydown', menuKey, true);
 });

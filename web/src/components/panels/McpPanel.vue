@@ -3,6 +3,7 @@ import { ref, watch, onMounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
 import { json, post } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 
 import { useSettingsMutation } from "./useSettingsMutation";
 const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();
@@ -11,7 +12,7 @@ watch(pending, busy => emit("busy", busy), { flush: "sync" });
 const loading = ref(true);
 const errorMsg = ref("");
 const mcpData = ref<any>(null);
-const toasts = ref<string[]>([]);
+const { toasts, toast } = useToast();
 const connecting = ref(false);
 
 // New server form state
@@ -21,14 +22,6 @@ const targetInput = ref("");
 const argsInput = ref("");
 const secretsInput = ref("");
 const deferInput = ref(true);
-
-function toast(text: string) {
-  toasts.value.push(text);
-  setTimeout(() => {
-    const idx = toasts.value.indexOf(text);
-    if (idx !== -1) toasts.value.splice(idx, 1);
-  }, 2500);
-}
 
 async function fetchData() {
   loading.value = true;

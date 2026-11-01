@@ -433,8 +433,7 @@ import { Button } from "@/components/ui/button"
 import { ui, setDrawer, navigate } from "@/stores/app"
 import { serverUrl, token } from "@/lib/api"
 import { analyticsSnapshot as snapshot, loadAnalytics } from "@/stores/analytics"
-import { SESSION_STATUS_LABELS } from "@/lib/session-status"
-import type { SessionStatus } from "@/lib/types"
+import { statusLabel, statusChipClass } from "@/lib/session-status"
 
 import type { DailyItem, AnalyticsSession } from "./analytics/types"
 import { full, compact, usd, pct, when, COLORS, FIELDS } from "./analytics/formatters"
@@ -464,22 +463,6 @@ const inspectingSession = ref<AnalyticsSession | null>(null)
 
 const colors = COLORS
 const fields = FIELDS.map(([k, l]) => [k, l] as [string, string])
-
-function statusLabel(s: SessionStatus): string {
-  return (SESSION_STATUS_LABELS as Record<string, string>)[s] ?? s
-}
-
-function statusChipClass(s: SessionStatus): string {
-  switch (s) {
-    case "running": return "border-blue-500/40 bg-blue-500/10 text-blue-400"
-    case "finished": return "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-    case "needs_approval": return "border-amber-500/40 bg-amber-500/10 text-amber-400"
-    case "needs_input": return "border-purple-500/40 bg-purple-500/10 text-purple-400"
-    case "limit_reached": return "border-orange-500/40 bg-orange-500/10 text-orange-400"
-    case "failed": return "border-destructive/40 bg-destructive/10 text-destructive"
-    default: return "border-border bg-secondary text-foreground"
-  }
-}
 
 function inspectSession(session: AnalyticsSession) {
   inspectingSession.value = session

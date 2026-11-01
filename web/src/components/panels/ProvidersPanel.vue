@@ -4,6 +4,7 @@ import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEdi
 import { ChevronRight } from "@lucide/vue";
 import { json, post } from "@/lib/api";
 import { loadModels } from "@/stores/models";
+import { useToast } from "@/lib/toast";
 
 import { useSettingsMutation } from "./useSettingsMutation";
 const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();
@@ -11,7 +12,7 @@ const { pending, run } = useSettingsMutation(() => emit("changed"));
 const loading = ref(true);
 const errorMsg = ref("");
 const providerData = ref<any>(null);
-const toasts = ref<string[]>([]);
+const { toasts, toast } = useToast();
 const activeLogin = ref<any>(null);
 const loginPollingTimer = ref<any>(null);
 watch(() => pending.value || activeLogin.value?.status === "running", busy => emit("busy", busy), { flush: "sync" });
@@ -27,14 +28,6 @@ const addingCustom = ref(false);
 
 // API key inputs for builtin providers
 const apiKeys = ref<Record<string, string>>({});
-
-function toast(text: string) {
-  toasts.value.push(text);
-  setTimeout(() => {
-    const idx = toasts.value.indexOf(text);
-    if (idx !== -1) toasts.value.splice(idx, 1);
-  }, 2500);
-}
 
 async function fetchData() {
   loading.value = true;

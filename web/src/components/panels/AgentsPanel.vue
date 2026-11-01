@@ -3,20 +3,13 @@ import { ref, onMounted } from "vue";
 import { json } from "@/lib/api";
 import { chat, openSession, sortChildren } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
+import { useToast } from "@/lib/toast";
 
 const loading = ref(true);
 const errorMsg = ref("");
 const sessionData = ref<any>(null);
 const childSessions = ref<any[]>([]);
-const toasts = ref<string[]>([]);
-
-function toast(text: string) {
-  toasts.value.push(text);
-  setTimeout(() => {
-    const idx = toasts.value.indexOf(text);
-    if (idx !== -1) toasts.value.splice(idx, 1);
-  }, 2500);
-}
+const { toasts, toast } = useToast();
 
 async function fetchData() {
   if (!chat.session) {

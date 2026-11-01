@@ -2,6 +2,7 @@
 import { ref, onMounted } from "vue";
 import { ChevronRight } from "@lucide/vue";
 import { json, post } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 
 const loading = ref(true);
 const errorMsg = ref("");
@@ -12,15 +13,7 @@ const searchTimer = ref<any>(null);
 // New memory form
 const keyInput = ref("");
 const contentInput = ref("");
-const toasts = ref<string[]>([]);
-
-function toast(text: string) {
-  toasts.value.push(text);
-  setTimeout(() => {
-    const idx = toasts.value.indexOf(text);
-    if (idx !== -1) toasts.value.splice(idx, 1);
-  }, 2500);
-}
+const { toasts, toast } = useToast();
 
 async function loadMemory() {
   loading.value = true;
