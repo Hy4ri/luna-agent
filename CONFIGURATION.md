@@ -115,13 +115,16 @@ Do not start two writing daemons against the same data directory.
 
 Dependency patches retain Luna's persistent tool ceilings, redirect/grouped-steering behavior, submission receipts,
 selected model identity in failures, and provider quota diagnostics/retry ownership. Guarded server admissions use Pi's
-transactional submission API, not a host callback stored in a submission. Native continuation, cost-source UI labels,
-and configurable tool-round limits are separate follow-up features, not implicit settings in this upgrade.
+transactional submission API, not a host callback stored in a submission.
 
 ## Fields
 
 - `provider`, `model`: default model for new sessions and cron runs.
 - `thinkingLevel`, `instructions`: defaults for new chat sessions.
+- `maxTurns`: optional integer of 1 or more. A run may take this many tool rounds. The round that reaches the limit runs its tools,
+  then the run ends unanswered and the session shows **Limit reached**. A new input starts a new run with a fresh count. It is not a time,
+  token, cost, goal, or delegate-deadline limit and does not replace them. Unset means no limit. It applies to conversations created after the change.
+  `subagents.maxTurns` and a profile's `maxTurns` set the limit for new children; without either, a child inherits its parent's limit.
 - `afterFailedRun`: what happens to messages queued behind a response that failed. `keep` (default) leaves them queued until the next input,
   `continue` starts the next response with them, `withdraw` drops them. It applies to all sessions and live.
 - Operator alerts: when `cron.notifyUrl` is set, storage failure (`storage_failed`) and tasks interrupted by the crash guard

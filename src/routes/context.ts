@@ -107,6 +107,7 @@ export function createRouteCtx(
       ...(opts.agent ?? {}),
       ...(opts.providers && { model: opts.providers.defaultModel() }),
       ...(c?.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}),
+      ...(c?.maxTurns ? { maxTurns: c.maxTurns } : {}),
       ...(c?.instructions ? { instructions: c.instructions } : {}),
     };
   };

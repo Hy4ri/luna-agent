@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import {
-  createSession, LiveDoc, MemoryStorage,
+  createRegistry, createSession, Harness, LiveDoc, MemoryStorage,
   type ConversationId, type EntryId, type RunFailureReason, type SubmissionId, type TaskId,
 } from "@earendil-works/pi-durable";
 import type { JsonValue } from "@earendil-works/chord";
@@ -91,4 +91,22 @@ test("quota failure uses selected request identity, and a current handoff takes 
     assert.equal(report.state, "needs_approval");
     assert.equal(report.reason, "Confirm the next action");
   } finally { await session.close(context); }
+});
+
+test("a run that reaches maxTurns ends unanswered and the session shows limit reached", async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage([fauxToolCall("no_such_tool", {})], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("never reached")])]);
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const harness = await Harness.open(new MemoryStorage(), { models, registry: createRegistry() }, context);
+  try {
+    const model = faux.getModel();
+    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider: model.provider, modelId: model.id }, maxTurns: 1 } }, context);
+    const settled = await (await conv.submit({ type: "input", content: "use a tool" }, context)).wait(context);
+    assert.equal(settled.status, "unanswered");
+    assert.equal(settled.reason, "turn_limit");
+    const status = await harness.commit(tx => readSessionStatus(tx, conv.id, false), context);
+    assert.equal(status.status, "limit_reached");
+    assert.equal(faux.getPendingResponseCount(), 1, "the second model request was never sent");
+  } finally { await harness.close(context); }
 });

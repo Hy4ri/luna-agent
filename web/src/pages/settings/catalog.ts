@@ -1,6 +1,6 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
 export const sections = [
-  { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'busyInput', 'autoContinue', 'afterFailedRun', 'sessionTalk'] },
+  { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'busyInput', 'autoContinue', 'afterFailedRun', 'maxTurns', 'sessionTalk'] },
   { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'pinnedModels', 'subagents', 'auxiliary'] },
   { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
   { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'extensions', 'disabledTools'] },
@@ -42,7 +42,7 @@ export const fieldTitles: Record<string, string> = {
   auxiliary: 'Task-specific models', side_question: 'Side questions', session_title: 'Session titles', review: 'Session review',
   providers: 'Provider accounts', id: 'ID', name: 'Display name', api: 'API format', baseUrl: 'Base URL', models: 'Models',
   contextWindow: 'Context window (tokens)', maxTokens: 'Maximum output (tokens)', reasoning: 'Supports reasoning',
-  instructions: 'Default instructions', afterFailedRun: 'Queued messages after a failed response', skillDirs: 'Extra skill directories',
+  maxTurns: 'Tool rounds per run', instructions: 'Default instructions', afterFailedRun: 'Queued messages after a failed response', skillDirs: 'Extra skill directories',
   video: 'Video analysis', blocked_paths: 'Blocked local paths', blocked_hosts: 'Blocked URL hosts', timeout_ms: 'Video timeout (milliseconds)', vision: 'Image analysis', image_mode: 'Image analysis route', history_budget_bytes: 'History image budget (bytes)',
   long_edge: 'Maximum long edge (pixels)', hard_bytes: 'Image size limit (bytes)', max_calls_per_image: 'Main-agent calls per image',
   subagent_max_calls_per_image: 'Subagent calls per image', profiles: 'Vision profiles', tool_result_images: 'Allow tool-result images',
@@ -103,6 +103,8 @@ const fieldHelp: Record<string, string> = {
   'auxiliary.review': 'Model used by /review. Required: /review does not fall back to the session model. It reads code and cannot run tests.',
   'auxiliary.session_title': 'Override the model used to name new conversations.',
   'auxiliary.vision': 'Image-capable model for auxiliary analysis. Select the analysis route in Media.',
+  'maxTurns': 'Stops a run after this many tool rounds. The round that reaches the limit finishes its tools, then the run ends as limit reached. Leave blank for no limit. This is not a time, token, or cost limit.',
+  'subagents.maxTurns': 'Tool-round limit for new subagents. Leave blank to inherit the parent session limit.',
   'instructions': 'Default instructions for new conversations. This does not rewrite instructions in existing conversations.',
   'disabledTools': 'Hidden from the model and refused if called. Changes apply on the next model request after saving.',
   'disabledSkills': 'Hidden from the skills catalog and skill_view immediately after saving.',
@@ -165,7 +167,7 @@ export function helpFor(path: (string | number)[]): string {
 }
 
 export const timing: Record<string, string> = {
-  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', sessionTalk: 'Applies live',
+  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live',
   dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Disable live; enable may need restart', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }

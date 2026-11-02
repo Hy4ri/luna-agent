@@ -82,6 +82,7 @@
     "files": []
   },
   "thinkingLevel": "medium",
+  "maxTurns": 60,
   "providers": [
     {
       "id": "cli-proxy-api",
@@ -96,6 +97,7 @@
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
     "thinkingLevel": "low",
+    "maxTurns": 40,
     "profiles": {
       "scout": {
         "context": "fresh",

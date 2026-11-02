@@ -201,7 +201,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let projectExtensions: Extension[] = [];
   const newSessionAgent = () => {
     const c = live();
-    return { model: providers.defaultModel(), ...(c.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}), ...(c.instructions ? { instructions: c.instructions } : {}) };
+    return { model: providers.defaultModel(), ...(c.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}), ...(c.maxTurns ? { maxTurns: c.maxTurns } : {}), ...(c.instructions ? { instructions: c.instructions } : {}) };
   };
   if (on("delegate")) extensions.push(createSessionCrewExtension({
     harness: () => harnessRef,
