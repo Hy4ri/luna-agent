@@ -4,7 +4,7 @@ import { Check, X, LoaderCircle, ChevronRight, Circle, CircleDot } from '@lucide
 import { chat, openSession, toolArgsText } from '@/stores/chat';
 import { json as fetchJson } from '@/lib/api';
 import { formatTime, formatDateIso } from '@/lib/message';
-import { toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits } from '@/lib/tool-view';
+import { toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits, parseCodemodeCalls } from '@/lib/tool-view';
 import Markdown from './Markdown.vue';
 import SessionImage from './SessionImage.vue';
 import DiffView from './tool/DiffView.vue';
@@ -134,8 +134,10 @@ const media = computed(() => {
   if (props.name === 'vision_analyze') return typeof j.width === 'number' ? `${j.width}×${j.height}` : '';
   return [j.model, j.image].filter((x: unknown) => typeof x === 'string' && x).join(' · ');
 });
+const codemodeCalls = computed(() => view.value === 'codemode' ? parseCodemodeCalls(details.value) : []);
+const codemodeCode = computed(() => typeof a.value.code === 'string' ? a.value.code : '');
 const hasBody = computed(() => {
-  if (state.value === 'failed') return view.value === 'edit';
+  if (state.value === 'failed') return view.value === 'edit' || view.value === 'codemode';
   switch (view.value) {
     case 'edit': return diffRows.value.length > 0;
     case 'write': return writeLines.value > 0;
@@ -143,6 +145,7 @@ const hasBody = computed(() => {
     case 'todo': return tasks.value.length > 0 || !!body.value;
     case 'media': return !!media.value;
     case 'skill': return props.name === 'skill_propose' ? typeof a.value.content === 'string' : !!body.value;
+    case 'codemode': return !!codemodeCode.value || codemodeCalls.value.length > 0 || !!body.value;
     default: return !!body.value;
   }
 });
@@ -156,6 +159,7 @@ const hasBody = computed(() => {
         <LoaderCircle v-else :size="14" aria-hidden="true" />
         <span class="tool-name">{{ name }}</span>
         <span v-if="summary" class="tool-summary" :title="summary">{{ view === 'bash' ? '$ ' + summary : summary }}</span>
+        <span v-if="view === 'codemode' && codemodeCalls.length" class="tool-counts">{{ codemodeCalls.length }} call{{ codemodeCalls.length === 1 ? '' : 's' }}</span>
         <span v-if="editApplied && (counts.add || counts.del)" class="tool-counts"><span class="diff-add-count">+{{ counts.add }}</span> <span class="diff-del-count">−{{ counts.del }}</span></span>
         <span v-if="writeLines && state === 'complete'" class="tool-counts">{{ writeLines }} line{{ writeLines === 1 ? '' : 's' }}</span>
         <span v-if="proc && proc.running" class="tool-counts">running</span>
@@ -226,6 +230,32 @@ const hasBody = computed(() => {
             </template>
             <Markdown v-else class="tool-md" :content="body" />
           </template>
+          <template v-else-if="view === 'codemode'">
+            <template v-if="codemodeCode">
+              <span class="tool-section-label">Script</span>
+              <CodeView :text="codemodeCode" />
+            </template>
+            <template v-if="codemodeCalls.length">
+              <span class="tool-section-label">Nested calls ({{ codemodeCalls.length }})</span>
+              <ul class="tool-tasks">
+                <li v-for="c in codemodeCalls" :key="c.id" :data-status="c.status === 'ok' ? 'completed' : c.status === 'running' ? 'in_progress' : undefined">
+                  <Check v-if="c.status === 'ok'" :size="13" aria-hidden="true" />
+                  <CircleDot v-else-if="c.status === 'running'" :size="13" aria-hidden="true" />
+                  <X v-else-if="c.status === 'error'" :size="13" class="tool-status-icon" aria-hidden="true" />
+                  <Circle v-else :size="13" aria-hidden="true" />
+                  <span class="tool-task-id">#{{ c.id }}</span>
+                  <span class="tool-name">{{ c.name }}</span>
+                  <span v-if="c.args" class="tool-summary" :title="c.args">{{ c.args }}</span>
+                  <span v-if="c.durationMs !== undefined" class="tool-counts">{{ (c.durationMs / 1000).toFixed(1) }}s</span>
+                  <span v-if="c.error" class="tool-exit" :title="c.error">{{ c.error }}</span>
+                </li>
+              </ul>
+            </template>
+            <template v-if="body">
+              <span class="tool-section-label">Output</span>
+              <TerminalView :text="body" />
+            </template>
+          </template>
           <p v-else-if="view === 'media'" class="tool-line">{{ media }}</p>
           <pre v-else>{{ body }}</pre>
         </div>
@@ -248,6 +278,7 @@ const hasBody = computed(() => {
       </template>
     </details>
     <div v-if="state === 'failed' && view === 'bash' && split.exit !== undefined" class="tool-error"><span class="tool-section-label">Exited with code {{ split.exit }}</span><TerminalView :text="body" /></div>
+    <div v-else-if="state === 'failed' && view === 'codemode'" class="tool-error"><span class="tool-section-label">Error</span><TerminalView :text="output || 'The tool failed without error details.'" /></div>
     <div v-else-if="state === 'failed'" class="tool-error"><span class="tool-section-label">Error</span><pre>{{ output || 'The tool failed without error details.' }}</pre></div>
     <SessionExchange v-if="blockedExchange && chat.session" :session="chat.session" :exchange="blockedExchange" />
     <div v-if="formatTime(timestamp)" class="tool-footer"><time :datetime="formatDateIso(timestamp)" :title="fullDate">{{ formatTime(timestamp) }}</time></div>

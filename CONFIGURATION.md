@@ -10,7 +10,7 @@ The page has eight task-based categories:
 - **Chat:** default instructions, messages during a response, usage-limit recovery, failed-response queues, and session messaging.
 - **Models:** main model, subagent defaults, task-specific models, and model catalog refresh.
 - **Accounts & connections:** provider accounts, custom providers, MCP connections, and execution machines.
-- **Tools:** web access, browser control, background commands, built-in tool groups, and disabled tools.
+- **Tools:** web access, browser control, background commands, Code Mode sandbox, built-in tool groups, and disabled tools.
 - **Memory & skills:** extra skill directories, disabled skills, conversation learning, and links to saved memory, skills, and lessons.
 - **Media:** image analysis, image generation, and video analysis.
 - **Automation:** scheduled-run defaults, skill improvement, and a link to Cron jobs and reports.
@@ -974,6 +974,39 @@ Saved output and completed exit codes remain available after restart until reten
 
 Run `pnpm run verify:process-tools` for real shell execution through the native runtime tools.
 The test uses a scripted model; it does not prove real-model tool choice.
+
+## Code Mode
+
+Enable or configure Code Mode under **Settings → Tools → Code Mode**:
+
+```json
+"codemode": {
+  "timeoutMs": 300000,
+  "memoryLimitBytes": 134217728,
+  "inlineBudget": 3000
+}
+```
+
+To make the `codemode` tool available to sessions, include `"codemode"` in `extensions`. The default configuration enables `codemode` automatically when `extensions` is omitted. If an explicit `extensions` list is defined in `luna.config.json`, `"codemode"` must be explicitly added to that list.
+
+Changes to `codemode` require a daemon restart.
+
+- `timeoutMs`: Overall execution deadline in milliseconds (default `300000`, 5 minutes) enforced at the execute boundary. Individual scripts may specify a shorter deadline via `// @options: {"timeout_ms": ...}` on the first line; requests exceeding `timeoutMs` are clamped to this hard ceiling. Durable replay journals persist this effective deadline.
+- `memoryLimitBytes`: Maximum memory the QuickJS WebAssembly VM may allocate per script (default `134217728` bytes / 128 MiB). Allocations beyond this fail with an out-of-memory error inside the script. This does not limit memory allocated by external tools called from the script.
+- `inlineBudget`: Estimated token budget (default `3000`) for tool declarations rendered in the `codemode` prompt section.
+
+Direct tools remain available. Code Mode is useful for multi-step tool workflows and filtering intermediate results before sending a summary to the model. For example:
+
+```javascript
+const results = await Promise.all(["package.json", "AGENTS.md"].map(path => tools.read({ path })));
+for (let i = 0; i < results.length; i++) text(results[i]);
+```
+
+Nested calls use the session's existing permissions, disabled-tool checks, and target execution machine. The JavaScript VM runs on the daemon; file and shell tools still run on the session's selected machine. Default subagent profiles do not gain Code Mode automatically. To use it in a custom profile, include `codemode` and each required nested tool in that profile's tool allowlist. Scripts cannot call Code Mode recursively.
+
+The built-in `models.*` helpers are disabled. Use Luna's existing image and analysis tools instead. The chat tool card shows script source, output, and saved nested-call status after reload. Restart recovery follows each nested tool's replay policy; it does not make arbitrary external effects exactly-once.
+
+The `codemode` tool executes model-written JavaScript in an isolated QuickJS sandbox via `@earendil-works/pi-codemode` and `@earendil-works/pi-durable/codemode`. Scripts call existing tools via `await tools.<name>(args)`. The sandbox does not expose Node APIs, network sockets, or filesystem access. On daemon shutdown, active sandboxes close before the harness to preserve clean state and permit durable replay resume.
 
 ## Parallel chat commands
 

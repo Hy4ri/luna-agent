@@ -9,13 +9,13 @@ import { z } from "zod";
 import { parseCron } from "./cron-expr.js";
 import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
-export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn"] as const;
+export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn", "codemode"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /** Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live. */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
   coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate", "delegate-results", "session-crew"],
   cron: ["cron"], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
-  recall: ["recall"], goal: ["goal"], learn: ["learn"],
+  recall: ["recall"], goal: ["goal"], learn: ["learn"], codemode: ["codemode"],
 };
 
 export const WEB_SEARCH_PROVIDERS = ["searxng", "freeserp", "ddgs"] as const;
@@ -149,6 +149,11 @@ export const ConfigSchema = z
       enabled: z.boolean().default(false),
       retentionHours: z.number().positive().default(168),
       maxOutputBytes: z.number().int().min(1024).max(16777216).default(1048576),
+    }).prefault({}),
+    codemode: z.strictObject({
+      timeoutMs: z.number().int().positive().max(2_147_483_647).default(300_000),
+      memoryLimitBytes: z.number().int().positive().default(128 * 1024 * 1024),
+      inlineBudget: z.number().int().positive().default(3000),
     }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),

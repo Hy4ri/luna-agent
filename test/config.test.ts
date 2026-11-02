@@ -92,3 +92,9 @@ test("maxTurns is a positive integer at the root, in subagent defaults, and in a
   for (const bad of [0, -1, 1.5, "3"]) rejects({ provider: "faux", maxTurns: bad }, /maxTurns/);
   rejects({ provider: "faux", subagents: { profiles: { r: { ...profile, maxTurns: 0 } } } }, /maxTurns/);
 });
+
+test("Code Mode rejects unknown settings and deadlines outside the supported timer range", () => {
+  rejects({ codemode: { typo: 1 } }, /codemode/);
+  for (const timeoutMs of [0, -1, 1.5, 2_147_483_648]) rejects({ codemode: { timeoutMs } }, /codemode/);
+  for (const memoryLimitBytes of [0, -1, 1.5]) rejects({ codemode: { memoryLimitBytes } }, /codemode/);
+});

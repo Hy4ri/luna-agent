@@ -2,7 +2,7 @@
 
 export type DiffRow = { kind: "add" | "del" | "ctx" | "skip"; line?: number; text: string };
 export type AnsiSpan = { text: string; cls: string };
-export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" | "web_search" | "web_extract" | "answers" | "skill" | "media" | "text" | "generic";
+export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" | "web_search" | "web_extract" | "answers" | "skill" | "media" | "codemode" | "text" | "generic";
 
 const TEXT_TOOLS = new Set([
   "board", "remember", "recall", "forget", "cron_create", "cron_list", "cron_runs", "cron_toggle", "cron_remove",
@@ -13,6 +13,7 @@ const TEXT_TOOLS = new Set([
 
 /** Which renderer a call uses. Unknown tools (MCP and others) keep the generic arguments/output card. */
 export function toolView(name: string): ToolView {
+  if (name === "codemode") return "codemode";
   if (["edit", "bash", "write", "read", "todo", "web_search", "web_extract"].includes(name)) return name as ToolView;
   if (name === "process_start" || name === "process_manage") return "process";
   if (name === "ask_user_question") return "answers";
@@ -53,6 +54,7 @@ export function toolSummary(name: string, args: unknown): string {
     case "set_goal_tasks": return Array.isArray(a.tasks) ? `${a.tasks.length} task${a.tasks.length === 1 ? "" : "s"}` : "";
     case "ask_user_question": return Array.isArray(a.questions) && a.questions[0] ? clip(str(a.questions[0].question)) + (a.questions.length > 1 ? ` +${a.questions.length - 1}` : "") : "";
     case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
+    case "codemode": return clip(str(a.code));
   }
   for (const key of ["path", "command", "query", "url", "objective", "prompt", "question", "name", "subject", "action"]) if (str(a[key])) return clip(a[key]);
   return "";
@@ -140,4 +142,24 @@ export function ansiSpans(text: string): AnsiSpan[] {
   }
   push(text.slice(at));
   return spans;
+}
+
+export type CodemodeNestedCallView = {
+  id: number;
+  name: string;
+  args: string;
+  status: "running" | "ok" | "error" | "cancelled";
+  durationMs?: number;
+  error?: string;
+};
+
+export function parseCodemodeCalls(details: unknown): CodemodeNestedCallView[] {
+  if (!details || typeof details !== "object") return [];
+  const calls = (details as { calls?: unknown }).calls;
+  if (!Array.isArray(calls)) return [];
+  return calls.filter((c: any): c is CodemodeNestedCallView =>
+    c && Number.isSafeInteger(c.id) && c.id >= 0 && typeof c.name === "string" &&
+    typeof c.args === "string" && ["running", "ok", "error", "cancelled"].includes(c.status) &&
+    (c.durationMs === undefined || typeof c.durationMs === "number" && Number.isFinite(c.durationMs) && c.durationMs >= 0) &&
+    (c.error === undefined || typeof c.error === "string"));
 }

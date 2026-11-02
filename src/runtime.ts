@@ -24,6 +24,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
 import { createRegistry, defineExtension, section, type Extension } from "@earendil-works/pi-durable";
+import { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import { createLunaCodemodeExtension } from "./codemode.js";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import { SettingsStore } from "./settings.js";
 import { BUILTIN_EXTENSIONS, BUILTIN_REGISTRY_NAMES, type LunaConfig } from "./config.js";
@@ -256,6 +258,15 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
   extensions.push(createFileMentionExtension({ home: (w) => w === null ? homedir() : workers.store.get(w)?.capabilities?.home }));
 
+  const codemodeSandbox = on("codemode") ? new CodemodeSandbox({
+    memoryLimitBytes: cfg.codemode.memoryLimitBytes,
+  }) : undefined;
+  if (codemodeSandbox) extensions.push(createLunaCodemodeExtension({
+    sandbox: codemodeSandbox,
+    inlineBudget: cfg.codemode.inlineBudget,
+    models: false,
+  }, cfg.codemode.timeoutMs));
+
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
   const harness = await openLuna({
     registry,
@@ -410,6 +421,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       await sideCommands.close();
       providers.close();
       await scheduler?.stop();
+      await codemodeSandbox?.close();
       await harness.close(context).catch(() => {});
       workers.close();
       workers.store.close();
