@@ -125,6 +125,7 @@ transactional submission API, not a host callback stored in a submission.
   then the run ends unanswered and the session shows **Limit reached**. A new input starts a new run with a fresh count. It is not a time,
   token, cost, goal, or delegate-deadline limit and does not replace them. Unset means no limit. It applies to conversations created after the change.
   `subagents.maxTurns` and a profile's `maxTurns` set the limit for new children; without either, a child inherits its parent's limit.
+  Scheduled (cron) runs and side questions do not use this setting. They keep their own run timeout.
 - `afterFailedRun`: what happens to messages queued behind a response that failed. `keep` (default) leaves them queued until the next input,
   `continue` starts the next response with them, `withdraw` drops them. It applies to all sessions and live.
 - Operator alerts: when `cron.notifyUrl` is set, storage failure (`storage_failed`) and tasks interrupted by the crash guard

@@ -63,3 +63,48 @@ test("a reset quota resumes with a native continue, once, without a synthetic us
     await harness.close(context);
   }
 });
+
+test("a continued run that hits the limit again counts as the next attempt in the same chain", async () => {
+  const limit = () => fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Please try again in 1s." });
+  const faux = fauxProvider();
+  faux.setResponses([limit(), limit(), fauxAssistantMessage([fauxText("recovered")])]);
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const harness = await openLuna({ dbPath: ":memory:", models, memory: false, coding: false });
+  const model = faux.getModel(), ref = { provider: model.provider, modelId: model.id };
+  let skew = 0;
+  const continuer = new LimitContinuer({
+    harness, log: () => {}, defaultModel: () => ref, now: () => Date.now() + skew, graceMs: 0, backoffMs: [1000],
+    policy: () => ({ enabled: true, maxWaitHours: 10_000, maxAttempts: 5 }),
+  });
+  try {
+    await continuer.start();
+    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    await (await conv.submit({ type: "input", content: "work" }, context)).wait(context);
+    const first = await until(() => harness.commit(tx => readLimitWait(tx, conv.id as ConversationId), context), "the first wait");
+    assert.equal(first.attempt, 1);
+    skew += 2 * 86_400_000;
+    assert.equal(await continuer.fire(Number(conv.id), first.boundary), true);
+
+    // The continued run fails again at the SAME input boundary. It must continue the chain, not start a new one.
+    const second = await until(async () => {
+      const wait = await harness.commit(tx => readLimitWait(tx, conv.id as ConversationId), context);
+      return wait && wait.generation !== first.generation ? wait : undefined;
+    }, "the second wait");
+    assert.equal(second.boundary, first.boundary, "a continue does not move the input boundary");
+    assert.equal(second.attempt, 2, "the second failure is attempt 2 of the same chain");
+    assert.equal(second.firstFailedAt, first.firstFailedAt, "the recovery lifetime is not reset");
+
+    skew += 2 * 86_400_000;
+    assert.equal(await continuer.fire(Number(conv.id), second.boundary), true);
+    await until(async () => {
+      const entries = (await conv.entries({}, 50, undefined, context)).items;
+      return entries.some(entry => entry.model?.[0]?.role === "assistant" && entry.model[0].stopReason === "stop") ? true : undefined;
+    }, "the recovered answer");
+    const users = (await conv.entries({}, 50, undefined, context)).items.filter(entry => entry.kind === "pi.user");
+    assert.equal(users.length, 1);
+  } finally {
+    await continuer.close();
+    await harness.close(context);
+  }
+});
