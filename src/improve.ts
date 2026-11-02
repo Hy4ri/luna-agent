@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { parseFrontmatter, scanSkills } from "./skills.js";
 

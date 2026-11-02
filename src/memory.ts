@@ -2,7 +2,7 @@
 // a compacted system-prompt section, and remember/recall/forget tools.
 import { DatabaseSync } from "node:sqlite";
 import { chmodSync } from "node:fs";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 
 export type Kind = "fact" | "note" | "digest";

@@ -26,7 +26,7 @@ export function createSessionRows(ctx: RouteCtx) {
     caching = true;
 
   try {
-    harness.subscribeCommits((publication) => {
+    harness.observeCommits({ advance(publication) {
       for (const change of publication.changes) {
         const id =
           change.type === "conversation"
@@ -43,7 +43,12 @@ export function createSessionRows(ctx: RouteCtx) {
         rows.delete(k);
         generations.set(k, (generations.get(k) ?? 0) + 1);
       }
-    });
+    }, end() {
+      caching = false;
+      rows.clear();
+      generations.clear();
+      epoch++;
+    } });
   } catch {
     caching = false;
   } // No commit feed means no invalidation: rebuild every row instead.

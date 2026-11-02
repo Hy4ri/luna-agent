@@ -1,0 +1,563 @@
+diff --git a/dist/harness/agent.js b/dist/harness/agent.js
+index de65a5e..0c2f03a 100644
+--- a/dist/harness/agent.js
++++ b/dist/harness/agent.js
+@@ -75,6 +75,10 @@ export async function configure(tx, conversationId, change) {
+  */
+ export async function addTools(tx, conversationId, added) {
+     const state = await tx.doc(AgentDoc, conversationId);
++    if (state.toolAllowlist !== undefined) {
++        const allowed = new Set(state.toolAllowlist);
++        added = added.filter((name) => allowed.has(name));
++    }
+     const tools = state.tools;
+     if (Array.isArray(tools)) {
+         for (const name of added)
+@@ -119,6 +123,8 @@ function applyChange(state, change) {
+                 ...(extensions.add === undefined ? {} : { add: names(extensions.add) }),
+                 ...(extensions.remove === undefined ? {} : { remove: names(extensions.remove) }),
+             });
++    set("toolAllowlist", change.toolAllowlist === undefined || change.toolAllowlist === null
++        ? change.toolAllowlist : [...change.toolAllowlist]);
+     const tools = change.tools;
+     set("tools", tools === undefined || tools === null ? tools : isList(tools) ? names(tools) : { remove: names(tools.remove) });
+     const modelTools = change.modelTools;
+@@ -217,7 +223,10 @@ report) {
+                 applyWrap(sections, wrap.section, (section) => wrap.wrap(section), (section) => section.key, wrapReport);
+         }
+     }
+-    const enabled = filterTools([...composed.values()], state?.tools);
++    // Apply the persistent ceiling before selecting model-callable or tool-callable tools.
++    const allowed = state?.toolAllowlist === undefined ? undefined : new Set(state.toolAllowlist);
++    const enabled = filterTools([...composed.values()], state?.tools)
++        .filter((tool) => allowed === undefined || allowed.has(tool.name));
+     const callableBy = (caller) => (tool) => tool.callers === undefined || tool.callers.includes(caller);
+     const modelCallable = enabled.filter(callableBy("model"));
+     const tools = offeredTools(modelCallable, state?.modelTools);
+diff --git a/dist/harness/generation.js b/dist/harness/generation.js
+index ac42dfe..ea5b275 100644
+--- a/dist/harness/generation.js
++++ b/dist/harness/generation.js
+@@ -6,7 +6,7 @@ import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.j
+ import { defineTask } from "../tasks.js";
+ import { addTools, agentHooks, sectionExtension } from "./agent.js";
+ import { compactionPolicy, createCompaction, estimateContext, selectCut } from "./compaction.js";
+-import { applyBoundary, hasQueuedReset, prepareBoundary, withdrawQueuedInputs } from "./inbox.js";
++import { applyBoundary, hasQueuedReset, InboxDoc, prepareBoundary, withdrawQueuedInputs } from "./inbox.js";
+ import { cutOffCount, cutOffTooOften, endRun, LiveDoc, PROGRESS_COMMIT, salvageable, } from "./live.js";
+ import { PartialChanges } from "./partial-changes.js";
+ import { planSystemEntries, renderSections, replaySections } from "./prompt.js";
+@@ -119,6 +119,13 @@ export const GenerationTask = defineTask({
+             }, context);
+         },
+         request: async (task, runtime, context) => {
++            // Recovery: an admitted correction must be placed before replaying a crashed request.
++            const pending = await runtime.snapshot(InboxDoc, runtime.conversationId, context);
++            if (pending?.items.some(item => item.mode === "steer" && item.redirect)) {
++                const live = await runtime.snapshot(LiveDoc, runtime.conversationId, context);
++                await continueRedirect(runtime, live?.generation?.message, context);
++                return;
++            }
+             // Charging the attempt may itself be what keeps failing, such as converting a huge partial: the limit ends it.
+             if (cutOffTooOften(task, runtime))
+                 return endCutOff(runtime, task, context);
+@@ -145,15 +152,20 @@ export const GenerationTask = defineTask({
+                 if (replaced !== undefined)
+                     messages = replaced.messages;
+             });
++            const controller = new AbortController();
++            const active = { controller, signal: runtime.signal, taskId: runtime.taskId };
+             const options = {
+                 ...streamOptions,
+-                signal: runtime.signal,
++                signal: AbortSignal.any([runtime.signal, controller.signal]),
+                 telemetry: context.telemetry,
+                 sessionId: await ensureProviderSessionId(runtime, context),
+                 ...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
+                 onPayload: (payload) => providerPayload(runtime, model, payload, context),
+             };
+-            const message = await streamResponse(runtime, model, messages, options, attempt, context);
++            let message;
++            runtime.busyRequests.set(conversationId, active);
++            try { message = await streamResponse(runtime, model, messages, options, attempt, context); }
++            finally { if (runtime.busyRequests.get(conversationId) === active) runtime.busyRequests.delete(conversationId); }
+             const request = { attempt, compacted, model: ref, thinkingLevel, cutoff, messages: view.messages };
+             await classify(runtime, request, message, context);
+         },
+@@ -506,6 +518,7 @@ async function providerPayload(runtime, model, payload, context) {
+ async function streamResponse(runtime, model, messages, options, attempt, context) {
+     const interval = runtime.settings.progress.partialIntervalMs;
+     let pending;
++    let latest;
+     let timer;
+     let inFlight;
+     let stopped = false;
+@@ -553,24 +566,57 @@ async function streamResponse(runtime, model, messages, options, attempt, contex
+             if (event.type === "done" || event.type === "error" || event.partial.content.length === 0)
+                 continue;
+             changes.observe(event);
++            latest = event.partial;
+             pending = event.partial;
+             if (timer === undefined && inFlight === undefined)
+                 timer = runtime.setTimer(flush, interval);
+         }
+         return await events.result();
+     }
++    catch (error) {
++        if (!options.signal?.aborted || runtime.signal.aborted) throw error;
++        const partial = latest ?? pending ?? (await runtime.snapshot(LiveDoc, runtime.conversationId, context))?.generation?.message;
++        if (partial) return { ...partial, stopReason: "aborted" };
++        return { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, timestamp: runtime.now(), stopReason: "aborted", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
++    }
+     finally {
+         stopped = true;
+         timer?.();
+         await inFlight;
+     }
+ }
++// A redirect is a continuation, not a failed or completed original submission.
++async function continueRedirect(runtime, message, context) {
++    const conversationId = runtime.conversationId;
++    await runtime.commit(async (tx) => {
++        const boundary = await prepareBoundary(tx, conversationId, runtime.settings);
++        const live = await tx.doc(LiveDoc, conversationId);
++        const content = (message?.content ?? []).filter(block => block.type === "text" || block.type === "thinking");
++        if (content.length) {
++            const partial = { ...message, content, stopReason: "stop" };
++            delete partial.errorMessage;
++            await appendAssistant(tx, conversationId, partial);
++        } else if (message) {
++            await recordUsage(tx, conversationId, "models", `${message.provider}/${message.model}`, message.usage);
++        }
++        const { users } = await applyBoundary(tx, boundary, "postTools", runtime.now());
++        if (live.run?.taskId === runtime.taskId) live.run.inputs.push(...users);
++        delete live.generation;
++        return { status: "running", checkpoint: { phase: "prepare", attempt: 1 } };
++    }, context);
++}
+ /** Classify a terminal provider message in one commit that also clears the partial. */
+ async function classify(runtime, request, message, context) {
+     // An abort mark or close: the abort invocation or the reopened run handles the committed state.
+     runtime.signal.throwIfAborted();
+     const conversationId = runtime.conversationId;
+     const { attempt, compacted, model: ref, thinkingLevel, cutoff } = request;
++    // The correction is durable before the independent model signal is cancelled. A hard abort wins at commit.
++    const inbox = await runtime.snapshot(InboxDoc, conversationId, context);
++    if (inbox?.items.some(item => item.mode === "steer" && item.redirect)) {
++        await continueRedirect(runtime, message, context);
++        return;
++    }
+     // Record the requested level, as pi-agent-core's agent loop does.
+     if (thinkingLevel !== undefined)
+         message.thinkingLevel = thinkingLevel;
+@@ -647,7 +693,8 @@ async function classify(runtime, request, message, context) {
+         await endFailedRun(tx, runtime, live, failure, { status: "unanswered", reason: "model_error", detail: text });
+         return {
+             status: "terminal",
+-            outcome: { status: "failed", error: { message: text, detail: { reason: "model_error" } } },
++            // luna: retain the selected identity, which can differ from a transport's upstream model ID.
++            outcome: { status: "failed", error: { message: text, detail: { reason: "model_error", requestModel: ref } } },
+         };
+     }, context);
+ }
+@@ -678,7 +725,13 @@ async function answer(runtime, message, context) {
+             if (held !== undefined)
+                 return held;
+         }
+-        const { users, first } = await applyBoundary(tx, boundary, "final", runtime.now());
++        const { users, first, reset, steered } = await applyBoundary(tx, boundary, "final", runtime.now());
++        if (steered && !reset) {
++            if (live.run?.taskId === runtime.taskId) live.run.inputs.push(...users);
++            handOver(live, runtime.taskId, await createGeneration(tx, conversationId));
++            delete live.generation;
++            return result;
++        }
+         if (continues !== undefined) {
+             const user = { role: "user", content: continues, timestamp: runtime.now() };
+             await tx.appendEntry(UserEntry, conversationId, { model: [user] });
+diff --git a/dist/harness/harness.js b/dist/harness/harness.js
+index e286f00..215969c 100644
+--- a/dist/harness/harness.js
++++ b/dist/harness/harness.js
+@@ -118,7 +118,9 @@ class HarnessImpl extends SessionImpl {
+         this.#report = report;
+         this.#hostSettings = hostSettings;
+         const settings = () => resolveSettings(hostSettings());
++        const busyRequests = new Map();
+         this.#tasks = new TaskScheduler({
++            busyRequests,
+             telemetry: options.telemetry,
+             session: this,
+             storage,
+@@ -142,7 +144,7 @@ class HarnessImpl extends SessionImpl {
+             context: withoutAbortSignal(context),
+             readOnly: options.readOnly === true,
+         });
+-        this.#submissions = new Submissions(this, now, settings, () => this.#tasks.resume(), options.telemetry);
++        this.#submissions = new Submissions(this, now, settings, () => this.#tasks.resume(), options.telemetry, busyRequests);
+         this.#taskGraph = new TaskGraphView(this, {
+             blocked: (record) => this.#tasks.blockedReason(record),
+             subscribeBlocked: (listener) => this.#tasks.subscribeBlocked(listener),
+diff --git a/dist/harness/inbox.d.ts b/dist/harness/inbox.d.ts
+index 1197339..aa099d6 100644
+--- a/dist/harness/inbox.d.ts
++++ b/dist/harness/inbox.d.ts
+@@ -6,6 +6,7 @@ export type InboxItem = {
+     id: SubmissionId;
+     mode: "steer" | "followUp";
+     content: JsonRepresentation<UserInput>;
++    redirect?: boolean;
+     entry?: JsonRepresentation<InputEntry>;
+ }
+ /** `entry` is an `EntryDraft`, stored as plain JSON. */
+@@ -38,6 +39,7 @@ export type BoundaryResult = {
+     readonly users: SubmissionId[];
+     readonly first: EntryId | undefined;
+     readonly reset: boolean;
++    readonly steered: boolean;
+ };
+ /**
+  * Read what a boundary needs. Table reads must precede the commit's first table write, so callers prepare the
+diff --git a/dist/harness/inbox.js b/dist/harness/inbox.js
+index 5ff8c17..d1f8320 100644
+--- a/dist/harness/inbox.js
++++ b/dist/harness/inbox.js
+@@ -42,7 +42,8 @@ export async function applyBoundary(tx, boundary, at, now) {
+         return queueMode === "all" ? indexes : indexes.slice(0, 1);
+     };
+     const writes = items.flatMap((item, index) => (item.mode === "write" ? [index] : []));
+-    const users = [...pick("steer", boundary.steeringMode), ...(final ? pick("followUp", boundary.followUpMode) : [])];
++    const steers = pick("steer", boundary.steeringMode);
++    const users = [...steers, ...(final && (reset || steers.length === 0) ? pick("followUp", boundary.followUpMode) : [])];
+     users.sort((a, b) => a - b);
+     // `appendEntry()` copies the drafts' values; the items are removed only afterwards.
+     let first;
+@@ -60,17 +61,22 @@ export async function applyBoundary(tx, boundary, at, now) {
+         first ??= entry.id;
+     }
+     const placed = [];
++    const grouped = new Set();
+     for (const index of users) {
++        if (grouped.has(index)) continue;
+         const item = items[index];
+-        const entry = await appendInput(tx, conversationId, item.content, item.entry, now);
+-        tx.placeSubmission(item.id, entry.id);
+-        placed.push(item.id);
++        const group = item.mode === "steer" && typeof item.content === "string" && item.entry === undefined
++            ? users.filter(i => items[i].mode === "steer" && items[i].redirect === item.redirect && typeof items[i].content === "string" && items[i].entry === undefined)
++            : [index];
++        const content = group.length > 1 ? group.map(i => items[i].content).join(item.redirect ? "\n[Additional user correction]\n\n" : "\n") : item.content;
++        const entry = await appendInput(tx, conversationId, content, item.entry, now);
++        for (const i of group) { grouped.add(i); tx.placeSubmission(items[i].id, entry.id); placed.push(items[i].id); }
+         first ??= entry.id;
+     }
+     const removed = [...writes, ...users].sort((a, b) => b - a);
+     for (const index of removed)
+         items.splice(index, 1);
+-    return { users: placed, first, reset };
++    return { users: placed, first, reset, steered: steers.length > 0 };
+ }
+ /** Append the entry an input is placed as: `entry`'s kind and data, or `pi.user`, with the user message of `content`. */
+ export function appendInput(tx, conversationId, content, entry, now) {
+diff --git a/dist/harness/scheduler.js b/dist/harness/scheduler.js
+index 365ea3a..0d4278e 100644
+--- a/dist/harness/scheduler.js
++++ b/dist/harness/scheduler.js
+@@ -98,6 +98,7 @@ export class TaskScheduler {
+      * first idle check after `settings.contextRetentionMs` of idleness, and at close.
+      */
+     #contexts = new Map();
++    #busyRequests;
+     /**
+      * The idle kept contexts by `idleSince`, oldest first: the expiry order, so neither an expiry nor finding the next one
+      * scans `#contexts`. Kept sorted also when the Harness clock goes back (see `#markIdle`).
+@@ -192,6 +193,7 @@ export class TaskScheduler {
+         this.#storage = options.storage;
+         this.#registry = options.registry;
+         this.#models = options.models;
++        this.#busyRequests = options.busyRequests ?? new Map();
+         this.#agent = options.agent;
+         this.#settings = options.settings;
+         this.#env = options.env;
+@@ -2475,6 +2477,7 @@ export class TaskScheduler {
+             get models() {
+                 return models();
+             },
++            busyRequests: this.#busyRequests,
+             agent: (context) => invocation.ended ? Promise.reject(endedError(invocation)) : awaitWithContext(agent(), context),
+             get settings() {
+                 return settings();
+diff --git a/dist/harness/submissions.js b/dist/harness/submissions.js
+index 6e882a8..cc827ac 100644
+--- a/dist/harness/submissions.js
++++ b/dist/harness/submissions.js
+@@ -18,7 +18,9 @@ export class Submissions {
+     #resume;
+     #waiters = new Waiters();
+     #closed = false;
+-    constructor(session, now, queueModes, resume, telemetry = NOOP_TELEMETRY_CONTEXT) {
++    #busyRequests;
++    constructor(session, now, queueModes, resume, telemetry = NOOP_TELEMETRY_CONTEXT, busyRequests = new Map()) {
++        this.#busyRequests = busyRequests;
+         this.#telemetry = telemetry;
+         this.#session = session;
+         this.#now = now;
+@@ -32,8 +34,37 @@ export class Submissions {
+     }
+     /** Admit a submission in one commit; see `admitSubmission()`. */
+     async submit(conversationId, draft, context) {
+-        const { id } = await this.#traced(conversationId, draft, context, (span) => this.#session.commitWith((tx) => admitSubmission(tx, conversationId, draft, this.#now(), this.#queueModes(), span), withTelemetry(span, context)));
+-        return new SubmissionHandle(id, this);
++        let action, redirect;
++        const { id } = await this.#traced(conversationId, draft, context, async (span) => {
++            const admitted = await this.#session.commitWith(async (tx) => {
++                const live = await tx.doc(LiveDoc, conversationId);
++                const run = live.run === undefined ? undefined : await tx.task(live.run.taskId);
++                const existing = draft.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, draft.requestId);
++                let submitted = draft;
++                action = live.run === undefined ? "started" : "queued";
++                if (!existing && draft.type === "input" && live.run !== undefined && !run?.abortRequested) {
++                    const plain = typeof draft.content === "string" || (Array.isArray(draft.content) && draft.content.every(b => b.type === "text"));
++                    const text = typeof draft.content === "string" ? draft.content.trim() : plain ? draft.content.map(b => b.text).join("\n").trim() : undefined;
++                    if (plain && !text) throw new Error("content is empty");
++                    if (draft.whenBusy === "steer" && plain) { submitted = { ...draft, content: text }; action = "steered"; }
++                    else if (draft.whenBusy === "redirect" && plain && !live.compactions?.length) {
++                        const active = this.#busyRequests.get(conversationId);
++                        if (live.tools?.length) { submitted = { ...draft, content: text, whenBusy: "steer" }; action = "steered"; }
++                        else if (active && !active.signal.aborted && active.taskId === live.run.taskId) {
++                            submitted = { ...draft, content: text, whenBusy: "steer" }; action = "redirected"; redirect = active;
++                        } else submitted = { ...draft, whenBusy: "followUp" };
++                    } else if (draft.whenBusy === "redirect" || (draft.whenBusy === "steer" && !plain)) submitted = { ...draft, whenBusy: "followUp" };
++                } else if (draft.type === "input" && run?.abortRequested) submitted = { ...draft, whenBusy: "followUp" };
++                const res = await admitSubmission(tx, conversationId, submitted, this.#now(), this.#queueModes(), span);
++                const item = (await tx.doc(InboxDoc, conversationId)).items.find(item => item.id === res.id);
++                if (redirect && item?.mode === "steer") item.redirect = true;
++                if (existing) action = item?.mode === "steer" ? item.redirect ? "redirected" : "steered" : item?.mode === "followUp" ? "queued" : "started";
++                return res;
++            }, withTelemetry(span, context));
++            if (redirect) redirect.controller.abort();
++            return admitted;
++        });
++        return new SubmissionHandle(id, this, action);
+     }
+     /**
+      * Admit a submission inside the caller's commit `tx`, with the rules of `submit()`. The admission is stored or lost
+@@ -128,7 +159,9 @@ export class Submissions {
+ class SubmissionHandle {
+     id;
+     #submissions;
+-    constructor(id, submissions) {
++    action;
++    constructor(id, submissions, action) {
++        this.action = action;
+         this.id = id;
+         this.#submissions = submissions;
+     }
+diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
+index eb64e47..7056328 100644
+--- a/dist/harness/types.d.ts
++++ b/dist/harness/types.d.ts
+@@ -31,7 +31,7 @@ export type SubmissionDraft = {
+ } & ({
+     readonly type: "input";
+     readonly content: UserInput;
+-    readonly whenBusy?: "steer" | "followUp" | "reject";
++    readonly whenBusy?: "steer" | "followUp" | "reject" | "redirect";
+     /**
+      * `reject`: an idle conversation (no run) rejects the input with `ConversationIdle` and writes nothing, so the input
+      * never starts a run of its own. With `whenBusy: "steer"` it steers the current run or is refused; a run that
+@@ -68,6 +68,7 @@ export type SettledSubmissionRecord = SubmissionRecord & {
+ };
+ /** Awaitable host object for one durably admitted submission. */
+ export interface Submission {
++    readonly action?: "started" | "queued" | "steered" | "redirected";
+     readonly id: SubmissionId;
+     status(context: Context): Promise<SubmissionRecord>;
+     wait(context: Context): Promise<SettledSubmissionRecord>;
+@@ -397,6 +398,8 @@ export type AgentState = {
+         add?: string[];
+         remove?: string[];
+     };
++    /** Persistent ceiling for all enabled tools, including dynamic discovery. Unset means unrestricted. */
++    toolAllowlist?: string[];
+     /** Filters the selected extensions' tools: the enabled tools. An array enables exactly these, in order. */
+     tools?: string[] | {
+         remove: string[];
+@@ -432,6 +435,8 @@ export type AgentChange = {
+         readonly add?: readonly Extension[];
+         readonly remove?: readonly Extension[];
+     } | null;
++    /** Replaces the persistent tool ceiling; null clears it. Names survive replay and forks. */
++    readonly toolAllowlist?: readonly string[] | null;
+     readonly tools?: readonly ToolRegistration[] | {
+         readonly remove: readonly ToolRegistration[];
+     } | null;
+diff --git a/dist/session/cached-storage.d.ts b/dist/session/cached-storage.d.ts
+index aa958f0..5119be7 100644
+--- a/dist/session/cached-storage.d.ts
++++ b/dist/session/cached-storage.d.ts
+@@ -34,6 +34,7 @@ export declare class CachedStorage implements Storage {
+      * hold the same objects, so a live task's record is in memory once.
+      */
+     published(writes: readonly StorageWrite[]): void;
++    evict(options: { readonly conversations?: Iterable<ConversationId>; readonly tasks?: Iterable<TaskId>; readonly submissions?: Iterable<SubmissionId>; }): void;
+     mintId<I extends Id<string>>(): Promise<I>;
+     conversation(id: ConversationId, context: Context): Promise<ConversationRecord | undefined>;
+     scanConversations(query: ConversationQuery, limit: number, cursor: Cursor | undefined, context: Context): Promise<Page<ConversationRecord, Cursor>>;
+diff --git a/dist/session/cached-storage.js b/dist/session/cached-storage.js
+index 90d1335..28777aa 100644
+--- a/dist/session/cached-storage.js
++++ b/dist/session/cached-storage.js
+@@ -66,6 +66,22 @@ export class CachedStorage {
+             }
+         }
+     }
++    evict(options) {
++        if (options.conversations) {
++            for (const id of options.conversations) this.#conversations.delete(id);
++        }
++        if (options.tasks) {
++            for (const id of options.tasks) {
++                this.#tasks.delete(id);
++                this.#liveTasks.delete(id);
++                this.#awaited.delete(id);
++                this.#waits.delete(id);
++            }
++        }
++        if (options.submissions) {
++            for (const id of options.submissions) this.#submissions.delete(id);
++        }
++    }
+     mintId() {
+         return this.#storage.mintId();
+     }
+diff --git a/dist/session/conversation-tails.d.ts b/dist/session/conversation-tails.d.ts
+index 98fdba3..61e6585 100644
+--- a/dist/session/conversation-tails.d.ts
++++ b/dist/session/conversation-tails.d.ts
+@@ -23,6 +23,7 @@ export declare class ConversationTails {
+     marker(conversationId: ConversationId, atOrBefore: EntryId | undefined, read: () => Promise<HeadMarker | undefined>): Promise<HeadMarker | undefined>;
+     /** The newest entry ID of `conversationId` if known, without reading: `null` for none, `undefined` when unknown. */
+     peek(conversationId: ConversationId): EntryId | null | undefined;
++    evict(conversationIds: Iterable<ConversationId>): void;
+     /** At a commit's publication: apply a durable batch. */
+     apply(writes: readonly StorageWrite[]): void;
+     /** How many conversations have their newest entry kept, for tests that bound memory. */
+diff --git a/dist/session/conversation-tails.js b/dist/session/conversation-tails.js
+index 152cdc2..bc09739 100644
+--- a/dist/session/conversation-tails.js
++++ b/dist/session/conversation-tails.js
+@@ -47,6 +47,12 @@ export class ConversationTails {
+     peek(conversationId) {
+         return this.#latest.get(conversationId);
+     }
++    evict(conversationIds) {
++        for (const id of conversationIds) {
++            this.#latest.delete(id);
++            this.#markers.delete(id);
++        }
++    }
+     /** At a commit's publication: apply a durable batch. */
+     apply(writes) {
+         for (const write of writes) {
+diff --git a/dist/session/session.d.ts b/dist/session/session.d.ts
+index 8201d7c..0795211 100644
+--- a/dist/session/session.d.ts
++++ b/dist/session/session.d.ts
+@@ -211,6 +211,15 @@ export declare class SessionImpl implements Session {
+     subscribeClose(listener: () => void): () => void;
+     /** Drop every loaded tracker on the mutation line, held changes stored first; later access cold-loads from Storage. */
+     unloadDocuments(): Promise<void>;
++    maintain<T>(work: (maintenance: {
++        readonly session: Session;
++        readonly storage: Storage;
++        evict(records: {
++            readonly conversations?: Iterable<ConversationId>;
++            readonly tasks?: Iterable<TaskId>;
++            readonly submissions?: Iterable<SubmissionId>;
++        }): void;
++    }, context: Context) => Promise<T>): Promise<T>;
+     /**
+      * Internal, for tests: how many documents the cache holds, how many are idle, how many incarnations are pinned, how
+      * many sweep jobs were queued on the line so far, how many documents have held changes, how many live tasks have
+diff --git a/dist/session/session.js b/dist/session/session.js
+index e9ae9eb..62bd060 100644
+--- a/dist/session/session.js
++++ b/dist/session/session.js
+@@ -89,6 +89,7 @@ export function persistWithin(ms) {
+  */
+ export class SessionImpl {
+     #storage;
++    #rawStorage;
+     /** Newest entry and head marker per conversation; none for a read-only Session, whose Storage another process writes. */
+     #tails;
+     /**
+@@ -163,6 +164,7 @@ export class SessionImpl {
+         this.#failed.promise.catch(() => { });
+         this.#readOnly = readOnly;
+         // A read-only Session shows a Storage another process writes, so nothing it reads stays current.
++        this.#rawStorage = storage;
+         this.#cached = readOnly ? undefined : new CachedStorage(storage);
+         this.#storage = new GuardedStorage(this.#cached ?? storage, this);
+         this.#gated = new GatedStorage(this.#storage, (key) => this.touch(key));
+@@ -654,6 +656,40 @@ export class SessionImpl {
+             this.#idleDocuments.clear();
+         });
+     }
++    maintain(work) {
++        return this.#maintain(async () => {
++            await this.#drained();
++            if (this.#failure !== undefined)
++                throw new SessionFailed(this.#failure.error);
++            const context = BACKGROUND_CONTEXT;
++            const result = await work({
++                session: this,
++                storage: this.#rawStorage,
++                evict: (records) => {
++                    this.#cached?.evict(records);
++                    if (records.conversations) {
++                        this.#tails?.evict(records.conversations);
++                        const convSet = new Set(records.conversations);
++                        for (const [addressId, doc] of this.#documents) {
++                            if (doc.record.scope.kind === "conversation" && convSet.has(doc.record.scope.conversationId)) {
++                                this.#dropDocument(addressId);
++                            }
++                        }
++                    }
++                    if (records.tasks) {
++                        const taskSet = new Set(records.tasks);
++                        for (const taskId of taskSet) this.#taskDocuments.delete(taskId);
++                        for (const [addressId, doc] of this.#documents) {
++                            if (doc.record.scope.kind === "task" && taskSet.has(doc.record.scope.taskId)) {
++                                this.#dropDocument(addressId);
++                            }
++                        }
++                    }
++                },
++            }, context);
++            return result;
++        });
++    }
+     /**
+      * Internal, for tests: how many documents the cache holds, how many are idle, how many incarnations are pinned, how
+      * many sweep jobs were queued on the line so far, how many documents have held changes, how many live tasks have
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index b43143c..0d1866b 100644
+--- a/dist/types.d.ts
++++ b/dist/types.d.ts
+@@ -1077,6 +1077,15 @@ export interface Session extends DocumentObserver {
+      * Session does not know Storage's newest `seq` before its own first commit.
+      */
+     observeCommits(observer: CommitObserver): CommitObservation;
++    maintain<T>(work: (maintenance: {
++        readonly session: Session;
++        readonly storage: Storage;
++        evict(records: {
++            readonly conversations?: Iterable<ConversationId>;
++            readonly tasks?: Iterable<TaskId>;
++            readonly submissions?: Iterable<SubmissionId>;
++        }): void;
++    }, context: Context) => Promise<T>): Promise<T>;
+     /**
+      * Observe close synchronously when it begins, also when a failed Storage call closes the Session. The listener must
+      * not block or call Session APIs.

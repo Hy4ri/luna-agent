@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { ExecTarget } from "./workers.js";
 import { AskDoc } from "./ask.js";
 import { readSessionHandoff } from "./session-status.js";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { configure, defineExtension, defineTool, type AgentChange, type ConversationId, type Extension, type TaskId } from "@earendil-works/pi-durable";
 import { Children, ChildResult, childRequests, childNotificationId, readChildReport, DELEGATE_CHILD, DELEGATE_MESSAGE, type ChildRow, type ChildReport } from "./delegate-state.js";
 import { withChildControl } from "./delegate-control.js";

@@ -3,7 +3,7 @@
 // A skill's `tools:` frontmatter names deferred tools that get added to the model's tool registry on load.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 
 export interface Skill {

@@ -79,7 +79,7 @@ async function inspectPending(tx: Tx, childId: ConversationId): Promise<PendingN
 }
 
 export class SubagentNotifier {
-  private stop?: () => void;
+  private observation?: { detach(): void };
   private closed = false;
   private retryTimer?: NodeJS.Timeout;
   private readonly inflight = new Set<Promise<unknown>>();
@@ -90,26 +90,43 @@ export class SubagentNotifier {
   async start(): Promise<void> {
     if (this.closed) return;
 
-    this.stop = this.o.harness.subscribeCommits(p => {
-      for (const ch of p.changes) {
-        if (ch.type === "task") {
-          if (!ch.value.owner && ch.value.kind === "pi.generation" && ch.value.state.status === "terminal") {
-            const cid = Number(ch.value.conversationId);
-            this.schedule(cid);
-            this.scheduleParentChildren(cid);
-          }
-        } else if (ch.type === "submission") {
-          if (ch.value.status === "done" || ch.value.status === "unanswered") {
-            const cid = Number(ch.value.conversationId);
-            this.schedule(cid);
-            this.scheduleParentChildren(cid);
-          }
-        } else if (ch.type === "document" || ch.type === "document.copy") {
-          if (ch.record.kind === "luna.delegate.children" && ch.conversationId !== undefined) {
-            this.scheduleParentChildren(Number(ch.conversationId));
+    this.observation = this.o.harness.observeCommits({
+      advance: (p) => {
+        const toSchedule = new Set<number>();
+        const toScheduleParentChildren = new Set<number>();
+
+        for (const ch of p.changes) {
+          if (ch.type === "task") {
+            if (!ch.value.owner && ch.value.kind === "pi.generation" && ch.value.state.status === "terminal") {
+              const cid = Number(ch.value.conversationId);
+              toSchedule.add(cid);
+              toScheduleParentChildren.add(cid);
+            }
+          } else if (ch.type === "submission") {
+            if (ch.value.status === "done" || ch.value.status === "unanswered") {
+              const cid = Number(ch.value.conversationId);
+              toSchedule.add(cid);
+              toScheduleParentChildren.add(cid);
+            }
+          } else if (ch.type === "document" || ch.type === "document.copy") {
+            if (ch.record.kind === "luna.delegate.children" && ch.conversationId !== undefined) {
+              toScheduleParentChildren.add(Number(ch.conversationId));
+            }
           }
         }
-      }
+
+        if (toSchedule.size === 0 && toScheduleParentChildren.size === 0) return;
+
+        queueMicrotask(() => {
+          if (this.closed) return;
+          for (const cid of toSchedule) this.schedule(cid);
+          for (const pid of toScheduleParentChildren) this.scheduleParentChildren(pid);
+        });
+      },
+      end: () => {
+        this.closed = true;
+        queueMicrotask(() => void this.close());
+      },
     });
 
     await this.reconcile();
@@ -259,33 +276,42 @@ export class SubagentNotifier {
     if (!parent) return false;
 
     try {
-      await parent.submit({
-        type: "input",
-        requestId: pending.requestId,
-        whenBusy: "reject",
-        guard: async (tx: Tx) => {
-          if (this.closed || this.o.skip?.(Number(pending.parent))) return false;
-          const conv = await tx.conversation(pending.parent);
-          if (!conv || conv.owner) return false;
+      const result = await this.o.harness.commit(async tx => {
+        // Dedup before eligibility checks
+        const existing = await tx.submissionByRequest(pending.parent, pending.requestId);
+        if (existing) return { kind: "existing" as const, id: existing.id };
 
-          const running = await isRunning(tx, pending.parent);
-          const status = await readSessionStatus(tx, pending.parent, running);
-          if (["stopped", "needs_input", "needs_approval", "failed", "limit_reached"].includes(status.status)) return false;
+        if (this.closed || this.o.skip?.(Number(pending.parent))) return { kind: "rejected" as const };
+        const conv = await tx.conversation(pending.parent);
+        if (!conv || conv.owner) return { kind: "rejected" as const };
 
-          const latest = await inspectPending(tx, childCid);
-          return !!latest && latest.requestId === pending.requestId;
-        },
-        content: pending.content,
-        entry: {
-          kind: XSESSION_MSG,
-          data: { from: pending.child, hop: 1, requestId: pending.requestId } satisfies XSessionMarker,
-        },
+        const running = await isRunning(tx, pending.parent);
+        const status = await readSessionStatus(tx, pending.parent, running);
+        if (["stopped", "needs_input", "needs_approval", "failed", "limit_reached"].includes(status.status)) return { kind: "rejected" as const };
+
+        const latest = await inspectPending(tx, childCid);
+        if (!latest || latest.requestId !== pending.requestId) return { kind: "rejected" as const };
+
+        // Transactional submission before any table writes
+        const subId = await parent.submit(tx, {
+          type: "input",
+          requestId: pending.requestId,
+          whenBusy: "reject",
+          content: pending.content,
+          entry: {
+            kind: XSESSION_MSG,
+            data: { from: pending.child, hop: 1, requestId: pending.requestId } satisfies XSessionMarker,
+          },
+        });
+        return { kind: "admitted" as const, id: subId };
       }, context);
+
+      if (result.kind === "rejected") return false;
 
       this.o.log(`subagent-notify ${pending.child}: ${pending.report.state} -> session ${pending.parent}`);
       return true;
     } catch (e) {
-      if (["SubmissionGuardRejected", "ConversationBusy"].includes((e as { name?: string }).name ?? "")) return false;
+      if ((e as { name?: string }).name === "ConversationBusy") return false;
       this.o.log(`subagent-notify ${pending.child} submit failed: ${(e as Error).message}`);
       throw e;
     }
@@ -298,7 +324,7 @@ export class SubagentNotifier {
       this.retryTimer = undefined;
     }
     this.retries.clear();
-    this.stop?.();
+    this.observation?.detach();
     await Promise.allSettled([...this.inflight]);
   }
 }

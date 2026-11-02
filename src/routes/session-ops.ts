@@ -29,29 +29,13 @@ export function registerSessionOps(app: Hono, ctx: RouteCtx): void {
     return c.json({ ok: true, taskId: task }, 202);
   });
 
-  // Tasks parked by the crash-loop guard (restart_limit). Retry runs one again.
-  app.get("/v1/tasks/parked", async (c) => {
-    const { tasks } = await harness.inspect(context);
-    return c.json({
-      tasks: tasks
-        .filter((t) => t.state.kind === "blocked" && t.state.reason === "restart_limit")
-        .map((t) => ({
-          id: t.record.id,
-          kind: t.record.kind,
-          conversationId: t.record.conversationId,
-          restarts: t.record.restarts,
-        })),
-    });
+  // Parked tasks and retryTask have been retired in Pi 1.5; crash loops end tasks as terminal.
+  app.get("/v1/tasks/parked", (c) => {
+    return c.json({ error: "Parked task inspection is retired in Pi 1.5. Tasks reaching restart_limit terminate; recover by submitting a new message or compacting." }, 410);
   });
 
-  app.post("/v1/tasks/:id/retry", async (c) => {
-    const id = Number(c.req.param("id"));
-    const { tasks } = await harness.inspect(context);
-    const t = tasks.find((x) => Number(x.record.id) === id);
-    if (!t || t.state.kind !== "blocked" || t.state.reason !== "restart_limit")
-      return err(c, 404, "no such parked task");
-    await harness.retryTask(t.record.id, context);
-    return c.json({ ok: true });
+  app.post("/v1/tasks/:id/retry", (c) => {
+    return c.json({ error: "Task retry is retired in Pi 1.5. Tasks reaching restart_limit terminate; recover by submitting a new message or compacting." }, 410);
   });
 
   app.post("/v1/sessions/:id/abort", async (c) => {

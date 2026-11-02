@@ -1,4 +1,4 @@
-import { defineDoc, defineExtension, defineTool, section, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
+import { defineDoc, defineExtension, defineTool, LiveDoc, section, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { randomUUID } from "node:crypto";
 import { AskDoc } from "./ask.js";
@@ -166,29 +166,51 @@ export async function readSessionStatus(tx: Tx, id: ConversationId, running: boo
     const readAt = (await tx.doc(SessionReadDoc, id)).at;
     return state(readAt !== null && readAt >= result.at ? "ready" : "review_finished");
   }
-  // Only the foreground generation owns the session outcome. Tool errors and queue edits do not.
-  const outcome = generation?.state.outcome;
+  // Entry and task IDs share one monotonic allocator. A failure belongs to the current input only when its run
+  // started at or after that input's boundary; a newer input or reset must not inherit it.
+  const live = await tx.doc(LiveDoc, id);
+  let failure = live.runFailure;
+  if (failure && tail.boundary !== 0 && failure.first !== undefined && Number(failure.first) < tail.boundary) failure = undefined;
+  const currentGeneration = generation && (Number(generation.id) >= tail.boundary || tail.assistant?.byTaskId === generation.id)
+    ? generation : undefined;
+  const outcome = currentGeneration?.state.outcome;
   const message = tail.assistant?.model?.find(message => message.role === "assistant");
-  const providerLimited = tail.assistant?.byTaskId === generation?.id && message?.stopReason === "error" && readProviderLimit(message)?.kind === "wait";
-  if (outcome?.status === "aborted") return state("stopped", "Stopped by the user.");
-  if (outcome?.status === "failed" || outcome?.status === "faulted") {
-    const reason = outcome.error.message;
-    return state(providerLimited || isLimitError(reason) ? "limit_reached" : "failed", reason.slice(0, 500));
-  }
-  if (outcome?.status === "orphaned") return state("failed", outcome.reason.slice(0, 500));
+  const providerLimited = tail.assistant?.byTaskId === currentGeneration?.id && message?.stopReason === "error" && readProviderLimit(message)?.kind === "wait";
 
-  if (message?.role === "assistant") {
-    if (message.stopReason === "aborted") return state("stopped", "The response was stopped.");
-    if (message.stopReason === "length") return state("limit_reached", "The response reached the model output limit.");
-    if (message.stopReason === "error") return state(providerLimited || isLimitError(message.errorMessage ?? "") ? "limit_reached" : "failed", (message.errorMessage || "The model request failed.").slice(0, 500));
-  }
-
+  // An explicit Stop outranks an earlier handoff from the same input.
+  if (failure?.reason === "aborted" || outcome?.status === "aborted")
+    return state("stopped", failure?.detail || "Stopped by the user.");
   const goal = (await tx.doc(GoalDoc, id)).goal;
   if (goal && goal.limitInput === tail.boundary && (goal.status === "budget_limited" || goal.status === "paused" && /^run allowance \d+ reached$/.test(goal.statusReason ?? ""))) {
     return state("limit_reached", goal.statusReason ?? "The goal reached its token budget.");
   }
   const handoff = (await tx.doc(SessionHandoffDoc, id)).handoff;
   if (handoff && handoff.boundary === tail.boundary) return state(handoff.status, handoff.reason);
+
+  if (failure) {
+    const { reason, detail } = failure;
+    switch (reason) {
+      case "model_error": return state(providerLimited || detail && isLimitError(detail) ? "limit_reached" : "failed", detail || "The model request failed.");
+      case "turn_limit": return state("limit_reached", detail ? `Turn limit reached (${detail}).` : "Tool round limit reached.");
+      case "no_model": return state("failed", detail ? `No model available: ${detail}` : "No model is configured or available.");
+      case "restart_limit": return state("failed", detail ? `Restart limit exceeded: ${detail}` : "Task restart limit reached.");
+      case "interrupted": return state("failed", detail ? `Run interrupted: ${detail}` : "Run interrupted by daemon restart.");
+      case "nothing_to_answer": return state("ready", detail || "Nothing to answer.");
+      case "reset": return state("ready");
+      case "faulted": case "orphaned": return state("failed", detail || `Task ${reason}.`);
+    }
+  }
+  if (outcome?.status === "failed" || outcome?.status === "faulted") {
+    const reason = outcome.error.message;
+    return state(providerLimited || isLimitError(reason) ? "limit_reached" : "failed", reason.slice(0, 500));
+  }
+  if (outcome?.status === "orphaned") return state("failed", outcome.reason.slice(0, 500));
+  if (message?.role === "assistant") {
+    if (message.stopReason === "aborted") return state("stopped", "The response was stopped.");
+    if (message.stopReason === "length") return state("limit_reached", "The response reached the model output limit.");
+    if (message.stopReason === "error") return state(providerLimited || isLimitError(message.errorMessage ?? "") ? "limit_reached" : "failed", (message.errorMessage || "The model request failed.").slice(0, 500));
+  }
+
   if (!message) return state("ready");
 
   // Finished: clear to ready once the user opens the session after the response arrived.
@@ -240,7 +262,13 @@ export async function readCommonSessionReport(
   const status = await readSessionStatus(tx, cid, running);
   const latestSubmission = latest ? await tx.submissionByRequest(cid, latest) : undefined;
 
-  if (handoff && latestSubmission?.entry !== undefined && handoff.boundary >= Number(latestSubmission.entry)) {
+  const handoffMatches = handoff && (
+    !latestSubmission
+      ? true
+      : latestSubmission.type === "input" && latestSubmission.entry !== undefined && handoff.boundary >= Number(latestSubmission.entry)
+  );
+
+  if (handoffMatches) {
     base.state = handoff.status;
     base.reason = handoff.reason;
     base.boundary = handoff.boundary;

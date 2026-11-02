@@ -304,7 +304,7 @@ async function inspect(tx: Tx, member: ConversationId, title: (id: number) => st
 
 /** Delivers member reports to the lead. A busy lead gets them after its turn ends; restart reconciles missed reports. */
 export class CrewNotifier {
-  private stop?: () => void;
+  private observation?: { detach(): void };
   private closed = false;
   private retry?: NodeJS.Timeout;
   private readonly retries = new Set<number>();
@@ -313,15 +313,32 @@ export class CrewNotifier {
 
   async start() {
     if (this.closed) return;
-    this.stop = this.o.harness.subscribeCommits(p => {
-      for (const ch of p.changes) {
-        let id: number;
-        if (ch.type === "task" && !ch.value.owner && ch.value.kind === "pi.generation" && ch.value.state.status === "terminal") id = Number(ch.value.conversationId);
-        else if (ch.type === "submission" && (ch.value.status === "done" || ch.value.status === "unanswered")) id = Number(ch.value.conversationId);
-        else continue;
-        this.track(this.notify(id));
-        this.track(this.members(id));
-      }
+    this.observation = this.o.harness.observeCommits({
+      advance: (p) => {
+        const toNotify = new Set<number>();
+        const toCheckMembers = new Set<number>();
+
+        for (const ch of p.changes) {
+          let id: number;
+          if (ch.type === "task" && !ch.value.owner && ch.value.kind === "pi.generation" && ch.value.state.status === "terminal") id = Number(ch.value.conversationId);
+          else if (ch.type === "submission" && (ch.value.status === "done" || ch.value.status === "unanswered")) id = Number(ch.value.conversationId);
+          else continue;
+          toNotify.add(id);
+          toCheckMembers.add(id);
+        }
+
+        if (toNotify.size === 0 && toCheckMembers.size === 0) return;
+
+        queueMicrotask(() => {
+          if (this.closed) return;
+          for (const id of toNotify) this.track(this.notify(id));
+          for (const id of toCheckMembers) this.track(this.members(id));
+        });
+      },
+      end: () => {
+        this.closed = true;
+        queueMicrotask(() => void this.close());
+      },
     });
     const ids = await this.o.harness.commit(async tx => {
       const found: number[] = [];
@@ -361,22 +378,34 @@ export class CrewNotifier {
       if (this.closed || !pending || this.o.skip?.(Number(pending.lead))) return false;
       const lead = await this.o.harness.conversation(pending.lead, context);
       if (!lead) return false;
-      await lead.submit({
-        type: "input", requestId: pending.noticeId, whenBusy: "reject", content: pending.content,
-        guard: async (tx: Tx) => {
-          if (this.closed) return false;
-          const conv = await tx.conversation(pending.lead);
-          if (!conv || conv.owner) return false;
-          const status = await readSessionStatus(tx, pending.lead, await isRunning(tx, pending.lead));
-          if (["stopped", "needs_input", "needs_approval", "failed", "limit_reached"].includes(status.status)) return false;
-          return (await inspect(tx, member as ConversationId, this.o.title))?.noticeId === pending.noticeId;
-        },
-        entry: { kind: XSESSION_MSG, data: { from: member, hop: 1, requestId: pending.noticeId } satisfies XSessionMarker },
+
+      const result = await this.o.harness.commit(async tx => {
+        // Dedup before eligibility checks
+        const existing = await tx.submissionByRequest(pending.lead, pending.noticeId);
+        if (existing) return { kind: "existing" as const, id: existing.id };
+
+        if (this.closed) return { kind: "rejected" as const };
+        const conv = await tx.conversation(pending.lead);
+        if (!conv || conv.owner) return { kind: "rejected" as const };
+        const status = await readSessionStatus(tx, pending.lead, await isRunning(tx, pending.lead));
+        if (["stopped", "needs_input", "needs_approval", "failed", "limit_reached"].includes(status.status)) return { kind: "rejected" as const };
+        const inspectCheck = await inspect(tx, member as ConversationId, this.o.title);
+        if (!inspectCheck || inspectCheck.noticeId !== pending.noticeId) return { kind: "rejected" as const };
+
+        // Transactional submission before any table writes
+        const subId = await lead.submit(tx, {
+          type: "input", requestId: pending.noticeId, whenBusy: "reject", content: pending.content,
+          entry: { kind: XSESSION_MSG, data: { from: member, hop: 1, requestId: pending.noticeId } satisfies XSessionMarker },
+        });
+        return { kind: "admitted" as const, id: subId };
       }, context);
+
+      if (result.kind === "rejected") return false;
+
       this.o.log(`crew-notify ${member}: ${pending.state} -> session ${pending.lead}`);
       return true;
     } catch (e) {
-      if (["SubmissionGuardRejected", "ConversationBusy"].includes((e as { name?: string }).name ?? "")) return false;
+      if ((e as { name?: string }).name === "ConversationBusy") return false;
       this.o.log(`crew-notify ${member}: ${(e as Error).message}`);
       this.queueRetry(member);
       return false;
@@ -398,7 +427,7 @@ export class CrewNotifier {
     this.closed = true;
     if (this.retry) clearTimeout(this.retry);
     this.retries.clear();
-    this.stop?.();
+    this.observation?.detach();
     await Promise.allSettled([...this.inflight]);
   }
 }

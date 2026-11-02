@@ -4,7 +4,8 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
-import { Type, type AssistantMessage, type Message, type Model, type Models, type Tool, type Usage } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { type AssistantMessage, type Message, type Model, type Models, type Tool, type Usage } from "@earendil-works/pi-ai";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 

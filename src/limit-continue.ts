@@ -358,8 +358,9 @@ async function reconcileWaitEntry(
     if (chain) {
       chain.attemptsAdmitted = Math.max(chain.attemptsAdmitted, w.attempt);
       chain.lastOutcome = "admitted";
-      if (existingSub.entry !== undefined) {
-        chain.entry = Number(existingSub.entry);
+      const entryId = "entry" in existingSub ? existingSub.entry : undefined;
+      if (entryId !== undefined) {
+        chain.entry = Number(entryId);
       }
     }
     delete doc.waits[id];
@@ -417,14 +418,10 @@ const routeKey = (provider?: string, model?: string) => JSON.stringify([provider
 
 const LOCAL_DELIVERY_BACKOFFS = [30_000, 120_000, 600_000];
 
-function isGuardRejection(error: unknown): boolean {
-  return error instanceof Error && error.name === "SubmissionGuardRejected";
-}
-
 
 export class LimitContinuer {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private stop?: () => void;
+  private observation?: { detach(): void };
   private closed = false;
   private recovering = false;
   private events: Promise<void> = Promise.resolve();
@@ -482,30 +479,39 @@ export class LimitContinuer {
 
   async start() {
     this.recovering = true;
-    this.stop = this.o.harness.subscribeCommits(p => {
-      let needsReconcile = false;
-      const candidates = new Set<number>();
+    this.observation = this.o.harness.observeCommits({
+      advance: (p) => {
+        let needsReconcile = false;
+        const candidates = new Set<number>();
 
-      for (const ch of p.changes) {
-        if (ch.type === "task" && !ch.value.owner && ch.value.state.status === "terminal") {
-          const cidNum = Number(ch.value.conversationId);
-          if (ch.value.kind === "pi.generation" || !ch.value.background) {
-            candidates.add(cidNum);
+        for (const ch of p.changes) {
+          if (ch.type === "task" && !ch.value.owner && ch.value.state.status === "terminal") {
+            const cidNum = Number(ch.value.conversationId);
+            if (ch.value.kind === "pi.generation" || !ch.value.background) {
+              candidates.add(cidNum);
+              needsReconcile = true;
+            }
+          } else if (ch.type === "submission" && ch.value.status !== "queued") {
             needsReconcile = true;
           }
-        } else if (ch.type === "submission" && ch.value.status !== "queued") {
-          needsReconcile = true;
         }
-      }
 
-      if (needsReconcile) {
-        // Store fresh quota evidence before releasing a settled route to another waiter.
-        this.events = this.events.catch(() => {}).then(async () => {
-          for (const id of candidates) await this.check(id);
-          await this.reconcile();
-        });
-        void this.track(this.events).catch(e => this.o.log(`auto-continue: ${(e as Error).message}`));
-      }
+        if (needsReconcile) {
+          queueMicrotask(() => {
+            if (this.closed) return;
+            // Store fresh quota evidence before releasing a settled route to another waiter.
+            this.events = this.events.catch(() => {}).then(async () => {
+              for (const id of candidates) await this.check(id);
+              await this.reconcile();
+            });
+            void this.track(this.events).catch(e => this.o.log(`auto-continue: ${(e as Error).message}`));
+          });
+        }
+      },
+      end: () => {
+        this.closed = true;
+        queueMicrotask(() => void this.close());
+      },
     });
 
     try {
@@ -664,7 +670,8 @@ export class LimitContinuer {
 
       if (chain) {
         const priorSub = await tx.submissionByRequest(cid, chain.requestId);
-        const matchesPriorEntry = priorSub?.entry !== undefined && Number(priorSub.entry) === failure.boundary;
+        const priorEntry = priorSub && "entry" in priorSub ? priorSub.entry : undefined;
+        const matchesPriorEntry = priorEntry !== undefined && Number(priorEntry) === failure.boundary;
 
         // Anti-resurrection: if previous chain was cancelled and this failure stems from its continuation, do not resurrect!
         if (chain.cancelled && (matchesPriorEntry || chain.boundary === failure.boundary)) {
@@ -860,7 +867,8 @@ export class LimitContinuer {
           if (chain) {
             chain.attemptsAdmitted = Math.max(chain.attemptsAdmitted, w.attempt);
             chain.lastOutcome = "admitted";
-            if (priorSub.entry !== undefined) chain.entry = Number(priorSub.entry);
+            const entryId = "entry" in priorSub ? priorSub.entry : undefined;
+            if (entryId !== undefined) chain.entry = Number(entryId);
           }
           delete doc.waits[String(id)];
           return undefined;
@@ -933,15 +941,24 @@ export class LimitContinuer {
       const wait = claimed.wait;
       const reqId = requestId(id, wait);
 
-      await conv.submit({
-        type: "input",
-        content: continuationText(wait.attempt, wait.exact),
-        requestId: reqId,
-        whenBusy: "reject",
-        guard: tx => this.eligible(tx, id, wait, true),
-      }, context);
+      const admission = await this.o.harness.commit(async tx => {
+        // Dedup before eligibility checks
+        const prior = await tx.submissionByRequest(id as ConversationId, reqId);
+        if (prior) return { kind: "existing" as const, id: prior.id };
 
-      await this.o.harness.commit(async tx => {
+        // Guard before admission
+        const ok = await this.eligible(tx, id, wait, true);
+        if (!ok) return { kind: "rejected" as const };
+
+        // Native transactional admission before table writes
+        const subId = await conv.submit(tx, {
+          type: "input",
+          content: continuationText(wait.attempt, wait.exact),
+          requestId: reqId,
+          whenBusy: "reject",
+        });
+
+        // Documents can be written after admission without table reads
         const doc = await tx.doc(LimitWaitsDoc);
         if (sameWait(doc.waits[String(id)], wait)) {
           delete doc.waits[String(id)];
@@ -950,17 +967,12 @@ export class LimitContinuer {
         if (chain?.requestId === reqId) {
           chain.attemptsAdmitted = Math.max(chain.attemptsAdmitted, wait.attempt);
           chain.lastOutcome = "admitted";
-          const subRecord = await tx.submissionByRequest(id as ConversationId, reqId);
-          if (subRecord?.entry !== undefined) {
-            chain.entry = Number(subRecord.entry);
-          }
         }
+
+        return { kind: "admitted" as const, id: subId };
       }, context);
 
-      this.o.log(`auto-continue ${id}: resumed (attempt ${wait.attempt})`);
-      return true;
-    } catch (error) {
-      if (isGuardRejection(error)) {
+      if (admission.kind === "rejected") {
         await this.o.harness.commit(async tx => {
           const doc = await tx.doc(LimitWaitsDoc);
           const current = doc.waits[String(id)];
@@ -979,6 +991,28 @@ export class LimitContinuer {
         return false;
       }
 
+      // Cleanup wait and record entry receipt idempotently across both newly admitted and existing paths
+      await this.o.harness.commit(async tx => {
+        const doc = await tx.doc(LimitWaitsDoc);
+        if (sameWait(doc.waits[String(id)], wait)) {
+          delete doc.waits[String(id)];
+        }
+        const chain = doc.chains?.[String(id)];
+        if (chain?.requestId === reqId) {
+          chain.attemptsAdmitted = Math.max(chain.attemptsAdmitted, wait.attempt);
+          chain.lastOutcome = "admitted";
+          const subRecord = await tx.submissionByRequest(id as ConversationId, reqId);
+          const entryId = subRecord && "entry" in subRecord ? subRecord.entry : undefined;
+          if (entryId !== undefined) {
+            chain.entry = Number(entryId);
+          }
+        }
+      }, context);
+
+      this.o.log(`auto-continue ${id}: resumed (attempt ${wait.attempt})`);
+      return true;
+    } catch (error) {
+
       const updatedWait = await this.o.harness.commit(async tx => {
         const cid = id as ConversationId;
         const doc = await tx.doc(LimitWaitsDoc);
@@ -989,13 +1023,14 @@ export class LimitContinuer {
 
         if (reqId) {
           const placedSub = await tx.submissionByRequest(cid, reqId);
-          if (placedSub && (placedSub.status === "queued" || placedSub.entry !== undefined)) {
+          const placedEntry = placedSub && "entry" in placedSub ? placedSub.entry : undefined;
+          if (placedSub && (placedSub.status === "queued" || placedEntry !== undefined)) {
             delete doc.waits[String(id)];
             const chain = doc.chains[String(id)];
             if (chain) {
               chain.attemptsAdmitted = w ? w.attempt : chain.attemptsAdmitted;
               chain.lastOutcome = "admitted";
-              if (placedSub.entry !== undefined) chain.entry = Number(placedSub.entry);
+              if (placedEntry !== undefined) chain.entry = Number(placedEntry);
             }
             return undefined;
           }
@@ -1079,7 +1114,7 @@ export class LimitContinuer {
 
   async close() {
     this.closed = true;
-    this.stop?.();
+    this.observation?.detach();
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
     await Promise.allSettled([...this.pending]);

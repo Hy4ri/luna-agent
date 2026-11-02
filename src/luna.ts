@@ -86,13 +86,13 @@ export async function openLuna(opts: LunaOptions) {
     {
       models: opts.models,
       registry,
-      onReport: (error, info) => {
-        const text = error instanceof Error ? error.message : String(error);
-        const task = "task" in info ? info.task : undefined, ext = "extension" in info ? info.extension : undefined;
+      onReport: (report) => {
+        const text = report.error instanceof Error ? report.error.message : String(report.error);
+        const task = "task" in report ? report.task : undefined, ext = "extension" in report ? report.extension : undefined;
         const where = [task && `task ${task.id} ${task.kind} (session ${task.conversationId})`, ext && `extension ${ext}`].filter(Boolean).join(", ");
-        opts.log?.(`pi-durable ${info.type}${where ? ` [${where}]` : ""}: ${text}`);
-        if (info.type === "task_parked" || info.type === "session_failed") {
-          void opts.alert?.(`Luna: ${info.type}`, `${where ? where + "\n" : ""}${text}`.slice(0, 1000))
+        opts.log?.(`pi-durable ${report.kind}${where ? ` [${where}]` : ""}: ${text}`);
+        if (report.kind === "task_interrupted" || report.kind === "task_faulted" || report.kind === "storage_failed") {
+          void opts.alert?.(`Luna: ${report.kind}`, `${where ? where + "\n" : ""}${text}`.slice(0, 1000))
             .catch(e => opts.log?.(`alert failed: ${e instanceof Error ? e.message : String(e)}`));
         }
       },
