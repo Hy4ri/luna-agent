@@ -64,12 +64,16 @@ onUnmounted(() => {
 </template>
 <style scoped>
 .git-status-host { display: contents; }
-.git-status { min-width: 0; padding: 10px 12px; font-size: 12px; }
+.git-status { min-width: 0; flex-shrink: 0; padding: 10px 12px; font-size: 12px; }
+.git-status:not(.card) { padding-inline: max(24px, calc((100% - 760px) / 2)); }
+@media (max-width: 760px) {
+  .git-status:not(.card) { padding-inline: 16px; }
+}
 summary { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
 summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .git-branch { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .git-branch svg { flex-shrink: 0; }
-.git-totals, .git-file-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.git-totals, .git-file-count { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .git-added { color: #86c995; } .git-deleted { color: #ef9a9a; }
 .git-caption { color: var(--muted-foreground); margin: 4px 0 0; }
 .git-files { max-height: 240px; overflow: auto; margin-top: 8px; }
