@@ -1,7 +1,9 @@
 import type { Hono, Context as HonoContext } from "hono";
 import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
-import { watchEvents, UsageDoc, type AgentEvent } from "@earendil-works/pi-durable";
+import { UsageDoc, type Submission } from "@earendil-works/pi-durable";
+import { openSessionFeed } from "../session-feed.js";
+import type { AgentEvent } from "../session-feed-types.js";
 import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode } from "../busy-input.js";
 import { readClaudeUsage, usageNotice } from "../claude-usage.js";
 import { undoCommand } from "../undo.js";
@@ -221,7 +223,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
     }
 
     const wantsStream = c.req.query("stream") === "1" || (c.req.header("accept") ?? "").includes("text/event-stream");
-    const settle = async (sub: Awaited<ReturnType<typeof conv.submit>>) => {
+    const settle = async (sub: Submission) => {
       const s = await sub.wait(context);
       if (s.status !== "done")
         return {
@@ -242,7 +244,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
       return c.json({ ...(await settle(sub)), ...receipt });
     }
     return streamSSE(c, async (stream) => {
-      const ev = await watchEvents(harness, conv.id, context);
+      const feed = await openSessionFeed(harness, conv, undefined, context);
       let closed = false;
       const done = new Promise<void>((r) =>
         stream.onAbort(() => {
@@ -252,9 +254,9 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
       );
       await stream.writeSSE({
         event: "snapshot",
-        data: JSON.stringify(projectSnapshotImages(ev.snapshot, conv.id)),
+        data: JSON.stringify(projectSnapshotImages(feed.snapshot, conv.id)),
       });
-      ev.start(async (events) => {
+      feed.start(async (events) => {
         if (closed) return;
         for (const e of withSubmissions(events)) {
           const projected = projectAgentEvent(e, conv.id);
@@ -266,11 +268,12 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         await stream.writeSSE({ event: "submitted", data: JSON.stringify({ submissionId: sub.id, ...receipt }) });
         const result = await Promise.race([settle(sub), done.then(() => null)]);
         if (result) {
-          await new Promise((r) => setTimeout(r, 150)); // let the final commit's events flush
+          // Explicit ordered flush of any queued frames before emitting terminal done frame
+          await feed.flush();
           await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
         }
       } finally {
-        await ev.stop();
+        await feed.stop();
       }
     });
   };
@@ -304,7 +307,12 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
     const afterParam = c.req.query("after");
     const afterId = afterParam !== undefined && Number.isSafeInteger(Number(afterParam)) ? Number(afterParam) : undefined;
     return streamSSE(c, async (stream) => {
-      const ev = await watchEvents(harness, conv.id, context);
+      const feed = await openSessionFeed(
+        harness,
+        conv,
+        afterId !== undefined ? { from: afterId + 1 } : undefined,
+        context,
+      );
       let finish!: () => void;
       const done = new Promise<void>((r) => (finish = r));
       stream.onAbort(finish);
@@ -320,7 +328,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
           data: JSON.stringify({ jobs: sideCommands.list(String(conv.id)).map(jobView) }),
         });
         // Drop hydrated entries before walking and validating their embedded image data.
-        let snapshot = ev.snapshot;
+        let snapshot = feed.snapshot;
         if (isUi && afterId !== undefined) {
           snapshot = { ...snapshot, entries: snapshot.entries.filter((e) => e.id > afterId) };
         }
@@ -330,7 +338,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
           event: "snapshot",
           data: JSON.stringify(snapshot),
         });
-        ev.start(async (events) => {
+        feed.start(async (events) => {
           try {
             for (const event of withSubmissions(events)) {
               const source = isUi && event.type === "snapshot" && afterId !== undefined
@@ -344,11 +352,11 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
             finish();
           }
         });
-        await Promise.race([done, ev.closed, harness.closed]);
+        await Promise.race([done, feed.closed, harness.closed]);
       } finally {
         stopSide();
         clearInterval(ping);
-        await ev.stop();
+        await feed.stop();
       }
     });
   });
@@ -393,26 +401,31 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         arm();
       };
       // Register BEFORE the initial event, so creation during attachment cannot be missed.
-      const unsubscribe = harness.subscribeCommits((publication) => {
-        if (
-          publication.changes.some(
-            (change) =>
-              change.type === "conversation" ||
-              change.type === "entry" ||
-              change.type === "task" ||
-              change.type === "submission" ||
-              (change.type === "document" &&
-                [
-                  "luna.ask",
-                  "luna.goal",
-                  "luna.session-handoff",
-                  "luna.session-review",
-                  "luna.session-read",
-                  "luna.limit-waits",
-                ].includes(change.record.kind)),
+      const observation = harness.observeCommits({
+        advance(publication) {
+          if (
+            publication.changes.some(
+              (change) =>
+                change.type === "conversation" ||
+                change.type === "entry" ||
+                change.type === "task" ||
+                change.type === "submission" ||
+                (change.type === "document" &&
+                  [
+                    "luna.ask",
+                    "luna.goal",
+                    "luna.session-handoff",
+                    "luna.session-review",
+                    "luna.session-read",
+                    "luna.limit-waits",
+                  ].includes(change.record.kind)),
+            )
           )
-        )
-          changed();
+            changed();
+        },
+        end() {
+          // Session lifecycle closed/failed
+        },
       });
       const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
       const unsubscribeBoard = opts.conversations?.subscribeBoard(boardChanged);
@@ -427,7 +440,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         closed = true;
         clearInterval(ping);
         clearTimeout(timer);
-        unsubscribe();
+        observation.detach();
         unsubscribeMeta?.();
         unsubscribeBoard?.();
       }

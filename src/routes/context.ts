@@ -99,7 +99,12 @@ export function createRouteCtx(
     ),
   });
 
-  const getConv = async (id: string) => harness.conversation(id as never, context);
+  const getConv = async (id: string) => {
+    const numericId = Number(id);
+    if (!Number.isSafeInteger(numericId) || numericId < 1) return undefined;
+    // Storage IDs are numbers. String keys would survive numeric cache eviction on deletion.
+    return harness.conversation(numericId as ConversationId, context);
+  };
 
   const baseAgent = () => {
     const c = opts.settings?.resolved();
@@ -107,6 +112,7 @@ export function createRouteCtx(
       ...(opts.agent ?? {}),
       ...(opts.providers && { model: opts.providers.defaultModel() }),
       ...(c?.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}),
+      ...(c?.maxTurns ? { maxTurns: c.maxTurns } : {}),
       ...(c?.instructions ? { instructions: c.instructions } : {}),
     };
   };

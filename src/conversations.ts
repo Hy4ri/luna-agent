@@ -1,6 +1,6 @@
-// pi-durable 1.2 has no delete operation. Keep its SQLite-specific purge here, on the harness mutation line.
+// pi-durable 1.5 has no native delete operation. Keep its SQLite-specific purge here, on the harness mutation line.
 import type { DatabaseSync } from "node:sqlite";
-import { defineDoc, defineDocFamily, type ConversationRecord, type DocumentRecord, type Tx } from "@earendil-works/pi-durable";
+import type { ConversationRecord, Tx } from "@earendil-works/pi-durable";
 import { conversationStorage } from "./conversation-storage.js";
 import { context } from "./luna.js";
 import type { RecallIndex } from "./recall.js";
@@ -150,63 +150,71 @@ export class ConversationStore {
   }
   private async purge(select: (tx: Tx) => Promise<number[]>, preview = false) {
     const store = conversationStorage(this.harness);
-    let pendingPurge: (() => void) | undefined;
-    try { return await this.harness.commit(async tx => {
-      const ids = await select(tx);
-      if (preview || !ids.length) return ids;
-      // Use a temp table instead of a SQL variable limit for large child trees.
-      this.db.exec("CREATE TEMP TABLE IF NOT EXISTS purge_conversations(id INTEGER PRIMARY KEY); DELETE FROM purge_conversations;");
-      const add = this.db.prepare("INSERT INTO purge_conversations VALUES (?)"); for (const n of ids) add.run(n);
-      const busy = this.db.prepare("SELECT id FROM tasks WHERE conversation_id IN (SELECT id FROM purge_conversations) AND status <> 'terminal' LIMIT 1").get();
-      if (busy) throw new ConversationError(409, "Stop the conversation and its child tasks before deleting it.");
-      this.db.exec(`
-        CREATE TEMP TABLE IF NOT EXISTS purge_tasks(id INTEGER PRIMARY KEY); DELETE FROM purge_tasks;
-        INSERT INTO purge_tasks SELECT id FROM tasks WHERE conversation_id IN (SELECT id FROM purge_conversations);
-        CREATE TEMP TABLE IF NOT EXISTS purge_documents(id INTEGER PRIMARY KEY); DELETE FROM purge_documents;
-        INSERT INTO purge_documents SELECT id FROM documents WHERE
-          (scope_kind='conversation' AND owner_id IN (SELECT id FROM purge_conversations)) OR
-          (scope_kind='task' AND owner_id IN (SELECT id FROM purge_tasks));
-      `);
-      const docs = this.db.prepare("SELECT record FROM documents WHERE id IN (SELECT id FROM purge_documents) AND retired_at IS NULL").all() as { record: string }[];
-      for (const row of docs) await retireDocument(tx, JSON.parse(row.record) as DocumentRecord);
-      const purge = () => this.db.exec(`
-        DELETE FROM record_ids WHERE id IN (SELECT id FROM purge_documents)
-          OR id IN (SELECT id FROM entries WHERE conversation_id IN (SELECT id FROM purge_conversations))
-          OR id IN (SELECT id FROM submissions WHERE conversation_id IN (SELECT id FROM purge_conversations))
-          OR id IN (SELECT id FROM purge_tasks) OR id IN (SELECT id FROM purge_conversations);
-        DELETE FROM document_revisions WHERE document_id IN (SELECT id FROM purge_documents);
-        DELETE FROM documents WHERE id IN (SELECT id FROM purge_documents);
-        DELETE FROM submissions WHERE conversation_id IN (SELECT id FROM purge_conversations);
-        DELETE FROM entries WHERE conversation_id IN (SELECT id FROM purge_conversations);
-        DELETE FROM tasks WHERE id IN (SELECT id FROM purge_tasks);
-        DELETE FROM luna_conversations WHERE id IN (SELECT id FROM purge_conversations);
-        DELETE FROM luna_session_projects WHERE conversation_id IN (SELECT id FROM purge_conversations);
-        DELETE FROM conversations WHERE id IN (SELECT id FROM purge_conversations);
-        DELETE FROM purge_documents; DELETE FROM purge_tasks; DELETE FROM purge_conversations;
+    // Select on the mutation line and fingerprint the tree. The maintenance barrier then holds the line, so no commit can
+    // interleave; it refuses deletion when work reached the tree between the two steps.
+    const fingerprint = (ids: number[]) => {
+      const list = JSON.stringify(ids);
+      const entries = this.db.prepare("SELECT COALESCE(MAX(id),0) AS n FROM entries WHERE conversation_id IN (SELECT value FROM json_each(?))").get(list) as { n: number };
+      const tasks = this.db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS m FROM tasks WHERE conversation_id IN (SELECT value FROM json_each(?))").get(list) as { n: number; m: number };
+      return `${entries.n}:${tasks.n}:${tasks.m}`;
+    };
+    let ids: number[] = [], before = "";
+    await this.harness.commit(async tx => {
+      ids = await select(tx);
+      if (!preview && ids.length) before = fingerprint(ids);
+    }, context);
+    if (preview || !ids.length) return ids;
+    return this.harness.maintain(async maintenance => {
+      if (fingerprint(ids) !== before) throw new ConversationError(409, "The conversation changed during deletion. Try again.");
+
+      // Execute physical deletion inside adapter transaction to ensure serialization with storage queue
+      await store.adapter.transaction(async () => {
+        // Use a temp table instead of a SQL variable limit for large child trees.
+        this.db.exec("CREATE TEMP TABLE IF NOT EXISTS purge_conversations(id INTEGER PRIMARY KEY); DELETE FROM purge_conversations;");
+        const add = this.db.prepare("INSERT INTO purge_conversations VALUES (?)"); for (const n of ids) add.run(n);
+        const busy = this.db.prepare("SELECT id FROM tasks WHERE conversation_id IN (SELECT id FROM purge_conversations) AND status <> 'terminal' LIMIT 1").get();
+        if (busy) throw new ConversationError(409, "Stop the conversation and its child tasks before deleting it.");
+        this.db.exec(`
+          CREATE TEMP TABLE IF NOT EXISTS purge_tasks(id INTEGER PRIMARY KEY); DELETE FROM purge_tasks;
+          INSERT INTO purge_tasks SELECT id FROM tasks WHERE conversation_id IN (SELECT id FROM purge_conversations);
+          CREATE TEMP TABLE IF NOT EXISTS purge_documents(id INTEGER PRIMARY KEY); DELETE FROM purge_documents;
+          INSERT INTO purge_documents SELECT id FROM documents WHERE
+            (scope_kind='conversation' AND owner_id IN (SELECT id FROM purge_conversations)) OR
+            (scope_kind='task' AND owner_id IN (SELECT id FROM purge_tasks));
+          CREATE TEMP TABLE IF NOT EXISTS purge_submissions(id INTEGER PRIMARY KEY); DELETE FROM purge_submissions;
+          INSERT INTO purge_submissions SELECT id FROM submissions WHERE conversation_id IN (SELECT id FROM purge_conversations);
         `);
-      if (docs.length) { pendingPurge = purge; store.afterWrite = purge; }
-      else {
-        // A raw conversation can have no documents, hence no storage commit to attach the purge to.
-        this.db.exec("BEGIN IMMEDIATE");
-        try { purge(); this.db.exec("COMMIT"); } catch (e) { this.db.exec("ROLLBACK"); throw e; }
-      }
+
+        const purgeTaskIds = (this.db.prepare("SELECT id FROM purge_tasks").all() as { id: number }[]).map(r => r.id);
+        const purgeSubmissionIds = (this.db.prepare("SELECT id FROM purge_submissions").all() as { id: number }[]).map(r => r.id);
+
+        this.db.exec(`
+          DELETE FROM record_ids WHERE id IN (SELECT id FROM purge_documents)
+            OR id IN (SELECT id FROM entries WHERE conversation_id IN (SELECT id FROM purge_conversations))
+            OR id IN (SELECT id FROM purge_submissions)
+            OR id IN (SELECT id FROM purge_tasks) OR id IN (SELECT id FROM purge_conversations);
+          DELETE FROM document_revisions WHERE document_id IN (SELECT id FROM purge_documents);
+          DELETE FROM documents WHERE id IN (SELECT id FROM purge_documents);
+          DELETE FROM submissions WHERE id IN (SELECT id FROM purge_submissions);
+          DELETE FROM entries WHERE conversation_id IN (SELECT id FROM purge_conversations);
+          DELETE FROM tasks WHERE id IN (SELECT id FROM purge_tasks);
+          DELETE FROM luna_conversations WHERE id IN (SELECT id FROM purge_conversations);
+          DELETE FROM luna_session_projects WHERE conversation_id IN (SELECT id FROM purge_conversations);
+          DELETE FROM conversations WHERE id IN (SELECT id FROM purge_conversations);
+          DELETE FROM purge_submissions; DELETE FROM purge_documents; DELETE FROM purge_tasks; DELETE FROM purge_conversations;
+        `);
+
+        maintenance.evict({
+          conversations: ids as never,
+          tasks: purgeTaskIds as never,
+          submissions: purgeSubmissionIds as never,
+        });
+      });
+
+      this.recall?.forget(ids);
+      this.notify();
       return ids;
-    }, context).then(ids => { if (!preview && ids.length) { this.recall?.forget(ids); this.notify(); } return ids; });
-    } finally { if (store.afterWrite === pendingPurge) store.afterWrite = undefined; }
+    });
   }
 }
 
-// Retire each current document through the public API, so attached observers and cached snapshots are invalidated.
-async function retireDocument(tx: Tx, record: DocumentRecord) {
-  if (record.scope.kind === "session") return;
-  const semantics = record.scope.kind === "conversation"
-    ? { scope: "conversation" as const, history: record.history!, fork: record.fork! }
-    : { scope: "task" as const };
-  // Retirement uses address/semantics only; it neither loads nor migrates the value.
-  const definition = { kind: record.kind, version: 1, ...semantics, initial: () => ({}), checkpointWhen: () => false };
-  const owner = record.scope.kind === "conversation" ? record.scope.conversationId : record.scope.taskId;
-  if (record.key !== undefined) {
-    const token = defineDocFamily({ ...definition, family: true } as never);
-    await tx.retireDoc(token as never, owner as never, record.key);
-  } else await tx.retireDoc(defineDoc(definition as never) as never, owner as never);
-}

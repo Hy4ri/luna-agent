@@ -70,7 +70,14 @@ function empty(): AnalyticsMetrics {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, reasoning: null, cacheWrite1h: null,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cacheHitRate: null };
 }
+// Metrics start empty, so the first priced part sets the provenance and later parts can only lower it.
+const priced = new WeakSet<object>();
 function add(target: AnalyticsMetrics, usage: Partial<Usage>) {
+  if (valid(usage.cost?.total)) {
+    const reported = usage.cost.totalFromProvider === true;
+    target.cost.totalFromProvider = priced.has(target) ? target.cost.totalFromProvider === true && reported : reported;
+    priced.add(target);
+  }
   for (const key of counters) if (valid(usage[key])) target[key] += usage[key];
   for (const key of subsets) if (valid(usage[key])) target[key] = (target[key] ?? 0) + usage[key];
   for (const key of costCounters) if (valid(usage.cost?.[key])) target.cost[key] += usage.cost[key];
@@ -99,19 +106,29 @@ export interface AnalyticsCache { parts: Map<string, ConversationPart>; generati
 /** Returns undefined when commits cannot be observed: a cache without invalidation would serve stale data. */
 export function createAnalyticsCache(harness: Harness): AnalyticsCache | undefined {
   const cache: AnalyticsCache = { parts: new Map(), generations: new Map(), epoch: 0 };
-  try { harness.subscribeCommits(publication => {
-    for (const change of publication.changes) {
-      const id = change.type === "conversation" ? change.value.id
-        : change.type === "entry" || change.type === "task" || change.type === "submission" ? change.value.conversationId
-        : change.conversationId;
-      if (id === undefined) { cache.parts.clear(); cache.epoch++; continue; }
-      const k = String(id);
-      // Structural changes and retired documents take the conservative rebuild path.
-      if (change.type === "conversation" || (change.type === "document" && change.value === null) ||
-          (change.type === "entry" && (change.value.head !== undefined || change.value.edits !== undefined))) cache.parts.delete(k);
-      cache.generations.set(k, (cache.generations.get(k) ?? 0) + 1);
-    }
-  }); } catch { return undefined; }
+  try {
+    const observation = harness.observeCommits({
+      advance(publication) {
+        for (const change of publication.changes) {
+          const id = change.type === "conversation" ? change.value.id
+            : change.type === "entry" || change.type === "task" || change.type === "submission" ? change.value.conversationId
+            : change.conversationId;
+          if (id === undefined) { cache.parts.clear(); cache.epoch++; continue; }
+          const k = String(id);
+          // Structural changes and retired documents take the conservative rebuild path.
+          if (change.type === "conversation" || (change.type === "document" && change.kind === "retire") ||
+              (change.type === "entry" && (change.value.head !== undefined || change.value.edits !== undefined))) cache.parts.delete(k);
+          cache.generations.set(k, (cache.generations.get(k) ?? 0) + 1);
+        }
+      },
+      end() {
+        cache.parts.clear();
+        cache.generations.clear();
+        cache.epoch++;
+      },
+    });
+    void observation;
+  } catch { return undefined; }
   return cache;
 }
 

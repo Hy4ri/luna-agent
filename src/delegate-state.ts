@@ -64,7 +64,7 @@ export async function readChildReport(tx: Tx, parent: ConversationId, id: number
   const contract = await tx.doc(ChildResult, cid);
   if (contract.schema) {
     // A result belongs to the placed input boundary, not a previous steering turn.
-    const input = latestSubmission?.entry;
+    const input = latestSubmission?.type === "input" ? latestSubmission.entry : undefined;
     if (contract.result && input !== undefined && contract.result.boundary >= Number(input) && contract.result.boundary === await newestInputBoundary(tx, cid)) {
       base.resultStatus = "valid"; base.result = JSON.parse(JSON.stringify(contract.result.value)) as JsonValue;
     } else {

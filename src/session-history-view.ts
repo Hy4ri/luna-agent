@@ -1,7 +1,8 @@
 // Projection and truncation for lightweight session history UI responses.
 // Keeps durable storage and provider model history untouched.
-import type { EntryRecord, AgentEvent, SnapshotEvent } from "@earendil-works/pi-durable";
+import type { EntryRecord } from "@earendil-works/pi-durable";
 import type { Message, TextContent, ImageContent } from "@earendil-works/pi-ai";
+import type { AgentEvent, SnapshotEvent } from "./session-feed-types.js";
 
 export const TOOL_RESULT_TRUNCATION_LIMIT = 8 * 1024; // 8 KB
 export const TOOL_RESULT_HEAD_BYTES = 2 * 1024; // 2 KB

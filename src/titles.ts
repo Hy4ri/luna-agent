@@ -4,6 +4,7 @@
 // Authority is derived < auto < user. A higher source is never replaced, so a rename during the call is kept.
 // A derived title (or an untitled session) gets more upgrade tries on the next user turns: up to turn 3, and at most
 // MAX_ATTEMPTS model calls per session per process. Subagents, side jobs, forks and owned children are not titled.
+import { addCostProvenance } from "./usage-cost.js";
 import type { Models, Usage } from "@earendil-works/pi-ai";
 import { UsageDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
 import type { ConversationStore } from "./conversations.js";
@@ -96,7 +97,7 @@ async function readUsers(tx: Pick<Tx, "scanEntries">, id: ConversationId, collec
 export class SessionTitler {
   private readonly attempts = new Map<number, number>();
   private readonly running = new Map<number, { force: boolean; promise: Promise<string | null> }>();
-  private stopCommits?: () => void;
+  private observation?: { detach(): void };
   private closed = false;
   constructor(private readonly o: {
     harness: Harness; conversations: ConversationStore; models?: Models; route: () => TitleRoute | undefined;
@@ -104,14 +105,24 @@ export class SessionTitler {
 
   /** Title a session when a user message is stored, in parallel with the turn. */
   start() {
-    this.stopCommits = this.o.harness.subscribeCommits(p => {
-      const ids = new Set<number>();
-      for (const ch of p.changes) if (ch.type === "entry" && ch.value.kind === "pi.user") ids.add(Number(ch.value.conversationId));
-      for (const id of ids) {
-        const src = this.o.conversations.titleSource(id);
-        if (src === "auto" || src === "user") continue;
-        void this.generate(id, false).catch(() => {});
-      }
+    this.observation = this.o.harness.observeCommits({
+      advance: (p) => {
+        const ids = new Set<number>();
+        for (const ch of p.changes) if (ch.type === "entry" && ch.value.kind === "pi.user") ids.add(Number(ch.value.conversationId));
+        if (ids.size === 0) return;
+        queueMicrotask(() => {
+          if (this.closed) return;
+          for (const id of ids) {
+            const src = this.o.conversations.titleSource(id);
+            if (src === "auto" || src === "user") continue;
+            void this.generate(id, false).catch(() => {});
+          }
+        });
+      },
+      end: () => {
+        this.closed = true;
+        queueMicrotask(() => void this.close());
+      },
     });
   }
   /** True when a route resolves to a known model with credentials. */
@@ -191,11 +202,12 @@ export class SessionTitler {
       for (const f of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[f] += usage[f];
       for (const f of ["cacheWrite1h", "reasoning"] as const) if (usage[f] !== undefined) total[f] = (total[f] ?? 0) + usage[f]!;
       for (const f of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[f] += usage.cost[f];
+      addCostProvenance(total.cost, usage.cost);
     }, context);
   }
 
   async close() {
-    this.closed = true; this.stopCommits?.();
+    this.closed = true; this.observation?.detach();
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
   }
 }

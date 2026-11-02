@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { ExecTarget } from "./workers.js";
 import { AskDoc } from "./ask.js";
 import { readSessionHandoff } from "./session-status.js";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { configure, defineExtension, defineTool, type AgentChange, type ConversationId, type Extension, type TaskId } from "@earendil-works/pi-durable";
 import { Children, ChildResult, childRequests, childNotificationId, readChildReport, DELEGATE_CHILD, DELEGATE_MESSAGE, type ChildRow, type ChildReport } from "./delegate-state.js";
 import { withChildControl } from "./delegate-control.js";
@@ -74,6 +74,7 @@ export interface DelegateSettings {
   provider?: string; model?: string;
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   cwd?: string;
+  maxTurns?: number;
   profiles?: Record<string, DelegateProfile>;
 }
 export function createDelegateExtension(settings: () => DelegateSettings = () => ({})): Extension {
@@ -221,8 +222,10 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
                 try { cwd = await prepareDelegateWorktree(api, context, { repo: parent.cwd ?? process.cwd(), branch: args.worktree, ...(args.base ? { base: args.base } : {}) }); }
                 catch (error) { return text(`worktree failed: ${(error as Error).message}`, true); }
               }
+              const maxTurns = profile?.maxTurns ?? defaults.maxTurns ?? parent.maxTurns;
               const agent: AgentChange = {
                 ...(model ? { model } : {}), thinkingLevel: profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel,
+                ...(maxTurns === undefined ? {} : { maxTurns }),
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board" || e.name === "ask-user")] },
                 tools, modelTools: tools, toolAllowlist: tools.map(tool => tool.name),
                 ...(cwd ? { cwd } : {}),

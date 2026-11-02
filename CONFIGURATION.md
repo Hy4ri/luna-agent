@@ -96,15 +96,42 @@ The browser's address bar stays at the page's original origin. An already loaded
 addresses; reopening that page still requires its original origin to be reachable. The desktop client
 loads its shell locally and does not have this browser limitation.
 
+## Pi 1.5 runtime and upgrade safety
+
+Luna pins Pi AI, Pi Durable, and Chord to the same release family. Live chat keeps Luna's HTTP/SSE contract;
+Pi conversation watches supply bounded live state, while commit observations drive persisted metadata and notifications.
+History remains paginated and fork-aware. Closing or reconnecting a viewer does not abort a run or send its input again.
+
+Pi 1.5 defers streamed partials and running tool output for up to about one second by default. Watches show that progress
+before storage receives it. A crash can lose recent partial content; completed boundaries persist the state they consume.
+Luna retains stock compaction and progress policies. This upgrade does not change saved provider/model defaults.
+
+Before a production upgrade, stop active work and take a consistent backup of the resolved data directory and configuration.
+Do not copy only an open SQLite main file and omit its WAL. Keep credential permissions restrictive.
+Pi 1.5 writes `pi.live` version 3, generation task version 2, and tool task version 3. A package downgrade alone cannot
+safely reopen all upgraded state. Rollback requires stopping the new daemon and restoring matching old code, dependencies,
+compiled assets, and the pre-upgrade state snapshot. Work created after that snapshot is not present in the restored state.
+Do not start two writing daemons against the same data directory.
+
+Dependency patches retain Luna's persistent tool ceilings, redirect/grouped-steering behavior, submission receipts,
+selected model identity in failures, and provider quota diagnostics/retry ownership. Guarded server admissions use Pi's
+transactional submission API, not a host callback stored in a submission.
+
 ## Fields
 
 - `provider`, `model`: default model for new sessions and cron runs.
 - `thinkingLevel`, `instructions`: defaults for new chat sessions.
+- `maxTurns`: optional integer of 1 or more. A run may take this many tool rounds. The round that reaches the limit runs its tools,
+  then the run ends unanswered and the session shows **Limit reached**. A new input starts a new run with a fresh count. It is not a time,
+  token, cost, goal, or delegate-deadline limit and does not replace them. Unset means no limit. It applies to conversations created after the change.
+  `subagents.maxTurns` and a profile's `maxTurns` set the limit for new children; without either, a child inherits its parent's limit.
+  Scheduled (cron) runs and side questions do not use this setting. They keep their own run timeout.
 - `afterFailedRun`: what happens to messages queued behind a response that failed. `keep` (default) leaves them queued until the next input,
   `continue` starts the next response with them, `withdraw` drops them. It applies to all sessions and live.
-- Operator alerts: when `cron.notifyUrl` is set, a parked task (`task_parked`) or a failed daemon session (`session_failed`) is also posted there.
-  A task is parked after it is cut off by a crash five times in a row. `GET /v1/tasks/parked` lists parked tasks;
-  `POST /v1/tasks/:id/retry` runs one again.
+- Operator alerts: when `cron.notifyUrl` is set, storage failure (`storage_failed`) and tasks interrupted by the crash guard
+  (`task_interrupted`, or an extension task's `task_faulted`) are also posted there. Pi 1.5 ends restart-limited work instead of parking it.
+  `GET /v1/tasks/parked` and `POST /v1/tasks/:id/retry` return HTTP 410. They do not restart terminal tasks or repeat side effects.
+  Inspect the session failure, then send a new input or request a new compaction when appropriate.
 - `autoContinue`: resume a stopped turn after a rate or usage limit. `enabled` defaults to `false`.
   Edit it under **Settings → Chat → Continue after usage limits**. Changes apply live.
   Quota refusals have one retry owner: the durable continuation scheduler. Provider-local and generation retry
@@ -130,6 +157,10 @@ loads its shell locally and does not have this browser limitation.
   An upgrade suggestion with a recoverable quota reset is not, by itself, a permanent billing failure.
   New input, **Stop**, **Cancel**, a model change, archive/delete, a pending user action, or disabling recovery invalidates the old wait.
   Re-enabling recovery does not silently revive cancelled work. Cron runs, owned subagents, and side questions remain excluded.
+  Recovery resumes the stored run with Pi's native `continue` submission. It adds no recovery message to the conversation, so the transcript
+  and prompt-cache prefix stay unchanged. A continue is accepted only when the conversation is idle and its context ends in a user message or
+  tool results; a busy or ineligible conversation is paused or retried by the rules above, never replaced by a synthetic user message.
+  Because no input entry is added, the session's input boundary does not move; an admitted recovery shows no stale recovery state.
   Stable submission IDs and durable receipt lookup prevent duplicate continuation after an ambiguous acknowledgement or crash.
   Local delivery failures use three redelivery delays: 30 seconds, 2 minutes, and 10 minutes. Persistent failure then pauses recovery.
   Receipt lookups and redelivery of the same admitted input do not spend extra model-attempt budget.
@@ -201,7 +232,7 @@ loads its shell locally and does not have this browser limitation.
   With children present, `delegationUsage` includes `parent`, `children`, `childTotal`, `total`, `unavailableChildren`, and an accounting note.
   Each usage summary contains token counters, `costUsd`, `missingCost`, and `zeroCostModels`.
   Totals include recorded model/compaction usage only. Tool-reported usage is not added because it can overlap; inherited fork history is not charged again.
-  Deleted children are excluded and counted as unavailable. Recorded costs are estimates, not invoices; zero can mean unpriced, subscription, or free usage.
+  Deleted children are excluded and counted as unavailable. Recorded costs are estimates unless `costReported` is true; zero can mean unpriced, subscription, or free usage.
   The existing activity panel shows role, result-schema state, grouped recorded estimates, and the existing Open/Stop controls. There is no second inspector or usage store.
 - `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
@@ -779,7 +810,9 @@ Queue numbers start at 1. Each command applies atomically to the current queue. 
 `/stop` and the Stop button always hard-stop the current work and withdraw pending input. They do not become model messages.
 `/model`, `/compress`, `/compact`, and `/retry` are rejected while busy. Use session controls when idle.
 
-`/usage` (alias `/cost`) returns recorded model token totals and cost for the current Luna conversation, plus Claude plan usage from the daemon host's Claude Code login. It does not submit a model prompt, change the conversation, or scan local transcripts. Tool-reported usage is excluded because it can overlap model usage. Recorded model cost is not the subscription bill; Claude generations record the native CLI's USD estimate, while providers that do not report cost can show zero. The report appears in command feedback, not model context.
+`/usage` (alias `/cost`) returns recorded model token totals and cost for the current Luna conversation, plus Claude plan usage from the daemon host's Claude Code login. It does not submit a model prompt, change the conversation, or scan local transcripts. Tool-reported usage is excluded because it can overlap model usage. Recorded model cost is not the subscription bill; Claude generations record the native CLI's USD estimate, while providers that do not report cost can show zero.
+
+**Cost source labels.** A cost total is *provider-reported* only when the provider returned the billed amount (for example OpenRouter) for every priced response in the sum. The flag is `usage.cost.totalFromProvider`. A sum with any catalog-rate, Claude CLI estimate, mixed, or unflagged part is an estimate, never an invoice. A missing flag counts as unknown, not billed. The pi-durable patch combines the flag when the session ledger adds responses, because stock 1.5 keeps the first response's flag. Analytics, the status bar, `/usage`, and the delegation summary (`costReported`) show the source. Component costs (`input`, `output`, and so on) stay catalog estimates even when the total is provider-reported. Claude Code's total is its own USD estimate and is not marked provider-reported. Older ledger entries have no flag and read as estimates. The report appears in command feedback, not model context.
 
 Claude plan data uses the experimental Claude Code `get_usage` control API. It includes available usage windows, reset times (UTC), and extra-usage utilization. Missing limits display as unavailable, never as zero. Unsupported CLI versions, login failures, and timeouts preserve Luna's session totals with an error notice. Requests have a 20-second timeout and terminate their child process group. Executable selection and OAuth-only environment validation follow the Claude native transport, including `LUNA_CLAUDE_EXECUTABLE` and `CLAUDE_CONFIG_DIR`. Remote-worker sessions still report the **daemon host's** Claude account, not the worker's account. No new configuration fields are required.
 

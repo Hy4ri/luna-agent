@@ -2,6 +2,7 @@
 export interface DelegateProfile {
   provider?: string; model?: string;
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  maxTurns?: number;
   context?: "fresh" | "fork";
   tools: string[];
   instructions?: string;

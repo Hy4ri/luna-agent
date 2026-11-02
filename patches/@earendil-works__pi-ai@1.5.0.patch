@@ -1,5 +1,5 @@
 diff --git a/dist/api/google-generative-ai.js b/dist/api/google-generative-ai.js
-index 1a33683db114ae21bda752d23fdc061fb6bbdbaf..a31854dbe1e1d915e11187ba6fe371dbdaffe16b 100644
+index feb37cc..ae6f873 100644
 --- a/dist/api/google-generative-ai.js
 +++ b/dist/api/google-generative-ai.js
 @@ -2,6 +2,8 @@ import { GoogleGenAI, } from "@google/genai";
@@ -11,8 +11,8 @@ index 1a33683db114ae21bda752d23fdc061fb6bbdbaf..a31854dbe1e1d915e11187ba6fe371db
  import { providerHeadersToRecord } from "../utils/headers.js";
  import { getIdentityHeaders } from "../utils/identity.js";
  import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-@@ -227,6 +229,10 @@ export const stream = (model, context, options) => {
-             }
+@@ -221,6 +223,10 @@ export const stream = (model, context, options) => {
+         catch (error) {
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
              output.errorMessage = formatProviderError(normalizeProviderError(error));
 +            const receivedAt = Date.now(), quota = googleQuotaDiagnostic(error, receivedAt);
@@ -23,7 +23,7 @@ index 1a33683db114ae21bda752d23fdc061fb6bbdbaf..a31854dbe1e1d915e11187ba6fe371db
              stream.end();
          }
 diff --git a/dist/api/google-vertex.js b/dist/api/google-vertex.js
-index d3cbcf530801c76ba777ba701179549ca7088ef8..8a9a315923770fbcb3422ea92cb2fe4dbcfda328 100644
+index 1b7cb58..c9bd92b 100644
 --- a/dist/api/google-vertex.js
 +++ b/dist/api/google-vertex.js
 @@ -2,6 +2,8 @@ import { GoogleGenAI, ResourceScope, } from "@google/genai";
@@ -35,8 +35,8 @@ index d3cbcf530801c76ba777ba701179549ca7088ef8..8a9a315923770fbcb3422ea92cb2fe4d
  import { providerHeadersToRecord } from "../utils/headers.js";
  import { getIdentityHeaders } from "../utils/identity.js";
  import { getProviderEnvValue } from "../utils/provider-env.js";
-@@ -229,6 +231,10 @@ export const stream = (model, context, options) => {
-             }
+@@ -223,6 +225,10 @@ export const stream = (model, context, options) => {
+         catch (error) {
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
              output.errorMessage = formatProviderError(normalizeProviderError(error));
 +            const receivedAt = Date.now(), quota = googleQuotaDiagnostic(error, receivedAt);
@@ -47,7 +47,7 @@ index d3cbcf530801c76ba777ba701179549ca7088ef8..8a9a315923770fbcb3422ea92cb2fe4d
              stream.end();
          }
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597794bc29f 100644
+index 427df0a..bbd7d7c 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
 @@ -53,7 +53,7 @@ function isTerminalRateLimitError(errorText) {
@@ -98,8 +98,8 @@ index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597
                          !(lastError instanceof RetryDelayExceededError) &&
                          !lastError.message.includes("usage limit")) {
                          const delayMs = BASE_DELAY_MS * 2 ** attempt;
-@@ -348,6 +357,10 @@ export const stream = (model, context, options) => {
-             }
+@@ -343,6 +352,10 @@ export const stream = (model, context, options) => {
+         catch (error) {
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
              output.errorMessage = formatProviderError(normalizeProviderError(error));
 +            const limit = codexLimitFailure(error, limitWindows);
@@ -109,7 +109,7 @@ index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
          }
-@@ -501,6 +514,48 @@ class CodexApiError extends Error {
+@@ -496,6 +509,48 @@ class CodexApiError extends Error {
          this.cause = options?.cause;
      }
  }
@@ -158,7 +158,7 @@ index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597
  class CodexProtocolError extends Error {
      payload;
      constructor(message, options) {
-@@ -540,6 +595,7 @@ function extractCodexEventError(event) {
+@@ -535,6 +590,7 @@ function extractCodexEventError(event) {
      };
  }
  async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
@@ -166,7 +166,7 @@ index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597
      for await (const event of events) {
          try {
              await onProviderStreamEvent?.(event, model);
-@@ -551,18 +607,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+@@ -546,18 +602,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
          const type = typeof event.type === "string" ? event.type : undefined;
          if (!type)
              continue;
@@ -205,7 +205,7 @@ index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597
          }
          if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
              const response = event.response;
-@@ -1262,6 +1335,11 @@ async function parseErrorResponse(response) {
+@@ -1257,6 +1330,11 @@ async function parseErrorResponse(response) {
                  friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
              }
              message = err.message || friendlyMessage || message;
@@ -219,7 +219,7 @@ index 45bcd08b85b478f0f96006881d489820f1264d2c..d9674f5e8053d8347df63124fb2e5597
      catch { }
 diff --git a/dist/utils/google-quota.js b/dist/utils/google-quota.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..fad981953ca82864d3f096e7d8e0d3c8206a007a
+index 0000000..fad9819
 --- /dev/null
 +++ b/dist/utils/google-quota.js
 @@ -0,0 +1,38 @@
@@ -262,7 +262,7 @@ index 0000000000000000000000000000000000000000..fad981953ca82864d3f096e7d8e0d3c8
 +    return { kind: "wait", windows: [], receivedAt, ...(response.length <= 4000 ? { response } : {}) };
 +}
 diff --git a/dist/utils/provider-retry.js b/dist/utils/provider-retry.js
-index 5960cf7f5e992eef7d1b96530cea66c6f616a6d2..0d7629d77faffd0e407eeb5383d6a715fac91113 100644
+index 5960cf7..0d7629d 100644
 --- a/dist/utils/provider-retry.js
 +++ b/dist/utils/provider-retry.js
 @@ -7,6 +7,8 @@ function isProviderError(error) {
@@ -275,10 +275,10 @@ index 5960cf7f5e992eef7d1b96530cea66c6f616a6d2..0d7629d77faffd0e407eeb5383d6a715
      if (shouldRetry === "true")
          return true;
 diff --git a/dist/utils/retry.js b/dist/utils/retry.js
-index 1ae291c296dc5d35a7b827e1098977e0d0db32cf..c318fae6d7f481974bbef42861b9ed1480f760ac 100644
+index d33b806..05ae857 100644
 --- a/dist/utils/retry.js
 +++ b/dist/utils/retry.js
-@@ -202,7 +202,11 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
+@@ -205,7 +205,11 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
  export function isRetryableAssistantError(message) {
      if (message.stopReason !== "error" || !message.errorMessage)
          return false;

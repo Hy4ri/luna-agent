@@ -1,6 +1,7 @@
 // Deterministic projection of base64 images to session-scoped HTTP URLs.
 // Preserves original storage/model context; extracts images on the fly for UI transport.
-import type { AgentEvent, EntryRecord, SnapshotEvent } from "@earendil-works/pi-durable";
+import type { EntryRecord } from "@earendil-works/pi-durable";
+import type { AgentEvent, SnapshotEvent } from "./session-feed-types.js";
 
 export const SUPPORTED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 export type SupportedImageMime = (typeof SUPPORTED_IMAGE_MIMES)[number];

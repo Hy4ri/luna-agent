@@ -54,6 +54,8 @@ export const ConfigSchema = z
     provider: z.string().regex(/^[a-z0-9-]{1,40}$/).default("faux"),
     model: z.string().optional(),
     thinkingLevel: thinking.optional(),
+    /** Tool rounds one run may take before it ends unanswered (`turn_limit`). Unset: no limit. */
+    maxTurns: z.number().int().min(1).optional(),
     instructions: z.string().optional(),
     busyInput: z.strictObject({
       mode: z.enum(["interrupt", "queue", "steer"]).default("interrupt"),
@@ -150,10 +152,10 @@ export const ConfigSchema = z
     }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
-      thinkingLevel: thinking.optional(), cwd: z.string().optional(),
+      thinkingLevel: thinking.optional(), cwd: z.string().optional(), maxTurns: z.number().int().min(1).optional(),
       profiles: z.record(z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/), z.strictObject({
         provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
-        thinkingLevel: thinking.optional(), context: z.enum(["fresh", "fork"]).default("fresh"),
+        thinkingLevel: thinking.optional(), maxTurns: z.number().int().min(1).optional(), context: z.enum(["fresh", "fork"]).default("fresh"),
         tools: z.array(z.string().min(1)).refine(tools => new Set(tools).size === tools.length, "duplicate tool name"),
         instructions: z.string().optional(),
       })).default(DEFAULT_DELEGATE_PROFILES),

@@ -1,6 +1,6 @@
 // Cron extension: lets the model manage scheduled jobs (create/list/get/update/enable/disable/remove/run/stop/runs) in cron.db,
 // plus result delivery to a notify URL (ntfy-compatible: plain-text POST with a Title header).
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { nextRun, parseCron } from "./cron-expr.js";
 import type { CronStore, Job, JobOptions, ReportPolicy, Run, Scheduler } from "./scheduler.js";

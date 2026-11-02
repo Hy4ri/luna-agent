@@ -81,3 +81,14 @@ test("live settings: external edits, saves, and invalid files apply on the next 
     assert.throws(() => settings.resolved());
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("maxTurns is a positive integer at the root, in subagent defaults, and in a profile", () => {
+  const profile = { tools: ["read"], maxTurns: 5 };
+  const c = parse({ provider: "faux", maxTurns: 60, subagents: { maxTurns: 40, profiles: { r: profile } } });
+  assert.equal(c.maxTurns, 60);
+  assert.equal(c.subagents.maxTurns, 40);
+  assert.equal(c.subagents.profiles.r?.maxTurns, 5);
+  assert.equal(parse({ provider: "faux" }).maxTurns, undefined, "no limit by default");
+  for (const bad of [0, -1, 1.5, "3"]) rejects({ provider: "faux", maxTurns: bad }, /maxTurns/);
+  rejects({ provider: "faux", subagents: { profiles: { r: { ...profile, maxTurns: 0 } } } }, /maxTurns/);
+});
