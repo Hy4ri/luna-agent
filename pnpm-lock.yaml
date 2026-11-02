@@ -179,6 +179,9 @@ importers:
       '@earendil-works/pi-ai':
         specifier: 1.5.0
         version: 1.5.0(patch_hash=d570f5f00dee76f96e0c958c22a7a61894e06263913a92c78d3f3f94a5f78554)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
+      '@earendil-works/pi-codemode':
+        specifier: 1.5.0
+        version: 1.5.0
       '@earendil-works/pi-durable':
         specifier: 1.5.0
         version: 1.5.0(patch_hash=794a500caf26aeadd725814d5796a942866981babe448986a4381e8bd684182d)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.4)(esbuild@0.28.2)(ws@8.22.0)(zod@4.6.7)
