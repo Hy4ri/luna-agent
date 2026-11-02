@@ -71,10 +71,6 @@ export const LimitWaitsDoc = defineDoc<LimitWaitsDocValue>({
   initial: () => ({ waits: {}, chains: {}, routes: {} }),
 });
 
-export const CONTINUATION_TAG = "limit_continuation";
-export const continuationText = (attempt: number, exact = true) =>
-  `<${CONTINUATION_TAG} attempt="${attempt}"/> ${exact ? "The reported usage-limit reset time has passed." : "The retry delay has passed; quota availability is not confirmed."} Continue your work from where you stopped.`;
-
 const MAX_TIMER = 2 ** 31 - 1;
 
 export type RecoverySummary = {
@@ -110,7 +106,8 @@ export async function readLimitRecovery(tx: Tx, id: ConversationId, configuredMa
     };
   }
 
-  if (chain && chain.boundary === currentBoundary) {
+  // A continue adds no input entry, so the boundary does not move. An admitted chain is in flight or finished, not a recovery state.
+  if (chain && chain.boundary === currentBoundary && chain.lastOutcome !== "admitted") {
     return {
       active: false,
       attempt: chain.attemptsAdmitted,
@@ -950,13 +947,9 @@ export class LimitContinuer {
         const ok = await this.eligible(tx, id, wait, true);
         if (!ok) return { kind: "rejected" as const };
 
-        // Native transactional admission before table writes
-        const subId = await conv.submit(tx, {
-          type: "input",
-          content: continuationText(wait.attempt, wait.exact),
-          requestId: reqId,
-          whenBusy: "reject",
-        });
+        // Native continue: a run on the stored context, with no synthetic user message. Idle-only; it never queues.
+        // The stable request ID makes a repeated delivery return this submission.
+        const subId = await conv.submit(tx, { type: "continue", requestId: reqId });
 
         // Documents can be written after admission without table reads
         const doc = await tx.doc(LimitWaitsDoc);
@@ -1024,7 +1017,8 @@ export class LimitContinuer {
         if (reqId) {
           const placedSub = await tx.submissionByRequest(cid, reqId);
           const placedEntry = placedSub && "entry" in placedSub ? placedSub.entry : undefined;
-          if (placedSub && (placedSub.status === "queued" || placedEntry !== undefined)) {
+          // A continue never queues and has no entry: any stored record means it was admitted.
+          if (placedSub && (placedSub.type === "continue" || placedSub.status === "queued" || placedEntry !== undefined)) {
             delete doc.waits[String(id)];
             const chain = doc.chains[String(id)];
             if (chain) {

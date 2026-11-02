@@ -156,6 +156,10 @@ transactional submission API, not a host callback stored in a submission.
   An upgrade suggestion with a recoverable quota reset is not, by itself, a permanent billing failure.
   New input, **Stop**, **Cancel**, a model change, archive/delete, a pending user action, or disabling recovery invalidates the old wait.
   Re-enabling recovery does not silently revive cancelled work. Cron runs, owned subagents, and side questions remain excluded.
+  Recovery resumes the stored run with Pi's native `continue` submission. It adds no recovery message to the conversation, so the transcript
+  and prompt-cache prefix stay unchanged. A continue is accepted only when the conversation is idle and its context ends in a user message or
+  tool results; a busy or ineligible conversation is paused or retried by the rules above, never replaced by a synthetic user message.
+  Because no input entry is added, the session's input boundary does not move; an admitted recovery shows no stale recovery state.
   Stable submission IDs and durable receipt lookup prevent duplicate continuation after an ambiguous acknowledgement or crash.
   Local delivery failures use three redelivery delays: 30 seconds, 2 minutes, and 10 minutes. Persistent failure then pauses recovery.
   Receipt lookups and redelivery of the same admitted input do not spend extra model-attempt budget.
