@@ -4,6 +4,7 @@
 // Authority is derived < auto < user. A higher source is never replaced, so a rename during the call is kept.
 // A derived title (or an untitled session) gets more upgrade tries on the next user turns: up to turn 3, and at most
 // MAX_ATTEMPTS model calls per session per process. Subagents, side jobs, forks and owned children are not titled.
+import { addCostProvenance } from "./usage-cost.js";
 import type { Models, Usage } from "@earendil-works/pi-ai";
 import { UsageDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
 import type { ConversationStore } from "./conversations.js";
@@ -201,6 +202,7 @@ export class SessionTitler {
       for (const f of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[f] += usage[f];
       for (const f of ["cacheWrite1h", "reasoning"] as const) if (usage[f] !== undefined) total[f] = (total[f] ?? 0) + usage[f]!;
       for (const f of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[f] += usage.cost[f];
+      addCostProvenance(total.cost, usage.cost);
     }, context);
   }
 

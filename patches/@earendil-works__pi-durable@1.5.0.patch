@@ -392,6 +392,21 @@ index eb64e47..7056328 100644
      readonly tools?: readonly ToolRegistration[] | {
          readonly remove: readonly ToolRegistration[];
      } | null;
+diff --git a/dist/harness/usage.js b/dist/harness/usage.js
+index daa3c4d..d243bf9 100644
+--- a/dist/harness/usage.js
++++ b/dist/harness/usage.js
+@@ -36,6 +36,10 @@ export function addUsage(total, usage) {
+     total.cost.cacheRead += usage.cost.cacheRead;
+     total.cost.cacheWrite += usage.cost.cacheWrite;
+     total.cost.total += usage.cost.total;
++    // luna: a sum is provider-reported only when every part is. A missing flag is unknown, never billed.
++    if (total.cost.totalFromProvider !== undefined || usage.cost.totalFromProvider !== undefined) {
++        total.cost.totalFromProvider = total.cost.totalFromProvider === true && usage.cost.totalFromProvider === true;
++    }
+ }
+ /** Add every bucket of `state` into `sum`. */
+ export function addUsageState(sum, state) {
 diff --git a/dist/session/cached-storage.d.ts b/dist/session/cached-storage.d.ts
 index aa958f0..5119be7 100644
 --- a/dist/session/cached-storage.d.ts

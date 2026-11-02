@@ -12,6 +12,11 @@ const cost = computed(() => {
   const known = rows.filter(row => Number.isFinite(row.cost?.total));
   return known.length ? `$${known.reduce((sum, row) => sum + row.cost.total, 0).toFixed(4)}` : '';
 });
+// Provider-reported only when every priced row is. Everything else is a catalog or CLI estimate.
+const costTitle = computed(() => {
+  const known = (Object.values(chat.usage?.models || {}) as any[]).filter(row => Number.isFinite(row.cost?.total));
+  return known.length && known.every(row => row.cost.totalFromProvider === true) ? 'Provider-reported cost' : 'Estimated model cost, not an invoice';
+});
 function dismiss(event: PointerEvent | KeyboardEvent) {
   if (event instanceof KeyboardEvent ? event.key === 'Escape' : !disclosure.value?.contains(event.target as Node)) {
     if (disclosure.value) disclosure.value.open = false;
@@ -29,7 +34,7 @@ onUnmounted(() => { document.removeEventListener('pointerdown', dismiss); docume
   <details v-else-if="contextView || usageText" id="statusbar" ref="disclosure" class="usage-disclosure">
     <summary class="usage-summary" aria-label="Context and usage">
       <span class="usage-summary-label">Context</span><span class="usage-percent">{{ percent }}</span>
-      <span v-if="cost" class="usage-cost" title="Estimated model cost">{{ cost }}</span><ChevronDown :size="12" aria-hidden="true" />
+      <span v-if="cost" class="usage-cost" :title="costTitle">{{ cost }}</span><ChevronDown :size="12" aria-hidden="true" />
     </summary>
     <div class="usage-details">
       <ContextUsage />

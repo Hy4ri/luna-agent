@@ -1,3 +1,4 @@
+import { addCostProvenance } from "./usage-cost.js";
 import { ExecTarget } from "./workers.js";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -207,6 +208,7 @@ export class SideCommands {
       for (const field of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[field] += usage[field];
       for (const field of ["cacheWrite1h", "reasoning"] as const) if (usage[field] !== undefined) total[field] = (total[field] ?? 0) + usage[field]!;
       for (const field of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[field] += usage.cost[field];
+      addCostProvenance(total.cost, usage.cost);
     }, context);
   }
   private async answer(source: Conversation, question: string, snapshot: Message[], model: Model<any>, agent: Agent,

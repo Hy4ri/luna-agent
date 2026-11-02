@@ -70,7 +70,14 @@ function empty(): AnalyticsMetrics {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, reasoning: null, cacheWrite1h: null,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cacheHitRate: null };
 }
+// Metrics start empty, so the first priced part sets the provenance and later parts can only lower it.
+const priced = new WeakSet<object>();
 function add(target: AnalyticsMetrics, usage: Partial<Usage>) {
+  if (valid(usage.cost?.total)) {
+    const reported = usage.cost.totalFromProvider === true;
+    target.cost.totalFromProvider = priced.has(target) ? target.cost.totalFromProvider === true && reported : reported;
+    priced.add(target);
+  }
   for (const key of counters) if (valid(usage[key])) target[key] += usage[key];
   for (const key of subsets) if (valid(usage[key])) target[key] = (target[key] ?? 0) + usage[key];
   for (const key of costCounters) if (valid(usage.cost?.[key])) target.cost[key] += usage.cost[key];
