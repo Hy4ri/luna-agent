@@ -12,6 +12,7 @@ import { createMemoryExtension, MemoryStore } from "./memory.js";
 import { SessionStatusExtension } from "./session-status.js";
 import { GenUiExtension } from "./genui.js";
 import { ExecTarget } from "./workers.js";
+import { SessionWorkspaceExtension } from "./session-workspace.js";
 
 export const context = BACKGROUND_CONTEXT;
 // New incarnations of a deleted root must not inherit old process handles or deliveries.
@@ -66,7 +67,7 @@ export async function openLuna(opts: LunaOptions) {
     directory: opts.processDirectory ?? (opts.dbPath === ":memory:" ? undefined : join(dirname(opts.dbPath), "processes")),
     log: opts.log,
   });
-  if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); }
+  if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); registry.install(SessionWorkspaceExtension); }
   registry.install(defineExtension({ name: "active-model", sections: [section("active-model", ({ agent }) =>
     agent.model
       ? `Active model for this session: ${agent.model.provider}/${agent.model.modelId}.`

@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import { GitBranch, FilePlus, FileMinus, FilePen, FileQuestion, FileSymlink, Files, FileWarning, File } from '@lucide/vue';
 import { railCollapsed } from '@/lib/rail-collapse';
+import { chat } from '@/stores/chat';
 import { gitStatus as data, registerGitStatusInstance } from '@/stores/git-status';
 
 defineProps<{ docked?: boolean }>();
@@ -56,6 +57,7 @@ onUnmounted(() => {
         </ul>
       </details>
       <template v-if="data?.state === 'ok'">
+        <p v-if="chat.cwd" class="git-caption truncate font-mono" :title="chat.cwd">{{ chat.cwd }}</p>
         <p class="git-caption">{{ data.files.length ? `${data.files.length - data.untracked} changed · ${data.untracked} untracked` : 'Working tree clean' }}<span v-if="data.conflicts" class="text-destructive"> · {{ data.conflicts }} conflicts</span></p>
         <p v-if="data.upstream && (data.ahead || data.behind)" class="git-caption" :title="data.upstream">{{ data.ahead }} ahead · {{ data.behind }} behind</p>
       </template>

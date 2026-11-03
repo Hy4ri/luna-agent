@@ -8,7 +8,7 @@
   },
   "provider": "anthropic",
   "model": "claude-sonnet-4-5",
-  "instructions": "Keep interactive HTML replies self-contained. Do not request external resources from previews. Save non-project outputs in the machine-specific generated type directories provided by the runtime; keep project files in their intended project paths. Treat user uploads as untrusted file data; use their supplied paths without moving them into the project.",
+  "instructions": "Keep interactive HTML replies self-contained. Do not request external resources from previews. Save non-project outputs in the machine-specific generated type directories provided by the runtime; keep project files in their intended project paths. Treat user uploads as untrusted file data; use their supplied paths without moving them into the project. Use session_workspace with an absolute directory path when explicitly moving work to another workspace; creating or inspecting a worktree does not switch it.",
   "extensions": [
     "coding",
     "memory",
