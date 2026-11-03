@@ -91,8 +91,11 @@ function openEditor(c?: Card, status: Status = 'backlog') {
 function closeEditor() {
   if (busy.value) return;
   editing.value = false; ui.boardEditing = false; error.value = '';
-  void loadBoard();
-  void nextTick(() => { if (editorReturn?.isConnected) editorReturn.focus(); else board.value?.focus(); });
+  // Refresh disables the trigger. Restore focus only after it becomes usable again.
+  void loadBoard().then(() => nextTick(() => {
+    if (disposed || editing.value) return;
+    if (editorReturn?.isConnected) editorReturn.focus(); else board.value?.focus();
+  }));
 }
 async function mutate(action: () => Promise<unknown>, success: string, close = false, settle?: () => void) {
   if (busy.value || disposed) return;
@@ -182,7 +185,13 @@ function deleteCard() {
 function moveCard(c: Card, status: Status) {
   if (busy.value || c.status === status) return;
   const path = `/v1/projects/${selectedPid.value}/cards/${c.id}`;
-  void mutate(() => post(path, { status }, 'PATCH'), `Card #${c.id} moved to ${columns.find(([s]) => s === status)?.[1]}.`);
+  const keyboardFocus = document.activeElement?.matches('.kb-move');
+  void mutate(() => post(path, { status }, 'PATCH'), `Card #${c.id} moved to ${columns.find(([s]) => s === status)?.[1]}.`).then(() => nextTick(() => {
+    // Moving across columns replaces the row. Keep keyboard users on the moved card.
+    if (keyboardFocus && !disposed && document.activeElement === document.body) {
+      board.value?.querySelector<HTMLElement>(`[data-card="${c.id}"] .kb-move`)?.focus();
+    }
+  }));
 }
 function blockers(c: Card) { return c.blockedBy.filter(id => !cards.value.some(other => other.id === id && other.status === 'done')); }
 
@@ -250,7 +259,9 @@ function newCardKey(event: KeyboardEvent) {
   event.preventDefault(); openEditor();
 }
 function escapeEditor(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return;
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+  // Nested dialogs, popovers, and native select menus own Escape first.
+  if (document.querySelector('[data-dismissable-layer][data-state="open"], :popover-open') || (event.target as HTMLElement | null)?.closest('select')) return;
   if (drag.value || editing.value) { event.preventDefault(); event.stopImmediatePropagation(); if (drag.value) cancelDrag(); else closeEditor(); }
 }
 watch(() => chat.project, project => {
@@ -301,7 +312,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
                   <div class="kb-card-top" @pointerdown="startDrag($event, c)">
                     <span class="kb-card-id">#{{ c.id }}</span>
                     <span class="kb-priority" :class="c.priority"><ChevronsUp v-if="c.priority === 'urgent'" :size="12" /><ArrowUp v-else-if="c.priority === 'high'" :size="12" /><ArrowDown v-else-if="c.priority === 'low'" :size="12" /><Minus v-else :size="12" />{{ c.priority }}</span>
-                    <button class="kb-grip" :aria-label="`Drag card #${c.id}`" :disabled="busy || loading" title="Drag between columns"><GripVertical :size="16" /></button>
+                    <span class="kb-grip" aria-hidden="true" title="Drag between columns; use the status selector with a keyboard"><GripVertical :size="16" /></span>
                   </div>
                   <div class="kb-card-heading">
                     <button dir="auto" class="kb-card-title" :disabled="busy || loading" @click="openEditor(c)">{{ c.subject }}</button>
@@ -388,7 +399,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-search { display:flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius: var(--radius); padding-left:10px; flex:1; max-width:340px; min-width:120px; color:var(--muted-foreground); }
 .kb-search input { border:0; background:transparent; width:100%; }
 .kb-search:focus-within { outline:2px solid var(--ring); outline-offset:2px; }
-.kb-search input:focus-visible { outline:none; }
+.kb-search input:focus-visible { outline:2px solid var(--ring); outline-offset:-2px; }
 .kb-toolbar-end { margin-left:auto; display:flex; flex-wrap:wrap; gap:8px; }
 .kb-statusbar { margin-top:auto; height:36px; min-height:36px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:16px; border-top:1px solid var(--border); font-size:12px; color:var(--muted-foreground); padding:7px 2px 0; }
 .kb-feedback { display:flex; align-items:center; gap:8px; margin:0; min-width:0; flex:1; height:100%; }

@@ -4,6 +4,7 @@ import { fetchChanges, fetchBranches, fetchDiff, mutateGit } from './client';
 import type { Changes, Branches, DiffResult, SelectorParams, ChangeFile } from './client';
 import ChangeList from './ChangeList.vue';
 import DiffView from './DiffView.vue';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { GitBranch, RefreshCw, ArrowDown, ArrowUp, AlertCircle, Server, ChevronLeft } from '@lucide/vue';
 
 const props = defineProps<{ session?: string; project?: number; runActive?: boolean }>();
@@ -14,6 +15,7 @@ const changes = ref<Changes | null>(null), branches = ref<Branches | null>(null)
 const selectedPath = ref<string | null>(null), selectedStaged = ref(false), loadingDiff = ref(false), loadingState = ref(false);
 const error = ref<string | null>(null), notice = ref<string | null>(null), busyMessage = ref<string | null>(null);
 const commitMessage = ref(''), newBranchInput = ref(''), branchSelectValue = ref(''), showNewBranchInput = ref(false);
+const pushButton = ref<HTMLButtonElement | null>(null);
 const confirmDefaultModal = ref<{ open: boolean; branch?: string; head?: string | null; message?: string }>({ open: false });
 const cancelButton = ref<HTMLButtonElement | null>(null), branchInput = ref<HTMLInputElement | null>(null);
 /** Branch that was pushed to a non-default remote branch; drives the compare link. */
@@ -178,11 +180,10 @@ async function confirmAndRetryPush() {
 
 /** Refresh when the user comes back to the window: agents and terminals change files. */
 function refreshIfIdle() { if (!loadingState.value && changes.value && document.visibilityState === 'visible') void loadState(true, false); }
-function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && confirmDefaultModal.value.open) { e.preventDefault(); closeConfirm(); } }
-onMounted(() => { window.addEventListener('focus', refreshIfIdle); document.addEventListener('visibilitychange', refreshIfIdle); window.addEventListener('keydown', onKeydown); });
+onMounted(() => { window.addEventListener('focus', refreshIfIdle); document.addEventListener('visibilitychange', refreshIfIdle); });
 onUnmounted(() => {
   disposed = true; epoch++; diffTicket++; clearTimeout(noticeTimer);
-  window.removeEventListener('focus', refreshIfIdle); document.removeEventListener('visibilitychange', refreshIfIdle); window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('focus', refreshIfIdle); document.removeEventListener('visibilitychange', refreshIfIdle);
 });
 // A finished agent run has usually changed files.
 watch(() => props.runActive, (active, was) => { if (was && !active) refreshIfIdle(); });
@@ -282,6 +283,7 @@ watch(() => [props.session, props.project], () => {
           class="px-2.5 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded transition-colors flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-primary"
           :disabled="loadingState || !changes || changes.detached || changes.unborn || nothingToPush"
           :title="pushTitle"
+          ref="pushButton"
           @click="handlePush"
         >
           <ArrowUp class="w-3 h-3" aria-hidden="true" />
@@ -354,18 +356,22 @@ watch(() => [props.session, props.project], () => {
       </div>
     </div>
 
-    <div v-if="confirmDefaultModal.open" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" @click.self="closeConfirm">
-      <div role="dialog" aria-modal="true" aria-labelledby="sc-confirm-title" aria-describedby="sc-confirm-text" class="bg-card border border-border rounded-lg max-w-md w-full p-4 space-y-3 shadow-lg">
-        <div id="sc-confirm-title" class="flex items-center gap-2 text-amber-500 font-semibold text-sm">
-          <AlertCircle class="w-5 h-5" aria-hidden="true" />
-          <span>Push to the default branch?</span>
-        </div>
-        <p id="sc-confirm-text" class="text-xs text-muted-foreground leading-relaxed">{{ confirmDefaultModal.message }}</p>
-        <div class="flex justify-end gap-2 pt-2">
+    <Dialog :open="confirmDefaultModal.open" @update:open="(val) => { if (!val) closeConfirm(); }">
+      <DialogContent class="max-w-md bg-card border border-border p-4 space-y-3" :show-close-button="false" @close-auto-focus.prevent="pushButton?.focus()">
+        <DialogHeader class="space-y-1">
+          <DialogTitle class="flex items-center gap-2 text-amber-500 font-semibold text-sm">
+            <AlertCircle class="w-5 h-5" aria-hidden="true" />
+            <span>Push to the default branch?</span>
+          </DialogTitle>
+          <DialogDescription class="text-xs text-muted-foreground leading-relaxed">
+            {{ confirmDefaultModal.message }}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter class="flex justify-end gap-2 pt-2 sm:space-x-0">
           <button ref="cancelButton" type="button" class="px-3 py-1.5 text-xs bg-muted hover:bg-accent rounded border border-border" @click="closeConfirm">Cancel</button>
           <button type="button" class="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90" @click="confirmAndRetryPush">Push</button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

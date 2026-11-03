@@ -59,15 +59,43 @@ function handleBeforeToggle(e: Event) {
     void loadModels({ force: true });
     position();
     searchOpen.value = false;
-    void nextTick(() => searchButton.value?.focus());
     emit("open");
   } else {
     emit("close");
   }
 }
 
-function closePicker() {
+function handleToggle(e: Event) {
+  if ((e as ToggleEvent).newState === "open") searchButton.value?.focus();
+}
+
+function handleTabKeydown(e: KeyboardEvent) {
+  if (e.key !== "Tab" || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  // Native popover traversal can resume at the invoker after autofocus. Follow the visible controls explicitly.
+  const items = [...(pickerRef.value?.querySelectorAll<HTMLElement>('button, input, [tabindex]') ?? [])]
+    .filter(el => el.tabIndex >= 0 && !el.matches(':disabled') && el.getAttribute('aria-disabled') !== 'true' && el.getClientRects().length);
+  const index = items.indexOf(document.activeElement as HTMLElement);
+  const next = items[index + (e.shiftKey ? -1 : 1)];
+  if (next) { e.preventDefault(); next.focus(); }
+  else {
+    closePicker();
+    // Backward exits onto the trigger; forward continues after it in native tab order.
+    if (e.shiftKey) e.preventDefault();
+  }
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    closePicker();
+    document.getElementById("model")?.focus();
+  }
+}
+
+function closePicker(restoreFocus = true) {
   (pickerRef.value as any)?.hidePopover?.();
+  if (restoreFocus) document.getElementById("model")?.focus();
 }
 
 function onResize() { if ((pickerRef.value as any)?.matches?.(":popover-open")) position(); }
@@ -79,7 +107,7 @@ function onDocPointerDown(e: PointerEvent) {
   if (!t) return;
   if (box?.contains(t)) return;
   if ((document.getElementById("model") as HTMLElement | null)?.contains(t as Node)) return;
-  closePicker();
+  closePicker(false);
 }
 
 watch(() => models.list.length, () => position());
@@ -103,11 +131,14 @@ onUnmounted(() => {
     popover
     role="dialog"
     aria-label="Choose model"
+    @keydown="handleKeydown"
+    @keydown.capture="handleTabKeydown"
+    @toggle="handleToggle"
   >
     <div class="mp-head">
       <h3 v-if="!searchOpen">Choose model</h3>
       <div v-show="searchOpen" ref="searchTarget" class="mp-search-slot"></div>
-      <button ref="searchButton" type="button" class="mp-search-toggle" :aria-label="searchOpen ? 'Close search' : 'Search models'" :aria-expanded="searchOpen" @click="toggleSearch">
+      <button ref="searchButton" type="button" autofocus class="mp-search-toggle" :aria-label="searchOpen ? 'Close search' : 'Search models'" :aria-expanded="searchOpen" @click="toggleSearch">
         <X v-if="searchOpen" :size="16" /><Search v-else :size="16" />
       </button>
     </div>

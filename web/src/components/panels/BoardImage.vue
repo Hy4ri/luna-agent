@@ -29,7 +29,19 @@ onUnmounted(release);
 
 <template>
   <span class="board-image">
-    <img v-if="source && !failed" :src="source" :alt="name" class="zoomable" @click="openImage(source, name)" @error="failed = true" />
+    <img
+      v-if="source && !failed"
+      :src="source"
+      :alt="name"
+      class="zoomable"
+      role="button"
+      tabindex="0"
+      :aria-label="name ? `Preview ${name}` : 'Preview image'"
+      @click="openImage(source, name)"
+      @keydown.enter.prevent="openImage(source, name)"
+      @keydown.space.prevent="openImage(source, name)"
+      @error="failed = true"
+    />
     <ImageOff v-else-if="failed" :size="16" role="img" :aria-label="`Preview unavailable for ${name}`" />
     <span v-else role="status" :aria-label="`Loading preview for ${name}`">…</span>
   </span>
