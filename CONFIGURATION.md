@@ -1576,8 +1576,7 @@ to `null` (the theme's default folder icon and color). Existing databases migrat
 ```
 
 `color` accepts a six-digit hex color (`#RRGGBB`, normalized to lowercase) or `null`.
-`icon` accepts `folder`, `code`, `terminal`, `globe`, `smartphone`, `layers`, `database`,
-`book-open`, `briefcase`, `flask-conical`, `rocket`, `wrench`, or `null`.
+`icon` accepts a supported built-in icon identifier (`folder`, `code`, `terminal`, `globe`, `smartphone`, `layers`, `database`, `book-open`, `briefcase`, `flask-conical`, `rocket`, `wrench`), a custom symbol or emoji consisting of exactly one visible non-whitespace grapheme (for example `π`, `A`, or complex emoji sequences such as `👩‍💻`), or `null`. Multi-grapheme strings, whitespace, control characters, and invisible or combining-mark-only characters are rejected.
 Invalid values return `400`; General cannot be customized (`409`). Omitted fields are unchanged.
 Use `{ "color": null, "icon": null }` to reset both. Appearance-only changes work even
 when the project's directory no longer exists. Name, directory, machine links, and
