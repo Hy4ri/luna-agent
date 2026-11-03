@@ -44,6 +44,16 @@ export const CustomProviderSchema = z.strictObject({
 const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const cronExpr = z.string().refine((e) => { try { parseCron(e); return true; } catch { return false; } }, "invalid cron expression");
 
+/** Absolute input thresholds; stock model-capacity safety limits still apply. */
+const compactionLimits = (background: number, blocking: number) => z.strictObject({
+  backgroundAtTokens: z.number().int().positive().default(background),
+  blockAtTokens: z.number().int().positive().default(blocking),
+  keepRecentTokens: z.number().int().positive().default(20000),
+}).superRefine((c, ctx) => {
+  if (c.backgroundAtTokens >= c.blockAtTokens) ctx.addIssue({ code: "custom", path: ["backgroundAtTokens"], message: "must be below blockAtTokens" });
+  if (c.keepRecentTokens >= c.backgroundAtTokens) ctx.addIssue({ code: "custom", path: ["keepRecentTokens"], message: "must be below backgroundAtTokens" });
+});
+
 export const ConfigSchema = z
   .strictObject({
     /** Holds luna.db, memory.db, cron.db and skills/. */
@@ -57,6 +67,10 @@ export const ConfigSchema = z
     /** Tool rounds one run may take before it ends unanswered (`turn_limit`). Unset: no limit. */
     maxTurns: z.number().int().min(1).optional(),
     instructions: z.string().optional(),
+    compaction: z.strictObject({
+      sessions: compactionLimits(120000, 160000).prefault({}),
+      subagents: compactionLimits(80000, 120000).prefault({}),
+    }).prefault({}),
     busyInput: z.strictObject({
       mode: z.enum(["interrupt", "queue", "steer"]).default("interrupt"),
       acknowledgements: z.boolean().default(true),

@@ -1,3 +1,5 @@
+import { ConfigSchema, type LunaConfig } from "./config.js";
+import { ChildResult } from "./delegate-state.js";
 import { BusyExecutions } from "./busy-tools.js";
 import { SessionCreated } from "./session-activity.js";
 import { dirname, join } from "node:path";
@@ -19,6 +21,8 @@ export const context = BACKGROUND_CONTEXT;
 export const ProcessOwner = defineDoc({ checkpointWhen: () => false, kind: "luna.process-owner", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ token: "legacy" }) });
 
 export interface LunaOptions {
+  /** Live absolute compaction thresholds, shared by every conversation on the harness. */
+  compaction?: () => LunaConfig["compaction"];
   /** Live policy for queued inputs behind a failed run. Default keep. */
   afterFailedRun?: () => "keep" | "continue" | "withdraw";
   /** Push an operator alert (parked task, failed session). Errors are logged, never thrown. */
@@ -53,6 +57,7 @@ export interface LunaOptions {
 
 /** Open the durable Luna harness: SQLite storage + CodingTools (bash/read/write/edit) + memory + optional skills. */
 export async function openLuna(opts: LunaOptions) {
+  const defaultCompaction = ConfigSchema.shape.compaction.parse({});
   const registry = opts.registry ?? createRegistry();
   let harnessRef: Harness | undefined;
   const busyTools = new BusyExecutions(async (id, message, requestId, owner) => {
@@ -104,6 +109,14 @@ export async function openLuna(opts: LunaOptions) {
           return hidden?.size ? all.filter(e => !hidden.has(e.name)) : all;
         },
         get afterFailedRun() { return opts.afterFailedRun?.(); },
+        compaction: {
+          resolve: async ({ conversationId, read }, ctx) => {
+            const limits = opts.compaction?.() ?? defaultCompaction;
+            // Delegate identity lives in a document, not history that compaction can replace.
+            const child = await read.snapshot(ChildResult, conversationId, ctx);
+            return child?.schema ? limits.subagents : limits.sessions;
+          },
+        },
         steeringMode: "all",
         followUpMode: "one-at-a-time",
       },
