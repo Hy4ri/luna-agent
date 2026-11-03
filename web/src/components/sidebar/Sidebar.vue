@@ -489,7 +489,7 @@ onMounted(() => {
       <div class="folder-head" v-if="!collapsed && openFolder && !searching">
         <div class="folder-bar">
           <button v-if="!single" id="history-back" class="icon-button" aria-label="All projects" title="All projects" @click="drill(null)"><ChevronLeft :size="16" /></button>
-          <ProjectIcon :icon="openFolder.icon" :color="openFolder.color" :size="16" class="folder-icon" />
+          <ProjectIcon :icon="openFolder.icon" :color="openFolder.color" :size="20" class="folder-icon" />
           <span class="flex min-w-0 flex-1 items-center gap-1.5">
             <span dir="auto" class="folder-name" style="flex: 0 1 auto">{{ openFolder.name }}</span>
             <Star v-if="openFolder.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
@@ -544,7 +544,7 @@ onMounted(() => {
             :aria-label="f.name + ', ' + f.sessions.length + ' conversations'"
             @click="drill(f.key)"
           >
-            <ProjectIcon :icon="f.icon" :color="f.color" :size="14" class="folder-icon" />
+            <ProjectIcon :icon="f.icon" :color="f.color" :size="20" class="folder-icon" />
             <span class="folder-copy">
               <span class="flex min-w-0 items-center gap-1.5">
                 <span dir="auto" class="folder-title">{{ f.name }}</span>
