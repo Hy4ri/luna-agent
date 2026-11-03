@@ -544,9 +544,9 @@ onMounted(() => {
             :aria-label="f.name + ', ' + f.sessions.length + ' conversations'"
             @click="drill(f.key)"
           >
-            <ProjectIcon :icon="f.icon" :color="f.color" :size="20" class="folder-icon" />
             <span class="folder-copy">
-              <span class="flex min-w-0 items-center gap-1.5">
+              <span class="folder-title-row">
+                <ProjectIcon :icon="f.icon" :color="f.color" :size="20" class="folder-icon" />
                 <span dir="auto" class="folder-title">{{ f.name }}</span>
                 <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
               </span>
