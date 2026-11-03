@@ -66,7 +66,9 @@ const unlinkMachine = (worker: number | "main") => run(async () => {
   const p = current.value; if (!p) return;
   const resp = await api(`/v1/projects/${p.id}/machines/${worker}`, { method: "DELETE" });
   if (!resp.ok) throw new Error(((await resp.json().catch(() => ({}))) as { error?: string }).error || resp.statusText);
-  await refresh(); syncMachineDirs(); notice.value = "Removed";
+  await refresh();
+  if (worker === "main") cwd.value = "";
+  syncMachineDirs(); notice.value = "Removed";
 });
 
 /** Per-project skill overrides. `override` null means the skill follows the global setting. */
