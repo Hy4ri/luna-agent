@@ -124,6 +124,16 @@ const folders = computed<Folder[]>(() => {
   const named = sortProjects(history.projects).filter(p => !p.general);
   const isNamed = (s: any) => !!s.project && named.some(p => p.id === s.project);
   const result: Folder[] = named.map(p => ({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, color: p.color, icon: p.icon, sessions: sortSessions(list.filter(s => Number(s.project) === Number(p.id))) }));
+  // Rank projects by their newest session activity, independent of pinned sessions
+  // and the archive filter. Keep favourites above the other projects.
+  const activity = new Map<number, number>();
+  for (const session of history.list) {
+    if (session.project == null) continue;
+    const id = Number(session.project);
+    activity.set(id, Math.max(activity.get(id) ?? 0, session.lastActivity ?? session.createdAt ?? 0));
+  }
+  result.sort((a, b) => Number(!!b.favorite) - Number(!!a.favorite)
+    || (activity.get(b.project!) ?? 0) - (activity.get(a.project!) ?? 0));
   const general = history.projects.find(p => p.general);
   result.splice(result.filter(f => f.favorite).length, 0, { key: "none", name: "Chats", project: null, icon: general?.icon, color: general?.color, sessions: sortSessions(list.filter(s => !isNamed(s))) });
   return result;
