@@ -270,6 +270,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
   const harness = await openLuna({
     registry,
+    compaction: () => (settings?.resolved() ?? cfg).compaction,
     afterFailedRun: () => (settings?.resolved() ?? cfg).afterFailedRun,
     alert: async (title, body) => {
       const url = notifyUrl();
