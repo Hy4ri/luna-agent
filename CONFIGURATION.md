@@ -863,6 +863,16 @@ When a user message contains `@file:<path>`, the prompt gets a **Referenced file
 
 `GET /v1/files?q=<typed path>&session=<id>` returns `{ cwd, entries }`. For a chat without a session, pass `worker`, `project`, and `cwd` instead of `session`.
 
+### Active session workspace
+
+With `coding` enabled, `session_workspace { path: "/absolute/directory" }` explicitly activates an existing directory on the session's current machine. Use it when moving work into a new worktree. Creating a worktree, inspecting a file, or passing a shell command an explicit directory does not activate it.
+
+The workspace uses the session's persisted agent `cwd`; there is no second workspace setting. Subsequent default file and shell paths, file completion, the Git status widget, and session-scoped Source Control operations use it. The UI receives the existing `agent_changed` event and refreshes without a reload. Call the switch separately before other work. Already-running commands keep their original directories. The tool does not change the project, execution machine, or any other session. Invalid or unavailable directories fail without changing the workspace. Recovered calls do not reapply an earlier switch.
+
+The existing `PUT /v1/sessions/:id/machine` route remains the user-facing way to set a directory or move an idle session to another machine.
+
+### Session messages
+
 The `session_send { to, message }` tool sends a message to another session:
 
 - An idle target starts a new turn. A busy target queues the message as follow-up input. It never interrupts.
