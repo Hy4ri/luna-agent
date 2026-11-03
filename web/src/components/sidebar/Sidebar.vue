@@ -700,6 +700,6 @@ onMounted(() => {
       </button>
     </div></Teleport>
     <ProjectAppearanceDialog v-if="appearanceProject !== null" :project-id="appearanceProject" @close="appearanceProject = null" />
-    <PruneSessionsDialog v-if="pruneOpen" @close="pruneOpen = false" @deleted="message => pruneResult = message" />
+    <PruneSessionsDialog v-if="pruneOpen" :project="openFolder?.project ? { id: openFolder.project, name: openFolder.name } : null" @close="pruneOpen = false" @deleted="message => pruneResult = message" />
   </aside>
 </template>
