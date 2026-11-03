@@ -163,6 +163,14 @@ function drill(key: string | null) {
 }
 
 const folderTime = (f: Folder) => f.sessions.reduce((m, s) => Math.max(m, s.lastActivity ?? s.createdAt ?? 0), 0);
+const folderStatuses = (f: Folder) => {
+  const counts = new Map<ReturnType<typeof sessionState>, number>();
+  for (const session of f.sessions) {
+    const status = sessionState(session);
+    if (status !== "ready" && status !== "stopped") counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return [...counts].map(([status, count]) => ({ status, count, label: sessionStatusLabel({ status }) }));
+};
 const machineCount = (f: Folder, m: Machine) => f.sessions.filter(s => (s.worker ?? null) === m.id).length;
 /** Text after the title of a session row: project while searching, machine when several are shown together. */
 function sessionMeta(s: any) {
@@ -549,7 +557,14 @@ onMounted(() => {
               <ProjectIcon :icon="f.icon" :color="f.color" :size="20" :align-label="f.name" class="folder-icon" />
               <span dir="auto" class="folder-title">{{ f.name }}</span>
               <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
-              <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
+              <span class="folder-meta">
+                <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
+                <span v-for="state in folderStatuses(f)" :key="state.status" class="folder-status session-state" :data-status="state.status" :title="`${state.count} ${state.label}`" :aria-label="`${state.count} ${state.label}`" role="img">
+                  <LoaderCircle v-if="['running', 'reviewing'].includes(state.status)" :size="12" class="motion-safe:animate-spin" aria-hidden="true" />
+                  <span v-else class="session-state-dot" aria-hidden="true"></span>
+                  <span aria-hidden="true">{{ state.count }}</span>
+                </span>
+              </span>
             </span>
             <ChevronRight :size="14" class="folder-chevron" aria-hidden="true" />
           </button>

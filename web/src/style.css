@@ -377,6 +377,8 @@ aside#side.collapsed #history-rail {
 .folder-icon, .folder-chevron { flex-shrink: 0; color: var(--muted-foreground); }
 .folder-title-row { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; font-size: 0.9rem; line-height: 20px; }
 .folder-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-meta { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+.folder-status { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
 .folder-time { flex-shrink: 0; font-size: 0.72rem; white-space: nowrap; }
 .session-sub {
   display: flex;
