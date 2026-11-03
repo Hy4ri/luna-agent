@@ -349,7 +349,7 @@ aside#side.collapsed #history-rail {
 .device-chip:disabled { opacity: 0.45; cursor: default; }
 .device-chip.offline .device-name { color: var(--faint); }
 .device-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.device-count, .folder-count, .folder-time { color: var(--faint); font-variant-numeric: tabular-nums; }
+.device-count, .folder-time { color: var(--faint); font-variant-numeric: tabular-nums; }
 .folder-note {
   margin: 4px 0 0;
   padding: 6px 8px;
@@ -374,16 +374,9 @@ aside#side.collapsed #history-rail {
 }
 .folder-open:hover { background: var(--sidebar-accent); }
 .folder-icon, .folder-chevron { flex-shrink: 0; color: var(--muted-foreground); }
-.folder-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 22px; }
-.folder-open .folder-sub { padding-left: 28px; }
-.folder-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.folder-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
-.folder-sub { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; line-height: 1.2; min-height: 1.2em; }
-.folder-state { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
-.folder-count { font-size: 0.76rem; flex-shrink: 0; }
-.folder-machines { display: flex; gap: 1px; width: 40px; height: 6px; flex-shrink: 0; }
-.folder-machines span { display: block; min-width: 3px; height: 100%; background: var(--muted-foreground); }
-.folder-machines span.offline { background: var(--input); }
+.folder-title-row { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; font-size: 0.9rem; line-height: 20px; }
+.folder-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-time { flex-shrink: 0; font-size: 0.72rem; white-space: nowrap; }
 .session-sub {
   display: flex;
   align-items: center;

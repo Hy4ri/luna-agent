@@ -161,15 +161,6 @@ function drill(key: string | null) {
   else nextTick(() => document.querySelector<HTMLButtonElement>("#history-back")?.focus());
 }
 
-/** Statuses worth a count on a folder row: everything except idle (ready) and stopped. */
-function folderStates(f: Folder) {
-  const counts = new Map<string, number>();
-  for (const s of f.sessions) {
-    const st = sessionState(s);
-    if (st !== "ready" && st !== "stopped") counts.set(st, (counts.get(st) ?? 0) + 1);
-  }
-  return [...counts].map(([status, count]) => ({ status, count, label: `${count} ${sessionStatusLabel({ status: status as any })}` }));
-}
 const folderTime = (f: Folder) => f.sessions.reduce((m, s) => Math.max(m, s.lastActivity ?? s.createdAt ?? 0), 0);
 const machineCount = (f: Folder, m: Machine) => f.sessions.filter(s => (s.worker ?? null) === m.id).length;
 /** Text after the title of a session row: project while searching, machine when several are shown together. */
@@ -544,21 +535,12 @@ onMounted(() => {
             :aria-label="f.name + ', ' + f.sessions.length + ' conversations'"
             @click="drill(f.key)"
           >
-            <span class="folder-copy">
-              <span class="folder-title-row">
-                <ProjectIcon :icon="f.icon" :color="f.color" :size="20" class="folder-icon" />
-                <span dir="auto" class="folder-title">{{ f.name }}</span>
-                <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
-              </span>
-              <span class="folder-sub">
-                <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
-                <span v-for="st in folderStates(f)" :key="st.status" class="folder-state session-state" :data-status="st.status" role="img" :aria-label="st.label" :title="st.label"><span class="session-state-dot" aria-hidden="true"></span>{{ st.count }}</span>
-              </span>
+            <span class="folder-title-row">
+              <ProjectIcon :icon="f.icon" :color="f.color" :size="20" :align-label="f.name" class="folder-icon" />
+              <span dir="auto" class="folder-title">{{ f.name }}</span>
+              <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
+              <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
             </span>
-            <span v-if="machines.length && f.sessions.length" class="folder-machines" role="img" :aria-label="machines.map(m => m.name + ' ' + machineCount(f, m)).join(', ')" :title="machines.map(m => m.name + ': ' + machineCount(f, m)).join('\n')">
-              <template v-for="m in machines" :key="m.key"><span v-if="machineCount(f, m)" :class="{ offline: !m.online }" :style="{ flexGrow: machineCount(f, m) }"></span></template>
-            </span>
-            <span class="folder-count">{{ f.sessions.length }}</span>
             <ChevronRight :size="14" class="folder-chevron" aria-hidden="true" />
           </button>
         </template>
