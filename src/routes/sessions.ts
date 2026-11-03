@@ -88,15 +88,16 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
         !b ||
         typeof b !== "object" ||
         Array.isArray(b) ||
-        Object.keys(b).some((k) => !["days", "includeArchived", "excludeIds", ...(preview ? [] : ["ids"])].includes(k)) ||
+        Object.keys(b).some((k) => !["days", "includeArchived", "excludeIds", "projectId", ...(preview ? [] : ["ids"])].includes(k)) ||
         !Number.isSafeInteger(b.days) ||
         b.days < 1 ||
         !Number.isSafeInteger(b.days * 86400000) ||
         typeof b.includeArchived !== "boolean" ||
         !ids(b.excludeIds) ||
+        ("projectId" in b && !(Number.isSafeInteger(b.projectId) && b.projectId > 0)) ||
         (!preview && !ids(b.ids))
       ) {
-        return err(c, 400, "positive whole days, includeArchived, excludeIds, and confirmed ids for deletion required");
+        return err(c, 400, "positive whole days, includeArchived, excludeIds, and confirmed ids for deletion required; projectId must be a positive integer");
       }
       const selected = await opts.conversations.prune(b, preview ? undefined : b.ids, async (id, tx) => {
         if (ctx.sideCommands.list(String(id)).some((job) => job.status === "running")) return true;

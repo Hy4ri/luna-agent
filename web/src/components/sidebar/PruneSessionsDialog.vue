@@ -7,8 +7,9 @@ import { post } from "@/lib/api";
 import { chat } from "@/stores/chat";
 import { loadSessions } from "@/stores/sessions";
 
+const props = defineProps<{ project?: { id: number; name: string } | null }>();
 const emit = defineEmits<{ close: []; deleted: [message: string] }>();
-const days = ref<string | number>(7), includeArchived = ref(false);
+const days = ref<string | number>(7), includeArchived = ref(false), onlyProject = ref(!!props.project);
 const ids = ref<number[]>([]), loading = ref(true), busy = ref(false), error = ref("");
 const valid = computed(() => String(days.value).trim() !== "" && Number.isSafeInteger(Number(days.value))
   && Number(days.value) > 0 && Number.isSafeInteger(Number(days.value) * 86400000));
@@ -18,6 +19,7 @@ let generation = 0;
 function options() {
   const open = [chat.session, ...Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe[data-tile-session]"), frame => frame.dataset.tileSession)];
   return { days: Number(days.value), includeArchived: includeArchived.value,
+    ...(onlyProject.value && props.project ? { projectId: props.project.id } : {}),
     excludeIds: [...new Set(open.map(Number).filter(n => Number.isSafeInteger(n) && n > 0))] };
 }
 async function preview() {
@@ -31,7 +33,7 @@ async function preview() {
   } catch (e) { if (at === generation) error.value = (e as Error).message; }
   finally { if (at === generation) loading.value = false; }
 }
-watch([days, includeArchived, () => chat.session], () => { void preview(); }, { immediate: true, flush: "sync" });
+watch([days, includeArchived, onlyProject, () => chat.session], () => { void preview(); }, { immediate: true, flush: "sync" });
 onUnmounted(() => { generation++; });
 async function remove() {
   if (busy.value || loading.value || !valid.value || !ids.value.length) return;
@@ -54,7 +56,7 @@ function close() { if (!busy.value) emit("close"); }
     <DialogContent style="width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem - 2 * env(safe-area-inset-top)); overflow-y: auto" :show-close-button="false" @escape-key-down="event => { if (busy) event.preventDefault(); }" @interact-outside="event => { if (busy) event.preventDefault(); }">
       <DialogHeader>
         <DialogTitle>Prune sessions</DialogTitle>
-        <DialogDescription>Delete sessions with no message activity for the selected number of days, across all projects.</DialogDescription>
+        <DialogDescription>Delete sessions with no message activity for the selected number of days, across all projects, or only in the open project.</DialogDescription>
       </DialogHeader>
       <form class="grid gap-4" @submit.prevent="remove">
         <div class="grid gap-2">
@@ -65,6 +67,10 @@ function close() { if (!busy.value) emit("close"); }
         <label class="flex items-center gap-2 text-sm">
           <input v-model="includeArchived" type="checkbox" :disabled="busy" class="accent-primary" />
           Include archived sessions
+        </label>
+        <label v-if="project" class="flex items-center gap-2 text-sm">
+          <input v-model="onlyProject" type="checkbox" :disabled="busy" class="accent-primary" />
+          Only in project “{{ project.name }}”
         </label>
         <p class="text-sm text-muted-foreground">Pinned sessions, open sessions, and sessions with running work are kept. Recent forks protect their parent sessions. Deletion is permanent and cannot be undone.</p>
         <p role="status" class="text-sm" aria-live="polite">

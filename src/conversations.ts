@@ -5,12 +5,12 @@ import { conversationStorage } from "./conversation-storage.js";
 import { context } from "./luna.js";
 import type { RecallIndex } from "./recall.js";
 import type { UploadStore } from "./uploads.js";
-import { ProjectStore } from "./projects.js";
+import { ProjectStore, GENERAL_PROJECT } from "./projects.js";
 import { BoardStore } from "./board.js";
 import { ProjectSkills } from "./project-skills.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
-export type PruneOptions = { days: number; includeArchived: boolean; excludeIds: number[] };
+export type PruneOptions = { days: number; includeArchived: boolean; excludeIds: number[]; projectId?: number };
 export type ConversationMeta = { title: string | null; archived: boolean; pinned: boolean };
 export class ConversationError extends Error {
   constructor(readonly status: 404 | 409, message: string) { super(message); }
@@ -125,6 +125,7 @@ export class ConversationStore {
       const eligible = new Set<number>(), excluded = new Set(options.excludeIds);
       const allowed = confirmed && new Set(confirmed);
       const busy = new Set((this.db.prepare("SELECT DISTINCT conversation_id AS id FROM tasks WHERE status <> 'terminal'").all() as { id: number }[]).map(r => r.id));
+      const links = options.projectId === undefined ? null : this.projects.links();
       let cursor;
       do {
         const page = await tx.scanConversations({}, 100, cursor);
@@ -132,6 +133,7 @@ export class ConversationStore {
           const id = Number(row.id);
           const meta = this.get(id);
           if (meta.pinned || excluded.has(id) || busy.has(id) || (allowed && !allowed.has(id)) || (!options.includeArchived && meta.archived)) continue;
+          if (links && (links.get(id) ?? GENERAL_PROJECT.id) !== options.projectId) continue;
           if (await protectedSession?.(id, tx)) continue;
           const message = await newestMessageTime(tx, row.id), created = (await tx.doc(SessionCreated, row.id)).at;
           const activity = message === null ? created : Math.max(message, created ?? 0);
