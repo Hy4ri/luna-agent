@@ -37,14 +37,14 @@
                 <button type="button" class="font-medium text-foreground text-[13px] block text-left underline-offset-4 hover:underline focus-visible:underline" :aria-pressed="selectedKey === m.key" @click.stop="emit('select', m.key)">{{ m.model }}</button>
                 <span class="text-muted-foreground text-[11px] block">{{ m.provider }}</span>
               </td>
-              <td class="p-2.5 text-right font-medium">{{ full(m.usage.totalTokens) }}</td>
+              <td class="p-2.5 text-right font-medium">{{ compact(m.usage.totalTokens) }}</td>
               <td class="p-2.5 text-right">{{ compact(m.usage.input) }}</td>
               <td class="p-2.5 text-right">{{ compact(m.usage.output) }}</td>
               <td class="p-2.5 text-right">{{ compact(m.usage.cacheRead) }}</td>
               <td class="p-2.5 text-right">{{ pct(m.usage.cacheHitRate) }}</td>
               <td class="p-2.5 text-right text-primary-text font-medium">{{ usd(m.usage.cost.total) }}</td>
-              <td class="p-2.5 text-right">{{ full(m.responses) }}</td>
-              <td class="p-2.5 text-right">{{ full(m.sessions) }}</td>
+              <td class="p-2.5 text-right">{{ compact(m.responses) }}</td>
+              <td class="p-2.5 text-right">{{ compact(m.sessions) }}</td>
             </tr>
           </tbody>
         </table>
@@ -58,7 +58,7 @@ import SortHeader from "./SortHeader.vue"
 import { useTableSort } from "./useTableSort"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { ModelItem } from "./types"
-import { full, compact, usd, pct } from "./formatters"
+import { compact, usd, pct } from "./formatters"
 
 const props = defineProps<{
   open: boolean

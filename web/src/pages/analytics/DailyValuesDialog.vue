@@ -25,11 +25,11 @@
             <tr v-if="!sortedRows.length"><td colspan="6" class="p-6 text-center text-muted-foreground">No daily usage recorded.</td></tr>
             <tr v-for="d in sortedRows" :key="d.date" class="border-b border-border last:border-0 hover:bg-accent/30">
               <td class="p-2.5 text-left font-medium">{{ d.date }}</td>
-              <td class="p-2.5 text-right">{{ full(d.responses) }}</td>
-              <td class="p-2.5 text-right">{{ full(d.input) }}</td>
-              <td class="p-2.5 text-right">{{ full(d.output) }}</td>
-              <td class="p-2.5 text-right">{{ full(d.cacheRead) }}</td>
-              <td class="p-2.5 text-right">{{ full(d.cacheWrite) }}</td>
+              <td class="p-2.5 text-right">{{ compact(d.responses) }}</td>
+              <td class="p-2.5 text-right">{{ compact(d.input) }}</td>
+              <td class="p-2.5 text-right">{{ compact(d.output) }}</td>
+              <td class="p-2.5 text-right">{{ compact(d.cacheRead) }}</td>
+              <td class="p-2.5 text-right">{{ compact(d.cacheWrite) }}</td>
             </tr>
           </tbody>
         </table>
@@ -43,7 +43,7 @@ import SortHeader from "./SortHeader.vue"
 import { useTableSort } from "./useTableSort"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { DailyItem } from "./types"
-import { full } from "./formatters"
+import { compact } from "./formatters"
 
 const props = defineProps<{
   open: boolean

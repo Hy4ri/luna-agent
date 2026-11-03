@@ -1,3 +1,4 @@
+import { compactNumber } from "@/lib/numbers";
 // Open conversation: durable entries, live generation, tools, extras, context, run controls.
 // Port of vanilla session.js + extras.js + transcript.js state. Components only render this.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -137,7 +138,7 @@ export const usageText = computed(() => {
   if (!u?.models) return "";
   let inT = 0, outT = 0, cost = 0;
   for (const v of Object.values(u.models) as any[]) { inT += v.input + (v.cacheRead || 0) + (v.cacheWrite || 0); outT += v.output; cost += v.cost?.total || 0; }
-  return `${(inT / 1000).toFixed(1)}k in · ${(outT / 1000).toFixed(1)}k out${cost ? " · $" + cost.toFixed(4) : ""}`;
+  return `${compactNumber(inT)} in · ${compactNumber(outT)} out${cost ? " · $" + cost.toFixed(4) : ""}`;
 });
 
 export const reviewJobs = computed(() => [...chat.sideJobs.values()].filter(j => j.kind === "review").sort((a, b) => b.createdAt - a.createdAt));
@@ -155,11 +156,11 @@ export const contextView = computed(() => {
   const known = Number.isFinite(value.contextWindow) && value.contextWindow! > 0 && Number.isFinite(value.percent);
   const percent = known ? value.percent! : 0;
   const level = known ? (percent >= 80 ? "red" : percent >= 50 ? "amber" : "green") : "unknown";
-  const tokens = Math.round(value.usedTokens).toLocaleString();
+  const tokens = compactNumber(value.usedTokens);
   const clamped = Math.max(0, Math.min(100, percent));
   return {
     level, known, percent: clamped, unavailable: false,
-    text: known ? `Context ≈${tokens} / ${value.contextWindow!.toLocaleString()} · ${percent.toFixed(1)}%` : `Context ≈${tokens} tokens · capacity unavailable`,
+    text: known ? `Context ≈${tokens} / ${compactNumber(value.contextWindow)} · ${percent.toFixed(1)}%` : `Context ≈${tokens} tokens · capacity unavailable`,
     valueText: known ? percent.toFixed(1) + "% of model context, estimated" : "",
     title: "Estimated active context. Older context is summarized automatically.",
   };
