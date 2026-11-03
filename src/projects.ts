@@ -2,7 +2,7 @@
 // General is built in for unlinked sessions and does not change their working directories.
 // A named project's directory is copied into the session at creation,
 // so editing or deleting a project never changes sessions that already exist.
-import { PROJECT_ICONS, type ProjectAppearance } from "./project-appearance.js";
+import { isValidProjectIcon, type ProjectAppearance } from "./project-appearance.js";
 import type { DatabaseSync } from "node:sqlite";
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
@@ -137,8 +137,8 @@ export class ProjectStore {
     const favorite = changes.favorite ?? cur.favorite ?? false;
     if (changes.color !== undefined && changes.color !== null && (typeof changes.color !== "string" || !/^#[0-9a-f]{6}$/i.test(changes.color)))
       throw new ProjectError(400, "color must be a six-digit hex color or null");
-    if (changes.icon !== undefined && changes.icon !== null && !PROJECT_ICONS.includes(changes.icon as typeof PROJECT_ICONS[number]))
-      throw new ProjectError(400, "icon must be a supported project icon or null");
+    if (changes.icon !== undefined && changes.icon !== null && !isValidProjectIcon(changes.icon))
+      throw new ProjectError(400, "icon must be a supported project icon or a single visible character, or null");
     const color = changes.color === undefined ? cur.color ?? null : (changes.color as string | null)?.toLowerCase() ?? null;
     const icon = changes.icon === undefined ? cur.icon ?? null : changes.icon as string | null;
     // Metadata-only changes work even when the directory is gone.

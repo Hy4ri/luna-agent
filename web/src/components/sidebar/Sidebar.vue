@@ -443,8 +443,10 @@ onMounted(() => {
         <div class="folder-bar">
           <button v-if="!single" id="history-back" class="icon-button" aria-label="All projects" title="All projects" @click="drill(null)"><ChevronLeft :size="16" /></button>
           <ProjectIcon v-if="openFolder.project !== null" :icon="openFolder.icon" :color="openFolder.color" :size="16" class="folder-icon" />
-          <Star v-if="openFolder.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
-          <span dir="auto" class="folder-name">{{ openFolder.name }}</span>
+          <span class="flex min-w-0 flex-1 items-center gap-1.5">
+            <span dir="auto" class="folder-name" style="flex: 0 1 auto">{{ openFolder.name }}</span>
+            <Star v-if="openFolder.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
+          </span>
           <DropdownMenu v-if="openFolder.project !== null">
             <DropdownMenuTrigger as-child>
               <button class="group-new" :aria-label="'Manage ' + openFolder.name" aria-haspopup="menu"><Ellipsis :size="14" /></button>
@@ -496,9 +498,11 @@ onMounted(() => {
             @click="drill(f.key)"
           >
             <ProjectIcon :icon="f.icon" :color="f.color" :size="14" class="folder-icon" />
-            <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
             <span class="folder-copy">
-              <span dir="auto" class="folder-title">{{ f.name }}</span>
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span dir="auto" class="folder-title">{{ f.name }}</span>
+                <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
+              </span>
               <span class="folder-sub">
                 <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
                 <span v-for="st in folderStates(f)" :key="st.status" class="folder-state session-state" :data-status="st.status" role="img" :aria-label="st.label" :title="st.label"><span class="session-state-dot" aria-hidden="true"></span>{{ st.count }}</span>

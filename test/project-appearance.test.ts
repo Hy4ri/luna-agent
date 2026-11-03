@@ -37,8 +37,14 @@ test("project appearance migrates, survives reopen, validates atomically, and re
     assert.equal(store.update(7, { favorite: false }).color, "#aa44ff");
     assert.equal(store.update(7, { color: null }).icon, "code");
     assert.equal(store.update(7, { color: "#123456" }).icon, "code");
+    // Custom symbols are one visible grapheme, not one UTF-16 code unit.
+    for (const icon of ["π", "A", "👩‍💻", "🇯🇴", "e\u0301", "👍🏽"]) {
+      assert.equal(store.update(7, { icon }).icon, icon);
+      db.close(); db = new DatabaseSync(path); store = new ProjectStore(db);
+      assert.equal(store.get(7)!.icon, icon);
+    }
     const before = store.get(7);
-    for (const changes of [{ color: "red", icon: "folder" }, { color: "#abc" }, { color: 123 }, { color: "#112233", icon: "not-an-icon" }, { icon: {} }]) {
+    for (const changes of [{ color: "red", icon: "folder" }, { color: "#abc" }, { color: 123 }, { color: "#112233", icon: "not-an-icon" }, { icon: {} }, ...["ab", "πλ", "", " ", "\n", "\u200d", "\u0301", "\u202e", "<svg>"].map(icon => ({ icon }))]) {
       assert.throws(() => store.update(7, changes), (e: unknown) => e instanceof ProjectError && e.status === 400);
       assert.deepEqual(store.get(7), before, "invalid updates must not partially change metadata");
     }
