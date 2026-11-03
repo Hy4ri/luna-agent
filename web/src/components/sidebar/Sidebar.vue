@@ -28,6 +28,9 @@ import {
   GitBranch,
   Star,
   Palette,
+  ListChecks,
+  Square,
+  SquareCheck,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSourceControl } from "@/stores/app";
@@ -36,7 +39,7 @@ import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
 import ProjectIcon from "@/components/ProjectIcon.vue";
 import type { ProjectAppearance } from "../../../../src/project-appearance";
-import { history, toggleFavorite, loadSessions, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
+import { history, toggleFavorite, loadSessions, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
@@ -48,6 +51,28 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 const ProjectAppearanceDialog = defineAsyncComponent(() => import("@/components/ProjectAppearanceDialog.vue"));
 const appearanceProject = ref<number | null>(null);
 const pruneOpen = ref(false), pruneResult = ref("");
+// Multi-select mode: checkboxes on rows and a bulk action bar.
+const selecting = ref(false), selected = ref(new Set<string>()), bulkBusy = ref(false);
+const selectedSessions = computed(() => history.list.filter(s => selected.value.has(String(s.id))));
+function toggleSelect(id: string | number) {
+  const next = new Set(selected.value), k = String(id);
+  if (!next.delete(k)) next.add(k);
+  selected.value = next;
+}
+function exitSelect() { selecting.value = false; selected.value = new Set(); }
+function selectAllVisible() {
+  const ids = visibleSessions.value.map((s: any) => String(s.id));
+  selected.value = ids.every((i: string) => selected.value.has(i)) ? new Set() : new Set(ids);
+}
+async function runBulk(action: BulkAction) {
+  if (bulkBusy.value) return;
+  bulkBusy.value = true;
+  try {
+    const targets = selectedSessions.value;
+    const done = await bulkAction(targets, action);
+    if (done) exitSelect();
+  } finally { bulkBusy.value = false; }
+}
 const mobile = useMobile();
 const collapsed = computed(() => ui.collapsed && !mobile.value);
 defineProps<{ inert?: boolean }>();
@@ -416,6 +441,7 @@ onMounted(() => {
             <button class="icon-button" aria-label="History actions" title="History actions"><Ellipsis :size="16" /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem @select="selecting ? exitSelect() : (selecting = true)"><ListChecks :size="14" />{{ selecting ? 'Cancel selection' : 'Select sessions' }}</DropdownMenuItem>
             <DropdownMenuItem @select="pruneResult = ''; pruneOpen = true"><Trash2 :size="14" />Prune sessions</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -436,6 +462,16 @@ onMounted(() => {
       <p id="history-status" role="status" class="text-destructive text-xs px-3 py-1" v-if="history.status && !ui.collapsed">
         {{ history.status }}
       </p>
+
+      <div v-if="selecting && !collapsed" id="bulk-bar" class="flex flex-wrap items-center gap-1 px-3 py-1 text-xs" role="toolbar" aria-label="Bulk actions">
+        <span class="text-muted-foreground mr-auto" role="status">{{ selected.size }} selected</span>
+        <button class="icon-button" title="Select all / none" aria-label="Select all or none" @click="selectAllVisible"><SquareCheck :size="16" /></button>
+        <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Generate titles" aria-label="Generate titles for selected" @click="runBulk('title')"><Sparkles :size="16" /></button>
+        <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Pin" aria-label="Pin selected" @click="runBulk('pin')"><Pin :size="16" /></button>
+        <button class="icon-button" :disabled="!selected.size || bulkBusy" :title="history.archived ? 'Restore' : 'Archive'" :aria-label="(history.archived ? 'Restore' : 'Archive') + ' selected'" @click="runBulk(history.archived ? 'restore' : 'archive')"><Archive :size="16" /></button>
+        <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Delete" aria-label="Delete selected" @click="runBulk('delete')"><Trash2 :size="16" /></button>
+        <button class="icon-button" title="Done" aria-label="Exit selection" @click="exitSelect"><X :size="16" /></button>
+      </div>
 
       <p id="prune-status" role="status" class="text-muted-foreground text-xs px-3 py-1" v-if="pruneResult && !collapsed">{{ pruneResult }}</p>
 
@@ -545,10 +581,12 @@ onMounted(() => {
                 @dragend="endSessionDrag"
                 :class="{ on: String(s.id) === String(chat.session) }"
                 :aria-current="String(s.id) === String(chat.session) ? 'page' : undefined"
+                :aria-pressed="selecting ? (selected.has(String(s.id)) ? 'true' : 'false') : undefined"
                 :aria-label="sessionTitle(s)"
                 :title="sessionTitle(s) + (s.statusReason ? ' — ' + s.statusReason : '')"
-                @click="setDrawer(false); openSession(s.id)"
+                @click="selecting ? toggleSelect(s.id) : (setDrawer(false), openSession(s.id))"
               >
+                <span v-if="selecting" class="session-pin" aria-hidden="true"><SquareCheck v-if="selected.has(String(s.id))" :size="14" /><Square v-else :size="14" /></span>
                 <span class="session-pin" aria-hidden="true" v-if="s.pinned">
                   <Pin :size="12" />
                 </span>
@@ -567,6 +605,7 @@ onMounted(() => {
               </span>
 
               <button
+                v-if="!selecting"
                 class="session-manage icon-button"
                 :aria-label="'Manage ' + sessionTitle(s)"
                 aria-haspopup="menu"
