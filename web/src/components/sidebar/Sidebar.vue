@@ -99,7 +99,8 @@ const folders = computed<Folder[]>(() => {
   const named = sortProjects(history.projects).filter(p => !p.general);
   const isNamed = (s: any) => !!s.project && named.some(p => p.id === s.project);
   const result: Folder[] = named.map(p => ({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, color: p.color, icon: p.icon, sessions: sortSessions(list.filter(s => Number(s.project) === Number(p.id))) }));
-  result.splice(result.filter(f => f.favorite).length, 0, { key: "none", name: "Chats", project: null, sessions: sortSessions(list.filter(s => !isNamed(s))) });
+  const general = history.projects.find(p => p.general);
+  result.splice(result.filter(f => f.favorite).length, 0, { key: "none", name: "Chats", project: null, icon: general?.icon, color: general?.color, sessions: sortSessions(list.filter(s => !isNamed(s))) });
   return result;
 });
 /** With no named projects there is nothing to choose, so the only folder is always open. */
@@ -442,18 +443,18 @@ onMounted(() => {
       <div class="folder-head" v-if="!collapsed && openFolder && !searching">
         <div class="folder-bar">
           <button v-if="!single" id="history-back" class="icon-button" aria-label="All projects" title="All projects" @click="drill(null)"><ChevronLeft :size="16" /></button>
-          <ProjectIcon v-if="openFolder.project !== null" :icon="openFolder.icon" :color="openFolder.color" :size="16" class="folder-icon" />
+          <ProjectIcon :icon="openFolder.icon" :color="openFolder.color" :size="16" class="folder-icon" />
           <span class="flex min-w-0 flex-1 items-center gap-1.5">
             <span dir="auto" class="folder-name" style="flex: 0 1 auto">{{ openFolder.name }}</span>
             <Star v-if="openFolder.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
           </span>
-          <DropdownMenu v-if="openFolder.project !== null">
+          <DropdownMenu>
             <DropdownMenuTrigger as-child>
               <button class="group-new" :aria-label="'Manage ' + openFolder.name" aria-haspopup="menu"><Ellipsis :size="14" /></button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem @select="appearanceProject = openFolder.project"><Palette :size="14" />Appearance</DropdownMenuItem>
-              <DropdownMenuItem @select="toggleFavorite(openFolder.project!)"><Star :size="14" />{{ openFolder.favorite ? 'Unfavourite' : 'Favourite' }}</DropdownMenuItem>
+              <DropdownMenuItem @select="appearanceProject = openFolder.project ?? 0"><Palette :size="14" />Appearance</DropdownMenuItem>
+              <DropdownMenuItem v-if="openFolder.project !== null" @select="toggleFavorite(openFolder.project!)"><Star :size="14" />{{ openFolder.favorite ? 'Unfavourite' : 'Favourite' }}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <button

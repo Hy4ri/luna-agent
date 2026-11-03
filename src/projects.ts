@@ -27,6 +27,9 @@ export class ProjectStore {
       ) STRICT;
       CREATE TABLE IF NOT EXISTS luna_project_worker_dirs (
         project_id INTEGER NOT NULL, worker_id INTEGER NOT NULL, cwd TEXT NOT NULL, PRIMARY KEY (project_id, worker_id)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS luna_general_appearance (
+        id INTEGER PRIMARY KEY CHECK (id = 0), color TEXT, icon TEXT
       ) STRICT;`);
     // Older databases lack the favourite flag.
     if (!(db.prepare("PRAGMA table_info(luna_projects)").all() as { name: string }[]).some(c => c.name === "favorite"))
@@ -43,13 +46,21 @@ export class ProjectStore {
       out.set(r.project_id, [...(out.get(r.project_id) ?? []), { worker: r.worker_id, cwd: r.cwd }]);
     return out;
   }
+  private generalAppearance(): { color: string | null; icon: string | null } | undefined {
+    return this.db.prepare("SELECT color, icon FROM luna_general_appearance WHERE id=0").get() as { color: string | null; icon: string | null } | undefined;
+  }
   list(): Project[] {
     const dirs = this.dirs();
+    const app = this.generalAppearance();
+    const general: Project = { ...GENERAL_PROJECT, ...(app ? { color: app.color, icon: app.icon } : {}) };
     const rows = this.db.prepare("SELECT id, name, cwd, favorite, color, icon FROM luna_projects ORDER BY name COLLATE NOCASE").all() as (Omit<Project, "general" | "workerDirs" | "favorite"> & { favorite: number })[];
-    return [{ ...GENERAL_PROJECT }, ...rows.map(r => ({ ...r, favorite: !!r.favorite, workerDirs: dirs.get(r.id) ?? [] }))];
+    return [general, ...rows.map(r => ({ ...r, favorite: !!r.favorite, workerDirs: dirs.get(r.id) ?? [] }))];
   }
   get(id: number): Project | undefined {
-    if (id === GENERAL_PROJECT.id) return { ...GENERAL_PROJECT };
+    if (id === GENERAL_PROJECT.id) {
+      const app = this.generalAppearance();
+      return { ...GENERAL_PROJECT, ...(app ? { color: app.color, icon: app.icon } : {}) };
+    }
     const r = this.db.prepare("SELECT id, name, cwd, favorite, color, icon FROM luna_projects WHERE id=?").get(id) as (Omit<Project, "workerDirs" | "favorite"> & { favorite: number }) | undefined;
     return r && { ...r, favorite: !!r.favorite, workerDirs: this.dirs().get(id) ?? [] };
   }
@@ -131,7 +142,20 @@ export class ProjectStore {
     return this.get(Number(r.lastInsertRowid))!;
   }
   update(id: number, changes: { name?: unknown; cwd?: unknown; favorite?: unknown; color?: unknown; icon?: unknown }): Project {
-    if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
+    if (id === GENERAL_PROJECT.id) {
+      if (changes.name !== undefined || changes.cwd !== undefined || changes.favorite !== undefined) {
+        throw new ProjectError(409, "The General project cannot be changed");
+      }
+      if (changes.color !== undefined && changes.color !== null && (typeof changes.color !== "string" || !/^#[0-9a-f]{6}$/i.test(changes.color)))
+        throw new ProjectError(400, "color must be a six-digit hex color or null");
+      if (changes.icon !== undefined && changes.icon !== null && !isValidProjectIcon(changes.icon))
+        throw new ProjectError(400, "icon must be a supported project icon or a single visible character, or null");
+      const cur = this.get(0)!;
+      const color = changes.color === undefined ? cur.color ?? null : (changes.color as string | null)?.toLowerCase() ?? null;
+      const icon = changes.icon === undefined ? cur.icon ?? null : changes.icon as string | null;
+      this.db.prepare("INSERT OR REPLACE INTO luna_general_appearance (id, color, icon) VALUES (0, ?, ?)").run(color, icon);
+      return this.get(0)!;
+    }
     const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
     if (changes.favorite !== undefined && typeof changes.favorite !== "boolean") throw new ProjectError(400, "favorite must be a boolean");
     const favorite = changes.favorite ?? cur.favorite ?? false;

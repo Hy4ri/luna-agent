@@ -107,7 +107,7 @@ onMounted(async () => {
   try {
     const result = await json<{ projects: Project[] }>("/v1/projects");
     if (!alive) return;
-    const p = result.projects.find(p => p.id === props.projectId && !p.general);
+    const p = result.projects.find(p => p.id === props.projectId);
     if (!p) throw new Error("Project no longer exists");
     project.value = p;
     const initIcon = p.icon ?? null;

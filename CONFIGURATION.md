@@ -1566,9 +1566,9 @@ on startup. General cannot be a favourite (`409`).
 
 ## Project appearance
 
-Named projects have nullable `color` and `icon` fields, stored in the project database.
+Named projects and the built-in General project (Chats, ID `0`) have nullable `color` and `icon` fields, stored in the project database.
 `GET /v1/projects` and project responses include both fields. Existing projects default
-to `null` (the theme's default folder icon and color). Existing databases migrate on startup.
+to `null` (the theme's default folder or chat icon and color). Existing databases migrate on startup.
 `PATCH /v1/projects/:id` accepts either field independently, without a name or directory:
 
 ```json
@@ -1577,13 +1577,13 @@ to `null` (the theme's default folder icon and color). Existing databases migrat
 
 `color` accepts a six-digit hex color (`#RRGGBB`, normalized to lowercase) or `null`.
 `icon` accepts a supported built-in icon identifier (`folder`, `code`, `terminal`, `globe`, `smartphone`, `layers`, `database`, `book-open`, `briefcase`, `flask-conical`, `rocket`, `wrench`), a custom symbol or emoji consisting of exactly one visible non-whitespace grapheme (for example `π`, `A`, or complex emoji sequences such as `👩‍💻`), or `null`. Multi-grapheme strings, whitespace, control characters, and invisible or combining-mark-only characters are rejected.
-Invalid values return `400`; General cannot be customized (`409`). Omitted fields are unchanged.
+Invalid values return `400`. For General (ID `0`), `color` and `icon` can be customized or reset, but changing `name`, `cwd`, `favorite`, or worker directories returns `409` (even when combined with appearance fields). Omitted fields are unchanged.
 Use `{ "color": null, "icon": null }` to reset both. Appearance-only changes work even
-when the project's directory no longer exists. Name, directory, machine links, and
+when a project's directory no longer exists. Name, directory, machine links, and
 favourite status are preserved.
 
-In the sidebar, open a project, then select **Manage → Appearance**. The Projects
-panel also has an **Appearance** button for each named project. The dialog reads fresh
+In the sidebar, open a project (or Chats), then select **Manage → Appearance**. The Projects
+panel also has an **Appearance** button for each project, including General. The dialog reads fresh
 server state on each open, previews the icon and color, and applies them only on **Save**.
 **Cancel** leaves saved settings unchanged. Favourite stars remain separate from the project icon.
 
@@ -1591,16 +1591,16 @@ server state on each open, previews the icon and color, and applies them only on
 
 The built-in **General** project is always available. It shares one persistent board across sessions in **Chats**.
 Existing unlinked sessions use it automatically. Named project boards stay separate.
-General does not change a conversation's working directory. It cannot be renamed, edited, or deleted.
+General does not change a conversation's working directory. It cannot be renamed, edited (except appearance), or deleted.
 Scheduled runs and delegated children do not receive the board tool.
 
-- `GET /v1/projects` includes `{ "id": 0, "name": "General", "cwd": "", "general": true }` before named projects.
+- `GET /v1/projects` includes `{ "id": 0, "name": "General", "cwd": "", "general": true }` before named projects (with custom or default `color` and `icon`).
   The empty directory means General has no directory override.
 - `GET /v1/sessions` and `GET /v1/sessions/:id` report `project: 0` for General chats.
 - `POST /v1/sessions` accepts `project: 0`. Omitting `project` also uses General.
 - Creation also accepts optional `model: { provider, modelId }` and `thinkingLevel` overrides. Valid reasoning levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Omitted overrides use the configured defaults. The empty chat keeps explicit choices locally and sends them when the first message creates the session.
 - Existing board and card routes accept `/v1/projects/0/board` and `/v1/projects/0/cards`.
-- `PATCH` and `DELETE /v1/projects/0` return `409`. The name General is reserved for new projects.
+- `PATCH /v1/projects/0` allows `color` and `icon` appearance updates; other fields (`name`, `cwd`, `favorite`) and `DELETE /v1/projects/0` return `409`. The name General is reserved for new projects.
 - Deleting a named project keeps its conversations and directories. Those conversations then use General.
 - `GET /v1/projects/:id/skills` returns `[{ name, description, global, override, effective }]`. `global` is the global state (not in `disabledSkills`). `override` is `true`, `false`, or `null` (inherit). `effective` is `override ?? global`.
 - `PUT /v1/projects/:id/skills/:name` with `{ "enabled": true | false | null }` sets the project override. `null` resets the skill to the global setting. It returns `404` for an unknown project or skill, and `409` for General (General uses the global setting only).
