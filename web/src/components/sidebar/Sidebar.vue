@@ -27,12 +27,15 @@ import {
   ChartNoAxesColumn,
   GitBranch,
   Star,
+  Palette,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSourceControl } from "@/stores/app";
 import { chat, openSession, newSession } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
+import ProjectIcon from "@/components/ProjectIcon.vue";
+import type { ProjectAppearance } from "../../../../src/project-appearance";
 import { history, toggleFavorite, loadSessions, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, deleteSession } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
@@ -42,6 +45,8 @@ import { ago } from "@/lib/mention-sources";
 const PruneSessionsDialog = defineAsyncComponent(() => import("./PruneSessionsDialog.vue"));
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
+const ProjectAppearanceDialog = defineAsyncComponent(() => import("@/components/ProjectAppearanceDialog.vue"));
+const appearanceProject = ref<number | null>(null);
 const pruneOpen = ref(false), pruneResult = ref("");
 const mobile = useMobile();
 const collapsed = computed(() => ui.collapsed && !mobile.value);
@@ -80,7 +85,7 @@ function sortSessions(sessions: any[]) {
 }
 
 type Machine = { key: string; id: number | null; name: string; online: boolean };
-type Folder = { key: string; name: string; project: number | null; favorite?: boolean; sessions: any[] };
+type Folder = ProjectAppearance & { key: string; name: string; project: number | null; favorite?: boolean; sessions: any[] };
 
 /** Machines appear only when workers exist. Each session belongs to one machine. */
 const machines = computed<Machine[]>(() => workers.list.length
@@ -93,7 +98,7 @@ const folders = computed<Folder[]>(() => {
   const list = history.list.filter(s => !!s.archived === history.archived);
   const named = sortProjects(history.projects).filter(p => !p.general);
   const isNamed = (s: any) => !!s.project && named.some(p => p.id === s.project);
-  const result: Folder[] = named.map(p => ({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, sessions: sortSessions(list.filter(s => Number(s.project) === Number(p.id))) }));
+  const result: Folder[] = named.map(p => ({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, color: p.color, icon: p.icon, sessions: sortSessions(list.filter(s => Number(s.project) === Number(p.id))) }));
   result.splice(result.filter(f => f.favorite).length, 0, { key: "none", name: "Chats", project: null, sessions: sortSessions(list.filter(s => !isNamed(s))) });
   return result;
 });
@@ -437,6 +442,7 @@ onMounted(() => {
       <div class="folder-head" v-if="!collapsed && openFolder && !searching">
         <div class="folder-bar">
           <button v-if="!single" id="history-back" class="icon-button" aria-label="All projects" title="All projects" @click="drill(null)"><ChevronLeft :size="16" /></button>
+          <ProjectIcon v-if="openFolder.project !== null" :icon="openFolder.icon" :color="openFolder.color" :size="16" class="folder-icon" />
           <Star v-if="openFolder.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
           <span dir="auto" class="folder-name">{{ openFolder.name }}</span>
           <DropdownMenu v-if="openFolder.project !== null">
@@ -444,6 +450,7 @@ onMounted(() => {
               <button class="group-new" :aria-label="'Manage ' + openFolder.name" aria-haspopup="menu"><Ellipsis :size="14" /></button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem @select="appearanceProject = openFolder.project"><Palette :size="14" />Appearance</DropdownMenuItem>
               <DropdownMenuItem @select="toggleFavorite(openFolder.project!)"><Star :size="14" />{{ openFolder.favorite ? 'Unfavourite' : 'Favourite' }}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -488,8 +495,8 @@ onMounted(() => {
             :aria-label="f.name + ', ' + f.sessions.length + ' conversations'"
             @click="drill(f.key)"
           >
-            <Star v-if="f.favorite" :size="14" fill="currentColor" class="group-star" aria-hidden="true" />
-            <FolderKanban v-else :size="14" class="folder-icon" aria-hidden="true" />
+            <ProjectIcon :icon="f.icon" :color="f.color" :size="14" class="folder-icon" />
+            <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
             <span class="folder-copy">
               <span dir="auto" class="folder-title">{{ f.name }}</span>
               <span class="folder-sub">
@@ -648,6 +655,7 @@ onMounted(() => {
         <span>Delete</span>
       </button>
     </div></Teleport>
+    <ProjectAppearanceDialog v-if="appearanceProject !== null" :project-id="appearanceProject" @close="appearanceProject = null" />
     <PruneSessionsDialog v-if="pruneOpen" @close="pruneOpen = false" @deleted="message => pruneResult = message" />
   </aside>
 </template>

@@ -2,13 +2,14 @@
 // General is built in for unlinked sessions and does not change their working directories.
 // A named project's directory is copied into the session at creation,
 // so editing or deleting a project never changes sessions that already exist.
+import { PROJECT_ICONS, type ProjectAppearance } from "./project-appearance.js";
 import type { DatabaseSync } from "node:sqlite";
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
 /** A project's working directory on one execution worker. `cwd` on the project itself is the directory on the main host. */
 export type WorkerDir = { worker: number; cwd: string };
-export type Project = { id: number; name: string; cwd: string; general?: boolean; favorite?: boolean; workerDirs?: WorkerDir[] };
+export type Project = ProjectAppearance & { id: number; name: string; cwd: string; general?: boolean; favorite?: boolean; workerDirs?: WorkerDir[] };
 // ID zero is reserved; persisted project IDs start at one. No migration or session rewrites are needed.
 export const GENERAL_PROJECT: Readonly<Project> = Object.freeze({ id: 0, name: "General", cwd: "", general: true });
 
@@ -30,6 +31,10 @@ export class ProjectStore {
     // Older databases lack the favourite flag.
     if (!(db.prepare("PRAGMA table_info(luna_projects)").all() as { name: string }[]).some(c => c.name === "favorite"))
       db.exec("ALTER TABLE luna_projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0");
+    const columns = new Set((db.prepare("PRAGMA table_info(luna_projects)").all() as { name: string }[]).map(c => c.name));
+    for (const column of ["color", "icon"]) {
+      if (!columns.has(column)) db.exec(`ALTER TABLE luna_projects ADD COLUMN ${column} TEXT`);
+    }
   }
   /** One board serves every machine of a project, so linking machines only records a directory per worker. */
   private dirs(): Map<number, WorkerDir[]> {
@@ -40,12 +45,12 @@ export class ProjectStore {
   }
   list(): Project[] {
     const dirs = this.dirs();
-    const rows = this.db.prepare("SELECT id, name, cwd, favorite FROM luna_projects ORDER BY name COLLATE NOCASE").all() as (Omit<Project, "general" | "workerDirs" | "favorite"> & { favorite: number })[];
+    const rows = this.db.prepare("SELECT id, name, cwd, favorite, color, icon FROM luna_projects ORDER BY name COLLATE NOCASE").all() as (Omit<Project, "general" | "workerDirs" | "favorite"> & { favorite: number })[];
     return [{ ...GENERAL_PROJECT }, ...rows.map(r => ({ ...r, favorite: !!r.favorite, workerDirs: dirs.get(r.id) ?? [] }))];
   }
   get(id: number): Project | undefined {
     if (id === GENERAL_PROJECT.id) return { ...GENERAL_PROJECT };
-    const r = this.db.prepare("SELECT id, name, cwd, favorite FROM luna_projects WHERE id=?").get(id) as (Omit<Project, "workerDirs" | "favorite"> & { favorite: number }) | undefined;
+    const r = this.db.prepare("SELECT id, name, cwd, favorite, color, icon FROM luna_projects WHERE id=?").get(id) as (Omit<Project, "workerDirs" | "favorite"> & { favorite: number }) | undefined;
     return r && { ...r, favorite: !!r.favorite, workerDirs: this.dirs().get(id) ?? [] };
   }
   /** Directory for a new session on a machine: `null` is the main host. */
@@ -118,21 +123,27 @@ export class ProjectStore {
         const id = Number(r.lastInsertRowid);
         this.db.prepare("INSERT INTO luna_project_worker_dirs(project_id, worker_id, cwd) VALUES (?,?,?)").run(id, opts!.worker as number, workerCwd);
         this.db.exec("COMMIT");
-        return { id, name: cleanName, cwd: hostCwd, favorite: false, workerDirs: [{ worker: opts!.worker as number, cwd: workerCwd }] };
+        return this.get(id)!;
       } catch (e) { try { this.db.exec("ROLLBACK"); } catch {} throw e; }
     }
     const v = this.clean(name, cwd); this.taken(v.name);
     const r = this.db.prepare("INSERT INTO luna_projects(name, cwd) VALUES (?,?)").run(v.name, v.cwd);
-    return { id: Number(r.lastInsertRowid), ...v, favorite: false, workerDirs: [] };
+    return this.get(Number(r.lastInsertRowid))!;
   }
-  update(id: number, changes: { name?: unknown; cwd?: unknown; favorite?: unknown }): Project {
+  update(id: number, changes: { name?: unknown; cwd?: unknown; favorite?: unknown; color?: unknown; icon?: unknown }): Project {
     if (id === GENERAL_PROJECT.id) throw new ProjectError(409, "The General project cannot be changed");
     const cur = this.get(id); if (!cur) throw new ProjectError(404, "no such project");
     if (changes.favorite !== undefined && typeof changes.favorite !== "boolean") throw new ProjectError(400, "favorite must be a boolean");
     const favorite = changes.favorite ?? cur.favorite ?? false;
-    // A favourite-only change leaves the name and directory alone, so it works even when the directory is gone.
+    if (changes.color !== undefined && changes.color !== null && (typeof changes.color !== "string" || !/^#[0-9a-f]{6}$/i.test(changes.color)))
+      throw new ProjectError(400, "color must be a six-digit hex color or null");
+    if (changes.icon !== undefined && changes.icon !== null && !PROJECT_ICONS.includes(changes.icon as typeof PROJECT_ICONS[number]))
+      throw new ProjectError(400, "icon must be a supported project icon or null");
+    const color = changes.color === undefined ? cur.color ?? null : (changes.color as string | null)?.toLowerCase() ?? null;
+    const icon = changes.icon === undefined ? cur.icon ?? null : changes.icon as string | null;
+    // Metadata-only changes work even when the directory is gone.
     if (changes.name === undefined && changes.cwd === undefined) {
-      this.db.prepare("UPDATE luna_projects SET favorite=? WHERE id=?").run(favorite ? 1 : 0, id);
+      this.db.prepare("UPDATE luna_projects SET favorite=?, color=?, icon=? WHERE id=?").run(favorite ? 1 : 0, color, icon, id);
       return this.get(id)!;
     }
     const next = changes.cwd ?? cur.cwd;
@@ -140,8 +151,8 @@ export class ProjectStore {
     // A project that is only on other machines keeps an empty host directory.
     const v = next === "" ? { name: this.cleanName(changes.name ?? cur.name), cwd: "" } : this.clean(changes.name ?? cur.name, next);
     this.taken(v.name, id);
-    this.db.prepare("UPDATE luna_projects SET name=?, cwd=?, favorite=? WHERE id=?").run(v.name, v.cwd, favorite ? 1 : 0, id);
-    return { id, ...v, favorite, workerDirs: cur.workerDirs ?? [] };
+    this.db.prepare("UPDATE luna_projects SET name=?, cwd=?, favorite=?, color=?, icon=? WHERE id=?").run(v.name, v.cwd, favorite ? 1 : 0, color, icon, id);
+    return this.get(id)!;
   }
   /** Existing sessions keep their directory and fall back to General. */
   delete(id: number) {

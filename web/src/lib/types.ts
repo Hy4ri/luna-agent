@@ -1,3 +1,5 @@
+import type { ProjectAppearance } from "../../../src/project-appearance";
+
 export type SessionStatus =
   | "ready"
   | "running"
@@ -37,7 +39,7 @@ export interface SessionMeta {
   [key: string]: any;
 }
 
-export interface Project {
+export interface Project extends ProjectAppearance {
   general?: boolean;
   /** Favourite projects are listed first everywhere. Stored on the server. */
   favorite?: boolean;
