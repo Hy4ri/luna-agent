@@ -159,3 +159,28 @@ export async function deleteSession(s: SessionMeta) {
     if (result.deleted.some(n => String(n) === String(chat.session))) clearConversation();
   });
 }
+
+export type BulkAction = "archive" | "restore" | "pin" | "unpin" | "title" | "delete";
+/** Run one action on many sessions in turn. Returns how many succeeded; failures set history.status. Asks once before deleting. */
+export async function bulkAction(sessions: SessionMeta[], action: BulkAction): Promise<number> {
+  if (!sessions.length) return 0;
+  if (action === "delete" && !confirm(`Permanently delete ${sessions.length} conversation${sessions.length === 1 ? "" : "s"} with all child conversations and forks? Stored messages and search entries will be removed. This cannot be undone.`)) return 0;
+  history.status = "";
+  let ok = 0; const errors: string[] = [];
+  for (const s of sessions) {
+    try {
+      if (action === "delete") {
+        const r = await json<{ deleted: (number | string)[] }>(`/v1/sessions/${s.id}`, { method: "DELETE" });
+        if (r.deleted.some(n => String(n) === String(chat.session))) clearConversation();
+      } else if (action === "title") await post(`/v1/sessions/${s.id}/title`, {});
+      else {
+        await post(`/v1/sessions/${s.id}/metadata`, action === "pin" || action === "unpin" ? { pinned: action === "pin" } : { archived: action === "archive" }, "PATCH");
+        if (action === "archive" && String(chat.session) === String(s.id)) clearConversation();
+      }
+      ok++;
+    } catch (e) { errors.push(`${sessionTitle(s)}: ${(e as Error).message}`); }
+  }
+  if (errors.length) history.status = `${errors.length} of ${sessions.length} failed. ${errors[0]}`;
+  await loadSessions();
+  return ok;
+}
