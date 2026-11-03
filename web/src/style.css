@@ -374,6 +374,7 @@ aside#side.collapsed #history-rail {
 }
 .folder-open:hover { background: var(--sidebar-accent); }
 .folder-icon, .folder-chevron { flex-shrink: 0; color: var(--muted-foreground); }
+.folder-open > .folder-icon { align-self: flex-start; margin-top: 2px; }
 .folder-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .folder-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
 .folder-sub { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; line-height: 1.2; min-height: 1.2em; }
