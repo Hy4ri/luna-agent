@@ -740,6 +740,17 @@ export function upstreamProxy(upstream: URL, env: NodeJS.ProcessEnv = process.en
   return { host: hostname, port, headers };
 }
 
+// Delays before each relay retry of a request that failed before upstream answered.
+const RELAY_RETRY_DELAYS_MS = [250, 750];
+const RETRYABLE_NETWORK_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH']);
+
+function describeFailure(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const code = (err as NodeJS.ErrnoException).code;
+  const label = code || err.name || 'Error';
+  return err.message && err.message !== label ? `${label} (${err.message})` : label;
+}
+
 export class UpstreamIdle extends Error {
   constructor(message = 'upstream idle timeout') {
     super(message);
@@ -754,6 +765,8 @@ export class Admission {
   status: number | undefined = undefined;
   readonly limitHeaders: Record<string, string> = {};
   failure: string | undefined = undefined;
+  retries = 0;
+  readonly retryCauses: string[] = [];
   requestId: string | undefined = undefined;
   unrestored: string | undefined = undefined;
   readonly capture = new Capture();
@@ -761,6 +774,7 @@ export class Admission {
 
   private server: http.Server;
   private cancelled = false;
+  private retryTimer: NodeJS.Timeout | undefined;
   private sockets = new Set<any>();
   private upstreamUrl: URL;
   private timeoutMs: number;
@@ -835,6 +849,8 @@ export class Admission {
 
   abort(): void {
     this.cancelled = true;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     for (const sock of this.sockets) {
       try {
         sock.destroy();
@@ -916,146 +932,183 @@ export class Admission {
           headers['Host'] = target.hostname;
         }
 
-        let upstreamReq: http.ClientRequest;
-        let proxySocket: net.Socket | null = null;
-
-        if (target.protocol === 'https:') {
-          if (this.proxy) {
-            const { host: pHost, port: pPort, headers: pHeaders } = this.proxy;
-            const targetHost = target.hostname;
-            const targetPort = target.port ? parseInt(target.port, 10) : 443;
-
-            await new Promise<void>((resolve, reject) => {
-              const proxyReq = http.request({
-                host: pHost,
-                port: pPort,
-                method: 'CONNECT',
-                path: `${targetHost}:${targetPort}`,
-                headers: pHeaders
-              });
-              proxyReq.on('connect', (res, socket) => {
-                proxySocket = socket;
-                if (res.statusCode !== 200) {
-                  socket.destroy();
-                  reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
-                  return;
-                }
-                resolve();
-              });
-              proxyReq.on('error', reject);
-              proxyReq.end();
-            });
-
-            const tlsSocket = tls.connect({
-              socket: proxySocket!,
-              servername: target.hostname,
-            });
-
-            upstreamReq = https.request({
-              hostname: target.hostname,
-              port: targetPort,
-              path: route,
-              method: 'POST',
-              headers,
-              createConnection: () => tlsSocket
-            });
-          } else {
-            upstreamReq = https.request({
-              hostname: target.hostname,
-              port: target.port ? parseInt(target.port, 10) : 443,
-              path: route,
-              method: 'POST',
-              headers
-            });
-          }
-        } else {
-          upstreamReq = http.request({
-            hostname: target.hostname,
-            port: target.port ? parseInt(target.port, 10) : 80,
-            path: route,
-            method: 'POST',
-            headers
-          });
-        }
-
-        upstreamReq.on('socket', socket => {
-          socket.setKeepAlive(true, 15000);
-          this.sockets.add(socket);
-        });
-
-        upstreamReq.on('error', err => {
-          this.failure ??= err.name || 'Error';
-          // After headers, only a reset tells native the stream is cut; a dangling response would hang it.
-          if (!res.headersSent) {
-            res.statusCode = 502;
-            res.end();
-          } else res.destroy();
-        });
-
-        upstreamReq.write(payload);
-        upstreamReq.end();
-
-        upstreamReq.on('response', proxyRes => {
-          this.status = proxyRes.statusCode;
-          for (const [name, value] of Object.entries(proxyRes.headers)) {
-            if (typeof value === 'string' && (name.startsWith('anthropic-ratelimit-') || name === 'retry-after')) {
-              this.limitHeaders[name] = value;
-            }
-          }
-          this.requestId = (proxyRes.headers['request-id'] || proxyRes.headers['x-request-id']) as string | undefined;
-
-          res.statusCode = proxyRes.statusCode || 200;
-          for (const [k, v] of Object.entries(proxyRes.headers)) {
-            const lk = k.toLowerCase();
-            if (!['connection', 'transfer-encoding', 'server', 'date'].includes(lk)) {
-              if (v !== undefined) res.setHeader(k, v);
-            }
-          }
-          res.setHeader('Connection', 'close');
-
-          const idle = Math.min(this.timeoutMs, 180000);
-          let idleTimer: NodeJS.Timeout;
-
-          const resetIdle = () => {
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-              this.failure = 'UpstreamIdle';
-              upstreamReq.destroy(new UpstreamIdle());
-            }, idle);
-          };
-
-          resetIdle();
-
-          proxyRes.on('data', chunk => {
-            resetIdle();
-            if (proxyRes.statusCode === 200) {
-              // A malformed SSE event leaves the capture incomplete; it must not throw out of an event handler.
-              try { this.capture.feed(chunk as Buffer); } catch (err) { this.failure ??= (err as Error).name || 'Error'; }
-            } else if (this.errorBody.length < 65536) {
-              this.errorBody = Buffer.concat([this.errorBody, chunk as Buffer]);
-            }
-            res.write(chunk);
-          });
-
-          proxyRes.on('end', () => {
-            clearTimeout(idleTimer);
-            res.end();
-          });
-
-          proxyRes.on('error', err => {
-            clearTimeout(idleTimer);
-            this.failure = err.name || 'Error';
-            res.destroy();
-          });
-        });
-
+        await this.forward(route, headers, payload, res, 0);
       } catch (err: unknown) {
-        this.failure = (err as Error).name || 'Error';
+        this.failure = describeFailure(err);
         if (!res.headersSent) {
           res.statusCode = 500;
           res.end();
         }
       }
+    });
+  }
+
+  private async openUpstream(route: string, headers: Record<string, string>): Promise<http.ClientRequest> {
+    const target = this.upstreamUrl;
+    if (target.protocol !== 'https:') {
+      return http.request({
+        hostname: target.hostname,
+        port: target.port ? parseInt(target.port, 10) : 80,
+        path: route,
+        method: 'POST',
+        headers
+      });
+    }
+    const port = target.port ? parseInt(target.port, 10) : 443;
+    if (!this.proxy) {
+      return https.request({ hostname: target.hostname, port, path: route, method: 'POST', headers });
+    }
+    const { host: pHost, port: pPort, headers: pHeaders } = this.proxy;
+    const proxySocket = await new Promise<net.Socket>((resolve, reject) => {
+      const proxyReq = http.request({
+        host: pHost,
+        port: pPort,
+        method: 'CONNECT',
+        path: `${target.hostname}:${port}`,
+        headers: pHeaders
+      });
+      proxyReq.on('socket', socket => {
+        this.sockets.add(socket);
+        socket.once('close', () => this.sockets.delete(socket));
+        if (this.cancelled) socket.destroy();
+      });
+      proxyReq.setTimeout(this.timeoutMs, () => proxyReq.destroy(new UpstreamIdle('proxy connect timeout')));
+      proxyReq.on('connect', (res, socket) => {
+        socket.setTimeout(0);
+        if (res.statusCode !== 200) {
+          socket.destroy();
+          reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
+          return;
+        }
+        resolve(socket);
+      });
+      proxyReq.on('error', reject);
+      proxyReq.end();
+    });
+    const tlsSocket = tls.connect({ socket: proxySocket, servername: target.hostname });
+    return https.request({
+      hostname: target.hostname,
+      port,
+      path: route,
+      method: 'POST',
+      headers,
+      createConnection: () => tlsSocket
+    });
+  }
+
+  // Retry only transient connection failures before upstream headers. Native retries stay off.
+  // No output or tools are replayed, but upstream may already have billed a lost request.
+  private retryOrFail(err: unknown, route: string, headers: Record<string, string>, payload: Buffer,
+    res: http.ServerResponse, attempt: number): void {
+    if (this.cancelled || res.destroyed) return;
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code && RETRYABLE_NETWORK_CODES.has(code) && attempt < RELAY_RETRY_DELAYS_MS.length && !res.headersSent) {
+      this.retries++;
+      this.retryCauses.push(describeFailure(err));
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = undefined;
+        if (this.cancelled || res.destroyed) return;
+        this.forward(route, headers, payload, res, attempt + 1).catch(err => this.retryOrFail(err, route, headers, payload, res, RELAY_RETRY_DELAYS_MS.length));
+      }, RELAY_RETRY_DELAYS_MS[attempt]);
+      return;
+    }
+    this.failure ??= describeFailure(err);
+    if (!res.headersSent) {
+      res.statusCode = 502;
+      res.end();
+    } else res.destroy();
+  }
+
+  private async forward(route: string, headers: Record<string, string>, payload: Buffer,
+    res: http.ServerResponse, attempt: number): Promise<void> {
+    if (this.cancelled || res.destroyed) return;
+    let upstreamReq: http.ClientRequest;
+    try {
+      upstreamReq = await this.openUpstream(route, headers);
+    } catch (err: unknown) {
+      this.retryOrFail(err, route, headers, payload, res, attempt);
+      return;
+    }
+    let responded = false;
+
+    upstreamReq.on('socket', socket => {
+      socket.setKeepAlive(true, 15000);
+      this.sockets.add(socket);
+      socket.once('close', () => this.sockets.delete(socket));
+      if (this.cancelled || res.destroyed) socket.destroy();
+    });
+
+    upstreamReq.on('error', err => {
+      if (!responded) {
+        this.retryOrFail(err, route, headers, payload, res, attempt);
+        return;
+      }
+      this.failure ??= describeFailure(err);
+      // After headers, only a reset tells native the stream is cut; a dangling response would hang it.
+      if (!res.headersSent) {
+        res.statusCode = 502;
+        res.end();
+      } else res.destroy();
+    });
+
+    if (this.cancelled || res.destroyed) { upstreamReq.destroy(); return; }
+
+    upstreamReq.write(payload);
+    upstreamReq.end();
+
+    upstreamReq.on('response', proxyRes => {
+      responded = true;
+      this.status = proxyRes.statusCode;
+      for (const [name, value] of Object.entries(proxyRes.headers)) {
+        if (typeof value === 'string' && (name.startsWith('anthropic-ratelimit-') || name === 'retry-after')) {
+          this.limitHeaders[name] = value;
+        }
+      }
+      this.requestId = (proxyRes.headers['request-id'] || proxyRes.headers['x-request-id']) as string | undefined;
+
+      res.statusCode = proxyRes.statusCode || 200;
+      for (const [k, v] of Object.entries(proxyRes.headers)) {
+        const lk = k.toLowerCase();
+        if (!['connection', 'transfer-encoding', 'server', 'date'].includes(lk)) {
+          if (v !== undefined) res.setHeader(k, v);
+        }
+      }
+      res.setHeader('Connection', 'close');
+
+      const idle = Math.min(this.timeoutMs, 180000);
+      let idleTimer: NodeJS.Timeout;
+
+      const resetIdle = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          this.failure = 'UpstreamIdle';
+          upstreamReq.destroy(new UpstreamIdle());
+        }, idle);
+      };
+
+      resetIdle();
+
+      proxyRes.on('data', chunk => {
+        resetIdle();
+        if (proxyRes.statusCode === 200) {
+          // A malformed SSE event leaves the capture incomplete; it must not throw out of an event handler.
+          try { this.capture.feed(chunk as Buffer); } catch (err) { this.failure ??= describeFailure(err); }
+        } else if (this.errorBody.length < 65536) {
+          this.errorBody = Buffer.concat([this.errorBody, chunk as Buffer]);
+        }
+        res.write(chunk);
+      });
+
+      proxyRes.on('end', () => {
+        clearTimeout(idleTimer);
+        res.end();
+      });
+
+      proxyRes.on('error', err => {
+        clearTimeout(idleTimer);
+        this.failure = describeFailure(err);
+        res.destroy();
+      });
     });
   }
 }

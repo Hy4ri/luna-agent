@@ -1,4 +1,4 @@
-// Contract: the native Claude transport keeps the prompt-cache prefix byte-stable and forwards exactly one request.
+// Contract: the native Claude transport keeps the prompt-cache prefix byte-stable and admits one native request with bounded network retries.
 // fixtures/claude-native-python-parity.json holds outputs captured from the retired Python DirectSDK transport.
 // A change here moves the cache prefix of every existing conversation, so a diff must be deliberate.
 import assert from "node:assert/strict";
@@ -98,7 +98,8 @@ test("upstream proxy selection matches the recorded outputs", () => {
   }
 });
 
-async function peer(): Promise<{ server: Server; url: string; requests: unknown[] }> {
+// `resets` drops that many connections before answering, as a flaky network path would.
+async function peer(resets = 0): Promise<{ server: Server; url: string; requests: unknown[] }> {
   const requests: unknown[] = [];
   const sse = ref.captures.find((c: { name: string }) => c.name === "text-unicode").sse;
   const server = createServer((req, res) => {
@@ -106,6 +107,7 @@ async function peer(): Promise<{ server: Server; url: string; requests: unknown[
     req.on("data", chunk => chunks.push(chunk));
     req.on("end", () => {
       requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      if (requests.length <= resets) { req.socket.destroy(); return; }
       res.writeHead(200, { "content-type": "text/event-stream", "request-id": "req-fixture" });
       res.end(sse);
     });
@@ -136,6 +138,90 @@ test("admission forwards exactly one request and captures its usage", async () =
     const probe = await fetch(gate.url.replace(/\/admit\/.*/, "/api/hello"));
     assert.equal(probe.status, 404, "warm-up probes are refused quietly");
     await probe.text();
+  } finally {
+    await gate.close();
+    upstream.server.close();
+  }
+});
+
+test("admission retries a connection that drops before upstream answers", async () => {
+  const flaky = await peer(1);
+  const gate = await Admission.open(flaky.url, 3000);
+  try {
+    const response = await post(gate.url, { messages: [] });
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.equal(gate.capture.complete, true);
+    assert.equal(flaky.requests.length, 2);
+    assert.equal(gate.retries, 1);
+    assert.deepEqual(flaky.requests[1], flaky.requests[0], "retry preserves the transformed request");
+    assert.equal(gate.failure, undefined);
+  } finally {
+    await gate.close();
+    flaky.server.close();
+  }
+
+  const dead = await peer(Infinity);
+  const failed = await Admission.open(dead.url, 3000);
+  try {
+    const response = await post(failed.url, { messages: [] });
+    assert.equal(response.status, 502);
+    await response.text();
+    assert.equal(dead.requests.length, 3, "two retries, then the failure reaches native");
+    assert.match(failed.failure ?? "", /^ECONNRESET \(socket hang up\)$/, "the failure names the network error");
+  } finally {
+    await failed.close();
+    dead.server.close();
+  }
+});
+
+test("admission does not retry an HTTP error or an interrupted response", async () => {
+  for (const status of [429, 200]) {
+    let requests = 0;
+    const server = createServer((_req, res) => {
+      requests++;
+      res.writeHead(status, { "content-type": "text/event-stream" });
+      if (status === 429) res.end("rate limited");
+      else res.write('data: {"type":"ping"}\n\n', () => res.destroy());
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const gate = await Admission.open(`http://127.0.0.1:${(server.address() as { port: number }).port}`, 3000);
+    try {
+      if (status === 429) {
+        const response = await post(gate.url, { messages: [] });
+        assert.equal(response.status, 429);
+        assert.equal(await response.text(), "rate limited");
+      } else {
+        await assert.rejects(async () => {
+          const response = await post(gate.url, { messages: [] });
+          await response.text();
+        });
+      }
+      assert.equal(gate.status, status);
+      assert.equal(gate.retries, 0);
+      assert.equal(requests, 1);
+    } finally {
+      await gate.close();
+      server.close();
+    }
+  }
+});
+
+test("closing admission cancels a pending relay retry", async () => {
+  const upstream = await peer(Infinity);
+  const gate = await Admission.open(upstream.url, 3000);
+  const response = post(gate.url, { messages: [] });
+  // Attach rejection handling before close destroys the client's connection.
+  const rejected = assert.rejects(response);
+  try {
+    const deadline = Date.now() + 3000;
+    while (gate.retries === 0 && Date.now() < deadline) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    assert.equal(gate.retries, 1);
+    await gate.close();
+    await rejected;
+    assert.equal(upstream.requests.length, 1);
   } finally {
     await gate.close();
     upstream.server.close();

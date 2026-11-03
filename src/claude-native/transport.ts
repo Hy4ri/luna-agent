@@ -461,9 +461,11 @@ function buildResponse(params: BuildResponseParams): NativeResponse {
 
   if (admission.used) {
     if (admission.status !== 200 || !admission.capture.complete) {
-      // Native's last error is the admission denial; name the first attempt's outcome.
-      let first = `first upstream attempt: status ${admission.status}, capture ${admission.capture.complete ? "complete" : "incomplete"}` +
-        (admission.failure ? `, relay failure ${admission.failure}` : "") + `, native retries denied: ${admission.denied}`;
+      // Native's last error may be the admission denial; report the relay's upstream outcome.
+      let first = `upstream outcome: status ${admission.status}, capture ${admission.capture.complete ? "complete" : "incomplete"}` +
+        (admission.failure ? `, relay failure ${admission.failure}` : "") +
+        (admission.retries ? `, relay retries ${admission.retries} after ${admission.retryCauses.join("; ")}` : "") +
+        `, native retries denied: ${admission.denied}`;
       if (admission.errorText()) first += ", upstream said: " + admission.errorText().slice(0, 500);
       const status = admission.status !== undefined && admission.status >= 400 ? admission.status : undefined;
       throw new ClaudeTransportError(`Incomplete upstream response (${first})` + (nativeError ? ": " + nativeError : ""), status, limit(status));
