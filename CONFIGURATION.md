@@ -1564,6 +1564,30 @@ web UI lists favourite projects first everywhere, keeps the existing order insid
 group, and marks them with a star in the sidebar. Existing databases gain the column
 on startup. General cannot be a favourite (`409`).
 
+## Project appearance
+
+Named projects have nullable `color` and `icon` fields, stored in the project database.
+`GET /v1/projects` and project responses include both fields. Existing projects default
+to `null` (the theme's default folder icon and color). Existing databases migrate on startup.
+`PATCH /v1/projects/:id` accepts either field independently, without a name or directory:
+
+```json
+{ "color": "#818cf8", "icon": "code" }
+```
+
+`color` accepts a six-digit hex color (`#RRGGBB`, normalized to lowercase) or `null`.
+`icon` accepts `folder`, `code`, `terminal`, `globe`, `smartphone`, `layers`, `database`,
+`book-open`, `briefcase`, `flask-conical`, `rocket`, `wrench`, or `null`.
+Invalid values return `400`; General cannot be customized (`409`). Omitted fields are unchanged.
+Use `{ "color": null, "icon": null }` to reset both. Appearance-only changes work even
+when the project's directory no longer exists. Name, directory, machine links, and
+favourite status are preserved.
+
+In the sidebar, open a project, then select **Manage → Appearance**. The Projects
+panel also has an **Appearance** button for each named project. The dialog reads fresh
+server state on each open, previews the icon and color, and applies them only on **Save**.
+**Cancel** leaves saved settings unchanged. Favourite stars remain separate from the project icon.
+
 ## General chat board
 
 The built-in **General** project is always available. It shares one persistent board across sessions in **Chats**.
