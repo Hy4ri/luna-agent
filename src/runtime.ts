@@ -184,7 +184,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     ["moli", createMoliBrowserProvider(() => live().browser.providers.moli)],
     ["chromium", createChromiumBrowserProvider(() => live().browser.providers.chromium)],
   ]), { hub: () => workers }));
-  // Identity and always-on memory belong to the runtime, including cron and child conversations.
+  // Identity belongs to top-level and cron sessions. Delegated children remove this extension.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
     const projection = learn?.projectionState(memory || undefined);
     const files = ["SOUL.md", "USER.md", ...(projection?.managed && projection.stale ? [] : ["MEMORY.md"])];

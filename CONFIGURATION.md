@@ -183,6 +183,9 @@ transactional submission API, not a host callback stored in a submission.
   Set both provider and model, or omit both to inherit the parent model. A selected profile can override provider/model and thinking.
   Profiles apply to new children only. Each profile has an exact `tools` allowlist, optional `instructions`, and `context` (`fresh` by default, or `fork`).
   An explicit `spawn.fork` overrides the profile context. Without a profile, children retain the parent's currently model-offered tools except delegation, board, and hidden questionnaires.
+  New children omit the runtime's personal `identity` block (`SOUL.md`, `USER.md`, and `MEMORY.md`) and receive a neutral, task-focused role instruction.
+  Parent and profile instructions still apply, including scope and approval requirements. Forked history remains task context, not the child's identity.
+  This is a prompt-role boundary, not a file-access restriction. Existing children are not migrated; top-level sessions, including crew members, keep their identity.
   The built-in profiles are `scout`, `reviewer`, and `worker`. Scout and reviewer can read files, list directories with `delegate_files`, load existing skills with `skill_view`, and hand off; they have no shell or write tools.
   Worker can read, write, edit, run bash, load existing skills, and hand off. Profiles can select the parent's currently model-offered tools and enabled, model-callable deferred tools; profiles do not install tools or restore disabled tools.
   New children store their selected tools as a persistent ceiling. Skill loading and tool discovery cannot add tools outside it.

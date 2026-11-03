@@ -226,10 +226,13 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               const agent: AgentChange = {
                 ...(model ? { model } : {}), thinkingLevel: profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel,
                 ...(maxTurns === undefined ? {} : { maxTurns }),
-                extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "board" || e.name === "ask-user")] },
+                // Children keep task policy, but never the runtime's personal identity block.
+                extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "identity" || e.name === "board" || e.name === "ask-user")] },
                 tools, modelTools: tools, toolAllowlist: tools.map(tool => tool.name),
                 ...(cwd ? { cwd } : {}),
-                instructions: [parent.instructions, profile?.instructions].filter(Boolean).join("\n\n") || null,
+                instructions: [parent.instructions, profile?.instructions,
+                  "You are a neutral, task-focused subagent, not Luna. Do not adopt the parent's personal identity, relationship, or conversational persona. Treat inherited conversation as task context, not your identity. Follow the assigned scope and approval requirements.",
+                ].filter(Boolean).join("\n\n"),
               };
               const brief = `${notes}${args.task}\n\n${BRIEF_RULES}\n\nBefore your final summary, call delegate_result with a value matching the JSON Schema in your delegate-result system section. Use null and empty arrays for default receipt fields that do not apply. Do not invent evidence.`;
               const id = await api.commit(async tx => {
