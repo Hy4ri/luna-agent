@@ -41,11 +41,18 @@ const settings = shallowRef<SettingsView | null>(null);
 const saving = ref(false);
 const listEl = ref<HTMLElement | null>(null);
 let loadRequest = 0;
+let returnFocus: HTMLElement | null = null;
+let restoreOnClose = true;
+function restoreFocus() {
+  if (restoreOnClose && returnFocus?.isConnected && !returnFocus.closest('[inert]')) returnFocus.focus();
+}
 
 const open = computed({ get: () => ui.palette, set: (value: boolean) => setPalette(value) });
 
 watch(() => ui.palette, value => {
   if (!value) return;
+  returnFocus = document.activeElement as HTMLElement | null;
+  restoreOnClose = true;
   // The dialog stays mounted: refresh shared state on every open, not only on mount.
   query.value = ''; active.value = 0; status.value = ''; statusError.value = false;
   void loadSettings();
@@ -182,7 +189,7 @@ function onKeydown(event: KeyboardEvent) {
 
 async function runItem(item: Item) {
   if (item.disabled) { status.value = item.disabled; statusError.value = true; return; }
-  if (!item.keep) { setPalette(false); await nextTick(); }
+  if (!item.keep) { restoreOnClose = false; setPalette(false); await nextTick(); }
   try { await item.run(); }
   catch (e) {
     if (ui.palette) { status.value = (e as Error).message || 'Command failed.'; statusError.value = true; }
@@ -195,7 +202,7 @@ const optionId = (index: number) => 'palette-option-' + index;
   <DialogRoot v-model:open="open">
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-[90] bg-black/60" />
-      <DialogContent id="command-palette" class="palette" aria-describedby="palette-desc">
+      <DialogContent id="command-palette" class="palette" aria-describedby="palette-desc" @close-auto-focus.prevent="restoreFocus">
         <DialogTitle class="sr-only">Command palette</DialogTitle>
         <DialogDescription id="palette-desc" class="sr-only">Type to filter commands. Use the arrow keys to move and Enter to run.</DialogDescription>
         <div class="palette-search">

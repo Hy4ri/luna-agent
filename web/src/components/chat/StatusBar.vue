@@ -18,9 +18,15 @@ const costTitle = computed(() => {
   return known.length && known.every(row => row.cost.totalFromProvider === true) ? 'Provider-reported cost' : 'Estimated model cost, not an invoice';
 });
 function dismiss(event: PointerEvent | KeyboardEvent) {
-  if (event instanceof KeyboardEvent ? event.key === 'Escape' : !disclosure.value?.contains(event.target as Node)) {
-    if (disclosure.value) disclosure.value.open = false;
-  }
+  const details = disclosure.value;
+  if (!details?.open) return;
+  if (event instanceof KeyboardEvent) {
+    if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+    if (document.querySelector('[data-dismissable-layer][data-state="open"], :popover-open')) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    details.open = false;
+    details.querySelector('summary')?.focus();
+  } else if (!details.contains(event.target as Node)) details.open = false;
 }
 watch(() => chat.session, () => { if (disclosure.value) disclosure.value.open = false; });
 onMounted(() => { document.addEventListener('pointerdown', dismiss); document.addEventListener('keydown', dismiss); });

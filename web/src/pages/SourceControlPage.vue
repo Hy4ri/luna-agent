@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { backToChat, setDrawer } from "@/stores/app";
 import { chat } from "@/stores/chat";
 import { serverUrl, token, json } from "@/lib/api";
+import { handleTablistKeydown } from "@/lib/keyboard";
 import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
 import { get as cached, makeKey, forget } from "./github/cache";
 import ChangesTab from "./source-control/ChangesTab.vue";
@@ -75,6 +76,14 @@ function followRepo(repo: string | null) {
   lastWorkspaceRepo = repo;
   if (repo) selectedRepo.value = repo;
 }
+const SECTIONS = [
+  { id: 'changes', label: 'Changes' },
+  { id: 'history', label: 'History' },
+  { id: 'branches', label: 'Branches' },
+  { id: 'pr', label: 'Pull requests' },
+  { id: 'issue', label: 'Issues' },
+] as const;
+
 function setSection(value: Section) {
   if (value === section.value) return;
   section.value = value;
@@ -83,6 +92,7 @@ function setSection(value: Section) {
     else kind.value = value;
   }
 }
+
 async function loadSourceProjects() {
   const scope = context();
   try {
@@ -324,8 +334,19 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <div role="tablist" aria-label="Source Control sections" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border overflow-x-auto">
-      <button v-for="tab in ([{id:'changes',label:'Changes'},{id:'history',label:'History'},{id:'branches',label:'Branches'},{id:'pr',label:'Pull requests'},{id:'issue',label:'Issues'}] as const)" :key="tab.id" type="button" role="tab" :aria-selected="section === tab.id" class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0" :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="setSection(tab.id)">{{ tab.label }}</button>
+    <div role="tablist" aria-label="Source Control sections" @keydown="handleTablistKeydown" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border overflow-x-auto">
+      <button
+        v-for="tab in SECTIONS"
+        :id="`sc-tab-${tab.id}`"
+        :key="tab.id"
+        type="button"
+        role="tab"
+        :aria-selected="section === tab.id"
+        :tabindex="section === tab.id ? 0 : -1"
+        class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0"
+        :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
+        @click="setSection(tab.id)"
+      >{{ tab.label }}</button>
       <button v-if="local" type="button" class="ml-auto text-xs px-2 shrink-0" @click="backToChat">Close</button>
     </div>
     <template v-if="local">

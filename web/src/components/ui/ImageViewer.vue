@@ -7,7 +7,14 @@ import { closeImage, imageViewer } from "@/stores/image-viewer";
 const open = computed({ get: () => !!imageViewer.src, set: v => { if (!v) closeImage(); } });
 const natural = ref(false);
 const dragY = ref(0);
-watch(open, () => { natural.value = false; dragY.value = 0; });
+let returnFocus: HTMLElement | null = null;
+watch(open, value => {
+  if (value) returnFocus = document.activeElement as HTMLElement | null;
+  natural.value = false; dragY.value = 0;
+});
+function restoreFocus() {
+  if (returnFocus?.isConnected && !returnFocus.closest('[inert]')) returnFocus.focus();
+}
 
 // Swipe down to close. Ignored while zoomed, multi-touch (pinch), or scrolled.
 const pointers = new Set<number>();
@@ -62,7 +69,7 @@ async function download() {
   <DialogRoot v-model:open="open">
     <DialogPortal>
       <DialogOverlay class="iv-overlay" />
-      <DialogContent class="iv-content" @open-auto-focus.prevent>
+      <DialogContent class="iv-content" @close-auto-focus.prevent="restoreFocus">
         <DialogTitle class="sr-only">Image viewer</DialogTitle>
         <DialogDescription class="sr-only">{{ imageViewer.alt || "Image" }}</DialogDescription>
         <div class="iv-bar">
@@ -71,7 +78,7 @@ async function download() {
           <DialogClose class="iv-btn" aria-label="Close image" title="Close"><X :size="18" aria-hidden="true" /></DialogClose>
         </div>
         <div class="iv-stage" :class="{ natural }" @click="stageClick" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
-          <img class="iv-img" :class="{ natural }" :src="imageViewer.src" :alt="imageViewer.alt" :style="dragY ? { transform: `translateY(${dragY}px)`, opacity: 1 - Math.min(dragY / 300, 0.5) } : undefined" draggable="false" @click.stop="natural = !natural" />
+          <img class="iv-img" :class="{ natural }" :src="imageViewer.src" :alt="imageViewer.alt" :style="dragY ? { transform: `translateY(${dragY}px)`, opacity: 1 - Math.min(dragY / 300, 0.5) } : undefined" draggable="false" role="button" tabindex="0" :aria-label="natural ? 'Fit image to screen' : 'Zoom to full size'" :aria-pressed="natural" @click.stop="natural = !natural" @keydown.enter.prevent="natural = !natural" @keydown.space.prevent="natural = !natural" />
         </div>
       </DialogContent>
     </DialogPortal>

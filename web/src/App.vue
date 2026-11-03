@@ -105,6 +105,20 @@ function splitLeave() {
 function resetSplit(index: number) {
   weight.value[visible.value[index]] = 1; weight.value[visible.value[index + 1]] = 1;
 }
+function resizeKey(event: KeyboardEvent, index: number) {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault(); resetSplit(index); return;
+  }
+  const vertical = getComputedStyle((event.currentTarget as HTMLElement).closest('.chat-workspace')!).flexDirection === 'column';
+  const backward = vertical ? 'ArrowUp' : 'ArrowLeft', forward = vertical ? 'ArrowDown' : 'ArrowRight';
+  if (event.key !== backward && event.key !== forward) return;
+  event.preventDefault();
+  const [a, b] = [visible.value[index], visible.value[index + 1]];
+  const pair = (weight.value[a] ?? 1) + (weight.value[b] ?? 1);
+  const share = Math.max(.15, Math.min(.85, (weight.value[a] ?? 1) / pair + (event.key === forward ? .05 : -.05)));
+  weight.value[a] = pair * share; weight.value[b] = pair * (1 - share);
+}
 function startResize(event: PointerEvent, index: number) {
   const handle = event.currentTarget as HTMLElement;
   const [a, b] = [visible.value[index], visible.value[index + 1]];
@@ -268,6 +282,8 @@ async function handleNewSession() {
   try {
     const worker = chat.session ? chat.machine?.id ?? null : chat.draftOpen ? chat.draftWorker : undefined;
     await newSession(activeProject.value, worker);
+    await nextTick();
+    document.getElementById('input')?.focus();
   } catch (e: any) {
     addErr(e?.message || 'Failed to create new session');
   } finally {
@@ -276,29 +292,51 @@ async function handleNewSession() {
 }
 
 function keyboard(e: KeyboardEvent) {
-  // The recovery dialog owns Escape and focus, including above the login form.
-  if (connectionDialogOpen.value) return;
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && !ui.login && !sessionPane) {
+  // Local controls and managed dialogs own their keys before the shell does.
+  if (e.defaultPrevented || e.isComposing || connectionDialogOpen.value) return;
+  const managedOverlay = document.querySelector('[data-dismissable-layer][data-state="open"]');
+  const nativePopover = [...document.querySelectorAll<HTMLElement>(':popover-open')].at(-1);
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && !ui.login && !sessionPane && (!managedOverlay || ui.palette) && !nativePopover) {
     e.preventDefault();
     setPalette(!ui.palette);
     return;
   }
-  // The palette dialog owns Escape and focus while it is open.
-  if (ui.palette) return;
-  if (e.key === 'Escape') {
-    if (ui.panel) { e.preventDefault(); closePanel(); }
-    else if (ui.drawer) { e.preventDefault(); setDrawer(false); }
+  // Reka handles Escape on window, after this document listener.
+  if (ui.palette || managedOverlay) return;
+  if (nativePopover) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      nativePopover.hidePopover();
+      document.querySelector<HTMLElement>(`[popovertarget="${CSS.escape(nativePopover.id)}"]`)?.focus();
+    }
     return;
   }
-  if (e.key !== 'Tab') return;
-  const root = ui.login ? document.getElementById('login') : ui.panel ? document.querySelector('#panel [role="dialog"]') : mobile.value && ui.drawer ? document.getElementById('side') : null;
+  if (e.key === 'Escape') {
+    if ((e.target as HTMLElement | null)?.closest('select')) return;
+    if (ui.panel) { e.preventDefault(); closePanel(); }
+    else if (ui.drawer) { e.preventDefault(); setDrawer(false); }
+    else if (ui.view !== 'chat') { e.preventDefault(); navigate('chat'); }
+    return;
+  }
+  if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const unfocused = document.activeElement === document.body || document.activeElement === document.documentElement;
+  if (!e.shiftKey && unfocused && ui.view === 'chat' && !blocked.value && !ui.drawer) {
+    const input = document.getElementById('input');
+    if (input && !input.closest('[inert]') && input.getClientRects().length) {
+      e.preventDefault(); input.focus(); return;
+    }
+  }
+  const root = ui.login ? document.getElementById('login') : ui.panel ? document.querySelector('#panel [role="dialog"]') : mobile.value && ui.drawer ? document.getElementById('side') : ui.view !== 'chat' ? document.querySelector('.settings-window') : null;
   if (!root) return;
-  const items = [...root.querySelectorAll<HTMLElement>('button,input,select,textarea,a[href],[tabindex="0"]')].filter(el => !el.hasAttribute('disabled') && el.offsetParent !== null);
+  const items = [...root.querySelectorAll<HTMLElement>('button,input,select,textarea,a[href],summary,[tabindex]')].filter(el => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[inert]') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
   const first = items[0], last = items.at(-1);
   if (!first) return;
   if (e.shiftKey && (document.activeElement === first || !root.contains(document.activeElement))) { e.preventDefault(); last?.focus(); }
   else if (!e.shiftKey && (document.activeElement === last || !root.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
 }
+watch(() => ui.view, view => {
+  if (view !== 'chat') void nextTick(() => document.querySelector<HTMLElement>('.settings-window')?.focus());
+});
 watch(mobile, value => { if (!value && ui.drawer) setDrawer(false); });
 watch(() => ui.login, value => { if (value) void nextTick(() => { if (!recoveryOpen.value) document.getElementById('token')?.focus(); }); });
 let stopViewport: (() => void) | undefined;
@@ -333,7 +371,7 @@ onUnmounted(() => {
     <div class="flex h-full min-h-0 w-full overflow-hidden bg-background text-foreground"
       @touchstart.passive="startNavigationSwipe" @touchmove.passive="moveNavigationSwipe"
       @touchend.passive="endNavigationSwipe" @touchcancel.passive="cancelNavigationSwipe">
-      <Sidebar v-if="!sessionPane" :inert="connectionDialogOpen || ui.login || !!ui.panel" />
+      <Sidebar v-if="!sessionPane" :inert="connectionDialogOpen || ui.login || !!ui.panel || (ui.view !== 'chat' && !(mobile && ui.drawer))" />
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <div id="chat-workspace" :inert="blocked || ui.view !== 'chat'" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
         <main id="main" ref="mainRef" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -386,9 +424,9 @@ onUnmounted(() => {
           <iframe v-for="id in tileIds" :key="id" :src="paneUrl(id)" :data-tile-session="id" data-session-tile :title="sessionTitle(history.list.find(s => String(s.id) === id) || { id })" class="session-pane" :class="focusClass(id)" :style="tileStyle(id)" />
           <div v-for="n in Math.max(0, visible.length - 1)" :key="'split-' + n" class="tile-split" :style="{ order: n * 2 - 1 }" @pointerenter="splitEnter(n - 1)" @pointerleave="splitLeave">
             <div class="tile-split-hit" />
-            <div v-if="splitHover === n - 1" class="tile-split-actions">
+            <div class="tile-split-actions" :class="{ 'split-actions-visible': splitHover === n - 1 }">
               <button class="icon-button" aria-label="Swap tiles" title="Swap tiles" @click="swapTiles(n - 1)"><ArrowLeftRight :size="14" /></button>
-              <button class="icon-button tile-resize" aria-label="Drag to resize, double-click to reset" title="Drag to resize, double-click to reset" @pointerdown.prevent="startResize($event, n - 1)" @dblclick="resetSplit(n - 1)"><MoveHorizontal :size="14" /></button>
+              <button class="icon-button tile-resize" aria-label="Resize tiles: use arrow keys; Enter or Space resets" title="Drag or use arrow keys to resize; double-click or Enter to reset" @keydown="resizeKey($event, n - 1)" @pointerdown.prevent="startResize($event, n - 1)" @dblclick="resetSplit(n - 1)"><MoveHorizontal :size="14" /></button>
             </div>
           </div>
         </template>
@@ -399,13 +437,13 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-if="ui.view === 'analytics'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
-        <div class="settings-window"><AnalyticsPage :inert="blocked" /></div>
+        <div class="settings-window" role="dialog" aria-modal="true" aria-label="Analytics" tabindex="-1"><AnalyticsPage :inert="blocked" /></div>
       </div>
       <div v-if="ui.view === 'source-control'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
-        <div class="settings-window"><SourceControlPage :inert="blocked" /></div>
+        <div class="settings-window" role="dialog" aria-modal="true" aria-label="Source Control" tabindex="-1"><SourceControlPage :inert="blocked" /></div>
       </div>
       <div v-if="ui.view === 'settings'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
-        <div class="settings-window"><SettingsPage :inert="blocked" /></div>
+        <div class="settings-window" role="dialog" aria-modal="true" aria-label="Settings" tabindex="-1"><SettingsPage :inert="blocked" /></div>
       </div>
       <PanelHost />
       <ImageViewer />
@@ -471,10 +509,12 @@ onUnmounted(() => {
 .tile-split { position: relative; flex: 0 0 1px; background: var(--border); z-index: 10; }
 .tile-split-hit { position: absolute; inset: 0 -5px; }
 .tile-split-actions {
+  opacity: 0; pointer-events: none;
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; gap: 4px; padding: 3px;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--background);
 }
+.tile-split-actions.split-actions-visible, .tile-split-actions:focus-within { opacity: 1; pointer-events: auto; }
 .tile-split-actions .icon-button { width: 28px; height: 28px; }
 .tile-resize { cursor: col-resize; touch-action: none; }
 #main.tile-focused, .session-pane.tile-focused { outline: 1px solid var(--primary); outline-offset: -1px; }

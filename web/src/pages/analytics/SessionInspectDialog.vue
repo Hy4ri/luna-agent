@@ -31,8 +31,8 @@
           </div>
           <div class="border border-border rounded-[var(--radius)] p-3 bg-secondary/50">
             <span class="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">Turns & Activity</span>
-            <strong class="text-xl font-semibold">{{ full(session.responses) }} resp</strong>
-            <span class="text-xs text-muted-foreground block mt-0.5">{{ full(session.turns?.user) }} user / {{ full(session.turns?.assistant) }} asst</span>
+            <strong class="text-xl font-semibold">{{ compact(session.responses) }} resp</strong>
+            <span class="text-xs text-muted-foreground block mt-0.5">{{ compact(session.turns?.user) }} user / {{ compact(session.turns?.assistant) }} asst</span>
           </div>
         </div>
 
@@ -42,24 +42,24 @@
           <div class="grid grid-cols-4 max-[600px]:grid-cols-2 gap-3 text-xs">
             <div>
               <span class="text-muted-foreground block text-[11px]">Uncached Input</span>
-              <strong class="text-[13px]">{{ full(session.usage.input) }}</strong>
+              <strong class="text-[13px]">{{ compact(session.usage.input) }}</strong>
             </div>
             <div>
               <span class="text-muted-foreground block text-[11px]">Output</span>
-              <strong class="text-[13px]">{{ full(session.usage.output) }}</strong>
+              <strong class="text-[13px]">{{ compact(session.usage.output) }}</strong>
             </div>
             <div>
               <span class="text-muted-foreground block text-[11px]">Cache Read</span>
-              <strong class="text-[13px]">{{ full(session.usage.cacheRead) }}</strong>
+              <strong class="text-[13px]">{{ compact(session.usage.cacheRead) }}</strong>
             </div>
             <div>
               <span class="text-muted-foreground block text-[11px]">Cache Write</span>
-              <strong class="text-[13px]">{{ full(session.usage.cacheWrite) }}</strong>
+              <strong class="text-[13px]">{{ compact(session.usage.cacheWrite) }}</strong>
             </div>
           </div>
           <div class="mt-2.5 pt-2 border-t border-border flex justify-between text-xs text-muted-foreground">
-            <span>Reasoning: <strong class="text-foreground">{{ session.usage.reasoning != null ? full(session.usage.reasoning) : '—' }}</strong></span>
-            <span>Avg tokens/turn: <strong class="text-foreground">{{ session.avgTokensPerTurn != null ? full(Math.round(session.avgTokensPerTurn)) : '—' }}</strong></span>
+            <span>Reasoning: <strong class="text-foreground">{{ session.usage.reasoning != null ? compact(session.usage.reasoning) : '—' }}</strong></span>
+            <span>Avg tokens/turn: <strong class="text-foreground">{{ session.avgTokensPerTurn != null ? compact(Math.round(session.avgTokensPerTurn)) : '—' }}</strong></span>
           </div>
         </div>
 
@@ -69,8 +69,8 @@
           <div class="grid grid-cols-2 max-[600px]:grid-cols-1 gap-2.5 text-xs">
             <div><span class="text-muted-foreground">Duration:</span> <strong class="">{{ durationFormat(session.durationMs) }}</strong></div>
             <div><span class="text-muted-foreground">Target Worker:</span> <strong class="">{{ session.worker != null ? '#' + session.worker : 'Main' }}</strong></div>
-            <div><span class="text-muted-foreground">Tool Calls:</span> <strong class="">{{ full(session.toolCalls) }} ({{ full(session.toolErrors) }} errors)</strong></div>
-            <div><span class="text-muted-foreground">Subagents:</span> <strong class="">{{ full(session.subagentCount) }} (Depth: {{ session.forkDepth }})</strong></div>
+            <div><span class="text-muted-foreground">Tool Calls:</span> <strong class="">{{ compact(session.toolCalls) }} ({{ compact(session.toolErrors) }} errors)</strong></div>
+            <div><span class="text-muted-foreground">Subagents:</span> <strong class="">{{ compact(session.subagentCount) }} (Depth: {{ session.forkDepth }})</strong></div>
             <div><span class="text-muted-foreground">Project:</span> <strong class="text-primary-text">{{ session.projectName || 'General' }} (#{{ session.projectId }})</strong></div>
             <div><span class="text-muted-foreground">Last Activity:</span> <span class="">{{ when(session.lastActivity) }}</span></div>
             <div class="col-span-2 max-[600px]:col-span-1"><span class="text-muted-foreground">Models:</span> <span>{{ (session.models || []).join(', ') || '—' }}</span></div>
@@ -86,7 +86,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { AnalyticsSession } from "./types"
 import { statusLabel, statusChipClass } from "@/lib/session-status"
-import { full, compact, usd, pct, when, durationFormat } from "./formatters"
+import { compact, usd, pct, when, durationFormat } from "./formatters"
 
 defineProps<{
   open: boolean

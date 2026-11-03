@@ -153,6 +153,8 @@ function submit() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (e.isComposing) return;
+
   if (mentionOpen.value) {
     const total = sortedMentionItems.value.length;
     if (e.key === "ArrowDown" && total > 0) {
@@ -167,7 +169,7 @@ function handleKeydown(e: KeyboardEvent) {
       mentionMenuComp.value?.scrollActiveIntoView();
       return;
     }
-    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing) {
+    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
       const chosen = sortedMentionItems.value[activeMentionIndex.value];
       if (chosen) {
         e.preventDefault();
@@ -177,25 +179,26 @@ function handleKeydown(e: KeyboardEvent) {
     }
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       mentionMatch.value = null;
       return;
     }
   }
   if (commandOpen.value) {
     const total = sortedCommandItems.value.length;
-    if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown" && total > 0) {
       e.preventDefault();
       activeCommandIndex.value = (activeCommandIndex.value + 1) % total;
       commandMenuComp.value?.scrollActiveIntoView();
       return;
     }
-    if (e.key === "ArrowUp") {
+    if (e.key === "ArrowUp" && total > 0) {
       e.preventDefault();
       activeCommandIndex.value = (activeCommandIndex.value - 1 + total) % total;
       commandMenuComp.value?.scrollActiveIntoView();
       return;
     }
-    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing) {
+    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
       const chosen = sortedCommandItems.value[activeCommandIndex.value];
       if (chosen) {
         e.preventDefault();
@@ -205,25 +208,31 @@ function handleKeydown(e: KeyboardEvent) {
     }
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       commandMatch.value = null;
       return;
     }
   }
   if (atOpen.value) {
     const total = atItems.value.length;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && total > 0) {
       e.preventDefault();
       activeAtIndex.value = (activeAtIndex.value + (e.key === "ArrowDown" ? 1 : total - 1)) % total;
       atMenuComp.value?.scrollActiveIntoView();
       return;
     }
-    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing) {
+    if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
       const chosen = atItems.value[activeAtIndex.value];
       if (chosen) { e.preventDefault(); selectAt(chosen); return; }
     }
-    if (e.key === "Escape") { e.preventDefault(); clearMatches(); return; }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      clearMatches();
+      return;
+    }
   }
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !matchMedia("(max-width: 760px)").matches) {
+  if (e.key === "Enter" && !e.shiftKey && !matchMedia("(max-width: 760px)").matches) {
     e.preventDefault();
     if (!sendDisabled.value) submit();
   }

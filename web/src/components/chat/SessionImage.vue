@@ -47,7 +47,20 @@ onBeforeUnmount(cleanup);
 </script>
 
 <template>
-  <img ref="root" v-if="!failed && (source || inline)" :src="source || inline" :alt="alt" class="zoomable" @click="openImage(source || inline, alt)" @error="failed = true" />
+  <img
+    ref="root"
+    v-if="!failed && (source || inline)"
+    :src="source || inline"
+    :alt="alt"
+    class="zoomable"
+    role="button"
+    tabindex="0"
+    :aria-label="alt ? `Preview ${alt}` : 'Preview image'"
+    @click="openImage(source || inline, alt)"
+    @keydown.enter.prevent="openImage(source || inline, alt)"
+    @keydown.space.prevent="openImage(source || inline, alt)"
+    @error="failed = true"
+  />
   <span ref="root" v-else-if="failed" role="img" :aria-label="`${alt}: image unavailable`" title="Image unavailable"><ImageOff :size="20" /></span>
   <span ref="root" v-else role="status" :aria-label="`Loading ${alt}`">Loading image…</span>
 </template>

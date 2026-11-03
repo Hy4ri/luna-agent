@@ -3,6 +3,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { CheckCheck, Plus, RefreshCw } from "@lucide/vue";
 import { json, post } from "@/lib/api";
+import { handleTablistKeydown } from "@/lib/keyboard";
 import { closePanel, ui } from "@/stores/app";
 import { continueCronRun } from "@/stores/chat";
 import { cronPanel as panel, type CronEditor, type CronJob, type CronRun, type CronTab } from "./cron/state";
@@ -101,7 +102,7 @@ async function loadJobRuns() {
 }
 
 function selectTab(tab: CronTab) {
-  if (panel.tab === tab) return;
+  if (busy.value || panel.tab === tab) return;
   panel.tab = tab;
   panel.detail = null;
   message("");
@@ -263,15 +264,18 @@ onUnmounted(() => {
 <template>
   <div class="cron-panel" :class="{ 'detail-only': detailOnly }">
     <div class="cron-tabbar">
-      <div class="cron-tabs" role="tablist" aria-label="Cron sections">
+      <div class="cron-tabs" role="tablist" aria-label="Cron sections" @keydown="handleTablistKeydown">
         <button
           v-for="tab in tabs"
+          :id="`cron-tab-${tab.id}`"
           :key="tab.id"
           type="button"
           role="tab"
           class="cron-tab"
           :aria-selected="panel.tab === tab.id"
-          :disabled="busy"
+          :tabindex="panel.tab === tab.id ? 0 : -1"
+          :aria-disabled="busy"
+          :class="{ 'opacity-50': busy }"
           @click="selectTab(tab.id)"
         >
           {{ tab.label }}

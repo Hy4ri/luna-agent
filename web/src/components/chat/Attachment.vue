@@ -36,7 +36,19 @@ function size(n?: number) {
       <span class="att-meta"><span class="att-name">{{ name }}</span><span class="att-sub">{{ state.error }}</span></span>
     </div>
     <span v-else-if="!state?.url" class="muted">Loading {{ name }}…</span>
-    <img v-else-if="type === 'image'" class="att zoomable" :src="state.url" :alt="name" :title="name" @click="openImage(state.url, name)" />
+    <img
+      v-else-if="type === 'image'"
+      class="att zoomable"
+      :src="state.url"
+      :alt="name"
+      :title="name"
+      role="button"
+      tabindex="0"
+      :aria-label="`Preview ${name}`"
+      @click="openImage(state.url, name)"
+      @keydown.enter.prevent="openImage(state.url, name)"
+      @keydown.space.prevent="openImage(state.url, name)"
+    />
     <audio v-else-if="type === 'voice'" :src="state.url" controls preload="metadata" :aria-label="name" />
     <video v-else-if="type === 'video'" class="att-video" :src="state.url" controls preload="metadata" :aria-label="name" />
     <div v-else class="att-file">

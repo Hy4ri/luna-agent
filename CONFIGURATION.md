@@ -1170,6 +1170,18 @@ The session's own model is never used, so a large session model does not change 
   `failed`, `limit_reached`, `needs_*` and `stopped` results include the reason (the error text for failures). A status filter
   checks the newest 300 sessions and returns up to 50 results.
 
+## Keyboard navigation
+
+- Press **Tab** in an unfocused chat to focus the message input. Existing controls keep their normal tab order.
+- Use **Tab / Shift+Tab** to move between controls. Keyboard focus has a visible outline.
+- Use **Enter / Space** on buttons. Use arrow keys in menus, suggestions, model lists, and tab bars.
+- Press **Escape** to close the topmost menu or dialog and return focus to its trigger. Escape never stops a response.
+- Press **Ctrl+K** (**Cmd+K** on macOS) for the command palette: navigation, conversations, models, and settings.
+- On desktop, **Enter** sends a message and **Shift+Enter** adds a line. Suggestions take Enter or Tab while open.
+- Open a board card with its title button. Use its status selector to move it without dragging.
+- Focus an image preview and press **Enter / Space** to open it. The viewer supports the same keys to change zoom.
+- In split view, tab to the divider controls. Swap tiles with the button; use arrow keys to resize, or Enter/Space to reset.
+
 ## Web frontend development
 
 The web frontend uses Vue 3, Vite, TypeScript, Tailwind CSS, and shadcn-vue.

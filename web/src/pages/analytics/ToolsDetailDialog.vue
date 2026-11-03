@@ -25,8 +25,8 @@
             <tr v-if="!sortedRows.length"><td colspan="6" class="p-6 text-center text-muted-foreground">No tools recorded.</td></tr>
             <tr v-for="t in sortedRows" :key="t.name" class="border-b border-border last:border-0 hover:bg-accent/30">
               <td class="p-2.5 text-left font-medium text-foreground">{{ t.name }}</td>
-              <td class="p-2.5 text-right">{{ full(t.calls) }}</td>
-              <td class="p-2.5 text-right" :class="{ 'text-destructive font-medium': t.errors > 0 }">{{ full(t.errors) }}</td>
+              <td class="p-2.5 text-right">{{ compact(t.calls) }}</td>
+              <td class="p-2.5 text-right" :class="{ 'text-destructive font-medium': t.errors > 0 }">{{ compact(t.errors) }}</td>
               <td class="p-2.5 text-right" :class="{ 'text-destructive font-medium': (t.errorRate || 0) > 0.05 }">
                 {{ t.errorRate == null ? '—' : (t.errorRate * 100).toFixed(1) + '%' }}
               </td>
@@ -45,7 +45,7 @@ import SortHeader from "./SortHeader.vue"
 import { useTableSort } from "./useTableSort"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { ToolDetailed } from "./types"
-import { full, compact, usd } from "./formatters"
+import { compact, usd } from "./formatters"
 
 const props = defineProps<{
   open: boolean

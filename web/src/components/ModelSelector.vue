@@ -155,36 +155,38 @@ function handleTogglePin(key: string, e: Event) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if ((e.target as HTMLElement).closest(".ms-pin, .ms-edit, .ms-provider")) return;
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
-    activeIndex.value = Math.min(activeIndex.value + 1, visibleModels.value.length - 1);
-    scrollActive();
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    activeIndex.value = Math.max(activeIndex.value - 1, 0);
-    scrollActive();
-  } else if (e.key === "Enter") {
-    e.preventDefault();
-    const m = visibleModels.value[activeIndex.value];
-    if (m) selectModel(m);
-  } else if (e.key === "Escape") {
-    if (query.value.trim()) {
-      e.preventDefault();
-      e.stopPropagation();
-      query.value = "";
-    } else {
-      e.preventDefault();
-      emit("close");
-    }
+  if (e.defaultPrevented || e.isComposing) return;
+  const target = e.target as HTMLElement;
+  if (e.key === "Escape") {
+    e.preventDefault(); e.stopPropagation();
+    if (query.value.trim()) { query.value = ""; focusSearch(); }
+    else emit("close");
+    return;
   }
-}
-
-function scrollActive() {
-  void nextTick(() => {
-    const el = listRef.value?.querySelector<HTMLElement>("[data-active='true']");
-    el?.scrollIntoView({ block: "nearest" });
-  });
+  // Pin/edit buttons retain native activation and do not move the model cursor.
+  if (target.closest(".ms-pin, .ms-edit")) return;
+  const row = target.closest<HTMLButtonElement>(".ms-row, .ms-provider");
+  const searching = target === searchRef.value;
+  if (!row && !searching) return;
+  if (searching && e.key === "Enter") {
+    e.preventDefault();
+    const model = visibleModels.value[activeIndex.value];
+    if (model) selectModel(model);
+    return;
+  }
+  // Focused rows use their own native Enter/Space click, never a stale active index.
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+  if (searching && (e.key === "Home" || e.key === "End")) return;
+  const rows = [...(listRef.value?.querySelectorAll<HTMLButtonElement>(".ms-row, .ms-provider") ?? [])]
+    .filter(button => !button.disabled && button.getAttribute("aria-disabled") !== "true");
+  if (!rows.length) return;
+  e.preventDefault();
+  const index = row ? rows.indexOf(row) : -1;
+  const next = e.key === "Home" ? 0 : e.key === "End" ? rows.length - 1
+    : index < 0 ? (e.key === "ArrowDown" ? 0 : rows.length - 1)
+    : Math.max(0, Math.min(rows.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
+  rows[next]?.focus();
+  rows[next]?.scrollIntoView({ block: "nearest" });
 }
 
 watch(() => props.searchVisible, visible => { if (!visible) query.value = ""; });
@@ -230,6 +232,7 @@ defineExpose({ focusSearch });
         :aria-pressed="!value"
         @click="emit('select', '', null); emit('change', undefined)"
         @mouseenter="activeIndex = -1"
+        @focus="activeIndex = -1"
       >
         <span class="ms-row-main"><span class="ms-name ms-muted">{{ emptyLabel }}</span></span>
         <Check v-if="!value" :size="14" class="ms-selected" aria-hidden="true" />
@@ -244,7 +247,7 @@ defineExpose({ focusSearch });
       <div v-if="section === 'pinned' ? pinnedModels.length : providerGroups.length" :class="section === 'pinned' ? 'ms-pinned-scroll' : 'ms-provider-scroll'">
       <template v-for="item in listItems.filter(item => section === 'pinned' ? item.kind === 'model' && item.pinned : item.kind === 'provider' || !item.pinned)" :key="item.key">
         <template v-if="item.kind === 'provider'">
-          <button type="button" class="ms-provider" :aria-expanded="item.open" :aria-disabled="!!query.trim()" @click="toggleProvider(item.provider)">
+          <button type="button" class="ms-provider" :aria-expanded="item.open" :aria-disabled="!!query.trim()" :tabindex="query.trim() ? -1 : 0" @click="toggleProvider(item.provider)">
             <ChevronRight :size="14" class="ms-provider-chevron" :class="{ 'is-open': item.open }" aria-hidden="true" />
             <span class="ms-provider-name">{{ item.provider }}</span>
             <span class="ms-provider-count">{{ item.count }}</span>
@@ -255,11 +258,13 @@ defineExpose({ focusSearch });
             <button
               type="button"
               class="ms-row"
+              :data-model-index="item.index"
               :data-active="activeIndex === item.index ? 'true' : undefined"
               :data-selected="isSelected(item.model) ? 'true' : undefined"
               :aria-pressed="isSelected(item.model)"
               @click="selectModel(item.model)"
               @mouseenter="activeIndex = item.index"
+              @focus="activeIndex = item.index"
       >
               <span class="ms-row-main">
           <span class="ms-name">{{ displayName(item.model) }}</span>
