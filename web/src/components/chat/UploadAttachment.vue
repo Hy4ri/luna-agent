@@ -117,7 +117,19 @@ onBeforeUnmount(() => {
     </div>
     <span v-else-if="loading && isRasterImage && !objectUrl" class="muted">Loading {{ name }}…</span>
     <template v-else-if="isRasterImage && objectUrl">
-      <img class="att zoomable" :src="objectUrl" :alt="name" :title="name" loading="lazy" @click="openImage(objectUrl, name)" />
+      <img
+        class="att zoomable"
+        :src="objectUrl"
+        :alt="name"
+        :title="name"
+        loading="lazy"
+        role="button"
+        tabindex="0"
+        :aria-label="`Preview ${name}`"
+        @click="openImage(objectUrl, name)"
+        @keydown.enter.prevent="openImage(objectUrl, name)"
+        @keydown.space.prevent="openImage(objectUrl, name)"
+      />
       <button type="button" class="att-download" :aria-label="`Download ${name}`" :title="`Download ${name}`" @click="downloadFile">
         <Download :size="16" aria-hidden="true" />
       </button>

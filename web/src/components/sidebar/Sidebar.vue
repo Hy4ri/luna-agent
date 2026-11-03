@@ -78,6 +78,7 @@ const collapsed = computed(() => ui.collapsed && !mobile.value);
 defineProps<{ inert?: boolean }>();
 
 const searchInputRef = ref<HTMLInputElement | null>(null);
+const searchToggleRef = ref<HTMLButtonElement | null>(null);
 const renamingId = ref<string | number | null>(null);
 const renameValue = ref("");
 
@@ -189,6 +190,7 @@ function toggleSearch() {
     nextTick(() => searchInputRef.value?.focus());
   } else {
     history.query = "";
+    nextTick(() => searchToggleRef.value?.focus());
   }
 }
 
@@ -197,6 +199,7 @@ function handleSearchKeydown(e: KeyboardEvent) {
     e.stopPropagation();
     history.searchOpen = false;
     history.query = "";
+    nextTick(() => searchToggleRef.value?.focus());
   }
 }
 
@@ -327,11 +330,17 @@ function outsideMenu(e: PointerEvent) {
   if (activeMenuSession.value && !(e.target as Element).closest('#session-menu,.session-manage')) closeMenu();
 }
 function menuKey(e: KeyboardEvent) {
-  if (!activeMenuSession.value) return;
-  if (e.key === 'Escape') { e.stopImmediatePropagation(); closeMenu(); return; }
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  if (!activeMenuSession.value || e.defaultPrevented || e.isComposing) return;
+  if (document.querySelector('[data-dismissable-layer][data-state="open"], :popover-open')) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(); return; }
+  // Resume normal tab order from the trigger instead of trapping focus in a menu.
+  if (e.key === 'Tab') { closeMenu(); return; }
+  if (!['Home', 'End', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
   e.preventDefault();
   const items = [...document.querySelectorAll<HTMLButtonElement>('#session-menu button:not(:disabled)')];
+  if (!items.length) return;
+  if (e.key === 'Home') { items[0]?.focus(); return; }
+  if (e.key === 'End') { items.at(-1)?.focus(); return; }
   const index = items.indexOf(document.activeElement as HTMLButtonElement);
   items[(index + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
 }
@@ -420,6 +429,7 @@ onMounted(() => {
         <h2 id="history-title">History</h2>
         <button
           id="search-toggle"
+          ref="searchToggleRef"
           class="icon-button"
           :aria-expanded="history.searchOpen ? 'true' : 'false'"
           aria-controls="search-bar"

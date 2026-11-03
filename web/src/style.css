@@ -117,9 +117,10 @@ button, summary, [role="tab"], [role="tabpanel"], [role="dialog"], [role="separa
   display: none !important;
 }
 
-:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):focus-visible {
+:is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  /* Keep the indicator visible inside clipped rows and scrolling containers. */
+  outline-offset: -2px;
 }
 
 /* Sidebar & Shell styles */
@@ -478,6 +479,7 @@ aside#side.collapsed #history-rail {
   height: 28px;
 }
 .session-row:hover .session-manage,
+.session-row:focus-within .session-manage,
 .session-manage[aria-expanded="true"] {
   opacity: 1;
 }
@@ -579,7 +581,7 @@ aside#side.collapsed #history-rail {
   -webkit-tap-highlight-color: transparent;
 }
 #log > * { flex-shrink: 0; }
-#log:focus { outline: none; }
+#log:focus:not(:focus-visible) { outline: none; }
 #welcome { margin: auto; max-width: 440px; text-align: center; padding: 24px 0; }
 #welcome .welcome-mark { display: inline-flex; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--primary-text); margin-bottom: 16px; background: var(--card); }
 #welcome svg { width: 28px; height: 28px; }
@@ -1005,7 +1007,7 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 
 #form { display: flex; flex-direction: column; padding: 10px 12px; gap: 8px; }
 #input { width: 100%; min-height: 38px; max-height: 22dvh; resize: none; overflow-y: auto; scrollbar-width: thin; border: 0; background: transparent; border-radius: 0; padding: 4px 2px 6px; outline: none; font-size: 16px; font-weight: 450; line-height: 1.6; }
-#input:focus-visible, #palette-input:focus-visible { outline: none; }
+#input:focus-visible, #palette-input:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .compose-bar { display: flex; align-items: center; gap: 8px; }
 #attach, #camera { flex: none; color: var(--muted-foreground); }
 @media (pointer: fine) { #camera { display: none; } }

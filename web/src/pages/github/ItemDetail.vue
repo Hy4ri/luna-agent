@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from "vue";
 import { serverUrl, token } from "@/lib/api";
+import { handleTablistKeydown } from "@/lib/keyboard";
 import { fetchComments } from "./client";
 import StatusIcon from "./StatusIcon.vue";
 import type { RepoInfo, Detail, Comment } from "../../../../src/github";
@@ -51,13 +52,32 @@ function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString();
 }
+
 </script>
 
 <template>
   <div class="flex flex-col h-full min-h-0 bg-card/30 text-foreground">
-    <div v-if="detail?.pr" role="tablist" aria-label="Pull request view" class="flex shrink-0 gap-1 px-3 py-1.5 border-b border-border text-xs">
-      <button type="button" role="tab" :aria-selected="view === 'conversation'" class="px-3 py-1 rounded" :class="view === 'conversation' ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="view = 'conversation'">Conversation</button>
-      <button type="button" role="tab" :aria-selected="view === 'files'" class="px-3 py-1 rounded" :class="view === 'files' ? 'bg-secondary text-foreground' : 'text-muted-foreground'" @click="view = 'files'">Files changed ({{ detail.pr.files }})</button>
+    <div v-if="detail?.pr" role="tablist" aria-label="Pull request view" @keydown="handleTablistKeydown" class="flex shrink-0 gap-1 px-3 py-1.5 border-b border-border text-xs">
+      <button
+        id="pr-tab-conversation"
+        type="button"
+        role="tab"
+        :aria-selected="view === 'conversation'"
+        :tabindex="view === 'conversation' ? 0 : -1"
+        class="px-3 py-1 rounded"
+        :class="view === 'conversation' ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
+        @click="view = 'conversation'"
+      >Conversation</button>
+      <button
+        id="pr-tab-files"
+        type="button"
+        role="tab"
+        :aria-selected="view === 'files'"
+        :tabindex="view === 'files' ? 0 : -1"
+        class="px-3 py-1 rounded"
+        :class="view === 'files' ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
+        @click="view = 'files'"
+      >Files changed ({{ detail.pr.files }})</button>
     </div>
     <div v-if="detail?.pr && view === 'files'" class="flex-1 min-h-0 overflow-hidden">
       <PullFiles :repo="repo" :number="detail.number" :head-oid="detail.pr.headOid" :url="detail.url" :wide="!!filesWide" />
