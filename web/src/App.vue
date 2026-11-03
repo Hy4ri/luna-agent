@@ -165,7 +165,20 @@ function focusTile(id: string) {
   });
 }
 if (!sessionPane) setSessionRouter(id => {
-  if (!tileIds.value.includes(id)) return false;
+  if (chat.session === id || tileIds.value.includes(id)) {
+    focusedTile.value = chat.session === id ? 'primary' : id;
+    focusTile(id); return true;
+  }
+  const previous = focusedTile.value;
+  const index = tileIds.value.indexOf(previous);
+  if (index < 0) return false;
+  // Replace only the bordered tile; preserve its position and size.
+  if (rank.value[previous] !== undefined) rank.value[id] = rank.value[previous];
+  if (weight.value[previous] !== undefined) weight.value[id] = weight.value[previous];
+  delete rank.value[previous];
+  delete weight.value[previous];
+  tileIds.value.splice(index, 1, id);
+  focusedTile.value = id;
   focusTile(id); return true;
 });
 function removeTile(id: string) {
@@ -238,8 +251,11 @@ function paneMessage(event: MessageEvent) {
   const id = tileIds.value.find(id => tileFrame(id)?.contentWindow === event.source);
   if (!id) return;
   if (event.data?.type === 'luna:close-tile') removeTile(id);
-  if (event.data?.type === 'luna:open-navigation') setDrawer(true);
-  if (event.data?.type === 'luna:open-session' && typeof event.data.session === 'string' && /^\d+$/.test(event.data.session)) void openSession(event.data.session);
+  if (event.data?.type === 'luna:open-navigation') { focusedTile.value = id; setDrawer(true); }
+  if (event.data?.type === 'luna:open-session' && typeof event.data.session === 'string' && /^\d+$/.test(event.data.session)) {
+    focusedTile.value = id;
+    void openSession(event.data.session);
+  }
 }
 const activeSession = computed(() => history.list.find(row => String(row.id) === chat.session));
 const pinPending = ref(false);
