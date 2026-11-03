@@ -53,7 +53,7 @@
               {{ compact(activeUsage.totalTokens) }}
             </strong>
             <small class="text-muted-foreground text-xs block mt-1">
-              {{ activeSelectedModel ? full(activeSelectedModel.responses) + ' responses' : full(responsesCount) + ' observed responses' }}
+              {{ activeSelectedModel ? compact(activeSelectedModel.responses) + ' responses' : compact(responsesCount) + ' observed responses' }}
             </small>
           </div>
 
@@ -78,10 +78,10 @@
           <div class="border border-border rounded-[var(--radius)] p-4 bg-card a-kpi">
             <span class="eyebrow text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">{{ selected ? 'Model sessions' : 'Retained sessions' }}</span>
             <strong class="block text-[26px] font-semibold leading-tight tracking-tight tabular-nums a-value">
-              {{ full(selected ? activeSelectedModel?.sessions : snapshot.sessions) }}
+              {{ compact(selected ? activeSelectedModel?.sessions : snapshot.sessions) }}
             </strong>
             <small class="text-muted-foreground text-xs block mt-1">
-              {{ selected ? activeSelectedModel?.provider : `${full(snapshot.models.length)} models · includes subagents` }}
+              {{ selected ? activeSelectedModel?.provider : `${compact(snapshot.models.length)} models · includes subagents` }}
             </small>
           </div>
         </div>
@@ -251,8 +251,8 @@
                   <div v-for="t in topTools" :key="t.name" class="flex justify-between items-center py-1 border-b border-border/40 last:border-0">
                     <span class="text-foreground font-medium break-all">{{ t.name }}</span>
                     <div class="flex items-center gap-2">
-                      <span>{{ full(t.calls) }} calls</span>
-                      <span v-if="t.errors > 0" class="text-destructive font-semibold">({{ full(t.errors) }} err)</span>
+                      <span>{{ compact(t.calls) }} calls</span>
+                      <span v-if="t.errors > 0" class="text-destructive font-semibold">({{ compact(t.errors) }} err)</span>
                     </div>
                   </div>
                 </div>
@@ -264,19 +264,19 @@
                 <div class="grid grid-cols-4 gap-1.5 text-center">
                   <div class="bg-secondary/40 p-1.5 rounded-[var(--radius)] border border-border/40">
                     <span class="text-[10px] text-muted-foreground block">Reads</span>
-                    <strong class="text-xs">{{ full(snapshot.contentActions.reads) }}</strong>
+                    <strong class="text-xs">{{ compact(snapshot.contentActions.reads) }}</strong>
                   </div>
                   <div class="bg-secondary/40 p-1.5 rounded-[var(--radius)] border border-border/40">
                     <span class="text-[10px] text-muted-foreground block">Writes</span>
-                    <strong class="text-xs">{{ full(snapshot.contentActions.writes) }}</strong>
+                    <strong class="text-xs">{{ compact(snapshot.contentActions.writes) }}</strong>
                   </div>
                   <div class="bg-secondary/40 p-1.5 rounded-[var(--radius)] border border-border/40">
                     <span class="text-[10px] text-muted-foreground block">Edits</span>
-                    <strong class="text-xs">{{ full(snapshot.contentActions.edits) }}</strong>
+                    <strong class="text-xs">{{ compact(snapshot.contentActions.edits) }}</strong>
                   </div>
                   <div class="bg-secondary/40 p-1.5 rounded-[var(--radius)] border border-border/40">
                     <span class="text-[10px] text-muted-foreground block">Bash</span>
-                    <strong class="text-xs">{{ full(snapshot.contentActions.bashes) }}</strong>
+                    <strong class="text-xs">{{ compact(snapshot.contentActions.bashes) }}</strong>
                   </div>
                 </div>
               </div>
@@ -288,7 +288,7 @@
                 <div class="flex items-center justify-between gap-2 mb-1">
                   <h2 class="m-0 text-[15px] font-semibold">Active & Recent Sessions</h2>
                   <Button type="button" variant="ghost" size="sm" class="h-7 text-xs text-muted-foreground hover:text-foreground" @click="sessionsConsoleOpen = true">
-                    Open console ({{ full(snapshot.sessions) }}) →
+                    Open console ({{ compact(snapshot.sessions) }}) →
                   </Button>
                 </div>
                 <p class="text-muted-foreground text-xs mb-3">Live status and activity</p>
@@ -355,7 +355,7 @@
                     <div v-for="w in snapshot.workers || []" :key="String(w.worker)" class="flex justify-between items-center py-1 border-b border-border/40 last:border-0">
                       <strong class="text-foreground">{{ w.label }}</strong>
                       <div class="text-right">
-                        <span class="text-muted-foreground">{{ full(w.sessions) }} sess</span>
+                        <span class="text-muted-foreground">{{ compact(w.sessions) }} sess</span>
                         <span class="text-primary-text text-[10px] ml-1.5">{{ usd(w.usage.cost?.total) }}</span>
                       </div>
                     </div>
@@ -369,8 +369,8 @@
                     <div v-for="r in (snapshot.reliability?.byModel || []).slice(0, 4)" :key="r.key" class="flex justify-between items-center py-1 border-b border-border/40 last:border-0">
                       <span class="text-foreground truncate max-w-[140px]">{{ r.model }}</span>
                       <div class="text-right text-[11px]">
-                        <span :class="r.errors > 0 ? 'text-destructive font-medium' : 'text-muted-foreground'">{{ full(r.errors) }} err</span>
-                        <span v-if="r.aborted > 0" class="text-amber-400 ml-1.5">({{ full(r.aborted) }} abort)</span>
+                        <span :class="r.errors > 0 ? 'text-destructive font-medium' : 'text-muted-foreground'">{{ compact(r.errors) }} err</span>
+                        <span v-if="r.aborted > 0" class="text-amber-400 ml-1.5">({{ compact(r.aborted) }} abort)</span>
                       </div>
                     </div>
                   </div>

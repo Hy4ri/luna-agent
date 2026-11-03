@@ -96,7 +96,7 @@
               <td class="p-2.5 text-right font-medium">{{ compact(s.usage.totalTokens) }}</td>
               <td class="p-2.5 text-right text-primary-text font-medium">{{ usd(s.usage.cost?.total) }}</td>
               <td class="p-2.5 text-right">{{ pct(s.usage.cacheHitRate) }}</td>
-              <td class="p-2.5 text-right">{{ full(s.responses) }}</td>
+              <td class="p-2.5 text-right">{{ compact(s.responses) }}</td>
               <td class="p-2.5 text-right">{{ durationFormat(s.durationMs) }}</td>
               <td class="p-2.5 text-left text-muted-foreground text-[11px]">{{ when(s.lastActivity) }}</td>
               <td class="p-2.5 text-right" @click.stop>
@@ -111,7 +111,7 @@
 
       <!-- Pagination Footer -->
       <div v-if="!loading && !errorMessage" class="p-3 border-t border-border bg-sidebar shrink-0 flex flex-wrap gap-3 items-center justify-between text-xs text-muted-foreground">
-        <span>Showing {{ totalSessions ? startIdx + 1 : 0 }}–{{ Math.min(startIdx + pageSize, totalSessions) }} of {{ full(totalSessions) }} sessions</span>
+        <span>Showing {{ totalSessions ? startIdx + 1 : 0 }}–{{ Math.min(startIdx + pageSize, totalSessions) }} of {{ compact(totalSessions) }} sessions</span>
         <div class="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage === 0" @click="currentPage = 0">First</Button>
           <Button type="button" variant="outline" size="sm" class="h-7 text-xs" :disabled="loading || currentPage === 0" @click="currentPage--">Prev</Button>
@@ -132,7 +132,7 @@ import type { AnalyticsSession } from "./types"
 import type { SessionStatus } from "@/lib/types"
 import { json, serverUrl, token } from "@/lib/api"
 import { statusLabel, statusChipClass } from "@/lib/session-status"
-import { full, compact, usd, pct, when, durationFormat } from "./formatters"
+import { compact, usd, pct, when, durationFormat } from "./formatters"
 
 const props = defineProps<{
   open: boolean

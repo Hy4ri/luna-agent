@@ -1,8 +1,9 @@
+import { compactNumber } from "../../lib/numbers"
+
 export const full = (n: number | null | undefined): string =>
   new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n || 0)
 
-export const compact = (n: number | null | undefined): string =>
-  new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 }).format(n || 0)
+export const compact = compactNumber
 
 export const usd = (n: number | null | undefined): string =>
   new Intl.NumberFormat(undefined, {
