@@ -21,6 +21,9 @@ const local = computed(() => section.value === 'changes' || section.value === 'h
 const sourceProjects = ref<{id:number;name:string;cwd:string;general?:boolean}[]>([]);
 const sourceProject = ref<number | null>(chat.project);
 const selector = computed(() => chat.session ? { session: String(chat.session) } : sourceProject.value !== null ? { project: sourceProject.value } : null);
+// A directory switch keeps the session ID but changes every local Git request target.
+// Remount local tabs to discard old selections and fence their in-flight reads.
+const workspaceKey = computed(() => JSON.stringify([selector.value, chat.cwd, chat.machine?.id, serverUrl.value, token.value]));
 const status = ref<GhStatus | null>(null);
 const repos = ref<{ repo: string; projects: { id: number; name: string }[] }[]>([]);
 const selectedRepo = ref("");
@@ -355,9 +358,9 @@ onUnmounted(() => {
       </div>
       <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
       <template v-if="selector">
-        <ChangesTab v-if="section === 'changes'" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
-        <HistoryTab v-else-if="section === 'history'" v-bind="selector" :wide="isWide" :files-wide="isVeryWide" />
-        <BranchesTab v-else v-bind="selector" :wide="isWide" />
+        <ChangesTab v-if="section === 'changes'" :key="`changes:${workspaceKey}`" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
+        <HistoryTab v-else-if="section === 'history'" :key="`history:${workspaceKey}`" v-bind="selector" :wide="isWide" :files-wide="isVeryWide" />
+        <BranchesTab v-else :key="`branches:${workspaceKey}`" v-bind="selector" :wide="isWide" />
       </template>
       <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on this host to use source control.</p>
     </template>

@@ -13,7 +13,7 @@ export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cr
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /** Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live. */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
-  coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate", "delegate-results", "session-crew"],
+  coding: ["coding-tools", "busy-processes", "session-workspace"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate", "delegate-results", "session-crew"],
   cron: ["cron"], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
   recall: ["recall"], goal: ["goal"], learn: ["learn"], codemode: ["codemode"],
 };
