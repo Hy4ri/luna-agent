@@ -211,7 +211,7 @@ onMounted(async () => {
           v-for="p in filtered" :key="p.id" role="listitem" class="pw-item" :data-project="p.id"
           :aria-current="selected === p.id ? 'true' : undefined" @click="select(p.id)"
         >
-          <ProjectIcon v-if="!p.general" :icon="p.icon" :color="p.color" />
+          <ProjectIcon :icon="p.icon" :color="p.color" />
           <span dir="auto" class="pw-item-name">{{ p.name }}</span>
           <span class="pw-count" :title="`${count(p.id)} conversations`">{{ count(p.id) }}</span>
         </button>
@@ -226,16 +226,16 @@ onMounted(async () => {
 
       <template v-if="selected === 'new' || current">
         <div class="pw-head">
-          <ProjectIcon v-if="current && !current.general" :icon="current.icon" :color="current.color" :size="20" />
+          <ProjectIcon v-if="current" :icon="current.icon" :color="current.color" :size="20" />
           <h3 dir="auto" class="pw-title">{{ selected === 'new' ? 'New project' : current!.name }}</h3>
           <button v-if="current && !current.general" type="button" class="pw-btn pw-star" :aria-pressed="!!current.favorite" :title="current.favorite ? 'Unfavourite' : 'Favourite'" :aria-label="current.favorite ? 'Unfavourite project' : 'Favourite project'" @click="toggleFavorite(current.id)"><Star :size="14" :fill="current.favorite ? 'currentColor' : 'none'" /></button>
         </div>
         <p v-if="selected === 'new'" class="pw-muted">New conversations in a project start in its directory.</p>
 
+        <div v-if="current" class="pw-row"><button type="button" class="pw-btn" @click="appearanceProject = current.id"><Palette :size="14" /> Appearance</button></div>
         <p v-if="current?.general" class="pw-muted">General shares a board across Chats. Each conversation keeps its working directory.</p>
         <form v-else class="pw-sec" @submit.prevent="save">
           <h4 v-if="selected !== 'new'">Settings</h4>
-          <div v-if="current" class="pw-row"><button type="button" class="pw-btn" @click="appearanceProject = current.id"><Palette :size="14" /> Appearance</button></div>
           <label class="pw-field">Name<input dir="auto" id="project-name" v-model="name" aria-label="Project name" autocomplete="off" /></label>
           <label v-if="selected === 'new'" class="pw-field">Create on<select v-model="createOn" class="pw-input" aria-label="Create project on"><option value="host">Host</option><option value="worker">Worker</option><option value="both">Both</option></select></label>
           <label v-if="selected !== 'new' || createOn !== 'worker'" class="pw-field">Main host directory<input v-model="cwd" class="pw-mono" aria-label="Working directory" placeholder="/absolute/working/directory" autocomplete="off" spellcheck="false" /></label>

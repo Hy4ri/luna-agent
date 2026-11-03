@@ -48,7 +48,7 @@ test("project appearance migrates, survives reopen, validates atomically, and re
       assert.throws(() => store.update(7, changes), (e: unknown) => e instanceof ProjectError && e.status === 400);
       assert.deepEqual(store.get(7), before, "invalid updates must not partially change metadata");
     }
-    assert.throws(() => store.update(0, { icon: "code" }), (e: unknown) => e instanceof ProjectError && e.status === 409);
+    assert.throws(() => store.update(0, { name: "Renamed" }), (e: unknown) => e instanceof ProjectError && e.status === 409);
     assert.throws(() => store.update(999, { color: null }), (e: unknown) => e instanceof ProjectError && e.status === 404);
     const reset = store.update(7, { icon: null, color: null });
     assert.equal(reset.icon, null);
@@ -63,5 +63,41 @@ test("project appearance migrates, survives reopen, validates atomically, and re
     const renamed = store.update(created.id, { name: "Renamed", cwd: dir });
     assert.equal(renamed.icon, "rocket");
     assert.equal(renamed.color, "#112233");
+  } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Chat appearance must persist without turning General into a named/routed project.
+test("General appearance persists while its routing and protected fields stay unchanged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-chat-appearance-"));
+  const path = join(dir, "projects.db");
+  let db = new DatabaseSync(path);
+  try {
+    let store = new ProjectStore(db);
+    const original = store.get(0)!;
+    const custom = store.update(0, { icon: "π", color: "#Aa44FF" });
+    assert.equal(custom.icon, "π");
+    assert.equal(custom.color, "#aa44ff");
+    assert.equal(custom.general, true);
+    assert.equal(custom.name, original.name);
+    assert.equal(custom.cwd, "");
+    assert.equal(store.dirFor(0, null), undefined);
+    assert.equal(store.dirFor(0, 2), undefined);
+    assert.equal(store.projectOf(123), 0);
+    db.close(); db = new DatabaseSync(path); store = new ProjectStore(db);
+    assert.deepEqual(store.get(0), custom);
+    assert.deepEqual(store.list().filter(p => p.id === 0), [custom]);
+    assert.equal(store.update(0, { color: null }).icon, "π");
+    const before = store.get(0);
+    for (const changes of [{ name: "X", icon: "code" }, { cwd: dir }, { favorite: true }, { icon: "two" }, { color: "red" }]) {
+      assert.throws(() => store.update(0, changes), (e: unknown) => e instanceof ProjectError);
+      assert.deepEqual(store.get(0), before);
+    }
+    assert.throws(() => store.delete(0), (e: unknown) => e instanceof ProjectError && e.status === 409);
+    assert.throws(() => store.setWorkerDir(0, 2, dir), (e: unknown) => e instanceof ProjectError && e.status === 409);
+    const reset = store.update(0, { icon: null, color: null });
+    assert.equal(reset.icon, null);
+    assert.equal(reset.color, null);
+    assert.equal(store.list().length, 1);
+    assert.equal(store.create("Named", dir).id, 1);
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
