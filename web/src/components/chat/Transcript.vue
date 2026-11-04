@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
 import { ArrowDown, X } from "@lucide/vue";
-import { chat, entryList, activityLabel, dismissNotice, openSession, loadOlderEntries } from "@/stores/chat";
+import { chat, entryList, activityLabel, activityDetails, dismissNotice, openSession, loadOlderEntries } from "@/stores/chat";
 import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import ReportContext from "./ReportContext.vue";
@@ -296,7 +296,12 @@ function backgroundReport(entry: any, message: any): boolean {
       <span dir="auto">{{ notice.text }}</span>
       <button type="button" aria-label="Dismiss notice" title="Dismiss notice" @click="dismissNotice(notice.id)"><X :size="16" aria-hidden="true" /></button>
     </div>
-    <div v-if="activityLabel" id="activity" role="status" aria-live="polite">{{ activityLabel }}</div>
+    <div v-if="activityLabel" id="activity" role="status" aria-live="polite" aria-atomic="true">
+      <span>{{ activityLabel }}</span>
+      <ul v-if="activityDetails.length" class="activity-details">
+        <li v-for="(detail, index) in activityDetails" :key="index" dir="auto">{{ detail }}</li>
+      </ul>
+    </div>
     <Questions />
   </div>
   <div v-if="queued.length" class="queued-dock" role="region" aria-label="Queued messages">

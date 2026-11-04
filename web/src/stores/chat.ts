@@ -1,4 +1,5 @@
 import { compactNumber } from "@/lib/numbers";
+import { toolSummary } from "@/lib/tool-view";
 // Open conversation: durable entries, live generation, tools, extras, context, run controls.
 // Port of vanilla session.js + extras.js + transcript.js state. Components only render this.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -127,11 +128,33 @@ export const activityLabel = computed(() => {
   if (chat.session && !chat.connected) return "Reconnecting…";
   if (chat.contextCompacting || chat.compactions.size) return "Compacting context…";
   if ([...chat.activeTools].some(id => toolName(id) === "ask_user_question")) return "Waiting for your answer…";
+  if (chat.activeTools.size) {
+    const names = [...chat.activeTools].map(id => toolName(id) || "tool");
+    const label = names.length === 1 ? `Running ${names[0]}…` : `Running ${names.length} tools…`;
+    return chat.queuedCount ? `${label} · ${chat.queuedCount} queued` : label;
+  }
   if (chat.queuedCount) return `Running · ${chat.queuedCount} queued`;
-  if (chat.activeTools.size) return "Running…";
   if (chat.liveText) return "Writing…";
   if (chat.generationActive) return "Thinking…";
   return chat.runActive ? "Running…" : "";
+});
+/** Derived from the same live slots and task document as the transcript; no generated progress. */
+export const activityDetails = computed(() => {
+  if (!busy.value || !chat.connected || chat.bootError) return [];
+  const details: string[] = [];
+  const tasks = (chat.extras?.todos || []).filter(t => t.status !== "deleted");
+  if (tasks.length) {
+    const completed = tasks.filter(t => t.status === "completed").length;
+    const active = tasks.filter(t => t.status === "in_progress").map(t => t.activeForm || t.subject);
+    details.push([`${completed}/${tasks.length} tasks complete`, ...active].join(" · "));
+  }
+  for (const id of chat.activeTools) {
+    const name = toolName(id) || "tool";
+    const args = chat.toolStarts[id]?.args ?? entryList.value.flatMap(e => e.model?.[0]?.content || []).find(c => c.type === "toolCall" && c.id === id)?.arguments;
+    const summary = toolSummary(name, args);
+    details.push(summary ? `${name} · ${summary}` : name);
+  }
+  return details;
 });
 export const usageText = computed(() => {
   const u = chat.usage;

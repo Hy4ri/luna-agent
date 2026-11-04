@@ -709,8 +709,9 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .tool-raw > summary { min-height: 0; padding: 6px 12px; font-size: 11px; color: var(--faint); }
 .ansi-bold { font-weight: 700; } .ansi-red { color: #f87171; } .ansi-green { color: #8fd3a5; } .ansi-yellow { color: #e6c27a; } .ansi-blue { color: #8ab4f8; } .ansi-magenta { color: #d8a4f0; } .ansi-cyan { color: #7fd6d6; } .ansi-white { color: var(--foreground); } .ansi-black { color: var(--faint); }
 .tool img.tool-image { display: block; max-width: calc(100% - 24px); max-height: 420px; margin: 0 12px 12px; border-radius: var(--radius); object-fit: contain; }
-#activity { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 13.5px; padding: 4px 0; min-height: 24px; }
-#activity::before { content: ''; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--primary); }
+#activity { display: grid; grid-template-columns: 6px minmax(0, 1fr); align-items: center; column-gap: 8px; color: var(--muted-foreground); font-size: 13.5px; padding: 4px 0; min-height: 24px; }
+#activity::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+.activity-details { grid-column: 2; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .side-jobs { display: flex; flex-direction: column; gap: 10px; }
 .side-job { font-size: 14px; font-weight: 440; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted-foreground); }
 .side-job-btn {
