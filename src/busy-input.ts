@@ -28,6 +28,9 @@ export async function feedback(tx: Tx, id: ConversationId, policy: BusyPolicy, a
 export async function interruptBlocked(tx: Tx, id: ConversationId) {
   const live = await tx.doc(LiveDoc, id);
   if (live.compactions?.length) return true;
+  // Redirects during tools become steering inputs. They do not cancel the
+  // generation or its children, so an active child must not force a requeue.
+  if (live.tools?.length) return false;
   const children = await tx.doc(Children, id);
   for (const child of children.children) {
     const liveChild = await tx.doc(LiveDoc, child.id as ConversationId);
