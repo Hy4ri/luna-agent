@@ -1,6 +1,6 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
 export const sections = [
-  { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'busyInput', 'autoContinue', 'afterFailedRun', 'maxTurns', 'sessionTalk'] },
+  { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'compaction', 'busyInput', 'autoContinue', 'afterFailedRun', 'maxTurns', 'sessionTalk'] },
   { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'pinnedModels', 'subagents', 'auxiliary'] },
   { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
   { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'codemode', 'extensions', 'disabledTools'] },
@@ -35,6 +35,7 @@ export function assertCatalogCoverage(schema: any) {
 }
 
 export const fieldTitles: Record<string, string> = {
+  compaction: 'Context compaction', sessions: 'Main sessions', backgroundAtTokens: 'Background threshold (tokens)', blockAtTokens: 'Blocking threshold (tokens)', keepRecentTokens: 'Recent context to keep (tokens)',
   codemode: 'Code Mode', memoryLimitBytes: 'Sandbox memory limit (bytes)', inlineBudget: 'Tool declaration budget (tokens)',
   busyInput: 'Messages during a response', mode: 'Message handling', acknowledgements: 'Show message acknowledgements',
   sessionTalk: 'Messages between sessions', maxHops: 'Messages per exchange',
@@ -66,6 +67,7 @@ export function labelFor(path: (string | number)[]): string {
   const key = path.at(-1)!
   const full = path.join('.')
   if (typeof key === 'number') return `${additions[String(path.at(-2))] || 'Item'} ${key + 1}`
+  if (full === 'compaction.subagents') return 'Subagent sessions'
   if (full === 'subagents.profiles') return 'Child role profiles'
   if (full.startsWith('subagents.profiles.') && path.length === 3) return String(key)
   if (full.startsWith('subagents.profiles.') && key === 'tools') return 'Allowed tools'
@@ -176,6 +178,7 @@ export const timing: Record<string, string> = {
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
 export const summaries: Record<string, string> = {
+  compaction: 'Set separate context summarization thresholds for main sessions and subagents. Model-capacity safety limits still apply.',
   busyInput: 'Control what happens when you send another message while Luna is working.',
   autoContinue: 'Resume a turn after a rate or usage limit, within the limits you set.',
   sessionTalk: 'Let a session send messages to other sessions. Mention a session with @ in the chat box.',
