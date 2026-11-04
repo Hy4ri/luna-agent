@@ -411,27 +411,27 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-pin:disabled { opacity: .35; cursor: default; }
 .ms-edit:focus-visible, .ms-pin:focus-visible, .ms-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 /* One scroll owner. Expanding providers must never shrink or clip pinned rows. */
-.ms-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px; overflow-anchor: none; }
+.ms-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px; overflow-anchor: none; }
 .ms-list > * { flex-shrink: 0; }
 .ms-compact-picker .ms-list { max-height: none; }
 .ms-compact-picker .ms-divider { margin: 4px 0; }
-.ms-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
+.ms-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 36px; padding: 3px 8px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
 .ms-row:not(:disabled):hover, .ms-row[data-active="true"] { background: var(--accent); border-color: var(--border); }
 .ms-row[data-selected="true"] { background: var(--acc-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
-.ms-row-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.ms-name { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-row-main { flex: 1; min-width: 0; display: grid; gap: 0; line-height: 1.15; }
+.ms-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-name.ms-muted { color: var(--muted-foreground); font-weight: 450; }
-.ms-sub { font-size: 11.5px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.ms-sub { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .ms-badges { display: inline-flex; gap: 4px; flex: none; }
-.ms-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: var(--secondary); border: 1px solid var(--border); color: var(--muted-foreground); }
-.ms-entry-pinned > .ms-row { min-height: 44px; padding: 8px 10px; }
+.ms-badge { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 999px; background: var(--secondary); border: 1px solid var(--border); color: var(--muted-foreground); }
+.ms-entry-pinned > .ms-row { min-height: 36px; padding: 3px 8px; }
 .ms-entry-pinned .ms-name { font-size: 12.5px; }
 .ms-entry-pinned .ms-badge { width: 16px; height: 16px; border: 0; background: transparent; }
-.ms-entry-pinned .ms-pin { height: 44px; }
-.ms-current { flex: none; font-size: 10.5px; font-weight: 600; color: var(--primary-text); background: var(--acc-soft); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 999px; padding: 2px 8px; }
+.ms-entry-pinned .ms-pin { height: 36px; }
+.ms-current { flex: none; font-size: 10px; font-weight: 600; color: var(--primary-text); background: var(--acc-soft); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 999px; padding: 1px 6px; }
 .ms-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ms-selected { flex: none; color: var(--primary-text); }
-.ms-pin { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
+.ms-pin { flex: none; display: grid; place-items: center; width: 32px; height: 36px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
 .ms-pin:hover { background: var(--secondary); color: var(--foreground); }
 .ms-pin[data-pinned="true"] { color: var(--primary-text); }
 .ms-empty { padding: 16px 8px; text-align: center; font-size: 13px; color: var(--muted-foreground); }
@@ -444,8 +444,8 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-hint { font-size: 11px; color: var(--muted-foreground); }
 @media (max-width: 760px) {
   .ms-search input { min-height: 44px; font-size: 16px; }
-  .ms-row { min-height: 48px; }
+  .ms-row { min-height: 36px; }
   .ms-provider { min-height: 44px; }
-  .ms-entry-pinned > .ms-row, .ms-entry-pinned .ms-pin { min-height: 44px; }
+  .ms-entry-pinned > .ms-row, .ms-entry-pinned .ms-pin { min-height: 36px; }
 }
 </style>
