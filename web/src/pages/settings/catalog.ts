@@ -7,7 +7,7 @@ export const sections = [
   { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge and learning from conversations.', keys: ['skillDirs', 'disabledSkills', 'learn'] },
   { id: 'media', title: 'Media', description: 'Configure image analysis, image generation, and video analysis.', keys: ['vision', 'image_gen', 'video'] },
   { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill improvement behavior.', keys: ['cron', 'improve'] },
-  { id: 'system', title: 'System', description: 'Set LAN and Tailscale addresses, storage paths, and server access.', keys: ['dataDir', 'cwd', 'server'] },
+  { id: 'system', title: 'System', description: 'Set LAN and Tailscale addresses, storage paths, and server access.', keys: ['dataDir', 'cwd', 'server', 'push'] },
 ] as const
 
 const aliases: Record<string, string> = { general: 'chat', context: 'memory', images: 'media', workspace: 'memory' }
@@ -59,7 +59,7 @@ export const fieldTitles: Record<string, string> = {
   cron: 'Scheduled runs', notifyUrl: 'Notification URL', runTimeoutMinutes: 'Run timeout (minutes)',
   learn: 'Learning from conversations', idleMinutes: 'Idle time before a scan (minutes)', schedule: 'Schedule (cron expression)',
   improve: 'Skill improvement', allowCommandBenchmarks: 'Allow command benchmarks',
-  dataDir: 'Data directory', cwd: 'Working directory', server: 'HTTP server', host: 'Listen address', port: 'Port',
+  dataDir: 'Data directory', cwd: 'Working directory', server: 'HTTP server', host: 'Listen address', port: 'Port', push: 'Android push notifications', serviceAccountFile: 'Firebase service-account key file',
 }
 
 const additions: Record<string, string> = { providers: 'provider', models: 'model', mcpServers: 'MCP server', skillDirs: 'skill directory', args: 'argument', tools: 'tool' }
@@ -146,6 +146,7 @@ const fieldHelp: Record<string, string> = {
   'processes.retentionHours': 'How long completed command output remains available.',
   'processes.maxOutputBytes': 'Maximum retained output for each command. Extra output is truncated.',
   'mcpServers': 'Saving connects, reconnects or disconnects changed servers. Secret markers preserve existing credentials.',
+  'push.serviceAccountFile': 'Path to a Firebase Cloud Messaging service-account JSON key. Push stays off until you set it.',
   'cron.notifyUrl': 'Optional notification endpoint for completed scheduled runs, for example an ntfy topic URL.',
   'cron.runTimeoutMinutes': 'Optional time limit for a scheduled run. Decimal minutes are allowed.',
   'learn.idleMinutes': 'Scan a conversation for lesson signals after this many idle minutes.',
@@ -174,7 +175,7 @@ export function helpFor(path: (string | number)[]): string {
 
 export const timing: Record<string, string> = {
   provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live',
-  codemode: 'Restart required', dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Disable live; enable may need restart', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required',
+  codemode: 'Restart required', dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Disable live; enable may need restart', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required', push: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
 export const summaries: Record<string, string> = {
@@ -200,6 +201,7 @@ export const summaries: Record<string, string> = {
   learn: 'Collect lesson signals from idle conversations. Review proposed changes and their evidence before applying them.',
   improve: 'Schedule skill checks and control access to command benchmarks.',
   dataDir: 'Choose where Luna stores its persistent data.', cwd: 'Choose the default directory for tool commands.', server: 'Choose where the HTTP server listens.',
+  push: 'Send Android notifications through Firebase Cloud Messaging.',
 }
 
 export interface RelatedDestination { id: string; title: string; description: string }

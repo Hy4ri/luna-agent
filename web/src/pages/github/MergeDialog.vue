@@ -1,4 +1,9 @@
 <script setup lang="ts">
+const METHODS = [
+  { id: 'merge', label: 'Merge commit' },
+  { id: 'squash', label: 'Squash & merge' },
+  { id: 'rebase', label: 'Rebase & merge' },
+] as const;
 import { ref, watch } from "vue";
 import type { RepoInfo, Detail } from "../../../../src/github";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -55,33 +60,17 @@ function handleConfirm() {
         <div class="space-y-1.5">
           <label class="font-medium text-foreground">Merge method</label>
           <div class="grid grid-cols-3 gap-2">
-            <button
-              v-if="info.merge.merge"
-              type="button"
-              class="px-3 py-2 rounded border text-center transition-colors"
-              :class="selectedMethod === 'merge' ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border hover:border-border/80 text-muted-foreground'"
-              @click="selectedMethod = 'merge'"
-            >
-              Merge commit
-            </button>
-            <button
-              v-if="info.merge.squash"
-              type="button"
-              class="px-3 py-2 rounded border text-center transition-colors"
-              :class="selectedMethod === 'squash' ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border hover:border-border/80 text-muted-foreground'"
-              @click="selectedMethod = 'squash'"
-            >
-              Squash & merge
-            </button>
-            <button
-              v-if="info.merge.rebase"
-              type="button"
-              class="px-3 py-2 rounded border text-center transition-colors"
-              :class="selectedMethod === 'rebase' ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border hover:border-border/80 text-muted-foreground'"
-              @click="selectedMethod = 'rebase'"
-            >
-              Rebase & merge
-            </button>
+            <template v-for="method in METHODS" :key="method.id">
+              <button
+                v-if="info.merge[method.id]"
+                type="button"
+                class="px-3 py-2 rounded border text-center transition-colors"
+                :class="selectedMethod === method.id ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border hover:border-border/80 text-muted-foreground'"
+                @click="selectedMethod = method.id"
+              >
+                {{ method.label }}
+              </button>
+            </template>
           </div>
         </div>
 

@@ -117,7 +117,9 @@ button, summary, [role="tab"], [role="tabpanel"], [role="dialog"], [role="separa
   display: none !important;
 }
 
-:is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible {
+h1, h2, h3 { text-wrap: balance; }
+
+:is(button, a[href], input, textarea, select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 2px solid var(--ring);
   /* Keep the indicator visible inside clipped rows and scrolling containers. */
   outline-offset: -2px;
@@ -584,7 +586,7 @@ aside#side.collapsed #history-rail {
 }
 #log > * { flex-shrink: 0; }
 #log:focus:not(:focus-visible) { outline: none; }
-#welcome { margin: auto; max-width: 440px; text-align: center; padding: 24px 0; }
+#welcome { margin: auto; max-width: 560px; text-align: center; padding: 24px 0; }
 #welcome .welcome-mark { display: inline-flex; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--primary-text); margin-bottom: 16px; background: var(--card); }
 #welcome svg { width: 28px; height: 28px; }
 #welcome h2 { font-size: clamp(24px, 3.8vw, 33px); line-height: 1.25; letter-spacing: -.03em; font-weight: 550; margin: 0 0 10px; }

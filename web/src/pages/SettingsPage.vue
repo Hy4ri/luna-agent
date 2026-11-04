@@ -13,10 +13,10 @@ import SettingsSearch from './settings/SettingsSearch.vue'
 import type { SettingsResult } from './settings/settingsSearch'
 import { PANELS } from '@/components/panels'
 import { sections, fieldTitles, labelFor, helpFor, summaries, timing, managers, groupFor, assertCatalogCoverage, settingRoute } from './settings/catalog'
-import { Menu, X, ArrowLeft, ArrowUpRight, MessageSquare, Network, BookOpen, Image, Wrench, Clock, Settings2, AlertCircle, RefreshCw } from '@lucide/vue'
+import { Menu, X, ArrowLeft, ArrowUpRight, MessageSquare, Network, Plug, BookOpen, Image, Wrench, Clock, Settings2, AlertCircle, RefreshCw } from '@lucide/vue'
 
 const mobile = useMobile()
-const icons = [MessageSquare, Network, Network, Wrench, BookOpen, Image, Clock, Settings2]
+const icons = [MessageSquare, Network, Plug, Wrench, BookOpen, Image, Clock, Settings2]
 const mobileIndex = ref(mobile.value && ui.settingsIndex)
 const saved = ref<any>(null)
 const draft = ref<any>(null)
