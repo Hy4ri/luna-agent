@@ -1,3 +1,4 @@
+import { formatFileSize } from "./files";
 // `@` completion sources. Each source owns a token namespace (`@session:<id>`, later `@file:<path>`), so a new
 // kind of mention only needs a new entry in `mentionSources`; the composer renders every source as one group.
 import { reactive } from "vue";
@@ -93,7 +94,7 @@ const fileSource: MentionSource = {
           token: `@file:${e.path}${e.kind === "directory" ? "/" : ""}`,
           label: e.name + (e.kind === "directory" ? "/" : ""),
           dir: e.kind === "directory",
-          ...(e.kind === "file" ? { meta: size(e.size) } : {}),
+          ...(e.kind === "file" ? { meta: formatFileSize(e.size) } : {}),
         }));
         files.key = key;
       } catch {
@@ -102,7 +103,6 @@ const fileSource: MentionSource = {
     }, 120);
   },
 };
-const size = (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
 const mentionSources: MentionSource[] = [sessionSource, fileSource];
 
