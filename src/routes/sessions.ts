@@ -116,16 +116,22 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       typeof b !== "object" ||
       Array.isArray(b) ||
       !Object.keys(b).length ||
-      Object.keys(b).some((k) => !["title", "archived", "pinned"].includes(k))
+      Object.keys(b).some((k) => !["title", "archived", "pinned", "project"].includes(k))
     )
-      return err(c, 400, "title, archived or pinned required");
+      return err(c, 400, "title, archived, pinned or project required");
     if ("title" in b && (typeof b.title !== "string" || !b.title.trim() || b.title.trim().length > 200))
       return err(c, 400, "title must contain 1 to 200 characters");
     for (const k of ["archived", "pinned"])
       if (k in b && typeof b[k] !== "boolean") return err(c, 400, k + " must be a boolean");
+    if ("project" in b && !(Number.isSafeInteger(b.project) && b.project > 0)) return err(c, 400, "project must be a positive integer");
     const id = Number(c.req.param("id"));
     if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
-    const changes = { ...b, ...("title" in b ? { title: b.title.trim() } : {}) } as Partial<ConversationMeta>;
+    if ("project" in b) {
+      await opts.conversations.move(id, b.project);
+      if (Object.keys(b).length === 1) return c.json({ ...opts.conversations.get(id), project: b.project });
+    }
+    const { project: _p, ...rest } = b;
+    const changes = { ...rest, ...("title" in b ? { title: b.title.trim() } : {}) } as Partial<ConversationMeta>;
     if (changes.archived) await opts.limitContinuer?.cancel(id, "Session archived.");
     return c.json(await opts.conversations.update(id, changes));
   });

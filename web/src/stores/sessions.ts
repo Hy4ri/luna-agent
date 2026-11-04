@@ -136,6 +136,8 @@ export const titleModelAvailable = () =>
   json<{ available: boolean }>("/v1/session-titles").then(r => !!r.available, () => false);
 export const generateTitle = (s: SessionMeta) =>
   act(() => post(`/v1/sessions/${s.id}/title`, {}));
+export const moveSession = (s: SessionMeta, project: number) =>
+  act(() => post(`/v1/sessions/${s.id}/metadata`, { project }, "PATCH"));
 export const togglePinned = (s: SessionMeta) =>
   act(() => post(`/v1/sessions/${s.id}/metadata`, { pinned: !s.pinned }, "PATCH"));
 export const toggleArchived = (s: SessionMeta) => act(async () => {
