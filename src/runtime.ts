@@ -266,7 +266,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     sandbox: codemodeSandbox,
     inlineBudget: cfg.codemode.inlineBudget,
     models: false,
-  }, cfg.codemode.timeoutMs));
+  }, cfg.codemode.timeoutMs, cfg.codemode.pinned));
 
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
   const harness = await openLuna({

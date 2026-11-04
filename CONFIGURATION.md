@@ -1020,7 +1020,8 @@ Enable or configure Code Mode under **Settings → Tools → Code Mode**:
 "codemode": {
   "timeoutMs": 300000,
   "memoryLimitBytes": 134217728,
-  "inlineBudget": 3000
+  "inlineBudget": 3000,
+  "pinned": ["bash", "read", "edit", "write", "machine_exec", "machine_files", "web_search", "web_extract", "delegate_task", "board"]
 }
 ```
 
@@ -1031,6 +1032,9 @@ Changes to `codemode` require a daemon restart.
 - `timeoutMs`: Overall execution deadline in milliseconds (default `300000`, 5 minutes) enforced at the execute boundary. Individual scripts may specify a shorter deadline via `// @options: {"timeout_ms": ...}` on the first line; requests exceeding `timeoutMs` are clamped to this hard ceiling. Durable replay journals persist this effective deadline.
 - `memoryLimitBytes`: Maximum memory the QuickJS WebAssembly VM may allocate per script (default `134217728` bytes / 128 MiB). Allocations beyond this fail with an out-of-memory error inside the script. This does not limit memory allocated by external tools called from the script.
 - `inlineBudget`: Estimated token budget (default `3000`) for tool declarations rendered in the `codemode` prompt section.
+- `pinned`: Tools whose declarations the `codemode` section always lists first, in this order, when the session can call them. Their cost counts against `inlineBudget`; the rest of the budget lists the cheapest other tools. Scripts find unlisted tools with `searchTools()`. Without pins, the cheapest declarations fill the budget and long core tools such as `bash` and `read` drop out.
+
+The `codemode` section also tells the model when to choose Code Mode: 3 or more tool calls, loops, parallel independent reads, or large output to filter. A single call, or an edit the model must see before the next step, stays a direct call.
 
 Direct tools remain available. Code Mode is useful for multi-step tool workflows and filtering intermediate results before sending a summary to the model. For example:
 

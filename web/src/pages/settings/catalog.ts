@@ -36,7 +36,7 @@ export function assertCatalogCoverage(schema: any) {
 
 export const fieldTitles: Record<string, string> = {
   compaction: 'Context compaction', sessions: 'Main sessions', backgroundAtTokens: 'Background threshold (tokens)', blockAtTokens: 'Blocking threshold (tokens)', keepRecentTokens: 'Recent context to keep (tokens)',
-  codemode: 'Code Mode', memoryLimitBytes: 'Sandbox memory limit (bytes)', inlineBudget: 'Tool declaration budget (tokens)',
+  codemode: 'Code Mode', memoryLimitBytes: 'Sandbox memory limit (bytes)', inlineBudget: 'Tool declaration budget (tokens)', pinned: 'Always-listed tools',
   busyInput: 'Messages during a response', mode: 'Message handling', acknowledgements: 'Show message acknowledgements',
   sessionTalk: 'Messages between sessions', maxHops: 'Messages per exchange',
   autoContinue: 'Continue after usage limits', maxWaitHours: 'Maximum reset wait (hours)', maxAttempts: 'Consecutive retry limit',
@@ -93,6 +93,7 @@ const fieldHelp: Record<string, string> = {
   'codemode.timeoutMs': 'Maximum script duration, including tool calls. Scripts can request a shorter deadline. Requires a restart.',
   'codemode.memoryLimitBytes': 'Maximum QuickJS memory per script. Does not limit memory used by tools. Requires a restart.',
   'codemode.inlineBudget': 'Token budget for tool declarations in the Code Mode prompt section. Requires a restart.',
+  'codemode.pinned': 'Tools the Code Mode prompt section always lists first. Their cost counts against the budget. Requires a restart.',
   'busyInput.mode': 'Interrupt redirects the response after tools finish safely. Queue sends a separate turn. Steer adds information at the next safe boundary.',
   'busyInput.acknowledgements': 'Show confirmation when a message is queued or used to steer a response.',
   'autoContinue.enabled': 'Wait for a usage reset, then continue the stopped turn. A new message cancels the wait. Authentication, billing, and context errors do not retry.',
