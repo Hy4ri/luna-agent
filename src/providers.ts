@@ -88,8 +88,13 @@ interface ProvidersFile { custom: CustomProviderDef[]; defaultModel?: ModelRef; 
 const API_IMPL = { "openai-completions": openAICompletionsApi, "openai-responses": openAIResponsesApi, "anthropic-messages": anthropicMessagesApi };
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
+/** Drop trailing slashes and a pasted endpoint path, so ".../v1/chat/completions" works like ".../v1". */
+export function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "").replace(/\/(?:chat\/completions|completions|responses|messages)$/, "").replace(/\/+$/, "");
+}
+
 export function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch = fetch): Provider {
-  const baseUrl = def.baseUrl.replace(/\/+$/, "");
+  const baseUrl = normalizeBaseUrl(def.baseUrl);
   const toModel = (m: CustomModelDef): Model<CustomApi> => ({
     id: m.id, name: m.name || m.id, api: def.api, provider: def.id, baseUrl,
     input: m.vision ? ["text", "image"] : ["text"], reasoning: m.reasoning ?? false,
@@ -385,7 +390,7 @@ export class ProviderManager {
     const api = String(input.api ?? "openai-completions") as CustomApi;
     if (!CUSTOM_APIS.includes(api)) throw new Error(`api must be one of ${CUSTOM_APIS.join(", ")}`);
     let baseUrl: string;
-    try { const u = new URL(String(input.baseUrl ?? "")); if (!/^https?:$/.test(u.protocol)) throw 0; baseUrl = u.toString().replace(/\/+$/, ""); }
+    try { const u = new URL(String(input.baseUrl ?? "")); if (!/^https?:$/.test(u.protocol)) throw 0; baseUrl = normalizeBaseUrl(u.toString()); }
     catch { throw new Error("baseUrl must be an http(s) URL"); }
     const key = typeof input.key === "string" && input.key.trim() ? input.key.trim() : "none";
     let models: CustomModelDef[];
