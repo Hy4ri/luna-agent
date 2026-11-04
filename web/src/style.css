@@ -1175,3 +1175,15 @@ pre[dir="auto"],
 .md blockquote:has(> :first-child:dir(rtl)) { direction: rtl; }
 
 .zoomable, .md img { cursor: zoom-in; }
+
+/* Nerd Fonts v3.4.0, Symbols Only. See assets/fonts/NERD-FONTS-LICENSE.txt.
+   Restrict this face to private-use symbols so normal text and emoji keep their fonts. */
+@font-face {
+  font-family: "Luna Nerd Symbols";
+  src: url("./assets/fonts/SymbolsNerdFont-Regular.woff2") format("woff2");
+  font-display: swap;
+  unicode-range: U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD;
+}
+.project-custom-icon {
+  font-family: "Luna Nerd Symbols", system-ui, sans-serif;
+}

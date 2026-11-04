@@ -66,9 +66,20 @@ function centerGlyph() {
   output.drawImage(context.canvas, left, top, inkWidth, inkHeight,
     (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
 }
-watch(() => [props.icon, props.size, props.alignLabel, props.color], centerGlyph, { flush: "post" });
-onMounted(async () => {
+async function refreshGlyph() {
   centerGlyph();
+  if (!glyph.value || !props.icon) return;
+  // Canvas does not redraw when a web font arrives. Explicitly load the current
+  // glyph, including after an icon change, before measuring its visible pixels.
+  const style = getComputedStyle(glyph.value);
+  try {
+    await document.fonts.load(`${style.fontSize} ${style.fontFamily}`, props.icon);
+  } catch { /* Keep system fallback if the font cannot load. */ }
+  centerGlyph();
+}
+watch(() => [props.icon, props.size, props.alignLabel, props.color], refreshGlyph, { flush: "post" });
+onMounted(async () => {
+  await refreshGlyph();
   await document.fonts.ready;
   centerGlyph();
 });
@@ -80,7 +91,7 @@ onMounted(async () => {
   <canvas
     v-else ref="glyph"
     :width="size * pixelRatio" :height="size * pixelRatio"
-    class="shrink-0 select-none"
+    class="project-custom-icon shrink-0 select-none"
     :style="{ width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.85)}px`, color: color || undefined }"
     aria-hidden="true"
   />
