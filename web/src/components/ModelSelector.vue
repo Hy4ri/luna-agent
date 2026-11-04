@@ -309,15 +309,13 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
         <Check v-if="!value" :size="14" class="ms-selected" aria-hidden="true" />
       </button>
 
-      <template v-for="section in ['pinned', 'providers'] as const" :key="section">
-      <div v-if="section === 'pinned' && pinnedModels.length" class="ms-section-head">
+      <div v-if="pinnedModels.length" class="ms-section-head">
         <span class="ms-section-label">Pinned</span>
         <button type="button" class="ms-edit" :aria-pressed="editingPins" @click="editingPins = !editingPins">{{ editingPins ? "Done" : "Edit" }}</button>
       </div>
-      <div v-if="section === 'providers' && pinnedModels.length && providerGroups.length" class="ms-divider" role="separator" aria-label="Other models"></div>
-      <div v-if="section === 'pinned' ? pinnedModels.length : providerGroups.length" :class="section === 'pinned' ? 'ms-pinned-group' : 'ms-provider-group'">
-      <template v-for="item in listItems.filter(item => section === 'pinned' ? item.kind === 'model' && item.pinned : item.kind === 'provider' || !item.pinned)" :key="item.key">
+      <template v-for="(item, itemIndex) in listItems" :key="item.key">
         <template v-if="item.kind === 'provider'">
+          <div v-if="pinnedModels.length && itemIndex === pinnedModels.length" class="ms-divider" role="separator" aria-label="Other models"></div>
           <component
             :is="query.trim() ? 'div' : 'button'"
             :type="query.trim() ? undefined : 'button'"
@@ -371,9 +369,6 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
         </template>
       </template>
 
-      </div>
-      </template>
-
       <p v-if="!filtered.length && !loading && (!error || query.trim())" class="ms-empty" role="status">
         <template v-if="query.trim()">No models match “{{ query }}”.</template>
         <template v-else>No models available.<span v-if="emptyHint"> {{ emptyHint }}</span></template>
@@ -417,8 +412,7 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-edit:focus-visible, .ms-pin:focus-visible, .ms-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 /* One scroll owner. Expanding providers must never shrink or clip pinned rows. */
 .ms-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px; overflow-anchor: none; }
-.ms-list > *, .ms-pinned-group > *, .ms-provider-group > * { flex-shrink: 0; }
-.ms-pinned-group, .ms-provider-group { display: flex; flex-direction: column; gap: 4px; }
+.ms-list > * { flex-shrink: 0; }
 .ms-compact-picker .ms-list { max-height: none; }
 .ms-compact-picker .ms-divider { margin: 4px 0; }
 .ms-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
