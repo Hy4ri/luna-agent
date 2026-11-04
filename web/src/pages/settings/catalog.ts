@@ -10,14 +10,14 @@ export const sections = [
   { id: 'system', title: 'System', description: 'Set LAN and Tailscale addresses, storage paths, and server access.', keys: ['dataDir', 'cwd', 'server'] },
 ] as const
 
-export const aliases: Record<string, string> = { general: 'chat', context: 'memory', images: 'media', workspace: 'memory' }
+const aliases: Record<string, string> = { general: 'chat', context: 'memory', images: 'media', workspace: 'memory' }
 export function resolveSettingsRoute(route = 'chat') {
   const [raw = 'chat', ...rest] = route.split('/').filter(Boolean)
   const candidate = aliases[raw] || raw
   const category = sections.some(s => s.id === candidate) ? candidate : 'chat'
   return { category, target: category === candidate ? rest.map(part => { try { return decodeURIComponent(part) } catch { return part } }).join('.') : '' }
 }
-export const groupIds: Record<string, string> = { provider: 'main-model', model: 'main-model', thinkingLevel: 'main-model', subagents: 'subagents', auxiliary: 'task-models', providers: 'providers', mcpServers: 'mcp', autoContinue: 'usage-limits', disabledTools: 'disabled-tools', disabledSkills: 'disabled-skills' }
+const groupIds: Record<string, string> = { provider: 'main-model', model: 'main-model', thinkingLevel: 'main-model', subagents: 'subagents', auxiliary: 'task-models', providers: 'providers', mcpServers: 'mcp', autoContinue: 'usage-limits', disabledTools: 'disabled-tools', disabledSkills: 'disabled-skills' }
 export function groupFor(key: string) { return groupIds[key] || key }
 export function settingRoute(path: (string | number)[]): string {
   const key = String(path[0])

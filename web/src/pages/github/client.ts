@@ -1,7 +1,7 @@
 import { json } from "@/lib/api";
 import type { GhStatus, RepoInfo, ItemPage, Detail, Comment, PullFile } from "../../../../src/github";
 import { makeKey, fetchSWR } from './cache';
-export { dropRepo, clear } from './cache';
+export { dropRepo } from './cache';
 
 export function fetchGhStatus(fresh = false): Promise<GhStatus> {
   return fetchSWR(makeKey('status', {}), () => json<GhStatus>(`/v1/github/status${fresh ? '?fresh=1' : ''}`), fresh, value => value.state === 'ok');

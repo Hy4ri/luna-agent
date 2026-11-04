@@ -1,6 +1,6 @@
 import { ref, type Ref } from "vue";
 
-export const MOBILE = "(max-width: 760px)";
+const MOBILE = "(max-width: 760px)";
 const mobile = ref(typeof matchMedia === "function" && matchMedia(MOBILE).matches);
 if (typeof matchMedia === "function") matchMedia(MOBILE).addEventListener("change", e => { mobile.value = e.matches; });
 export function useMobile(): Ref<boolean> { return mobile; }

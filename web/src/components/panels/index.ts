@@ -1,6 +1,6 @@
 import { defineAsyncComponent, type Component } from "vue";
 
-export const TITLES: Record<string, string> = {
+const TITLES: Record<string, string> = {
   projects: "Projects",
   board: "Project board",
   session: "Session",
@@ -13,7 +13,7 @@ export const TITLES: Record<string, string> = {
   lessons: "Lessons",
 };
 
-export const DESCRIPTIONS: Record<string, string> = {
+const DESCRIPTIONS: Record<string, string> = {
   projects: "Named working directories for new conversations.",
   board: "Cards shared by you and the sessions in the selected project.",
   session: "Instructions, context, and tools for this conversation.",

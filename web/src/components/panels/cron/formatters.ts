@@ -1,6 +1,6 @@
 import type { CronJob, CronRun } from "./state";
 
-export const reasons: Record<string, string> = {
+const reasons: Record<string, string> = {
   overlap: "A previous run was still active",
   missed: "Schedule slot missed",
   timeout: "Time limit reached",
@@ -61,7 +61,7 @@ export function statusLabel(run: CronRun) {
   return run.status === "ok" ? "Success" : run.status === "error" ? "Failed" : run.status === "skipped" ? "Skipped" : "Running";
 }
 
-export function runSnippet(run: CronRun) {
+function runSnippet(run: CronRun) {
   if (!run.output) return run.status === "ok" ? "Completed with no output." : "";
   return String(run.output)
     .replace(/^#+\s*/gm, "")
