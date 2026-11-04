@@ -69,7 +69,7 @@ watch(open, (v) => {
         type="button"
         class="input combobox-trigger"
         :disabled="disabled"
-        :aria-label="ariaLabel || 'Choose model'"
+        :aria-label="ariaLabel ? `${ariaLabel}: ${displayLabel}` : `Choose model: ${displayLabel}`"
         :data-setting="dataSetting"
         :data-empty="!modelValue ? 'true' : undefined"
       >
