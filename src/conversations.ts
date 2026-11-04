@@ -67,6 +67,15 @@ export class ConversationStore {
     this.notify();
     return res;
   }
+  /** Link a session to another project. Its directory and machine stay as they are. */
+  async move(id: number, projectId: number) {
+    if (!this.projects.get(projectId)) throw new ConversationError(404, "no such project");
+    await this.harness.commit(async tx => {
+      if (!await tx.conversation(id as never)) throw new ConversationError(404, "no such session");
+      this.projects.link(id, projectId);
+    }, context);
+    this.notify();
+  }
   /** Where the stored title came from: "derived" (instant), "auto" (model), "user", or null when untitled. */
   titleSource(id: number): "derived" | "auto" | "user" | null {
     const row = this.db.prepare("SELECT title, title_source FROM luna_conversations WHERE id=?").get(id) as { title: string | null; title_source: string | null } | undefined;
