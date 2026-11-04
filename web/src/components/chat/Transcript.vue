@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
-import { ArrowUp, ArrowDown, X } from "@lucide/vue";
+import { ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession, loadOlderEntries } from "@/stores/chat";
 import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
@@ -24,18 +24,15 @@ const queued = computed(() => pending.value.filter(p => p.status === "Queued"));
 const inLog = computed(() => pending.value.filter(p => p.status !== "Queued"));
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
-const jumpTopRef = ref<HTMLElement | null>(null);
-// The jump buttons show only while the user scrolls, then hide again.
+// The jump button shows only while the user scrolls, then hides again.
 const IDLE_MS = 1500;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 function hideJumps() {
   if (jumpRef.value) jumpRef.value.hidden = true;
-  if (jumpTopRef.value) jumpTopRef.value.hidden = true;
 }
-// Shared so a programmatic follow leaves the jump buttons in the state a real jumper would see.
+// A programmatic follow updates the jump button too.
 function updateJumps(log: HTMLElement) {
   if (jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
-  if (jumpTopRef.value) jumpTopRef.value.hidden = log.scrollTop < 200;
 }
 // Follow new content only while the user sits at the bottom.
 // Only user input can stop following. Scroll events also come from clamping, scroll anchoring,
@@ -58,11 +55,6 @@ function scroll(force = false) {
     log.scrollTop = log.scrollHeight;
     updateJumps(log);
   });
-}
-function jumpToTop() {
-  pinned = false;
-  if (logRef.value) logRef.value.scrollTop = 0;
-  showJumps();
 }
 function jumpToBottom() {
   scroll(true);
@@ -311,7 +303,6 @@ function backgroundReport(entry: any, message: any): boolean {
     <PendingMessage v-for="message in queued" :key="message.requestId" :message="message" />
   </div>
   <div class="transcript-jumps">
-    <button id="jump-top" ref="jumpTopRef" type="button" hidden aria-label="Jump to top" title="Jump to top" @click="jumpToTop"><ArrowUp :size="18" aria-hidden="true" /></button>
     <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="jumpToBottom"><ArrowDown :size="18" aria-hidden="true" /></button>
   </div>
 </template>
