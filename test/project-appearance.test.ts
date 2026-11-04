@@ -38,7 +38,7 @@ test("project appearance migrates, survives reopen, validates atomically, and re
     assert.equal(store.update(7, { color: null }).icon, "code");
     assert.equal(store.update(7, { color: "#123456" }).icon, "code");
     // Custom symbols are one visible grapheme, not one UTF-16 code unit.
-    for (const icon of ["π", "A", "👩‍💻", "🇯🇴", "e\u0301", "👍🏽"]) {
+    for (const icon of ["󱄅", "\ue0b0", "π", "A", "👩‍💻", "🇯🇴", "e\u0301", "👍🏽"]) {
       assert.equal(store.update(7, { icon }).icon, icon);
       db.close(); db = new DatabaseSync(path); store = new ProjectStore(db);
       assert.equal(store.get(7)!.icon, icon);
