@@ -124,6 +124,10 @@ interface Conv {
   key: string; id: string; dir: string; toolsHash: string; tools: Tool[];
   sessionId?: string; queue: Queue; sse?: AbortController;
   held: Map<string, Held>; counter: number; lastUsed: number; images: number;
+  /** Signal of the request reading this conversation now. A second live request must not take the session over. */
+  active?: AbortSignal;
+  /** A side conversation for one request that overlapped a live one. Dropped when that request ends. */
+  transient?: boolean;
   /** What the live opencode session already holds, so a follow-up can send only the new user message. */
   sent?: { model: string; systemHash: string; count: number; firstHash: string; reply: string };
 }
@@ -267,6 +271,8 @@ async function closeSession(conv: Conv, reason: string) {
   conv.sent = undefined;
   conv.sse?.abort();
   conv.sse = undefined;
+  // A request still reading the old queue must fail now, not wait for events that can no longer arrive.
+  conv.queue.push({ type: "session.execution.failed", data: { error: { message: `opencode session closed: ${reason}` } } });
   for (const held of conv.held.values()) held.resolve({ text: reason, isError: true });
   conv.held.clear();
   conv.queue = new Queue();
@@ -284,6 +290,16 @@ async function dropConv(conv: Conv) {
 }
 
 let sweeper: NodeJS.Timeout | undefined;
+function newConv(key: string, tools: Tool[], transient = false): Conv {
+  const id = randomUUID();
+  const dir = join(tmpdir(), "luna-opencode", id);
+  mkdirSync(dir, { recursive: true });
+  const conv: Conv = { key, id, dir, toolsHash: "", tools, queue: new Queue(), held: new Map(), counter: 0, lastUsed: Date.now(), images: 0, ...(transient ? { transient } : {}) };
+  convs.set(key, conv);
+  startSweeper();
+  return conv;
+}
+
 function startSweeper() {
   sweeper ??= setInterval(() => {
     const now = Date.now();
@@ -369,21 +385,18 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
     const { textDelta, thinkingDelta, getText, getThinking, getTextIndex, getThinkingIndex } =
       createStreamDeltas(message, events);
     let conv: Conv | undefined;
+    let queue: Queue | undefined;
     try {
       events.push({ type: "start", partial: message });
       const messages = context.messages;
       const tools = getCurrentTools(messages);
       const system = getCurrentSystemPrompt(messages);
       const key = conversationKey(messages, system, options?.sessionId);
-      conv = convs.get(key);
-      if (!conv) {
-        const id = randomUUID();
-        const dir = join(tmpdir(), "luna-opencode", id);
-        mkdirSync(dir, { recursive: true });
-        conv = { key, id, dir, toolsHash: "", tools, queue: new Queue(), held: new Map(), counter: 0, lastUsed: Date.now(), images: 0 };
-        convs.set(key, conv);
-        startSweeper();
-      }
+      conv = convs.get(key) ?? newConv(key, tools);
+      // Another request with the same session ID is still running, such as a background compaction summary next to the
+      // generation. Give this one its own opencode session so neither closes the other's.
+      if (conv.active && !conv.active.aborted) conv = newConv(`${key}:side:${randomUUID()}`, tools, true);
+      conv.active = options?.signal ?? new AbortController().signal;
       conv.lastUsed = Date.now();
       const toolsHash = hashTools(tools);
       const toolsChanged = toolsHash !== conv.toolsHash;
@@ -424,8 +437,10 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       const batch: Held[] = [];
       let flushTimer: NodeJS.Timeout | undefined;
       let result: "stop" | "toolUse" = "stop";
+      // Read the queue this request set up. closeSession fails it when another request replaces the session.
+      queue = conv.queue;
       loop: for (;;) {
-        const ev = await conv.queue.next(options?.signal);
+        const ev = await queue.next(options?.signal);
         switch (ev.type) {
           case "session.text.delta": textDelta(String(ev.data.delta ?? "")); break;
           case "session.reasoning.delta": thinkingDelta(String(ev.data.delta ?? "")); break;
@@ -440,7 +455,7 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
           case "mcp.call":
             batch.push(ev.held as Held);
             clearTimeout(flushTimer);
-            flushTimer = setTimeout(() => conv!.queue.push({ type: "mcp.flush" }), BATCH_DEBOUNCE_MS);
+            flushTimer = setTimeout(() => queue!.push({ type: "mcp.flush" }), BATCH_DEBOUNCE_MS);
             break;
           case "mcp.flush":
             if (batch.length) { result = "toolUse"; break loop; }
@@ -472,11 +487,16 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       }
       events.push({ type: "done", reason: message.stopReason, message });
     } catch (error) {
-      if (conv) await closeSession(conv, "request failed").catch(() => {});
+      // Close the session only while it is still this request's; a replaced one belongs to the newer request.
+      if (conv && (!queue || conv.queue === queue)) await closeSession(conv, "request failed").catch(() => {});
       message.stopReason = options?.signal?.aborted ? "aborted" : "error";
       message.errorMessage = error instanceof Error ? error.message : String(error);
       events.push({ type: "error", reason: message.stopReason, error: message });
     } finally {
+      if (conv) {
+        conv.active = undefined;
+        if (conv.transient) void dropConv(conv);
+      }
       events.end(message);
     }
   })();

@@ -1,21 +1,25 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { loadModels, models, chooseModel, selectedKey } from "@/stores/models";
-import { Search, X } from "@lucide/vue";
 import ModelSelector from "@/components/ModelSelector.vue";
 import type { ModelInfo } from "@/lib/types";
 
-
-const searchOpen = ref(false);
 const searchTarget = ref<HTMLElement>();
-const searchButton = ref<HTMLButtonElement>();
+const loading = ref(false);
+const loadError = ref(false);
+const selectError = ref("");
 
-function toggleSearch() {
-  searchOpen.value = !searchOpen.value;
-  void nextTick(() => {
-    if (searchOpen.value) selectorRef.value?.focusSearch();
-    else searchButton.value?.focus();
-  });
+async function refreshModels() {
+  loading.value = true;
+  loadError.value = false;
+  try {
+    loadError.value = !(await loadModels({ force: true }));
+  } catch {
+    loadError.value = true;
+  } finally {
+    loading.value = false;
+    selectorRef.value?.revealSelected();
+  }
 }
 
 const emit = defineEmits(["open", "close"]);
@@ -46,9 +50,12 @@ async function handleSelect(key: string, _model: ModelInfo | null) {
   const m = models.list.find(x => x.provider === provider && x.id === id) || { provider, id, name: id } as ModelInfo;
   const ok = await chooseModel(m);
   if (ok) {
+    selectError.value = "";
     (pickerRef.value as any)?.hidePopover?.();
     document.getElementById("model")?.focus();
     emit("close");
+  } else {
+    selectError.value = "Could not change model. Try again.";
   }
 }
 
@@ -56,9 +63,10 @@ function handleBeforeToggle(e: Event) {
   const open = (e as any).newState === "open";
   document.getElementById("model")?.setAttribute("aria-expanded", String(open));
   if (open) {
-    void loadModels({ force: true });
+    selectError.value = "";
     position();
-    searchOpen.value = false;
+    void refreshModels();
+    void nextTick(() => { selectorRef.value?.focusSearch(); selectorRef.value?.revealSelected(); });
     emit("open");
   } else {
     emit("close");
@@ -66,7 +74,7 @@ function handleBeforeToggle(e: Event) {
 }
 
 function handleToggle(e: Event) {
-  if ((e as ToggleEvent).newState === "open") searchButton.value?.focus();
+  if ((e as ToggleEvent).newState === "open") void nextTick(() => selectorRef.value?.focusSearch());
 }
 
 function handleTabKeydown(e: KeyboardEvent) {
@@ -100,6 +108,9 @@ function closePicker(restoreFocus = true) {
 
 function onResize() { if ((pickerRef.value as any)?.matches?.(":popover-open")) position(); }
 
+let triggerObserver: ResizeObserver | null = null;
+function onViewportResize() { onResize(); }
+
 function onDocPointerDown(e: PointerEvent) {
   const box = pickerRef.value;
   if (!(box as any)?.matches?.(":popover-open")) return;
@@ -115,11 +126,19 @@ watch(() => models.list.length, () => position());
 onMounted(() => {
   pickerRef.value?.addEventListener("beforetoggle", handleBeforeToggle as any);
   window.addEventListener("resize", onResize);
+  window.visualViewport?.addEventListener("resize", onViewportResize);
+  const btn = document.getElementById("model");
+  if (btn && typeof ResizeObserver !== "undefined") {
+    triggerObserver = new ResizeObserver(() => onResize());
+    triggerObserver.observe(btn);
+  }
   document.addEventListener("pointerdown", onDocPointerDown);
 });
 onUnmounted(() => {
   pickerRef.value?.removeEventListener("beforetoggle", handleBeforeToggle as any);
   window.removeEventListener("resize", onResize);
+  window.visualViewport?.removeEventListener("resize", onViewportResize);
+  triggerObserver?.disconnect();
   document.removeEventListener("pointerdown", onDocPointerDown);
 });
 </script>
@@ -136,11 +155,8 @@ onUnmounted(() => {
     @toggle="handleToggle"
   >
     <div class="mp-head">
-      <h3 v-if="!searchOpen">Choose model</h3>
-      <div v-show="searchOpen" ref="searchTarget" class="mp-search-slot"></div>
-      <button ref="searchButton" type="button" autofocus class="mp-search-toggle" :aria-label="searchOpen ? 'Close search' : 'Search models'" :aria-expanded="searchOpen" @click="toggleSearch">
-        <X v-if="searchOpen" :size="16" /><Search v-else :size="16" />
-      </button>
+      <h3>Choose model</h3>
+      <div ref="searchTarget" class="mp-search-slot"></div>
     </div>
 
     <ModelSelector
@@ -148,14 +164,20 @@ onUnmounted(() => {
       compact-picker
       :value="selectedKey"
       :search-target="searchTarget"
-      :search-visible="searchOpen"
+      :loading="loading"
       placeholder="Search by provider, model, or name…"
       empty-label=""
+      empty-hint="Add a provider in Settings → Accounts & connections."
       @select="handleSelect"
       @close="closePicker"
     />
 
-    <p v-if="!models.list.length" class="muted mp-empty">No connected models — add a provider in Settings → Accounts &amp; connections.</p>
+    <p v-if="loadError && !models.list.length" class="mp-error" role="alert">
+      Could not load models.
+      <button type="button" class="mp-retry" @click="refreshModels">Retry</button>
+    </p>
+    <p v-if="selectError" class="mp-error" role="alert">{{ selectError }}</p>
+    <p class="mp-hint">↑↓ navigate · Enter select · Esc clear / close</p>
   </div>
 </template>
 
@@ -185,7 +207,7 @@ onUnmounted(() => {
 #model-picker .mp-empty { border-radius: 1px; }
 #model-picker :deep(.ms-list) { flex: 1; min-height: 120px; }
 #model-picker:popover-open { display: flex; }
-.mp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; background: transparent; }
+.mp-head { display: flex; flex-direction: column; gap: 8px; padding: 0 8px; background: transparent; }
 #model-picker :deep(.ms-provider),
 #model-picker :deep(.ms-entry) { border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 1px; background: var(--background); }
 #model-picker :deep(.ms-section-head) { background: transparent; }
@@ -194,8 +216,8 @@ onUnmounted(() => {
 #model-picker :deep(.ms-entry:not(.ms-entry-pinned)) { border-left: 1px solid var(--border); }
 .mp-head h3 { font-size: 14px; font-weight: 650; letter-spacing: -.015em; }
 .mp-search-slot { flex: 1; min-width: 0; }
-.mp-search-toggle { display: grid; place-items: center; flex: none; width: 44px; height: 36px; padding: 0; border: 0; background: transparent; color: var(--muted-foreground); cursor: pointer; }
-.mp-search-toggle:hover { color: var(--foreground); background: var(--accent); }
-.mp-search-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.mp-empty { font-size: 13px; color: var(--muted-foreground); text-align: center; padding: 12px 8px; border: 1px dashed var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--card) 60%, transparent); }
+.mp-error { font-size: 13px; color: var(--destructive, #e5484d); text-align: center; padding: 8px; }
+.mp-retry { margin-left: 8px; min-height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--foreground); cursor: pointer; }
+.mp-retry:hover { background: var(--accent); }
+.mp-hint { font-size: 11px; color: var(--muted-foreground); text-align: center; padding: 4px 8px 0; }
 </style>

@@ -1,0 +1,111 @@
+// Contract: two requests with the same session ID (a generation and its background compaction summary) both finish.
+// A fake opencode service stands in for `opencode serve`; it answers each prompt only when the test says so.
+import assert from "node:assert/strict";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createServer, type ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+
+const ROUTES = ["/api/session", "/api/session/{sessionID}/prompt", "/api/session/{sessionID}/interrupt",
+  "/api/experimental/mcp/{server}", "/api/experimental/mcp/{server}/connect", "/api/event", "/api/model",
+  "/api/experimental/session/{sessionID}/instructions/entries/{key}"];
+
+function fakeOpencode() {
+  const streams = new Set<ServerResponse>();
+  const prompts: { sessionId: string; text: string }[] = [];
+  const deleted = new Set<string>();
+  let sessions = 0;
+  const emit = (sessionId: string, type: string, data: Record<string, unknown> = {}) => {
+    if (deleted.has(sessionId)) return;
+    for (const res of streams) res.write(`data: ${JSON.stringify({ type, data: { sessionID: sessionId, ...data } })}\n\n`);
+  };
+  const server = createServer(async (req, res) => {
+    let body = ""; for await (const chunk of req) body += chunk;
+    const path = (req.url ?? "").split("?")[0]!;
+    const json = (value: unknown) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(value)); };
+    if (path === "/api/info") return json({ version: "2.1.4" });
+    if (path === "/openapi.json") return json({ paths: Object.fromEntries(ROUTES.map(r => [r, {}])) });
+    if (path === "/api/event") {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(": open\n\n");
+      streams.add(res);
+      res.on("close", () => streams.delete(res));
+      return;
+    }
+    if (path === "/api/session" && req.method === "POST") return json({ data: { id: `ses_${++sessions}` } });
+    const prompt = path.match(/^\/api\/session\/([^/]+)\/prompt$/);
+    if (prompt) { prompts.push({ sessionId: prompt[1]!, text: JSON.parse(body).text }); return json({}); }
+    const session = path.match(/^\/api\/session\/([^/]+)$/);
+    if (session && req.method === "DELETE") deleted.add(session[1]!);
+    return json({});
+  });
+  return { server, prompts, deleted, emit };
+}
+
+async function until<T>(read: () => T | undefined, what: string): Promise<T> {
+  const end = Date.now() + 5_000;
+  for (;;) {
+    const value = read();
+    if (value !== undefined) return value;
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+test("a background summary with the same session ID does not hang the live generation", async (t) => {
+  const fake = fakeOpencode();
+  await new Promise<void>(resolve => fake.server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(fake.server.address() as { port: number }).port}`;
+  const home = mkdtempSync(join(tmpdir(), "luna-opencode-test-"));
+  mkdirSync(join(home, "opencode"), { recursive: true });
+  writeFileSync(join(home, "opencode", "service.json"), JSON.stringify({ password: "test" }));
+  const executable = join(home, "opencode-fake");
+  writeFileSync(executable, `#!/bin/sh\necho "listening on ${url}"\n`);
+  chmodSync(executable, 0o755);
+  process.env.XDG_CONFIG_HOME = home;
+  process.env.LUNA_OPENCODE_EXECUTABLE = executable;
+  t.after(() => { fake.server.closeAllConnections(); fake.server.close(); });
+
+  const { opencodeCliProvider } = await import("../src/opencode-cli.js");
+  const provider = opencodeCliProvider();
+  const model = provider.getModels()[0]!;
+  const ask = (system: string, text: string) => {
+    const messages = [
+      { role: "system", content: system, timestamp: 1 },
+      { role: "user", content: text, timestamp: 2 },
+    ] as any;
+    return (async () => {
+      let final: any;
+      for await (const event of provider.streamSimple(model, { messages } as any, { sessionId: "conversation-1" })) {
+        if (event.type === "done" || event.type === "error") final = event;
+      }
+      return final.type === "done" ? final.message : final.error;
+    })();
+  };
+
+  // The generation is in flight on its opencode session.
+  const generation = ask("You are Luna.", "continue the work");
+  const live = await until(() => fake.prompts.find(p => p.text.includes("continue the work")), "the generation prompt");
+
+  // The compaction summary starts with the same session ID before the generation finishes.
+  const summary = ask("You are a context summarization assistant.", "summarize this");
+  const side = await until(() => fake.prompts.find(p => p.text.includes("summarize this")), "the summary prompt");
+  assert.notEqual(side.sessionId, live.sessionId, "the summary must not reuse the live opencode session");
+  fake.emit(side.sessionId, "session.text.delta", { delta: "the summary" });
+  fake.emit(side.sessionId, "session.execution.succeeded");
+  const summarized = await summary;
+  assert.equal(summarized.stopReason, "stop", summarized.errorMessage);
+  assert.equal(summarized.content.find((c: any) => c.type === "text")?.text, "the summary");
+
+  // The generation's session survived the summary and its answer still arrives.
+  assert.ok(!fake.deleted.has(live.sessionId), "the summary must not delete the live opencode session");
+  fake.emit(live.sessionId, "session.text.delta", { delta: "done" });
+  fake.emit(live.sessionId, "session.execution.succeeded");
+  const answered = await Promise.race([
+    generation,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("the generation hung after the summary")), 5_000)),
+  ]);
+  assert.equal(answered.stopReason, "stop", answered.errorMessage);
+  assert.equal(answered.content.find((c: any) => c.type === "text")?.text, "done");
+});

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { ArrowUp, Square, Camera } from "@lucide/vue";
+import { ArrowUp, Square, Camera, ChevronDown } from "@lucide/vue";
 import { json, post } from "@/lib/api";
 import { composer, removeAttachment, saveDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
@@ -357,9 +357,11 @@ async function handleSubmit(e?: Event) {
             type="button"
             popovertarget="model-picker"
             :aria-expanded="pickerOpen ? 'true' : 'false'"
-            aria-label="Model"
+            :aria-label="`Model: ${modelLabel}`"
+            :title="modelLabel"
           >
-            {{ modelLabel }}
+            <span class="model-label-text">{{ modelLabel }}</span>
+            <ChevronDown :size="14" aria-hidden="true" class="model-chevron" />
           </button>
           <ReasoningControl />
         </div>

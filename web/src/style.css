@@ -1015,7 +1015,9 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 @media (pointer: fine) { #camera { display: none; } }
 #attach svg, #send svg, #stop svg { width: 18px; height: 18px; }
 #controls { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
-#model { flex: 0 1 auto; min-width: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 12px; color: var(--muted-foreground); background: transparent; border: 1px solid transparent; border-radius: var(--radius); min-height: 32px; padding: 0 8px; }
+#model { display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; max-width: 240px; text-align: left; font-size: 12px; color: var(--muted-foreground); background: transparent; border: 1px solid transparent; border-radius: var(--radius); min-height: 32px; padding: 0 8px; }
+.model-label-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-chevron { flex: none; }
 #model:hover { background: var(--secondary); color: var(--foreground); }
 .compose-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: none; }
 #send, #stop { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius); padding: 0; cursor: pointer; }

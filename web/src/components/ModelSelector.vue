@@ -39,12 +39,16 @@ const props = withDefaults(defineProps<{
   searchTarget?: HTMLElement;
   searchVisible?: boolean;
   compactPicker?: boolean;
+  loading?: boolean;
+  emptyHint?: string;
 }>(), {
   placeholder: "Search models…",
   emptyLabel: "Use default",
   autofocus: false,
   searchVisible: true,
   compactPicker: false,
+  loading: false,
+  emptyHint: "",
 });
 
 const emit = defineEmits<{
@@ -199,7 +203,23 @@ watch(visibleModels, (list) => {
 function focusSearch() {
   void nextTick(() => searchRef.value?.focus());
 }
-defineExpose({ focusSearch });
+
+/** Expand the selected model's provider group and scroll it into view. */
+function revealSelected() {
+  const key = props.value;
+  if (!key) return;
+  const [provider] = key.split("/");
+  if (provider && !query.value.trim()) {
+    const next = new Set(openProviders.value);
+    next.add(provider);
+    openProviders.value = next;
+  }
+  void nextTick(() => {
+    listRef.value?.querySelector<HTMLElement>('[data-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  });
+}
+watch(() => props.value, () => revealSelected());
+defineExpose({ focusSearch, revealSelected });
 </script>
 
 <template>
@@ -270,9 +290,10 @@ defineExpose({ focusSearch });
           <span class="ms-name">{{ displayName(item.model) }}</span>
           <span class="ms-sub">{{ item.pinned ? item.model.provider : `${item.model.provider} · ${item.model.id}` }}</span>
               </span>
-              <span class="ms-badges" aria-hidden="true">
-          <span v-if="reasoning(item.model)" class="ms-badge" title="Supports reasoning"><Brain :size="11" /> </span>
-          <span v-if="vision(item.model)" class="ms-badge" title="Vision capable"><Eye :size="11" /></span>
+              <span v-if="isSelected(item.model)" class="ms-current">Current</span>
+              <span class="ms-badges">
+          <span v-if="reasoning(item.model)" class="ms-badge" role="img" aria-label="Supports reasoning" title="Supports reasoning"><Brain :size="11" aria-hidden="true" /><span class="ms-sr-only">Supports reasoning</span></span>
+          <span v-if="vision(item.model)" class="ms-badge" role="img" aria-label="Vision capable" title="Vision capable"><Eye :size="11" aria-hidden="true" /><span class="ms-sr-only">Vision capable</span></span>
               </span>
               <Check v-if="isSelected(item.model)" :size="14" class="ms-selected" aria-hidden="true" />
             </button>
@@ -291,8 +312,12 @@ defineExpose({ focusSearch });
       </div>
       </template>
 
-      <p v-if="!filtered.length" class="ms-empty" role="status">
-        No models match “{{ query }}”.
+      <p v-if="loading && !filtered.length" class="ms-empty" role="status">
+        Loading models…
+      </p>
+      <p v-else-if="!filtered.length" class="ms-empty" role="status">
+        <template v-if="query.trim()">No models match “{{ query }}”.</template>
+        <template v-else>No models available.<span v-if="emptyHint"> {{ emptyHint }}</span></template>
       </p>
     </div>
 
@@ -345,12 +370,12 @@ defineExpose({ focusSearch });
 .ms-sub { font-size: 11.5px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .ms-badges { display: inline-flex; gap: 4px; flex: none; }
 .ms-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: var(--secondary); border: 1px solid var(--border); color: var(--muted-foreground); }
-.ms-entry-pinned > .ms-row { min-height: 34px; padding: 5px 10px; }
-.ms-entry-pinned .ms-row-main { display: flex; align-items: baseline; gap: 8px; }
+.ms-entry-pinned > .ms-row { min-height: 44px; padding: 8px 10px; }
 .ms-entry-pinned .ms-name { font-size: 12.5px; }
-.ms-entry-pinned .ms-sub { flex-shrink: 0; max-width: 35%; font-family: inherit; font-size: 11px; }
 .ms-entry-pinned .ms-badge { width: 16px; height: 16px; border: 0; background: transparent; }
-.ms-entry-pinned .ms-pin { height: 34px; }
+.ms-entry-pinned .ms-pin { height: 44px; }
+.ms-current { flex: none; font-size: 10.5px; font-weight: 600; color: var(--primary-text); background: var(--acc-soft); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 999px; padding: 2px 8px; }
+.ms-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ms-selected { flex: none; color: var(--primary-text); }
 .ms-pin { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
 .ms-pin:hover { background: var(--secondary); color: var(--foreground); }
