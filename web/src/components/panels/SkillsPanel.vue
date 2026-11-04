@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
 import { ref, onMounted } from "vue";
 import { ChevronRight } from "@lucide/vue";
 import { json } from "@/lib/api";
@@ -41,8 +42,7 @@ onMounted(() => {
 <template>
   <div class="grid">
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :loading="loading" :error="errorMsg" />
 
     <p v-if="!loading && !skillsList.length" class="muted">
       No skills yet. Luna creates them with skill_propose, or drop SKILL.md files into the skills directory.

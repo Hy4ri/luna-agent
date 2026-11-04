@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
 import { confirmAction } from "@/lib/confirm";
 import { ref, onMounted, watch } from "vue";
 import { json, post } from "@/lib/api";
@@ -105,8 +106,7 @@ watch(() => chat.session, fetchData);
     </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :loading="loading" :error="errorMsg" />
 
     <div class="card grid" id="machine-picker">
       <b>Execution machine</b>

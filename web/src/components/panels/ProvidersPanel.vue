@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
 import { confirmAction } from "@/lib/confirm";
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
@@ -182,8 +183,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :loading="loading" :error="errorMsg" />
 
     <template v-if="providerData">
       <!-- Interactive Login Box if active -->

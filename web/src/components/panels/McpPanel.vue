@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
 import { confirmAction } from "@/lib/confirm";
 import { ref, watch, onMounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
@@ -122,8 +123,7 @@ onMounted(() => {
     </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :loading="loading" :error="errorMsg" />
 
     <!-- Add MCP server form -->
     <details class="card" data-manager-form="mcp-add"><summary class="row"><ChevronRight :size="16" /><b>Add MCP server</b></summary><div class="grid manager-body">

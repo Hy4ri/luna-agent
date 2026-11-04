@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
 import { ref, onMounted } from "vue";
 import { json } from "@/lib/api";
 import { chat, openSession, sortChildren } from "@/stores/chat";
@@ -68,8 +69,7 @@ onMounted(() => {
     </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :loading="loading" :error="errorMsg" />
 
     <template v-if="!chat.session">
       <p class="muted">Open a session first.</p>
