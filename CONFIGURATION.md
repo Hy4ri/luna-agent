@@ -774,11 +774,31 @@ The separate token totals remain cumulative usage.
 
 ## Runtime compaction policy
 
-Luna has no compaction settings. It uses the `pi-durable` defaults: reserve 16384 tokens, keep the most recent 20000 tokens,
-and start a background compaction 32768 tokens before the blocking limit. A turn does not wait for a background compaction.
-Emergency context-overflow recovery also compacts.
-The pinned `pi-durable` dependency has a local pnpm patch in `patches/`. It adds redirect and steer handling only.
-A `compaction` key in `luna.config.json` is an unknown key and the daemon refuses to start. Remove it.
+Luna applies absolute token thresholds to every session, including existing sessions, cron runs, crew members, and delegates.
+Configure them in `luna.config.json` (or through the shared settings API):
+
+```json
+"compaction": {
+  "sessions": { "backgroundAtTokens": 120000, "blockAtTokens": 160000, "keepRecentTokens": 20000 },
+  "subagents": { "backgroundAtTokens": 80000, "blockAtTokens": 120000, "keepRecentTokens": 20000 }
+}
+```
+
+These are the defaults. Partial overrides are accepted. All values must be positive integers, with
+`keepRecentTokens < backgroundAtTokens < blockAtTokens`. Settings apply on the next preparation or compaction selection;
+an already-running model request is not interrupted. Delegates use `subagents`; ordinary sessions, crew members,
+and cron runs use `sessions`. Delegate identity is read from durable result-schema state, including after compaction or restart.
+
+At the background threshold, summarization starts without delaying the current turn. At the blocking threshold,
+the next model request waits for blocking compaction. Thresholds use estimated active context tokens, not cumulative usage.
+They are preparation-time triggers, not a byte-level hard cap: a large input or tool result can cross them in one step.
+Compaction needs an eligible older prefix; if none exists, it cannot shrink the context. No messages are silently truncated.
+
+The smaller model-capacity safety thresholds still take precedence: reserve 16384 tokens for the answer,
+and start background compaction 32768 tokens before that safety limit. The summary retains approximately
+`keepRecentTokens` of recent history verbatim, plus a summary of older history. Emergency context-overflow recovery remains enabled.
+The local `pi-durable` pnpm patch adds absolute thresholds and live host policy resolution; the dependency still owns
+summary generation, placement, recovery, cancellation, and persistence. Compaction does not reset cumulative token usage.
 
 ## Messages sent during a turn
 

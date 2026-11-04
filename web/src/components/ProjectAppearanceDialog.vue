@@ -184,9 +184,9 @@ async function save() {
                   id="custom-icon-input"
                   type="text"
                   :value="customDraft"
-                  placeholder="e.g. π, 🚀, A"
+                  placeholder="e.g. π, 󱄅, A"
                   aria-label="Custom symbol or emoji"
-                  class="h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                  class="project-custom-icon h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                   :class="hasCustomError ? 'border-destructive focus-visible:outline-destructive' : 'border-input'"
                   @input="onCustomInput"
                   @compositionstart="onCompositionStart"
@@ -203,6 +203,7 @@ async function save() {
                   Clear
                 </Button>
               </div>
+              <p class="text-xs text-muted-foreground">Nerd Font symbols are supported.</p>
               <p v-if="hasCustomError" role="alert" class="text-xs text-destructive">
                 {{ customValidationError }}
               </p>

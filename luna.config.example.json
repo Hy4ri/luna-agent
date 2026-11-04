@@ -1,5 +1,9 @@
 {
   "pinnedModels": [],
+  "compaction": {
+    "sessions": { "backgroundAtTokens": 120000, "blockAtTokens": 160000, "keepRecentTokens": 20000 },
+    "subagents": { "backgroundAtTokens": 80000, "blockAtTokens": 120000, "keepRecentTokens": 20000 }
+  },
   "dataDir": "~/.luna",
   "server": {
     "host": "127.0.0.1",

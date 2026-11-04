@@ -98,3 +98,16 @@ test("Code Mode rejects unknown settings and deadlines outside the supported tim
   for (const timeoutMs of [0, -1, 1.5, 2_147_483_648]) rejects({ codemode: { timeoutMs } }, /codemode/);
   for (const memoryLimitBytes of [0, -1, 1.5]) rejects({ codemode: { memoryLimitBytes } }, /codemode/);
 });
+
+test("compaction defaults, partial overrides, and threshold ordering", () => {
+  const config = parse({});
+  assert.deepEqual(config.compaction, {
+    sessions: { backgroundAtTokens: 120000, blockAtTokens: 160000, keepRecentTokens: 20000 },
+    subagents: { backgroundAtTokens: 80000, blockAtTokens: 120000, keepRecentTokens: 20000 },
+  });
+  assert.equal(parse({ compaction: { subagents: { blockAtTokens: 100000 } } }).compaction.subagents.blockAtTokens, 100000);
+  for (const value of [0, -1, 1.5]) rejects({ compaction: { sessions: { backgroundAtTokens: value } } }, /compaction/);
+  rejects({ compaction: { sessions: { backgroundAtTokens: 160000 } } }, /backgroundAtTokens/);
+  rejects({ compaction: { subagents: { keepRecentTokens: 80000 } } }, /keepRecentTokens/);
+  rejects({ compaction: { sessions: { typo: 1 } } }, /compaction/);
+});

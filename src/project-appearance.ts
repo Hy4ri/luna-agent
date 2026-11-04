@@ -13,7 +13,8 @@ export function isValidCustomIcon(value: unknown): value is string {
   const segments = Array.from(graphemeSegmenter.segment(value));
   if (segments.length !== 1) return false;
   // Must contain at least one visible base character (not purely controls, whitespace, format/bidi, combining marks, or default ignorable characters)
-  const base = value.replace(/[\p{C}\p{Z}\p{M}\p{Default_Ignorable_Code_Point}]/gu, "");
+  // Private-use characters (Co) include Nerd Font symbols and are valid bases.
+  const base = value.replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Cn}\p{Z}\p{M}\p{Default_Ignorable_Code_Point}]/gu, "");
   return base.length > 0;
 }
 
