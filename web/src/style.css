@@ -71,6 +71,7 @@
   --sidebar-accent-foreground: #cfcfcf;
   --sidebar-border: #262626;
   --radius: 1px;
+  --danger-solid: #b42318;
   --success: #8fd3a5;
   --warning: #e6c27a;
   --info: #8faee0;
@@ -594,7 +595,7 @@ aside#side.collapsed #history-rail {
 #welcome .welcome-mark { display: inline-flex; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--primary-text); margin-bottom: 16px; background: var(--card); }
 #welcome svg { width: 28px; height: 28px; }
 #welcome h2 { font-size: clamp(24px, 3.8vw, 33px); line-height: 1.25; letter-spacing: -.03em; font-weight: 550; margin: 0 0 10px; }
-#welcome p { color: var(--muted-foreground); margin: 0; font-size: 15px; font-weight: 450; }
+#welcome p { text-wrap: pretty; color: var(--muted-foreground); margin: 0; font-size: 15px; font-weight: 450; }
 .msg { width: 100%; min-width: 0; overflow-wrap: break-word; }
 .msg.assistant::before { content: 'Luna'; display: block; font-size: 12.5px; font-weight: 600; color: var(--muted-foreground); margin-bottom: 8px; }
 .msg.user { align-self: flex-end; width: auto; max-width: 85%; background: var(--secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px 6px; }
