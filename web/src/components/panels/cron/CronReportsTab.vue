@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CronRun } from "./state";
-import { date, timeAgo, statusLabel, outcome } from "./formatters";
+import CronRunRow from "./CronRunRow.vue";
 
 defineProps<{
   inbox: CronRun[];
@@ -14,23 +14,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <button
-    v-for="run in inbox"
-    :key="run.id"
-    :disabled="busy"
-    type="button"
-    class="cron-item"
-    :class="{ active: detailId === run.id }"
-    :data-run="run.id"
-    @click="emit('openReport', run)"
-  >
-    <span class="cron-item-outcome" :class="run.status" dir="auto">{{ outcome(run) }}</span>
-    <span class="cron-item-meta">
-      <span class="cron-pill" :class="run.status">{{ statusLabel(run) }}</span>
-      <span class="cron-item-job" dir="auto">{{ run.jobName }}</span>
-      <span class="cron-item-time" :title="date(run.endedAt || run.startedAt)">{{ timeAgo(run.endedAt || run.startedAt) }}</span>
-    </span>
-  </button>
+  <CronRunRow v-for="run in inbox" :key="run.id" :run="run" :active="detailId === run.id" :busy="busy" @open="emit('openReport', $event)" />
   <div v-if="!inbox.length" class="cron-empty">
     <h3>No new reports.</h3>
     <p>Read and replaced reports are in History.</p>
