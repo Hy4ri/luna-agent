@@ -30,23 +30,71 @@ const editingCard = computed(() => cards.value.find(c => c.id === editingId.valu
 const locked = computed(() => busy.value || editing.value || !!drag.value);
 function message(e: unknown) { return e instanceof Error ? e.message : String(e); }
 function rememberProject() { try { localStorage.setItem('luna.project', selectedPid.value); } catch {} }
+
+function computeResolvedProjectId(projects: Project[] = history.projects): string {
+  let saved = (ui.boardTarget ? String(ui.boardTarget.projectId) : selectedPid.value)
+    || (chat.session || chat.project !== null ? String(chat.project ?? projects.find(p => p.general)?.id ?? '') : '');
+  try { saved ||= localStorage.getItem('luna.project') || ''; } catch {}
+  return projects.some(p => String(p.id) === saved) ? saved : String(projects[0]?.id ?? '');
+}
+
 async function loadBoard(refreshProjects = false, background = false) {
   const ticket = ++generation;
   controller?.abort(); const request = new AbortController(); controller = request;
   refreshQueued = false;
   if (!background) { loading.value = true; error.value = ''; }
+
+  let projectsPromise: Promise<{ projects: Project[] }> | undefined;
+  if (refreshProjects) {
+    projectsPromise = json<{ projects: Project[] }>('/v1/projects', { signal: request.signal });
+  }
+
   try {
-    if (refreshProjects) {
-      const data = await json<{ projects: Project[] }>('/v1/projects', { signal: request.signal });
-      if (ticket !== generation || disposed) return;
-      if (background && (busy.value || editing.value || drag.value)) { refreshQueued = true; return; }
-      history.projects = sortProjects(data.projects);
-      let saved = (ui.boardTarget ? String(ui.boardTarget.projectId) : selectedPid.value) || (chat.session || chat.project !== null ? String(chat.project ?? data.projects.find(p => p.general)?.id ?? '') : '');
-      try { saved ||= localStorage.getItem('luna.project') || ''; } catch {}
-      selectedPid.value = data.projects.some(p => String(p.id) === saved) ? saved : String(history.projects[0]?.id ?? '');
+    if (!selectedPid.value && history.projects.length) {
+      selectedPid.value = computeResolvedProjectId(history.projects);
       if (selectedPid.value) rememberProject();
     }
-    const pid = selectedPid.value, isArchived = archived.value;
+
+    let pid = selectedPid.value, isArchived = archived.value;
+
+    if (projectsPromise && !pid) {
+      const data = await projectsPromise;
+      if (ticket !== generation || disposed) return;
+      history.projects = sortProjects(data.projects);
+      if (!history.projects.length) {
+        selectedPid.value = ''; cards.value = []; return;
+      }
+      pid = computeResolvedProjectId(history.projects);
+      selectedPid.value = pid;
+      if (pid) rememberProject();
+    } else if (projectsPromise) {
+      void projectsPromise.then(data => {
+        if (ticket !== generation || disposed) return;
+        if (busy.value || editing.value || drag.value) { refreshQueued = true; return; }
+        history.projects = sortProjects(data.projects);
+        if (!history.projects.length) {
+          generation++; request.abort();
+          selectedPid.value = ''; cards.value = []; loading.value = false; return;
+        }
+        const resolved = computeResolvedProjectId(history.projects);
+        const currentValid = history.projects.some(p => String(p.id) === selectedPid.value);
+        if (!currentValid || (resolved && resolved !== selectedPid.value && !selectedPid.value)) {
+          if (busy.value || editing.value || !!drag.value) {
+            refreshQueued = true;
+          } else {
+            cards.value = [];
+            selectedPid.value = resolved;
+            rememberProject();
+            void loadBoard(false, background);
+          }
+        }
+      }).catch(e => {
+        if (ticket === generation && !disposed && !request.signal.aborted) {
+          error.value = message(e);
+        }
+      });
+    }
+
     if (!pid) { cards.value = []; return; }
     const data = await json<{ cards: Card[] }>(`/v1/projects/${pid}/board${isArchived ? '?archived=1' : ''}`, { signal: request.signal });
     if (ticket !== generation || disposed) return;
@@ -67,9 +115,9 @@ async function loadBoard(refreshProjects = false, background = false) {
       else notice.value = `Card #${target.cardId} no longer exists`;
       ui.boardTarget = null;
     }
-
-  } catch (e) { if (ticket === generation && !disposed && !request.signal.aborted) error.value = message(e); }
-  finally {
+  } catch (e) {
+    if (ticket === generation && !disposed && !request.signal.aborted) error.value = message(e);
+  } finally {
     if (ticket === generation && !disposed) {
       loading.value = false;
       if (refreshQueued && !busy.value && !editing.value && !drag.value) void loadBoard(true, true);
@@ -106,7 +154,7 @@ async function mutate(action: () => Promise<unknown>, success: string, close = f
     if (close) { editing.value = false; ui.boardEditing = false; }
     notice.value = success;
     if (settle) { settle(); rememberProject(); }
-    await loadBoard();
+    await loadBoard(false);
     if (close) void nextTick(() => { if (editorReturn?.isConnected) editorReturn.focus(); else board.value?.focus(); });
   } catch (e) { if (!disposed) error.value = message(e); }
   finally { busy.value = false; if (refreshQueued && !editing.value && !disposed) void loadBoard(true, true); }
@@ -200,7 +248,7 @@ const drag = ref<{ card: Card; x: number; y: number; startX: number; startY: num
 const feedbackText = computed(() => {
   if (error.value) return error.value;
   if (busy.value) return 'Saving changes…';
-  if (loading.value) return 'Loading board…';
+  if (loading.value) return cards.value.length ? 'Updating board…' : 'Loading board…';
   const d = drag.value;
   if (d?.moved) return d.target && d.target !== d.card.status
     ? `Drop #${d.card.id} in ${columns.find(([s]) => s === d.target)?.[1]}`
@@ -272,20 +320,28 @@ watch(() => ui.boardTarget, target => {
   if (!target) return;
   if (editing.value) closeEditor();
   selectedPid.value = String(target.projectId);
-  void loadBoard(true);
+  void loadBoard(false);
 });
 watch(boardChanged, () => {
   if (loading.value || busy.value || editing.value || drag.value) refreshQueued = true;
-  else void loadBoard(true, true);
+  else void loadBoard(false, true);
 });
-onMounted(() => { document.addEventListener('keydown', escapeEditor, true); document.addEventListener('keydown', newCardKey); void loadBoard(true); });
+onMounted(() => {
+  document.addEventListener('keydown', escapeEditor, true);
+  document.addEventListener('keydown', newCardKey);
+  // Deep links can name a project that is not in the sidebar's cached list yet.
+  if (ui.boardTarget) selectedPid.value = String(ui.boardTarget.projectId);
+  else if (history.projects.length) selectedPid.value = computeResolvedProjectId(history.projects);
+  if (selectedPid.value) rememberProject();
+  void loadBoard(true);
+});
 onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDrag(); ui.boardEditing = false; document.removeEventListener('keydown', escapeEditor, true); document.removeEventListener('keydown', newCardKey); });
 </script>
 
 <template>
   <section class="kb" :class="{ 'kb-editing': editing }" aria-label="Project Kanban">
     <div class="kb-toolbar">
-      <label class="kb-project"><span class="kb-sr">Project</span><select v-model="selectedPid" aria-label="Project" :disabled="locked || loading" @change="changeProject"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select></label>
+      <label class="kb-project"><span class="kb-sr">Project</span><select v-model="selectedPid" aria-label="Project" :disabled="locked" @change="changeProject"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select></label>
       <div v-if="selectedPid" class="kb-filters">
         <label class="kb-search"><Search :size="15" /><input dir="auto" v-model="search" aria-label="Search cards" placeholder="Search cards…" /></label>
         <select v-model="priority" aria-label="Filter priority"><option value="">All priorities</option><option v-for="p in priorities" :key="p" :value="p">{{ p }}</option></select>
