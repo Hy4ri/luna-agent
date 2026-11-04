@@ -1,3 +1,4 @@
+import { REPORT_WHEN_BUSY } from "./report-delivery.js";
 import { ConfigSchema, type LunaConfig } from "./config.js";
 import { ChildResult } from "./delegate-state.js";
 import { BusyExecutions } from "./busy-tools.js";
@@ -64,7 +65,7 @@ export async function openLuna(opts: LunaOptions) {
     const conv = await harnessRef?.conversation(id, context);
     if (!conv) return; // Deleted owners have no destination; never create a replacement conversation.
     if (((await harnessRef!.snapshot(ProcessOwner, id, context))?.token ?? "legacy") !== owner) return;
-    await conv.submit({ type: "input", content: message, requestId, whenBusy: "followUp" }, context);
+    await conv.submit({ type: "input", content: message, requestId, whenBusy: REPORT_WHEN_BUSY }, context);
     try { await opts.processNotify?.(id, message); }
     catch (error) { opts.log?.(`process notification: ${error instanceof Error ? error.message : String(error)}`); }
   }, {

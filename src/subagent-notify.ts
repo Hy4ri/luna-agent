@@ -1,4 +1,5 @@
 // Reliable subagent notification, deadline cancellation, and startup reconciliation.
+import { REPORT_WHEN_BUSY } from "./report-delivery.js";
 import type { ConversationId, TaskId, Tx } from "@earendil-works/pi-durable";
 import { withChildControl } from "./delegate-control.js";
 import { DelegateDeadline } from "./delegate-deadline.js";
@@ -296,7 +297,7 @@ export class SubagentNotifier {
         const subId = await parent.submit(tx, {
           type: "input",
           requestId: pending.requestId,
-          whenBusy: "reject",
+          whenBusy: REPORT_WHEN_BUSY,
           content: pending.content,
           entry: {
             kind: XSESSION_MSG,
