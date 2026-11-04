@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction, promptText } from "@/lib/confirm";
 import { computed, onMounted, ref } from "vue";
 import { json, post } from "@/lib/api";
 
@@ -99,14 +100,14 @@ async function toggleHistoryEvidence(l: Lesson) {
 async function act(l: Lesson, action: "approve" | "reject" | "rollback" | "reconcile" | "verify", observation?: number) {
   let body: Record<string, string | number> = {};
   if (action === "reject") {
-    const note = prompt("Why reject? Luna will not propose this lesson again.", "");
+    const note = await promptText({ title: "Reject lesson", message: "Luna will not propose this lesson again.", confirmLabel: "Reject", danger: true, input: { label: "Reason (optional)" } });
     if (note === null) return;
     body = { note };
   }
-  if (action === "approve" && !confirm("Apply this exact proposal? This records a change, not proven improvement.")) return;
-  if (action === "rollback" && !confirm("Restore the state before this lesson? Rollback refuses later edits.")) return;
+  if (action === "approve" && !(await confirmAction({ title: "Apply this proposal?", message: "This records a change, not proven improvement.", confirmLabel: "Apply" }))) return;
+  if (action === "rollback" && !(await confirmAction({ title: "Restore the state before this lesson?", message: "Rollback refuses later edits.", confirmLabel: "Roll back", danger: true }))) return;
   if (action === "verify") {
-    if (!observation || !confirm("Have you checked this source and confirmed a successful, relevant later outcome?")) return;
+    if (!observation || !(await confirmAction({ title: "Verify this lesson?", message: "Confirm you checked the source and saw a successful, relevant later outcome.", confirmLabel: "Verify" }))) return;
     body = { observation };
   }
   busy.value = l.id;

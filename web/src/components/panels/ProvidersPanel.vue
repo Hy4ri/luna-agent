@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
@@ -59,7 +60,7 @@ async function saveApiKey(providerId: string) {
 }
 
 async function disconnectProvider(providerId: string, name: string) {
-  if (confirm(`Remove the stored ${name} credential?`)) {
+  if (await confirmAction({ title: `Remove the stored ${name} credential?`, confirmLabel: "Remove", danger: true })) {
     try {
       await json(`/v1/providers/${providerId}/credential`, { method: "DELETE" });
       await loadModels({ force: true });
@@ -72,7 +73,7 @@ async function disconnectProvider(providerId: string, name: string) {
 }
 
 async function removeCustomProvider(providerId: string) {
-  if (confirm(`Remove provider ${providerId}?`)) {
+  if (await confirmAction({ title: `Remove provider ${providerId}?`, confirmLabel: "Remove", danger: true })) {
     try {
       await json(`/v1/providers/custom/${providerId}`, { method: "DELETE" });
       await loadModels({ force: true });

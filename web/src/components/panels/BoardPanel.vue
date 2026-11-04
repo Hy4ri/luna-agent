@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight, Paperclip, Download } from '@lucide/vue';
 import { api, json, post } from '@/lib/api';
@@ -214,7 +215,7 @@ async function downloadFile(id: number, a: { id: number; name: string }) {
   } catch (e) { error.value = message(e); }
 }
 async function removeFile(id: number, a: { id: number; name: string }) {
-  if (busy.value || !confirm(`Remove ${a.name}?`)) return;
+  if (busy.value || !(await confirmAction({ title: `Remove ${a.name}?`, confirmLabel: 'Remove', danger: true }))) return;
   busy.value = true; error.value = ''; notice.value = '';
   try { await json(attachPath(id, a.id), { method: 'DELETE' }); await refreshEditing(); notice.value = 'Attachment removed.'; }
   catch (e) { if (!disposed) error.value = message(e); }
@@ -225,8 +226,8 @@ function setArchived() {
   const path = `/v1/projects/${selectedPid.value}/cards/${editingId.value}`;
   void mutate(() => post(path, { archived: !editingArchived.value }, 'PATCH'), editingArchived.value ? 'Card restored.' : 'Card archived.', true);
 }
-function deleteCard() {
-  if (editingId.value === null || !confirm(`Permanently delete card #${editingId.value}? This cannot be undone.`)) return;
+async function deleteCard() {
+  if (editingId.value === null || !(await confirmAction({ title: `Delete card #${editingId.value}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return;
   const path = `/v1/projects/${selectedPid.value}/cards/${editingId.value}`;
   void mutate(() => json(path, { method: 'DELETE' }), 'Card deleted.', true);
 }

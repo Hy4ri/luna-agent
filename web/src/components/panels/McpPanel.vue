@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { ref, watch, onMounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
@@ -97,7 +98,7 @@ async function toggleServerEnabled(serverName: string, currentEnabled: boolean) 
 }
 
 async function removeServer(serverName: string) {
-  if (confirm(`Remove MCP server "${serverName}"?`)) {
+  if (await confirmAction({ title: `Remove MCP server "${serverName}"?`, confirmLabel: "Remove", danger: true })) {
     try {
       await json(`/v1/mcp/${encodeURIComponent(serverName)}`, { method: "DELETE" });
       await fetchData();

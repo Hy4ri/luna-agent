@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { ref, onMounted, watch } from "vue";
 import { json, post } from "@/lib/api";
 import { chat, openSession } from "@/stores/chat";
@@ -75,7 +76,7 @@ async function compactSession() {
 
 async function resetSessionContext() {
   if (!chat.session) return;
-  if (confirm("Start a fresh context? History stays stored.")) {
+  if (await confirmAction({ title: "Start a fresh context?", message: "History stays stored.", confirmLabel: "Start fresh" })) {
     try {
       await post(`/v1/sessions/${chat.session}/reset`);
       const sId = chat.session;

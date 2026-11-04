@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { ref, computed, onUnmounted } from 'vue';
 import type { RepoInfo, Detail } from '../../../../src/github';
 import { post } from '@/lib/api';
@@ -47,7 +48,7 @@ async function handleMergeConfirm(method: 'merge' | 'squash' | 'rebase', deleteH
   finally { merging.value = false; }
 }
 async function handleDeleteBranch() {
-  if (pending.value || !props.detail.pr || !props.detail.can.deleteBranch || !confirm(`Delete branch '${props.detail.pr.head}'?`)) return;
+  if (pending.value || !props.detail.pr || !props.detail.can.deleteBranch || !(await confirmAction({ title: `Delete branch '${props.detail.pr.head}'?`, confirmLabel: 'Delete', danger: true }))) return;
   deletingBranch.value = true; branchDeleteError.value = null;
   try { const updated = await post<Detail>(endpoint('pulls') + '/delete-branch', { sha: props.detail.pr.headOid }); if (!disposed) emit('changed', updated); }
   catch (e) { if (!disposed) branchDeleteError.value = message(e); }

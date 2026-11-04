@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 // Cron floating panel: an unread report inbox, job management, and one shared report history.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { CheckCheck, Plus, RefreshCw } from "@lucide/vue";
@@ -216,8 +217,8 @@ function toggleJob(job: CronJob) {
     await loadJobs();
   });
 }
-function deleteJob(job: CronJob) {
-  if (!confirm(`Delete job “${job.name}”? Reports and run history will be kept.`)) return;
+async function deleteJob(job: CronJob) {
+  if (!(await confirmAction({ title: `Delete job “${job.name}”?`, message: 'Reports and run history will be kept.', confirmLabel: 'Delete', danger: true }))) return;
   void guard(async () => {
     await post(`/v1/cron/${job.id}`, {}, "DELETE");
     if (panel.jobId === job.id) panel.jobId = null;
