@@ -12,7 +12,7 @@ import BranchesTab from "./source-control/BranchesTab.vue";
 import ItemList from "./github/ItemList.vue";
 import ItemDetail from "./github/ItemDetail.vue";
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
-import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu } from "@lucide/vue";
+import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu, X } from "@lucide/vue";
 
 type Section = 'changes' | 'history' | 'branches' | 'pr' | 'issue';
 const section = ref<Section>('changes');
@@ -277,8 +277,9 @@ onUnmounted(() => {
           type="button"
           id="source-control-menu"
           @click="setDrawer(true)"
-          class="p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+          class="md:hidden p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors"
           title="Open menu"
+          aria-label="Open navigation"
         >
           <Menu class="w-5 h-5" />
         </button>
@@ -327,14 +328,16 @@ onUnmounted(() => {
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': refreshingItems }" />
         </button>
 
-        <button
-          type="button"
-          @click="backToChat"
-          class="px-3 py-1.5 text-xs bg-card hover:bg-accent rounded border border-border"
-        >
-          Close
-        </button>
       </div>
+      <button
+        type="button"
+        @click="backToChat"
+        class="ml-auto p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+        title="Close"
+        aria-label="Close Source Control"
+      >
+        <X class="w-[18px] h-[18px]" />
+      </button>
     </header>
 
     <div role="tablist" aria-label="Source Control sections" @keydown="handleTablistKeydown" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border overflow-x-auto">
@@ -350,7 +353,6 @@ onUnmounted(() => {
         :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="setSection(tab.id)"
       >{{ tab.label }}</button>
-      <button v-if="local" type="button" class="ml-auto text-xs px-2 shrink-0" @click="backToChat">Close</button>
     </div>
     <template v-if="local">
       <div v-if="!chat.session" class="px-3 py-2 border-b border-border text-xs">

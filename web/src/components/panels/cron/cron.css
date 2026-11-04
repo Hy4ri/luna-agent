@@ -147,8 +147,11 @@
 }
 
 .cron-item {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   width: 100%;
+  min-width: 0;
   text-align: left;
   border: none;
   border-bottom: 1px solid var(--border);
