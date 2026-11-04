@@ -8,17 +8,29 @@ const searchTarget = ref<HTMLElement>();
 const loading = ref(false);
 const loadError = ref(false);
 const selectError = ref("");
+const selecting = ref(false);
+let openGeneration = 0;
+let refreshGeneration = 0;
+let interacted = false;
+function markInteracted() { interacted = true; }
 
 async function refreshModels() {
+  const request = ++refreshGeneration;
+  const opening = openGeneration;
   loading.value = true;
   loadError.value = false;
   try {
-    loadError.value = !(await loadModels({ force: true }));
+    const ok = await loadModels({ force: true });
+    if (request === refreshGeneration) loadError.value = !ok;
   } catch {
-    loadError.value = true;
+    if (request === refreshGeneration) loadError.value = true;
   } finally {
-    loading.value = false;
-    selectorRef.value?.revealSelected();
+    if (request === refreshGeneration) {
+      loading.value = false;
+      if (opening === openGeneration && !interacted && pickerRef.value?.matches(":popover-open")) {
+        selectorRef.value?.revealSelected();
+      }
+    }
   }
 }
 
@@ -31,44 +43,63 @@ function position() {
   const box = pickerRef.value;
   if (!btn || !box) return;
   const r = btn.getBoundingClientRect();
-  const w = Math.min(480, innerWidth - 16);
-  const maxH = Math.min(680, r.top - 16);
+  const viewport = window.visualViewport;
+  const visible = viewport?.scale === 1 ? viewport : null;
+  const left = visible?.offsetLeft ?? 0;
+  const top = visible?.offsetTop ?? 0;
+  const width = visible?.width ?? innerWidth;
+  const height = visible?.height ?? innerHeight;
+  const w = Math.min(480, width - 16);
+  // The keyboard can cover the trigger without resizing the layout viewport.
+  const anchorTop = Math.max(top + 8, Math.min(r.top, top + height - 8));
+  const anchorBottom = Math.max(top + 8, Math.min(r.bottom, top + height - 8));
+  const above = Math.max(0, anchorTop - top - 16);
+  const below = Math.max(0, top + height - anchorBottom - 16);
+  // Prefer the space above the composer. Fall back below only if it has more room.
+  const useAbove = above >= Math.min(320, height / 2) || above >= below;
   Object.assign(box.style, {
     width: w + "px",
-    left: Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px",
-    bottom: innerHeight - r.top + 8 + "px",
-    top: "auto",
+    left: Math.max(left + 8, Math.min(r.left, left + width - w - 8)) + "px",
+    bottom: useAbove ? innerHeight - anchorTop + 8 + "px" : "auto",
+    top: useAbove ? "auto" : anchorBottom + 8 + "px",
     right: "auto",
-    maxHeight: maxH + "px",
+    maxHeight: Math.min(680, useAbove ? above : below) + "px",
   } as CSSStyleDeclaration);
 }
 
 async function handleSelect(key: string, _model: ModelInfo | null) {
-  if (!key) return;
+  if (!key || selecting.value) return;
+  const opening = openGeneration;
   const [provider, ...rest] = key.split("/");
   const id = rest.join("/");
   const m = models.list.find(x => x.provider === provider && x.id === id) || { provider, id, name: id } as ModelInfo;
-  const ok = await chooseModel(m);
-  if (ok) {
-    selectError.value = "";
-    (pickerRef.value as any)?.hidePopover?.();
-    document.getElementById("model")?.focus();
-    emit("close");
-  } else {
-    selectError.value = "Could not change model. Try again.";
+  selecting.value = true;
+  selectError.value = "";
+  try {
+    const ok = await chooseModel(m);
+    if (opening !== openGeneration) return;
+    if (ok) closePicker();
+    else selectError.value = "Could not change model. Try again.";
+  } finally {
+    selecting.value = false;
   }
 }
 
 function handleBeforeToggle(e: Event) {
   const open = (e as any).newState === "open";
+  openGeneration++;
   document.getElementById("model")?.setAttribute("aria-expanded", String(open));
   if (open) {
     selectError.value = "";
+    interacted = false;
+    selectorRef.value?.prepareOpen();
     position();
     void refreshModels();
-    void nextTick(() => { selectorRef.value?.focusSearch(); selectorRef.value?.revealSelected(); });
+    void nextTick(() => selectorRef.value?.focusSearch());
     emit("open");
   } else {
+    refreshGeneration++;
+    loading.value = false;
     emit("close");
   }
 }
@@ -127,10 +158,13 @@ onMounted(() => {
   pickerRef.value?.addEventListener("beforetoggle", handleBeforeToggle as any);
   window.addEventListener("resize", onResize);
   window.visualViewport?.addEventListener("resize", onViewportResize);
+  window.visualViewport?.addEventListener("scroll", onViewportResize);
+  window.addEventListener("scroll", onResize, true);
   const btn = document.getElementById("model");
   if (btn && typeof ResizeObserver !== "undefined") {
     triggerObserver = new ResizeObserver(() => onResize());
     triggerObserver.observe(btn);
+    if (btn.parentElement?.parentElement) triggerObserver.observe(btn.parentElement.parentElement);
   }
   document.addEventListener("pointerdown", onDocPointerDown);
 });
@@ -138,6 +172,10 @@ onUnmounted(() => {
   pickerRef.value?.removeEventListener("beforetoggle", handleBeforeToggle as any);
   window.removeEventListener("resize", onResize);
   window.visualViewport?.removeEventListener("resize", onViewportResize);
+  window.visualViewport?.removeEventListener("scroll", onViewportResize);
+  window.removeEventListener("scroll", onResize, true);
+  refreshGeneration++;
+  openGeneration++;
   triggerObserver?.disconnect();
   document.removeEventListener("pointerdown", onDocPointerDown);
 });
@@ -151,7 +189,9 @@ onUnmounted(() => {
     role="dialog"
     aria-label="Choose model"
     @keydown="handleKeydown"
-    @keydown.capture="handleTabKeydown"
+    @pointerdown.capture="markInteracted"
+    @wheel.passive="markInteracted"
+    @keydown.capture="markInteracted(); handleTabKeydown($event)"
     @toggle="handleToggle"
   >
     <div class="mp-head">
@@ -165,17 +205,16 @@ onUnmounted(() => {
       :value="selectedKey"
       :search-target="searchTarget"
       :loading="loading"
+      :selecting="selecting"
+      :error="loadError ? (models.list.length ? 'Could not refresh models. Showing saved models.' : 'Could not load models.') : ''"
       placeholder="Search by provider, model, or name…"
       empty-label=""
       empty-hint="Add a provider in Settings → Accounts & connections."
+      @retry="refreshModels"
       @select="handleSelect"
       @close="closePicker"
     />
 
-    <p v-if="loadError && !models.list.length" class="mp-error" role="alert">
-      Could not load models.
-      <button type="button" class="mp-retry" @click="refreshModels">Retry</button>
-    </p>
     <p v-if="selectError" class="mp-error" role="alert">{{ selectError }}</p>
     <p class="mp-hint">↑↓ navigate · Enter select · Esc clear / close</p>
   </div>
@@ -199,15 +238,13 @@ onUnmounted(() => {
   max-height: min(680px, calc(100dvh - 16px));
   z-index: 30;
 }
-#model-picker :deep(.model-selector) { min-height: 0; }
+#model-picker :deep(.model-selector) { flex: 1 1 auto; min-height: 0; margin-top: 8px; }
 #model-picker :deep(input),
 #model-picker :deep(.ms-row),
 #model-picker :deep(.ms-badge),
-#model-picker :deep(.ms-pin),
-#model-picker .mp-empty { border-radius: 1px; }
-#model-picker :deep(.ms-list) { flex: 1; min-height: 120px; }
+#model-picker :deep(.ms-pin) { border-radius: 1px; }
 #model-picker:popover-open { display: flex; }
-.mp-head { display: flex; flex-direction: column; gap: 8px; padding: 0 8px; background: transparent; }
+.mp-head { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 0 8px; background: transparent; }
 #model-picker :deep(.ms-provider),
 #model-picker :deep(.ms-entry) { border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 1px; background: var(--background); }
 #model-picker :deep(.ms-section-head) { background: transparent; }
@@ -215,9 +252,7 @@ onUnmounted(() => {
 #model-picker :deep(.ms-provider:hover) { background: var(--accent); }
 #model-picker :deep(.ms-entry:not(.ms-entry-pinned)) { border-left: 1px solid var(--border); }
 .mp-head h3 { font-size: 14px; font-weight: 650; letter-spacing: -.015em; }
-.mp-search-slot { flex: 1; min-width: 0; }
-.mp-error { font-size: 13px; color: var(--destructive, #e5484d); text-align: center; padding: 8px; }
-.mp-retry { margin-left: 8px; min-height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--foreground); cursor: pointer; }
-.mp-retry:hover { background: var(--accent); }
-.mp-hint { font-size: 11px; color: var(--muted-foreground); text-align: center; padding: 4px 8px 0; }
+.mp-search-slot { flex: none; min-width: 0; }
+.mp-error { flex: none; font-size: 13px; color: var(--destructive); text-align: center; padding: 8px; }
+.mp-hint { flex: none; font-size: 11px; color: var(--muted-foreground); text-align: center; padding: 4px 8px 0; }
 </style>

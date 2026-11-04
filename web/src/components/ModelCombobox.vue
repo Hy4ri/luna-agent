@@ -2,6 +2,7 @@
 import { computed, inject, ref, watch, nextTick } from "vue";
 import { ChevronsUpDown } from "@lucide/vue";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { loadModels, models } from "@/stores/models";
 import ModelSelector from "@/components/ModelSelector.vue";
 
 const props = withDefaults(defineProps<{
@@ -25,6 +26,24 @@ const emit = defineEmits<{
 }>();
 
 const open = ref(false);
+const loading = ref(false);
+const loadError = ref(false);
+let refreshGeneration = 0;
+let interacted = false;
+async function refreshModels() {
+  const request = ++refreshGeneration;
+  loading.value = true;
+  loadError.value = false;
+  try {
+    const ok = await loadModels({ force: true });
+    if (request === refreshGeneration) loadError.value = !ok;
+  } finally {
+    if (request === refreshGeneration) {
+      loading.value = false;
+      if (open.value && !interacted) selectorRef.value?.revealSelected();
+    }
+  }
+}
 const selectorRef = ref<InstanceType<typeof ModelSelector> | null>(null);
 
 // label: try to resolve via injected choices + fallback to raw value
@@ -58,7 +77,14 @@ function onSelect(key: string) {
 }
 
 watch(open, (v) => {
-  if (v) void nextTick(() => selectorRef.value?.focusSearch());
+  if (v) {
+    interacted = false;
+    void refreshModels();
+    void nextTick(() => { selectorRef.value?.prepareOpen(); selectorRef.value?.focusSearch(); });
+  } else {
+    refreshGeneration++;
+    loading.value = false;
+  }
 });
 </script>
 
@@ -69,6 +95,7 @@ watch(open, (v) => {
         type="button"
         class="input combobox-trigger"
         :disabled="disabled"
+        :title="displayLabel"
         :aria-label="ariaLabel ? `${ariaLabel}: ${displayLabel}` : `Choose model: ${displayLabel}`"
         :data-setting="dataSetting"
         :data-empty="!modelValue ? 'true' : undefined"
@@ -77,14 +104,22 @@ watch(open, (v) => {
         <ChevronsUpDown :size="16" class="combobox-chevron" aria-hidden="true" />
       </button>
     </PopoverTrigger>
-    <PopoverContent align="start" side="bottom" :side-offset="6" class="w-[min(440px,calc(100vw-16px))] p-3 max-h-[min(520px,70dvh)] overflow-hidden flex flex-col">
+    <PopoverContent
+      align="start" side="bottom" :side-offset="6"
+      class="w-[min(440px,calc(100vw-16px))] p-3 max-h-[min(520px,70dvh,var(--reka-popover-content-available-height))] overflow-hidden flex flex-col"
+      @pointerdown.capture="interacted = true"
+      @keydown.capture="interacted = true"
+      @wheel.passive="interacted = true"
+    >
       <ModelSelector
         ref="selectorRef"
         :value="modelValue || ''"
+        :loading="loading"
+        :error="loadError ? (models.list.length ? 'Could not refresh models. Showing saved models.' : 'Could not load models.') : ''"
         :placeholder="placeholder"
         :empty-label="emptyLabel"
+        @retry="refreshModels"
         @select="onSelect as any"
-        @change="onSelect as any"
         @close="open = false"
       />
     </PopoverContent>

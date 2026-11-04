@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, inject } from "vue";
+import { computed, ref, watch, nextTick, inject, onMounted } from "vue";
 import { Pin, PinOff, Search, Brain, Eye, Check, ArrowUp, ArrowDown, ChevronRight } from "@lucide/vue";
 import { models, modelKey, togglePin, movePin } from "@/stores/models";
 import type { ModelInfo } from "@/lib/types";
@@ -41,6 +41,8 @@ const props = withDefaults(defineProps<{
   compactPicker?: boolean;
   loading?: boolean;
   emptyHint?: string;
+  error?: string;
+  selecting?: boolean;
 }>(), {
   placeholder: "Search models…",
   emptyLabel: "Use default",
@@ -49,24 +51,38 @@ const props = withDefaults(defineProps<{
   compactPicker: false,
   loading: false,
   emptyHint: "",
+  error: "",
+  selecting: false,
 });
 
 const emit = defineEmits<{
   select: [key: string, model: ModelInfo | null];
   change: [value: string | undefined];
   close: [];
+  retry: [];
 }>();
 
 const editingPins = ref(false);
+const pinPending = ref(false);
+const pinError = ref("");
 const query = ref("");
 const openProviders = ref(new Set<string>());
 const activeIndex = ref(0);
 const searchRef = ref<HTMLInputElement | null>(null);
 const listRef = ref<HTMLElement | null>(null);
 
+const catalogKeys = computed(() => new Set(effectiveModels.value.map(modelKey)));
+// Keep missing catalog entries visible so saved pins can still be removed.
+const savedPins = computed(() => models.pins.map(key => {
+  const [provider, ...rest] = key.split("/");
+  const id = rest.join("/");
+  const model = effectiveModels.value.find(m => modelKey(m) === key) ?? { provider, id, name: id } as ModelInfo;
+  return { key, model };
+}));
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
-  return effectiveModels.value.filter(m => !q || `${m.provider}/${m.id} ${m.name || ""}`.toLowerCase().includes(q));
+  const entries = [...effectiveModels.value, ...savedPins.value.filter(p => !catalogKeys.value.has(p.key)).map(p => p.model)];
+  return entries.filter(m => !q || `${m.provider}/${m.id} ${m.name || ""}`.toLowerCase().includes(q));
 });
 const providerGroups = computed(() => {
   const searching = !!query.value.trim();
@@ -88,17 +104,7 @@ function toggleProvider(provider: string) {
   openProviders.value = next;
 }
 
-const pinnedModels = computed(() => {
-  if (query.value.trim()) return [];
-  return models.pins
-    .map(key => {
-      const [provider, ...rest] = key.split("/");
-      const id = rest.join("/");
-      const found = effectiveModels.value.find(m => m.provider === provider && m.id === id);
-      return { key, model: found as ModelInfo | undefined, provider, id };
-    })
-    .filter(x => !!x.model);
-});
+const pinnedModels = computed(() => query.value.trim() ? [] : savedPins.value);
 
 type ListItem = { kind: "provider"; key: string; provider: string; count: number; open: boolean }
   | { kind: "model"; key: string; model: ModelInfo; pinned: boolean; pinIndex: number; index: number };
@@ -136,6 +142,7 @@ function reasoning(m: ModelInfo) {
 }
 
 function selectKey(key: string) {
+  if (props.selecting || !catalogKeys.value.has(key)) return;
   const [provider, ...rest] = key.split("/");
   const id = rest.join("/");
   const model = effectiveModels.value.find(m => m.provider === provider && m.id === id) || null;
@@ -153,9 +160,25 @@ function selectModel(m: ModelInfo) {
   selectKey(modelKey(m));
 }
 
-function handleTogglePin(key: string, e: Event) {
-  e.stopPropagation();
-  togglePin(key);
+async function updatePin(key: string, direction?: -1 | 1) {
+  if (pinPending.value) return;
+  pinPending.value = true;
+  pinError.value = "";
+  try {
+    const ok = await (direction ? movePin(key, direction) : togglePin(key));
+    if (!ok) pinError.value = "Could not save pinned models. Try again.";
+  } finally {
+    pinPending.value = false;
+  }
+}
+
+function scrollToRow(row: HTMLElement) {
+  const list = listRef.value;
+  if (!list) return;
+  const box = list.getBoundingClientRect();
+  const item = row.getBoundingClientRect();
+  if (item.top < box.top) list.scrollTop += item.top - box.top;
+  else if (item.bottom > box.bottom) list.scrollTop += item.bottom - box.bottom;
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -174,14 +197,19 @@ function onKeydown(e: KeyboardEvent) {
   if (!row && !searching) return;
   if (searching && e.key === "Enter") {
     e.preventDefault();
-    const model = visibleModels.value[activeIndex.value];
+    if (activeIndex.value === -1 && props.emptyLabel && !props.selecting) {
+      emit("select", "", null); emit("change", undefined);
+      return;
+    }
+    const active = visibleModels.value[activeIndex.value];
+    const model = active && catalogKeys.value.has(modelKey(active)) ? active : visibleModels.value.find(m => catalogKeys.value.has(modelKey(m)));
     if (model) selectModel(model);
     return;
   }
   // Focused rows use their own native Enter/Space click, never a stale active index.
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
   if (searching && (e.key === "Home" || e.key === "End")) return;
-  const rows = [...(listRef.value?.querySelectorAll<HTMLButtonElement>(".ms-row, .ms-provider") ?? [])]
+  const rows = [...(listRef.value?.querySelectorAll<HTMLButtonElement>("button.ms-row, button.ms-provider") ?? [])]
     .filter(button => !button.disabled && button.getAttribute("aria-disabled") !== "true");
   if (!rows.length) return;
   e.preventDefault();
@@ -189,19 +217,22 @@ function onKeydown(e: KeyboardEvent) {
   const next = e.key === "Home" ? 0 : e.key === "End" ? rows.length - 1
     : index < 0 ? (e.key === "ArrowDown" ? 0 : rows.length - 1)
     : Math.max(0, Math.min(rows.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
-  rows[next]?.focus();
-  rows[next]?.scrollIntoView({ block: "nearest" });
+  const nextRow = rows[next];
+  if (nextRow) { nextRow.focus({ preventScroll: true }); scrollToRow(nextRow); }
 }
 
 watch(() => props.searchVisible, visible => { if (!visible) query.value = ""; });
 
-watch(query, () => { activeIndex.value = 0; });
+watch(query, () => {
+  activeIndex.value = 0;
+  void nextTick(() => { if (listRef.value) listRef.value.scrollTop = 0; });
+});
 watch(visibleModels, (list) => {
   if (activeIndex.value >= list.length) activeIndex.value = Math.max(0, list.length - 1);
 });
 
 function focusSearch() {
-  void nextTick(() => searchRef.value?.focus());
+  void nextTick(() => searchRef.value?.focus({ preventScroll: true }));
 }
 
 /** Expand the selected model's provider group and scroll it into view. */
@@ -209,17 +240,29 @@ function revealSelected() {
   const key = props.value;
   if (!key) return;
   const [provider] = key.split("/");
-  if (provider && !query.value.trim()) {
+  if (provider && !query.value.trim() && !models.pins.includes(key)) {
     const next = new Set(openProviders.value);
     next.add(provider);
     openProviders.value = next;
   }
   void nextTick(() => {
-    listRef.value?.querySelector<HTMLElement>('[data-selected="true"]')?.scrollIntoView({ block: "nearest" });
+    const row = listRef.value?.querySelector<HTMLElement>('[data-selected="true"]');
+    if (row) scrollToRow(row);
+  });
+}
+function prepareOpen() {
+  query.value = "";
+  editingPins.value = false;
+  pinError.value = "";
+  activeIndex.value = 0;
+  void nextTick(() => {
+    if (listRef.value) listRef.value.scrollTop = 0;
+    revealSelected();
   });
 }
 watch(() => props.value, () => revealSelected());
-defineExpose({ focusSearch, revealSelected });
+onMounted(prepareOpen);
+defineExpose({ focusSearch, revealSelected, prepareOpen });
 </script>
 
 <template>
@@ -240,13 +283,21 @@ defineExpose({ focusSearch, revealSelected });
     </div>
     </Teleport>
 
-    <div ref="listRef" class="ms-list" role="group" aria-label="Models">
+    <p v-if="loading" class="ms-notice" role="status">{{ effectiveModels.length ? "Refreshing models…" : "Loading models…" }}</p>
+    <div v-else-if="error" class="ms-notice ms-error" role="alert">
+      <span>{{ error }}</span>
+      <button type="button" class="ms-retry" @click="emit('retry')">Retry</button>
+    </div>
+    <p v-if="pinError" class="ms-notice ms-error" role="alert">{{ pinError }}</p>
+    <p v-if="selecting" class="ms-notice" role="status">Changing model…</p>
+
+    <div ref="listRef" class="ms-list" role="group" aria-label="Models" :aria-busy="loading || selecting">
 
       <button
         v-if="emptyLabel"
         type="button"
         class="ms-row"
-
+        :disabled="selecting"
         :data-active="activeIndex === -1 ? 'true' : undefined"
         :data-selected="!value ? 'true' : undefined"
         :aria-pressed="!value"
@@ -264,31 +315,42 @@ defineExpose({ focusSearch, revealSelected });
         <button type="button" class="ms-edit" :aria-pressed="editingPins" @click="editingPins = !editingPins">{{ editingPins ? "Done" : "Edit" }}</button>
       </div>
       <div v-if="section === 'providers' && pinnedModels.length && providerGroups.length" class="ms-divider" role="separator" aria-label="Other models"></div>
-      <div v-if="section === 'pinned' ? pinnedModels.length : providerGroups.length" :class="section === 'pinned' ? 'ms-pinned-scroll' : 'ms-provider-scroll'">
+      <div v-if="section === 'pinned' ? pinnedModels.length : providerGroups.length" :class="section === 'pinned' ? 'ms-pinned-group' : 'ms-provider-group'">
       <template v-for="item in listItems.filter(item => section === 'pinned' ? item.kind === 'model' && item.pinned : item.kind === 'provider' || !item.pinned)" :key="item.key">
         <template v-if="item.kind === 'provider'">
-          <button type="button" class="ms-provider" :aria-expanded="item.open" :aria-disabled="!!query.trim()" :tabindex="query.trim() ? -1 : 0" @click="toggleProvider(item.provider)">
-            <ChevronRight :size="14" class="ms-provider-chevron" :class="{ 'is-open': item.open }" aria-hidden="true" />
+          <component
+            :is="query.trim() ? 'div' : 'button'"
+            :type="query.trim() ? undefined : 'button'"
+            class="ms-provider"
+            :class="{ 'ms-provider-label': query.trim() }"
+            :role="query.trim() ? 'heading' : undefined"
+            :aria-level="query.trim() ? 4 : undefined"
+            :aria-expanded="query.trim() ? undefined : item.open"
+            @click="toggleProvider(item.provider)"
+          >
+            <ChevronRight v-if="!query.trim()" :size="14" class="ms-provider-chevron" :class="{ 'is-open': item.open }" aria-hidden="true" />
             <span class="ms-provider-name">{{ item.provider }}</span>
             <span class="ms-provider-count">{{ item.count }}</span>
-          </button>
+          </component>
         </template>
         <template v-else>
               <div class="ms-entry" :class="{ 'ms-entry-pinned': item.pinned }">
             <button
               type="button"
               class="ms-row"
+              :disabled="selecting || !catalogKeys.has(item.key)"
               :data-model-index="item.index"
               :data-active="activeIndex === item.index ? 'true' : undefined"
               :data-selected="isSelected(item.model) ? 'true' : undefined"
               :aria-pressed="isSelected(item.model)"
+              :title="`${displayName(item.model)} · ${modelKey(item.model)}`"
               @click="selectModel(item.model)"
               @mouseenter="activeIndex = item.index"
               @focus="activeIndex = item.index"
       >
               <span class="ms-row-main">
           <span class="ms-name">{{ displayName(item.model) }}</span>
-          <span class="ms-sub">{{ item.pinned ? item.model.provider : `${item.model.provider} · ${item.model.id}` }}</span>
+          <span class="ms-sub">{{ item.pinned ? item.model.provider : `${item.model.provider} · ${item.model.id}` }}<template v-if="!catalogKeys.has(item.key)"> · Unavailable</template></span>
               </span>
               <span v-if="isSelected(item.model)" class="ms-current">Current</span>
               <span class="ms-badges">
@@ -298,11 +360,11 @@ defineExpose({ focusSearch, revealSelected });
               <Check v-if="isSelected(item.model)" :size="14" class="ms-selected" aria-hidden="true" />
             </button>
             <div v-if="editingPins && item.pinned" class="ms-pin-actions">
-              <button type="button" class="ms-pin" :disabled="item.pinIndex === 0" :aria-label="'Move ' + displayName(item.model) + ' up'" @click="movePin(modelKey(item.model), -1)"><ArrowUp :size="14" /></button>
-              <button type="button" class="ms-pin" :disabled="item.pinIndex === pinnedModels.length - 1" :aria-label="'Move ' + displayName(item.model) + ' down'" @click="movePin(modelKey(item.model), 1)"><ArrowDown :size="14" /></button>
-              <button type="button" class="ms-pin" :aria-label="'Unpin ' + displayName(item.model)" @click="handleTogglePin(modelKey(item.model), $event)"><PinOff :size="14" /></button>
+              <button type="button" class="ms-pin" :disabled="pinPending || item.pinIndex === 0" :aria-label="'Move ' + displayName(item.model) + ' up'" @click="updatePin(item.key, -1)"><ArrowUp :size="14" /></button>
+              <button type="button" class="ms-pin" :disabled="pinPending || item.pinIndex === pinnedModels.length - 1" :aria-label="'Move ' + displayName(item.model) + ' down'" @click="updatePin(item.key, 1)"><ArrowDown :size="14" /></button>
+              <button type="button" class="ms-pin" :disabled="pinPending" :aria-label="'Unpin ' + displayName(item.model)" @click="updatePin(item.key)"><PinOff :size="14" /></button>
             </div>
-            <button v-else-if="!isPinned(modelKey(item.model)) || !pinnedModels.length" type="button" class="ms-pin" :aria-label="(isPinned(modelKey(item.model)) ? 'Unpin ' : 'Pin ') + modelKey(item.model)" :aria-pressed="isPinned(modelKey(item.model))" @click="handleTogglePin(modelKey(item.model), $event)">
+            <button v-else-if="query.trim() || !isPinned(item.key)" type="button" class="ms-pin" :disabled="pinPending" :aria-label="(isPinned(modelKey(item.model)) ? 'Unpin ' : 'Pin ') + modelKey(item.model)" :aria-pressed="isPinned(modelKey(item.model))" @click="updatePin(item.key)">
               <PinOff v-if="isPinned(modelKey(item.model))" :size="14" /><Pin v-else :size="14" />
             </button>
               </div>
@@ -312,10 +374,7 @@ defineExpose({ focusSearch, revealSelected });
       </div>
       </template>
 
-      <p v-if="loading && !filtered.length" class="ms-empty" role="status">
-        Loading models…
-      </p>
-      <p v-else-if="!filtered.length" class="ms-empty" role="status">
+      <p v-if="!filtered.length && !loading && (!error || query.trim())" class="ms-empty" role="status">
         <template v-if="query.trim()">No models match “{{ query }}”.</template>
         <template v-else>No models available.<span v-if="emptyHint"> {{ emptyHint }}</span></template>
       </p>
@@ -328,21 +387,23 @@ defineExpose({ focusSearch, revealSelected });
 </template>
 
 <style scoped>
-.model-selector { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
-.ms-search { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; }
+.model-selector { flex: 1 1 auto; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
+.ms-search { flex: none; min-width: 0; position: relative; display: flex; align-items: center; }
 .ms-search-icon { position: absolute; left: 10px; color: var(--muted-foreground); pointer-events: none; }
 .ms-search input { width: 100%; min-height: 38px; padding: 8px 36px 8px 32px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 14px; }
 .ms-search input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .ms-search input::placeholder { color: var(--muted-foreground); }
 .ms-count { position: absolute; right: 10px; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .ms-provider { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
-.ms-provider:hover { background: var(--accent); }
+.ms-provider:not(.ms-provider-label):hover { background: var(--accent); }
+.ms-provider-label { cursor: default; }
 .ms-provider:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .ms-provider-chevron { flex: none; color: var(--muted-foreground); transition: transform .15s ease; }
 .ms-provider-chevron.is-open { transform: rotate(90deg); }
 .ms-provider-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 600; }
 .ms-provider-count { color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
 .ms-entry:not(.ms-entry-pinned) { margin-left: 14px; border-left: 1px solid var(--border); padding-left: 3px; }
+@media (max-width: 767px) { .ms-search input { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .ms-provider-chevron { transition: none; } }
 .ms-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 0 10px; }
 .ms-section-label { font-size: 11px; font-weight: 600; color: var(--muted-foreground); }
@@ -354,15 +415,14 @@ defineExpose({ focusSearch, revealSelected });
 .ms-pin-actions { display: flex; flex: none; }
 .ms-pin:disabled { opacity: .35; cursor: default; }
 .ms-edit:focus-visible, .ms-pin:focus-visible, .ms-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.ms-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; scrollbar-width: thin; padding: 2px; }
-.ms-pinned-scroll, .ms-provider-scroll { display: flex; flex-direction: column; gap: 4px; }
-.ms-compact-picker .ms-list { overflow: hidden; max-height: 620px; gap: 4px; }
-.ms-compact-picker .ms-pinned-scroll { flex: 0 1 auto; min-height: 0; max-height: min(220px, 35dvh); overflow-y: auto; scrollbar-width: thin; }
-.ms-compact-picker .ms-provider-scroll { flex: 1 1 auto; min-height: 72px; overflow-y: auto; scrollbar-width: thin; }
-.ms-compact-picker .ms-section-head { flex: none; }
+/* One scroll owner. Expanding providers must never shrink or clip pinned rows. */
+.ms-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px; overflow-anchor: none; }
+.ms-list > *, .ms-pinned-group > *, .ms-provider-group > * { flex-shrink: 0; }
+.ms-pinned-group, .ms-provider-group { display: flex; flex-direction: column; gap: 4px; }
+.ms-compact-picker .ms-list { max-height: none; }
 .ms-compact-picker .ms-divider { margin: 4px 0; }
 .ms-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
-.ms-row:hover, .ms-row[data-active="true"] { background: var(--accent); border-color: var(--border); }
+.ms-row:not(:disabled):hover, .ms-row[data-active="true"] { background: var(--accent); border-color: var(--border); }
 .ms-row[data-selected="true"] { background: var(--acc-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
 .ms-row-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .ms-name { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -381,7 +441,12 @@ defineExpose({ focusSearch, revealSelected });
 .ms-pin:hover { background: var(--secondary); color: var(--foreground); }
 .ms-pin[data-pinned="true"] { color: var(--primary-text); }
 .ms-empty { padding: 16px 8px; text-align: center; font-size: 13px; color: var(--muted-foreground); }
-.ms-footer { display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 8px; }
+.ms-footer { flex: none; display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 8px; }
+.ms-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; font-size: 12px; color: var(--muted-foreground); }
+.ms-error { color: var(--destructive); }
+.ms-retry { flex: none; min-height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--foreground); cursor: pointer; }
+.ms-retry:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.ms-row:disabled { opacity: .6; cursor: default; }
 .ms-hint { font-size: 11px; color: var(--muted-foreground); }
 @media (max-width: 760px) {
   .ms-search input { min-height: 44px; font-size: 16px; }
