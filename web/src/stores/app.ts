@@ -4,6 +4,7 @@ import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, ur
 import { activeAddress, connection, connectionFailure, findWorkingAddress, preferredAddress, recoveryOpen, rememberConnection, reportConnectionFailure } from "@/lib/connections";
 import { isMobile } from "@/lib/dom";
 import { resolveSettingsRoute } from "@/pages/settings/catalog";
+import { registerPush } from "@/lib/platform";
 import { sessionPane } from "@/lib/pane";
 import * as chatStore from "./chat";
 import * as modelsStore from "./models";
@@ -307,6 +308,7 @@ export async function boot() {
     reportConnectionFailure(bootFailureSource, false); chat.chat.bootError = "";
     if (routeNotice) { chat.addErr(routeNotice, "muted"); routeNotice = ""; }
     void badge.refreshCronBadge();
+    if (!sessionPane) void registerPush();
     badgeTimer ??= setInterval(() => { if (!document.hidden && !ui.login) void badge.refreshCronBadge(); }, 30_000);
     applyHash();
   } catch (e) {

@@ -54,6 +54,7 @@ import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
 import { LimitContinuer } from "./limit-continue.js";
+import { DeviceStore, FcmSender, loadServiceAccount, PushNotifier } from "./push.js";
 import { SubagentNotifier } from "./subagent-notify.js";
 import { CrewNotifier, createSessionCrewExtension } from "./session-crew.js";
 import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./workers.js";
@@ -316,6 +317,18 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("delegate")) await subagentNotifier.start();
   const crewNotifier = new CrewNotifier({ harness, log, title: id => conversations.get(id).title, skip: id => conversations.get(id).archived });
   if (on("delegate")) await crewNotifier.start();
+  // Android push: needs a Firebase service-account key. Without one the feature is off.
+  let push: { devices: DeviceStore; notifier: PushNotifier } | undefined;
+  if (cfg.push.serviceAccountFile) {
+    try {
+      const devices = new DeviceStore(join(cfg.dataDir, "push-devices.json"));
+      const sender = new FcmSender(loadServiceAccount(cfg.push.serviceAccountFile), devices, o.fetch);
+      const notifier = new PushNotifier({ harness, log, send: m => sender.send(m), title: id => conversations.get(id).title,
+        skip: id => conversations.get(id).archived, isCron: id => !!store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1").get(String(id)) });
+      notifier.start();
+      push = { devices, notifier };
+    } catch (e) { log(`push disabled: ${(e as Error).message}`); }
+  }
   // Continue after a usage limit resets. Cron runs have their own timeout and run log, so they never wait.
   const isCronConversation = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
   const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
@@ -391,6 +404,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     sideCommands,
     titler,
     limitContinuer,
+    push: push?.devices,
     config: cfg,
     settings,
     busyInput,
@@ -416,6 +430,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
       await limitContinuer.close();
+      await push?.notifier.close();
       await subagentNotifier.close();
       await crewNotifier.close();
       await titler.close();

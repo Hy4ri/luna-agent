@@ -188,6 +188,8 @@ export const ConfigSchema = z
     skillDirs: z.array(z.string()).default([]),
     mcpServers: z.array(McpServerSchema).default([]),
     cron: z.strictObject({ notifyUrl: z.url().optional(), runTimeoutMinutes: z.number().positive().optional() }).prefault({}),
+    /** Android push through Firebase Cloud Messaging. Off until a service-account key file is set. */
+    push: z.strictObject({ serviceAccountFile: z.string().min(1).optional() }).prefault({}),
     improve: z.strictObject({ schedule: cronExpr.optional(), allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
     /** Contextual learning capture. Model review is explicit; no built-in scheduled model pass. */
     learn: z.strictObject({
@@ -253,6 +255,7 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
     subagents: { ...c.subagents, ...(c.subagents.cwd ? { cwd: expand(c.subagents.cwd, base) } : {}) },
     cwd: c.cwd ? expand(c.cwd, base) : undefined,
     image_gen: { ...c.image_gen, "openai-codex": { ...c.image_gen["openai-codex"], ...(c.image_gen["openai-codex"].codexHome ? { codexHome: expand(c.image_gen["openai-codex"].codexHome, base) } : {}) } },
+    push: c.push.serviceAccountFile ? { serviceAccountFile: expand(c.push.serviceAccountFile, base) } : {},
     skillDirs: c.skillDirs.map((d) => expand(d, base)),
     allSkillDirs: [join(dataDir, "skills"), ...c.skillDirs.map((d) => expand(d, base))],
     mcpServers: c.mcpServers.map((s) => (s.transport === "stdio" && s.cwd ? { ...s, cwd: expand(s.cwd, base) } : s)),
