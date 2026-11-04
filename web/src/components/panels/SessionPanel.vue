@@ -100,13 +100,9 @@ watch(() => chat.session, fetchData);
 
 <template>
   <div class="grid">
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <PanelStatus :loading="loading" :error="errorMsg" />
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <div class="card grid" id="machine-picker">
       <b>Execution machine</b>

@@ -177,13 +177,9 @@ onUnmounted(() => {
 <template>
   <fieldset class="grid manager-form" :disabled="pending">
     <p class="muted">Account actions apply immediately. Choose the default model in Settings → Models.</p>
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <PanelStatus :loading="loading" :error="errorMsg" />
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <template v-if="providerData">
       <!-- Interactive Login Box if active -->

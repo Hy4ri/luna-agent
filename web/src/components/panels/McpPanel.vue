@@ -117,13 +117,9 @@ onMounted(() => {
 
 <template>
   <fieldset class="grid manager-form" :disabled="pending">
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <PanelStatus :loading="loading" :error="errorMsg" />
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <!-- Add MCP server form -->
     <details class="card" data-manager-form="mcp-add"><summary class="row"><ChevronRight :size="16" /><b>Add MCP server</b></summary><div class="grid manager-body">

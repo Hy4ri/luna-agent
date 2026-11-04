@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Shared listbox for the composer popups (mentions, slash commands, @ sources).
 // Wrappers supply the group header, item content and per-item attributes.
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 
 // Entries differ per menu; wrappers own the concrete types.
 type Entry = { flatIndex: number; [key: string]: any };
@@ -27,7 +27,9 @@ const emit = defineEmits<{
 
 const menuRef = ref<HTMLElement | null>(null);
 
-function scrollActiveIntoView() {
+// Wait for the active marker to move before scrolling to it.
+async function scrollActiveIntoView() {
+  await nextTick();
   menuRef.value?.querySelector<HTMLElement>('[data-menu-active="true"]')?.scrollIntoView({ block: "nearest" });
 }
 

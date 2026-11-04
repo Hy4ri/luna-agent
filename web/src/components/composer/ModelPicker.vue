@@ -1,42 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from "vue";
-import { loadModels, models, chooseModel, selectedKey } from "@/stores/models";
+import { models, chooseModel, selectedKey } from "@/stores/models";
+import { useModelRefresh } from "@/lib/use-model-refresh";
 import ModelSelector from "@/components/ModelSelector.vue";
 import type { ModelInfo } from "@/lib/types";
 
 const searchTarget = ref<HTMLElement>();
-const loading = ref(false);
-const loadError = ref(false);
 const selectError = ref("");
 const selecting = ref(false);
 let openGeneration = 0;
-let refreshGeneration = 0;
-let interacted = false;
-function markInteracted() { interacted = true; }
-
-async function refreshModels() {
-  const request = ++refreshGeneration;
-  const opening = openGeneration;
-  loading.value = true;
-  loadError.value = false;
-  try {
-    const ok = await loadModels({ force: true });
-    if (request === refreshGeneration) loadError.value = !ok;
-  } catch {
-    if (request === refreshGeneration) loadError.value = true;
-  } finally {
-    if (request === refreshGeneration) {
-      loading.value = false;
-      if (opening === openGeneration && !interacted && pickerRef.value?.matches(":popover-open")) {
-        selectorRef.value?.revealSelected();
-      }
-    }
-  }
-}
 
 const emit = defineEmits(["open", "close"]);
 const pickerRef = ref<HTMLElement | null>(null);
 const selectorRef = ref<InstanceType<typeof ModelSelector> | null>(null);
+const { loading, errorText, refreshModels, begin, cancel, markInteracted } = useModelRefresh(selectorRef, () => !!pickerRef.value?.matches(":popover-open"));
 
 function position() {
   const btn = document.getElementById("model");
@@ -91,15 +68,13 @@ function handleBeforeToggle(e: Event) {
   document.getElementById("model")?.setAttribute("aria-expanded", String(open));
   if (open) {
     selectError.value = "";
-    interacted = false;
     selectorRef.value?.prepareOpen();
     position();
-    void refreshModels();
+    begin();
     void nextTick(() => selectorRef.value?.focusSearch());
     emit("open");
   } else {
-    refreshGeneration++;
-    loading.value = false;
+    cancel();
     emit("close");
   }
 }
@@ -174,7 +149,7 @@ onUnmounted(() => {
   window.visualViewport?.removeEventListener("resize", onViewportResize);
   window.visualViewport?.removeEventListener("scroll", onViewportResize);
   window.removeEventListener("scroll", onResize, true);
-  refreshGeneration++;
+  cancel();
   openGeneration++;
   triggerObserver?.disconnect();
   document.removeEventListener("pointerdown", onDocPointerDown);
@@ -206,7 +181,7 @@ onUnmounted(() => {
       :search-target="searchTarget"
       :loading="loading"
       :selecting="selecting"
-      :error="loadError ? (models.list.length ? 'Could not refresh models. Showing saved models.' : 'Could not load models.') : ''"
+      :error="errorText"
       placeholder="Search by provider, model, or name…"
       empty-label=""
       empty-hint="Add a provider in Settings → Accounts & connections."

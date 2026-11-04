@@ -63,13 +63,9 @@ onMounted(() => {
 
 <template>
   <div class="grid">
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <PanelStatus :loading="loading" :error="errorMsg" />
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <template v-if="!chat.session">
       <p class="muted">Open a session first.</p>

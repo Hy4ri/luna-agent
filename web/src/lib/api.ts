@@ -34,6 +34,15 @@ export interface ApiOptions extends RequestInit {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
+/** Abort `controller` when `signal` aborts. Returns a cleanup that removes the listener. */
+function linkAbort(signal: AbortSignal | null | undefined, controller: AbortController): (() => void) | undefined {
+  if (!signal) return undefined;
+  if (signal.aborted) { controller.abort(signal.reason); return undefined; }
+  const onAbort = () => controller.abort(signal.reason);
+  signal.addEventListener("abort", onAbort, { once: true });
+  return () => signal.removeEventListener("abort", onAbort);
+}
+
 export async function api(path: string, opts: ApiOptions = {}): Promise<Response> {
   const headers: Record<string, string> = { "content-type": "application/json", ...((opts.headers as Record<string, string>) || {}) };
   const currentToken = token.value;
@@ -51,17 +60,7 @@ export async function api(path: string, opts: ApiOptions = {}): Promise<Response
   } else {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let callerAbortCleanup: (() => void) | undefined;
-
-    if (callerSignal) {
-      if (callerSignal.aborted) {
-        controller.abort(callerSignal.reason);
-      } else {
-        const onCallerAbort = () => controller.abort(callerSignal.reason);
-        callerSignal.addEventListener("abort", onCallerAbort, { once: true });
-        callerAbortCleanup = () => callerSignal.removeEventListener("abort", onCallerAbort);
-      }
-    }
+    const callerAbortCleanup = linkAbort(callerSignal, controller);
 
     timer = setTimeout(() => {
       controller.abort(new DOMException("Request timed out", "TimeoutError"));
@@ -87,18 +86,7 @@ export async function json<T = any>(path: string, opts?: ApiOptions): Promise<T>
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let callerAbortCleanup: (() => void) | undefined;
-
-  const callerSignal = opts?.signal;
-  if (callerSignal) {
-    if (callerSignal.aborted) {
-      controller.abort(callerSignal.reason);
-    } else {
-      const onCallerAbort = () => controller.abort(callerSignal.reason);
-      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
-      callerAbortCleanup = () => callerSignal.removeEventListener("abort", onCallerAbort);
-    }
-  }
+  const callerAbortCleanup = linkAbort(opts?.signal, controller);
 
   if (timeoutMs > 0) {
     timer = setTimeout(() => {
