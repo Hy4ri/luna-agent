@@ -946,7 +946,10 @@ A failed or unanswered member shows an error class and one short line (the provi
 Messages from the lead are `luna.xsession.msg` inputs with a header that names the lead. The header grants no permission.
 The member's prompt gets a **crew** section that names its lead. Only lead messages count as crew tasks; turns the user starts directly in the member do not.
 When a member settles the lead's latest task (done, failed, unanswered, or blocked on approval or input), the lead receives one automatic report with the final answer.
-Reports use durable request IDs and the same idle-only guarded delivery as subagent notifications. A report already collected with `wait` or `show` is not sent again.
+Reports use durable request IDs and the same guarded delivery as subagent notifications.
+Active sessions receive reports at the next safe model boundary, after current tools finish, without waiting for a final answer.
+Idle sessions resume automatically. Stopped, failed, input-blocked, approval-blocked, and limit-reached sessions are not resumed by crew or subagent reports.
+A report already collected with `wait` or `show` is not sent again.
 Missed reports are reconciled on startup. Stopped members and archived leads get no automatic reports.
 A lead and its members can use `session_send` in both directions without a hop limit.
 A lead's `session_send` to its own member counts as a crew task, the same as `send`: its answer is what `wait`, `show`, and the automatic report return.
@@ -990,8 +993,9 @@ Each process retains at most `maxOutputBytes` of UTF-8 output (default 1 MiB; al
 Private snapshots are saved under `<dataDir>/processes`, at most every 250 milliseconds during output, and at completion.
 This is bounded retained output, not an unlimited full log.
 
-Completion submits one follow-up result to the owning conversation and resumes Luna automatically.
-It queues behind current work instead of interrupting it. The result includes a bounded output tail.
+Completion submits one result to the owning conversation and resumes Luna automatically.
+An active run receives it at the next safe model boundary, after current tools finish, without waiting for a final answer.
+Delivery does not cancel the current tool. The result includes a bounded output tail.
 Shell output is untrusted data. Pending delivery survives restart and uses a stable request ID to prevent duplicate submissions.
 If `cron.notifyUrl` is set, an external completion notification carries status only, not shell output.
 Closing a viewer or stopping the conversation does not stop an admitted background process.

@@ -3,6 +3,7 @@
 // sessions: m57 sees them in the sidebar, can talk to them, and they keep every tool, unlike delegate children.
 // Each final answer to a lead task returns to the lead automatically (CrewNotifier). Lead and member talk without
 // a hop limit. Replay safety: create is keyed by the tool call's task id and every message has a deterministic requestId.
+import { REPORT_WHEN_BUSY } from "./report-delivery.js";
 import { Type } from "typebox";
 import { readFileSync } from "node:fs";
 import { configure, defineExtension, defineTool, section, type ConversationId, type TaskId, type Tx } from "@earendil-works/pi-durable";
@@ -302,7 +303,7 @@ async function inspect(tx: Tx, member: ConversationId, title: (id: number) => st
   return { lead, member: Number(member), noticeId, state: report.state, content: `${crewReportHeader(Number(member), name, report.state)}\n\n${body}` };
 }
 
-/** Delivers member reports to the lead. A busy lead gets them after its turn ends; restart reconciles missed reports. */
+/** Delivers member reports to the lead. A busy lead gets them at its next safe model boundary; restart reconciles missed reports. */
 export class CrewNotifier {
   private observation?: { detach(): void };
   private closed = false;
@@ -359,7 +360,7 @@ export class CrewNotifier {
     this.inflight.add(run);
     void run.finally(() => this.inflight.delete(run));
   }
-  /** A lead turn ended: deliver reports that were refused while it was busy. */
+  /** A lead turn ended: retry reports previously blocked by its session status. */
   private async members(lead: number) {
     const ids = await this.o.harness.commit(async tx => (await tx.doc(Crew, lead as ConversationId)).members.filter(m => !m.stopped).map(m => m.id), context).catch(() => [] as number[]);
     for (const id of ids) if (!this.closed) await this.notify(id);
@@ -394,7 +395,7 @@ export class CrewNotifier {
 
         // Transactional submission before any table writes
         const subId = await lead.submit(tx, {
-          type: "input", requestId: pending.noticeId, whenBusy: "reject", content: pending.content,
+          type: "input", requestId: pending.noticeId, whenBusy: REPORT_WHEN_BUSY, content: pending.content,
           entry: { kind: XSESSION_MSG, data: { from: member, hop: 1, requestId: pending.noticeId } satisfies XSessionMarker },
         });
         return { kind: "admitted" as const, id: subId };
