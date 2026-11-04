@@ -66,7 +66,7 @@ watch([() => chat.session, () => chat.draftOpen, () => tileIds.value.length], ()
   if (sessionPane || chat.session || chat.draftOpen || tileIds.value.length !== 1) return;
   const [id] = tileIds.value; tileIds.value = []; void openSession(id);
 });
-// Focused tile gets a thin outline. Frames take focus away from this window, so check activeElement on blur.
+// Focused tile gets a thin border. Frames take focus away from this window, so check activeElement on blur.
 const focusedTile = ref<string>('primary');
 function syncFocus() {
   const el = document.activeElement;
@@ -533,7 +533,7 @@ onUnmounted(() => {
 .tile-split-actions.split-actions-visible, .tile-split-actions:focus-within { opacity: 1; pointer-events: auto; }
 .tile-split-actions .icon-button { width: 28px; height: 28px; }
 .tile-resize { cursor: col-resize; touch-action: none; }
-#main.tile-focused, .session-pane.tile-focused { outline: 1px solid var(--primary); outline-offset: -1px; }
+#main.tile-focused, .session-pane.tile-focused { border: 1px solid var(--primary); }
 .tile-close { width: 28px; height: 28px; }
 .tile-drop-target {
   position: absolute;
