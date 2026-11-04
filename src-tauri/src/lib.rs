@@ -65,7 +65,9 @@ struct Push(tauri::plugin::PluginHandle<tauri::Wry>);
 fn push_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("luna-push")
         .setup(|app, api| {
-            app.manage(Push(api.register_android_plugin("dev.luna.mobile", "PushPlugin")?));
+            app.manage(Push(
+                api.register_android_plugin("dev.luna.mobile", "PushPlugin")?,
+            ));
             Ok(())
         })
         .build()
@@ -76,7 +78,10 @@ fn push_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 async fn get_push_token(app: AppHandle) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
     {
-        app.state::<Push>().0.run_mobile_plugin("getToken", ()).map_err(|e| e.to_string())
+        app.state::<Push>()
+            .0
+            .run_mobile_plugin("getToken", ())
+            .map_err(|e| e.to_string())
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -193,7 +198,11 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![notify, save_download, get_push_token])
+        .invoke_handler(tauri::generate_handler![
+            notify,
+            save_download,
+            get_push_token
+        ])
         .setup(|_app| {
             #[cfg(desktop)]
             setup_tray(_app)?;
