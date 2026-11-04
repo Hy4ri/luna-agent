@@ -8,6 +8,7 @@ import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { parseConfig } from "../src/config.js";
 import { startRuntime } from "../src/runtime.js";
+import { codemodeCatalog } from "../src/codemode.js";
 
 async function runCode(code: string, disabledTools: string[] = [], toolAllowlist?: string[], timeoutMs = 5000) {
   const dir = mkdtempSync(join(tmpdir(), "luna-codemode-"));
@@ -67,3 +68,13 @@ for (const directive of ["", '// @options: {"timeout_ms": 600000}\n']) {
     assert.match(text(result), /timed out|timeout/i);
   });
 }
+
+test("pinned tools stay in the codemode catalog when cheaper tools fill the budget", () => {
+  const params = { type: "object", properties: {} };
+  const cheap = Array.from({ length: 20 }, (_, i) => ({ name: `cheap_${i}`, description: "x", parameters: params }));
+  const bash = { name: "bash", description: "Run a command. ".repeat(40), parameters: params };
+  const section = codemodeCatalog([...cheap, bash], ["bash"], 400)!;
+  assert.match(section, /^### `bash`/m);
+  assert.ok(section.indexOf("### `bash`") < section.indexOf("### `cheap_0`"));
+  assert.match(section, /searchTools\(\)/);
+});
