@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { ref, onMounted } from "vue";
 import { ChevronRight } from "@lucide/vue";
 import { json, post } from "@/lib/api";
@@ -58,7 +59,7 @@ async function saveMemory() {
 }
 
 async function forgetMemory(id: number | string) {
-  if (confirm("Forget this?")) {
+  if (await confirmAction({ title: "Forget this memory?", confirmLabel: "Forget", danger: true })) {
     try {
       await json(`/v1/memory/${id}`, { method: "DELETE" });
       loadMemory();

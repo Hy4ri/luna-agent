@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { ref, onMounted } from "vue";
 import { Copy, Trash2 } from "@lucide/vue";
 import { json, post } from "@/lib/api";
@@ -26,7 +27,7 @@ async function add() {
   finally { adding.value = false; }
 }
 async function remove(w: WorkerRow) {
-  if (!confirm(`Remove "${w.name}"? Its token stops working and its sessions cannot run tools until moved.`)) return;
+  if (!(await confirmAction({ title: `Remove "${w.name}"?`, message: 'Its token stops working and its sessions cannot run tools until moved.', confirmLabel: 'Remove', danger: true }))) return;
   try { await json(`/v1/workers/${w.id}`, { method: "DELETE" }); await refresh(); }
   catch (e: any) { errorMsg.value = e.message; }
 }
@@ -79,5 +80,5 @@ onMounted(refresh);
 
 <style scoped>
 .worker-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--muted-foreground); vertical-align: middle; }
-.worker-dot.on { background: #3fb950; }
+.worker-dot.on { background: var(--success); }
 </style>

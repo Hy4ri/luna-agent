@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
+import { confirmAction } from "@/lib/confirm";
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
@@ -59,7 +61,7 @@ async function saveApiKey(providerId: string) {
 }
 
 async function disconnectProvider(providerId: string, name: string) {
-  if (confirm(`Remove the stored ${name} credential?`)) {
+  if (await confirmAction({ title: `Remove the stored ${name} credential?`, confirmLabel: "Remove", danger: true })) {
     try {
       await json(`/v1/providers/${providerId}/credential`, { method: "DELETE" });
       await loadModels({ force: true });
@@ -72,7 +74,7 @@ async function disconnectProvider(providerId: string, name: string) {
 }
 
 async function removeCustomProvider(providerId: string) {
-  if (confirm(`Remove provider ${providerId}?`)) {
+  if (await confirmAction({ title: `Remove provider ${providerId}?`, confirmLabel: "Remove", danger: true })) {
     try {
       await json(`/v1/providers/custom/${providerId}`, { method: "DELETE" });
       await loadModels({ force: true });
@@ -175,14 +177,9 @@ onUnmounted(() => {
 <template>
   <fieldset class="grid manager-form" :disabled="pending">
     <p class="muted">Account actions apply immediately. Choose the default model in Settings → Models.</p>
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <template v-if="providerData">
       <!-- Interactive Login Box if active -->

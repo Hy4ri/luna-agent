@@ -4,7 +4,7 @@ import { ref } from "vue";
 
 const params = new URLSearchParams(location.search);
 export const sessionPane = window !== window.top && params.get("pane") === "session";
-export const paneSession = sessionPane ? params.get("session") : null;
+const paneSession = sessionPane ? params.get("session") : null;
 export const sessionDragType = "application/x-luna-session";
 export const draggedSession = ref<string | null>(null);
 // Read the old draft map only for migration. New writes use one key per session,

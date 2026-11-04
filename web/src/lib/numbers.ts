@@ -2,7 +2,7 @@
 export function compactNumber(value: number | null | undefined): string {
   const n = value ?? 0;
   if (!Number.isFinite(n)) return "—";
-  const units = ["", "k", "m", "b", "t"];
+  const units = ["", "K", "M", "B", "T"];
   let unit = 0;
   let scaled = Math.abs(n);
   while (scaled >= 1000 && unit < units.length - 1) {

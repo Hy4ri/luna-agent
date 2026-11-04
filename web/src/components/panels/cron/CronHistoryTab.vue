@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CronJob, CronRun } from "./state";
-import { date, timeAgo, statusLabel, outcome } from "./formatters";
+import CronRunRow from "./CronRunRow.vue";
 
 defineProps<{
   jobs: CronJob[];
@@ -33,24 +33,7 @@ const emit = defineEmits<{
       </select>
     </label>
   </div>
-  <button
-    v-for="run in historyRows"
-    :key="run.id"
-    :disabled="busy"
-    type="button"
-    class="cron-item"
-    :class="{ active: detailId === run.id }"
-    :data-run="run.id"
-    @click="emit('openReport', run)"
-  >
-    <span class="cron-item-outcome" :class="run.status" dir="auto">{{ outcome(run) }}</span>
-    <span class="cron-item-meta">
-      <span class="cron-pill" :class="run.status">{{ statusLabel(run) }}</span>
-      <span v-if="run.readAt === null" class="cron-pill unread">Unread</span>
-      <span class="cron-item-job" dir="auto">{{ run.jobName }}</span>
-      <span class="cron-item-time" :title="date(run.endedAt || run.startedAt)">{{ timeAgo(run.endedAt || run.startedAt) }}</span>
-    </span>
-  </button>
+  <CronRunRow v-for="run in historyRows" :key="run.id" :run="run" :active="detailId === run.id" :busy="busy" show-unread @open="emit('openReport', $event)" />
   <p v-if="!historyRows.length" class="cron-empty-line">No reports in history.</p>
   <button v-if="historyMore" type="button" class="cron-btn cron-load-more" :disabled="busy" @click="emit('loadMore')">Load more</button>
 </template>

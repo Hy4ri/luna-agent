@@ -14,6 +14,7 @@ import StatusBar from '@/components/chat/StatusBar.vue';
 import Composer from '@/components/composer/Composer.vue';
 import PanelHost from '@/components/panels/PanelHost.vue';
 import CommandPalette from '@/components/CommandPalette.vue';
+import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ImageViewer from '@/components/ui/ImageViewer.vue';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
@@ -476,6 +477,7 @@ onUnmounted(() => {
         </form>
       </div>
     </div>
+    <ConfirmDialog />
   </TooltipProvider>
 </template>
 

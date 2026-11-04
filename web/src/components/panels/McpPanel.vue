@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
+import { confirmAction } from "@/lib/confirm";
 import { ref, watch, onMounted } from "vue";
 import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEditor.vue";
 import { ChevronRight } from "@lucide/vue";
@@ -97,7 +99,7 @@ async function toggleServerEnabled(serverName: string, currentEnabled: boolean) 
 }
 
 async function removeServer(serverName: string) {
-  if (confirm(`Remove MCP server "${serverName}"?`)) {
+  if (await confirmAction({ title: `Remove MCP server "${serverName}"?`, confirmLabel: "Remove", danger: true })) {
     try {
       await json(`/v1/mcp/${encodeURIComponent(serverName)}`, { method: "DELETE" });
       await fetchData();
@@ -115,14 +117,9 @@ onMounted(() => {
 
 <template>
   <fieldset class="grid manager-form" :disabled="pending">
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <!-- Add MCP server form -->
     <details class="card" data-manager-form="mcp-add"><summary class="row"><ChevronRight :size="16" /><b>Add MCP server</b></summary><div class="grid manager-body">

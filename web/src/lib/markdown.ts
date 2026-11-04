@@ -134,7 +134,7 @@ function parseAlignments(sepLine: string): ("start" | "left" | "center" | "right
 
 const SEP_RE = /^\s*\|?\s*:?-{1,}:?\s*(?:\|\s*:?-{1,}:?\s*)+\|?\s*$/;
 
-export function markdown(src: string): DocumentFragment {
+function markdown(src: string): DocumentFragment {
   const frag = document.createDocumentFragment();
   const lines = String(src).replace(/\r\n/g, "\n").split("\n");
   let i = 0, para: string[] = [];
@@ -303,7 +303,7 @@ export function markdown(src: string): DocumentFragment {
 // one by one gives the same DOM as rendering the whole source, because blank lines
 // end every top-level construct. An indented line after a blank line can continue a
 // list item, so such a block stays attached to the previous one.
-export function splitBlocks(src: string): string[] {
+function splitBlocks(src: string): string[] {
   const lines = String(src).replace(/\r\n/g, "\n").split("\n");
   const blocks: string[][] = [];
   let cur: string[] = [];

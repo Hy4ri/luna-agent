@@ -5,12 +5,13 @@ export const full = (n: number | null | undefined): string =>
 
 export const compact = compactNumber
 
+// Cents are enough once a total reaches a dollar; small per-call costs keep their precision.
 export const usd = (n: number | null | undefined): string =>
   new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
+    maximumFractionDigits: Math.abs(n || 0) >= 1 ? 2 : 6,
   }).format(n || 0)
 
 export const pct = (n: number | null | undefined): string =>

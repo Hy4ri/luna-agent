@@ -21,7 +21,7 @@ function isAnyVisible(): boolean {
   return visibleInstances.size > 0 && !document.hidden;
 }
 
-export async function refreshGitStatus() {
+async function refreshGitStatus() {
   if (!isAnyVisible() || !chat.session || !chat.connected || controller) return;
 
   const sid = chat.session;
@@ -46,7 +46,7 @@ export async function refreshGitStatus() {
   }
 }
 
-export function resetGitStatus() {
+function resetGitStatus() {
   generation++;
   controller?.abort();
   controller = undefined;

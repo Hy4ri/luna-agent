@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFileSize, isRasterImage } from "@/lib/files";
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { Download, FileText, FileWarning, Loader2 } from "@lucide/vue";
 import { api, serverUrl, token } from "@/lib/api";
@@ -16,17 +17,10 @@ const objectUrl = ref<string | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
-const isRasterImage = computed(() => {
+const isImage = computed(() => {
   const mime = (props.mimeType || "").toLowerCase();
-  return props.size !== 0 && /^(image\/(png|jpeg|gif|webp))$/i.test(mime);
+  return props.size !== 0 && isRasterImage(mime);
 });
-
-function formatSize(bytes?: number): string {
-  if (bytes === undefined || bytes === null || Number.isNaN(bytes)) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 let activeAbort: AbortController | null = null;
 let loaded: Blob | null = null;
@@ -83,7 +77,7 @@ watch(
     cleanup();
     error.value = null;
     loading.value = false;
-    if (id && isRasterImage.value) {
+    if (id && isImage.value) {
       void fetchBlob(id);
     }
   },
@@ -115,8 +109,8 @@ onBeforeUnmount(() => {
         <span class="att-sub">{{ error }}</span>
       </span>
     </div>
-    <span v-else-if="loading && isRasterImage && !objectUrl" class="muted">Loading {{ name }}…</span>
-    <template v-else-if="isRasterImage && objectUrl">
+    <span v-else-if="loading && isImage && !objectUrl" class="muted">Loading {{ name }}…</span>
+    <template v-else-if="isImage && objectUrl">
       <img
         class="att zoomable"
         :src="objectUrl"
@@ -138,7 +132,7 @@ onBeforeUnmount(() => {
       <FileText :size="18" aria-hidden="true" />
       <span class="att-meta">
         <span class="att-name">{{ name }}</span>
-        <span class="att-sub">{{ formatSize(size) }}</span>
+        <span class="att-sub">{{ formatFileSize(size) }}</span>
       </span>
       <button
         type="button"

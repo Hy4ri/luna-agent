@@ -41,9 +41,9 @@ export function sortProcesses<T extends { running: boolean }>(list: T[]): T[] {
   return list.slice().sort((a, b) => (a.running === b.running ? 0 : a.running ? -1 : 1));
 }
 
-export const EXTRA_TOOLS = /^(todo|ask_user_question|create_goal|update_goal|set_goal_tasks|update_goal_task)$/;
+const EXTRA_TOOLS = /^(todo|ask_user_question|create_goal|update_goal|set_goal_tasks|update_goal_task)$/;
 
-export function textBlocks(content: unknown): string {
+function textBlocks(content: unknown): string {
   if (typeof content === "string") return content;
   return ((content as any[]) || []).filter(c => c.type === "text").map(c => c.text).join("");
 }
@@ -235,8 +235,8 @@ function setExtras(s: any) {
     activityTimer = setTimeout(() => loadExtras(0, sid, epoch), 3000);
   }
 }
-export const cancelExtras = () => { clearTimeout(extrasTimer); clearTimeout(activityTimer); };
-export function scheduleExtras(retries = 0) {
+const cancelExtras = () => { clearTimeout(extrasTimer); clearTimeout(activityTimer); };
+function scheduleExtras(retries = 0) {
   clearTimeout(extrasTimer);
   const sid = chat.session, epoch = chat.epoch;
   extrasTimer = setTimeout(() => loadExtras(retries, sid, epoch), 80);

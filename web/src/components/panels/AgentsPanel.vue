@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
 import { ref, onMounted } from "vue";
 import { json } from "@/lib/api";
 import { chat, openSession, sortChildren } from "@/stores/chat";
@@ -62,14 +63,9 @@ onMounted(() => {
 
 <template>
   <div class="grid">
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <template v-if="!chat.session">
       <p class="muted">Open a session first.</p>

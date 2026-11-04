@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
+import { confirmAction } from "@/lib/confirm";
 import { ref, onMounted, watch } from "vue";
 import { json, post } from "@/lib/api";
 import { chat, openSession } from "@/stores/chat";
@@ -75,7 +77,7 @@ async function compactSession() {
 
 async function resetSessionContext() {
   if (!chat.session) return;
-  if (confirm("Start a fresh context? History stays stored.")) {
+  if (await confirmAction({ title: "Start a fresh context?", message: "History stays stored.", confirmLabel: "Start fresh" })) {
     try {
       await post(`/v1/sessions/${chat.session}/reset`);
       const sId = chat.session;
@@ -98,14 +100,9 @@ watch(() => chat.session, fetchData);
 
 <template>
   <div class="grid">
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
 
     <!-- Loading / Error -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <div class="card grid" id="machine-picker">
       <b>Execution machine</b>

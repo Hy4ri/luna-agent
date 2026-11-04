@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatFileSize, isRasterImage } from "@/lib/files";
 import { FileText, Loader2 } from "@lucide/vue";
 import ReportContext from "../chat/ReportContext.vue";
 import type { Attachment } from "@/stores/composer";
@@ -12,17 +13,6 @@ defineProps<{
 const emit = defineEmits<{
   (e: "remove", index: number): void;
 }>();
-
-function isRasterImage(mimeType?: string): boolean {
-  return /^(image\/(png|jpeg|gif|webp))$/i.test(mimeType || "");
-}
-
-function formatFileSize(bytes?: number): string {
-  if (bytes === undefined || bytes === null || Number.isNaN(bytes)) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 </script>
 
 <template>

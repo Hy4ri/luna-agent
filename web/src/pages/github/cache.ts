@@ -4,7 +4,7 @@ import { serverUrl, token } from "@/lib/api";
 export type CacheEntry<T> = { data: T; fetchedAt: number };
 type Entry = { value?: CacheEntry<unknown>; pending?: Promise<unknown> };
 const entries = new Map<string, Entry>();
-export function clear() { entries.clear(); }
+function clear() { entries.clear(); }
 export function forget(key: string) { entries.delete(key); }
 watch([serverUrl, token], clear, { flush: 'sync' });
 

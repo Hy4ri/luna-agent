@@ -118,7 +118,7 @@ export interface UploadMetadataResponse {
   ref?: string;
 }
 
-export function isValidUploadMetadata(data: unknown): data is UploadMetadataResponse {
+function isValidUploadMetadata(data: unknown): data is UploadMetadataResponse {
   if (!data || typeof data !== "object") return false;
   const d = data as Record<string, unknown>;
   return (

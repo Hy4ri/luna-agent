@@ -12,7 +12,7 @@ import * as sessionsStore from "./sessions";
 import * as composerStore from "./composer";
 
 export type View = "chat" | "analytics" | "source-control" | "settings";
-export const SIDE_MIN = 200, SIDE_MAX = 480, SIDE_DEFAULT = 264;
+const SIDE_MIN = 200, SIDE_MAX = 480;
 
 function savedWidth(): number | null {
   const w = Number(localStorage.getItem("luna.side.width"));
@@ -61,7 +61,7 @@ const settingsHash = () => "#settings/" + ui.settingsTab + (ui.settingsTarget ? 
 const clearHash = () => history.replaceState(null, "", location.pathname + location.search);
 
 /** Leave the Settings page. Returns false when the user keeps unsaved edits. */
-export function closeSettings(force = false): boolean {
+function closeSettings(force = false): boolean {
   if (ui.view !== "settings") return true;
   if (!force && guard && !guard.canLeave()) { history.replaceState(null, "", settingsHash()); return false; }
   guard = null; ui.view = "chat";
@@ -75,7 +75,7 @@ function closePage(view: "analytics" | "source-control") {
   if (location.hash === "#" + view) clearHash();
   setDrawer(false);
 }
-export function openSettings(route?: string) {
+function openSettings(route?: string) {
   if (ui.login) return;
   if (ui.view === "settings" && guard?.canChangeTab?.() === false) {
     history.replaceState(null, "", settingsHash()); return;
@@ -173,7 +173,7 @@ export function setDrawer(open: boolean) {
     else document.getElementById(ui.view === "chat" ? "menu" : (ui.view === "source-control" ? "source-control-menu" : ui.view + "-menu"))?.focus();
   });
 }
-export function setCollapsed(collapsed: boolean) {
+function setCollapsed(collapsed: boolean) {
   ui.collapsed = collapsed;
   localStorage.setItem("luna.side.collapsed", collapsed ? "1" : "0");
 }
@@ -185,7 +185,7 @@ export function setSideWidth(px: number | null) {
 }
 
 // ---- login ----
-export function showLogin(err = "") {
+function showLogin(err = "") {
   cancelBoot(); needsBoot = false;
   reportConnectionFailure(bootFailureSource, false);
   routeProbe?.abort(); clearTimeout(routeTimer);

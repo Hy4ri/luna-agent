@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmAction } from "@/lib/confirm";
 import { ref, reactive, computed, watch, defineAsyncComponent, onMounted, nextTick } from "vue";
 import { ChevronLeft, Plus, RotateCcw, Star, Palette } from "@lucide/vue";
 import { api, post } from "@/lib/api";
@@ -164,7 +165,7 @@ const remove = () => run(async () => {
   if (!p) return;
   const cards = ((await api(`/v1/projects/${p.id}/board`).then(r => r.json()).catch(() => ({ cards: [] }))) as { cards?: unknown[] }).cards?.length ?? 0;
   const where = machineCount.value > 1 ? ` on all ${machineCount.value} machines` : "";
-  if (!confirm(`Delete project "${p.name}"${where}? This deletes its board (${cards} card${cards === 1 ? "" : "s"}). Its conversations stay. To keep the board for other machines, remove only this machine instead.`)) return;
+  if (!(await confirmAction({ title: `Delete project "${p.name}"${where}?`, message: `This deletes its board (${cards} card${cards === 1 ? "" : "s"}). Its conversations stay. To keep the board for other machines, remove only this machine instead.`, confirmLabel: "Delete", danger: true }))) return;
   const resp = await api(`/v1/projects/${p.id}`, { method: "DELETE" });
   if (!resp.ok) throw new Error(((await resp.json().catch(() => ({}))) as { error?: string }).error || resp.statusText);
   await refresh();

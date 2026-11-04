@@ -1,23 +1,23 @@
 import type { MentionCard, Status, Priority, SlashCommandItem, CommandCategory, MentionGroup, CommandGroup } from "./types";
 
-export const CATEGORY_ORDER: Status[] = ["todo", "backlog", "review", "in_progress", "done"];
-export const CATEGORY_LABEL: Record<Status, string> = {
+const CATEGORY_ORDER: Status[] = ["todo", "backlog", "review", "in_progress", "done"];
+const CATEGORY_LABEL: Record<Status, string> = {
   todo: "To do",
   backlog: "Backlog",
   review: "Review",
   in_progress: "In progress",
   done: "Done",
 };
-export const PRIORITY_RANK: Record<Priority, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
+const PRIORITY_RANK: Record<Priority, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
 
-export const COMMAND_CATEGORY_ORDER: CommandCategory[] = ["side", "busy", "session"];
-export const COMMAND_CATEGORY_LABEL: Record<CommandCategory, string> = {
+const COMMAND_CATEGORY_ORDER: CommandCategory[] = ["side", "busy", "session"];
+const COMMAND_CATEGORY_LABEL: Record<CommandCategory, string> = {
   side: "Side & Skills",
   busy: "Busy & Queue",
   session: "Turn Control",
 };
 
-export const SLASH_COMMANDS: SlashCommandItem[] = [
+const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "usage", insert: "/usage", label: "/usage", description: "Show recorded session totals and Claude plan usage", category: "session" },
   { id: "cost", insert: "/cost", label: "/cost", description: "Alias for /usage", category: "session" },
   { id: "undo", insert: "/undo ", label: "/undo", args: "<N>", description: "Remove the last N user messages and replies from model context; keep chat history", category: "session" },

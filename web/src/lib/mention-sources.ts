@@ -1,3 +1,4 @@
+import { formatFileSize } from "./files";
 // `@` completion sources. Each source owns a token namespace (`@session:<id>`, later `@file:<path>`), so a new
 // kind of mention only needs a new entry in `mentionSources`; the composer renders every source as one group.
 import { reactive } from "vue";
@@ -42,7 +43,7 @@ export function ago(at: number | null | undefined, now = Date.now()): string {
 
 const MAX_ROWS = 20;
 // The sidebar list already excludes subagent children. Archived sessions stay out of the menu; type the id to use one.
-export const sessionSource: MentionSource = {
+const sessionSource: MentionSource = {
   id: "sessions",
   label: "Sessions",
   prefix: "session",
@@ -67,7 +68,7 @@ export const sessionSource: MentionSource = {
 // path lists that directory instead. The server does the listing, so remote workers work the same way.
 const files = reactive({ items: [] as MentionItem[], key: "" });
 let fileTicket = 0, fileTimer: ReturnType<typeof setTimeout> | undefined;
-export const fileSource: MentionSource = {
+const fileSource: MentionSource = {
   id: "files",
   label: "Files",
   prefix: "file",
@@ -93,7 +94,7 @@ export const fileSource: MentionSource = {
           token: `@file:${e.path}${e.kind === "directory" ? "/" : ""}`,
           label: e.name + (e.kind === "directory" ? "/" : ""),
           dir: e.kind === "directory",
-          ...(e.kind === "file" ? { meta: size(e.size) } : {}),
+          ...(e.kind === "file" ? { meta: formatFileSize(e.size) } : {}),
         }));
         files.key = key;
       } catch {
@@ -102,9 +103,8 @@ export const fileSource: MentionSource = {
     }, 120);
   },
 };
-const size = (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
-export const mentionSources: MentionSource[] = [sessionSource, fileSource];
+const mentionSources: MentionSource[] = [sessionSource, fileSource];
 
 /** Groups for the typed query. `@session:4` searches only that source; a bare query searches every source. */
 export function searchMentions(raw: string, ctx: MentionContext) {
