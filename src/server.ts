@@ -31,6 +31,7 @@ import { registerSessions } from "./routes/sessions.js";
 import { registerSessionConfig } from "./routes/session-config.js";
 import { registerSessionOps } from "./routes/session-ops.js";
 import { registerWebhooks } from "./routes/webhooks.js";
+import { registerPush } from "./routes/push.js";
 import { registerProjects } from "./routes/projects.js";
 import { registerWorkers } from "./routes/workers.js";
 import { registerGit } from "./routes/git.js";
@@ -48,6 +49,8 @@ export interface ServerOptions {
   titler?: SessionTitler;
   /** Automatic continuation after usage limits. Absent: no waits are reported or cancelled. */
   limitContinuer?: LimitContinuer;
+  /** Registered Android push tokens. Absent: push is off and its endpoints answer 404. */
+  push?: import("./push.js").DeviceStore;
   settings?: SettingsStore;
   /** Policy for a runtime without a file-backed settings store. */
   busyInput?: () => BusyPolicy;
@@ -150,6 +153,7 @@ export function createApp(opts: ServerOptions) {
   registerMessages(app, ctx);
   registerSubsystems(app, ctx);
   registerWebhooks(app, ctx);
+  registerPush(app, ctx);
 
   return app;
 }

@@ -1,5 +1,5 @@
 // Native desktop and Android features. Every call is a no-op or a browser fallback in the browser build.
-import { isDesktop } from "./api";
+import { api, isDesktop } from "./api";
 
 type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
 const invoke = (): Invoke | undefined => (window as unknown as { __TAURI_INTERNALS__?: { invoke: Invoke } }).__TAURI_INTERNALS__?.invoke;
@@ -50,4 +50,15 @@ export async function saveFile(blob: Blob, name: string) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Android only: give the daemon this phone's FCM token so it can push while the app is closed. Never throws. */
+export async function registerPush() {
+  const native = invoke();
+  if (!isAndroid || !native) return;
+  try {
+    if (!(await (await api("/v1/push")).json()).enabled) return;
+    const { token } = await native("get_push_token") as { token?: string };
+    if (token) await api("/v1/push/devices", { method: "POST", body: JSON.stringify({ token }) });
+  } catch { /* push is optional */ }
 }

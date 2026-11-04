@@ -15,3 +15,7 @@ red-moon-*.png
 
 # direnv
 .direnv/
+
+# Firebase client config and server keys are per deployment
+google-services.json
+*-firebase-adminsdk-*.json
