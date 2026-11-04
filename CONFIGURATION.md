@@ -2175,3 +2175,13 @@ Existing browser pins are imported once after a successful save: shared order st
 
 - `GET /v1/models/pins` returns `{ pins: string[] }`.
 - `POST /v1/models/pins` returns the saved list. Send `{ action: "import", pins: string[] }`, `{ action: "toggle", key: string }`, or `{ action: "move", key: string, direction: -1 | 1 }`. Mutations use the latest config to preserve unrelated settings.
+
+## Android push (Firebase Cloud Messaging)
+
+The daemon pushes to the Android app when a running session finishes, fails, hits a limit, or needs input or approval. A cron run pushes only on failure.
+
+1. In a Firebase project, add an Android app with package name `dev.luna.mobile`. Copy its `google-services.json` to `src-tauri/gen/android/app/`. Git ignores it. Without it the app builds with push off.
+2. Create a service-account key (Project settings > Service accounts). Set `push.serviceAccountFile` to its path. Keep it outside the repo.
+3. Rebuild the APK. The app registers its token with `POST /v1/push/devices` after each login.
+
+`GET /v1/push` reports whether push is enabled. Device tokens are in `<dataDir>/push-devices.json`.
