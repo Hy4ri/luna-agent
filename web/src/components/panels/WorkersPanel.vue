@@ -80,5 +80,5 @@ onMounted(refresh);
 
 <style scoped>
 .worker-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--muted-foreground); vertical-align: middle; }
-.worker-dot.on { background: #3fb950; }
+.worker-dot.on { background: var(--success); }
 </style>

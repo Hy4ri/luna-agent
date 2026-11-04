@@ -71,6 +71,10 @@
   --sidebar-accent-foreground: #cfcfcf;
   --sidebar-border: #262626;
   --radius: 1px;
+  --success: #8fd3a5;
+  --warning: #e6c27a;
+  --info: #8faee0;
+  --violet: #c6a6f7;
   --acc-soft: rgb(153 0 0 / 0.2);
 }
 
