@@ -132,18 +132,6 @@ export const activityLabel = computed(() => {
   if (chat.generationActive) return "Thinking…";
   return chat.runActive ? "Running…" : "";
 });
-/** Derived from the same live slots and task document as the transcript; no generated progress. */
-export const activityDetails = computed(() => {
-  if (!busy.value || !chat.connected || chat.bootError) return [];
-  const details: string[] = [];
-  const tasks = (chat.extras?.todos || []).filter(t => t.status !== "deleted");
-  if (tasks.length) {
-    const completed = tasks.filter(t => t.status === "completed").length;
-    const active = tasks.filter(t => t.status === "in_progress").map(t => t.activeForm || t.subject);
-    details.push([`${completed}/${tasks.length} tasks complete`, ...active].join(" · "));
-  }
-  return details;
-});
 export const usageText = computed(() => {
   const u = chat.usage;
   if (!u?.models) return "";
