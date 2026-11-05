@@ -106,6 +106,15 @@ export function restoreDraft() {
   composer.text = text; composer.attachments = draft?.attachments || [];
 }
 
+/** A generated widget suggests a prompt. It fills the composer only; the user still reviews and sends it. */
+export function fillComposer(text: string) {
+  const clean = text.slice(0, 2000).trim();
+  if (!clean) return;
+  composer.text = composer.text.trim() ? `${composer.text.trimEnd()}\n${clean}` : clean;
+  saveDraft();
+  document.getElementById("input")?.focus();
+}
+
 // ---- attachments ----
 const MAX_UPLOAD_SIZE = 32 * 1024 * 1024; // 32 MiB
 

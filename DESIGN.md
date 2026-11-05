@@ -174,16 +174,19 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 
 ---
 
-## Chat Widgets (```ui blocks)
+## Generated UI (rich fences)
 
-An assistant reply can contain a fenced block with the language `ui` and one JSON object. `web/src/lib/segments.ts` splits it out of the text. `web/src/lib/widgets/schema.ts` validates it. `web/src/components/chat/widgets/` renders it. The model never sends code: only the supported widget types (`chart`, `plot`) render.
+`web/src/lib/segments.ts` splits `ui`, `html`, `mermaid`, and `math` fences out of an assistant reply. `web/src/components/chat/genui/` renders them. `Block.vue` is the shared frame for all four; do not add per-block headers or cards around it.
 
-- **Valid:** a `--card` surface with a title, a `{ }` toggle for the raw JSON, and a copy button.
-- **Invalid:** the raw JSON in a code block, plus one `--err` line: `widget invalid: <reason>`. Never fail silently.
-- **Streaming (fence not closed):** a fixed-height `building widget…` card. Partial JSON is never parsed.
-- **Colors:** series use `--chart-1` to `--chart-6`. No raw hex in widget templates. A series keeps its color when another series is hidden.
-- **Limits:** at most 4 widgets per message. Extra blocks show `widget invalid: more than 4 widgets in one message`. A plot says so when a slider position pushes part of the curve outside the fixed axis range.
-- **Interaction:** legend items are `<button aria-pressed>`. Sliders are native `input[type=range]`. A slider recomputes in the browser and makes no request.
+- **Frame:** no header bar. A hover toolbar (always visible with `hover: none`) holds icon buttons: source/result toggle, copy, and expand or reload where they apply.
+- **Invalid:** the source in a code block, plus one `--destructive` line with the reason. Never fail silently.
+- **Streaming (fence not closed):** one muted status line (`Building diagram…`). Partial content is never parsed or rendered.
+- **Surfaces:** charts, plots, and diagrams sit on one `--card` surface with a `--border` outline. Inline HTML brings its own layout and inherits the theme variables.
+- **Colors:** series and diagram accents use `--chart-1` to `--chart-6`. No raw hex in templates. A series keeps its color when another series is hidden. Mermaid gets literal values read from the live theme.
+- **Charts (`ui`):** `line`, `area`, `bar` (grouped or `stacked`), `pie`, `donut`. Legend items are `<button aria-pressed>`; hovering shows a readout row. Plots use native `input[type=range]` sliders and make no request.
+- **HTML:** static markup renders inline in a shadow root after sanitizing (`web/src/lib/genui/sanitize.ts`). Markup with script goes to the sandboxed iframe, which is transparent, themed, and sized to its content. Never render model HTML in the app document without that sanitizer.
+- **Actions:** `data-luna-prompt` fills the composer. Generated UI never sends a message itself.
+- **Limits:** at most 4 `ui` and `html` blocks per message. Extra blocks show their source and the reason.
 - **Data:** a widget shows only data the model got from the user or a tool. No decorative or placeholder charts.
 - **Fences:** `web/src/lib/fences.ts` is the single fence scanner (CommonMark open and close rules). Do not add another.
 
