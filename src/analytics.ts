@@ -143,7 +143,7 @@ export function createAnalyticsReader(harness: Harness, models?: Models) {
     if (!force && snapshot && Date.now() < expiresAt) return Promise.resolve(snapshot);
     pending = readAnalytics(harness, models, parts).then(next => {
       snapshot = next;
-      expiresAt = Date.now() + 3_000;
+      expiresAt = Date.now() + 15_000;
       return next;
     }).finally(() => { pending = undefined; });
     return pending;
@@ -278,6 +278,55 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
     }
     return depth;
   };
+
+  const readCachedSession = async (tx: Parameters<Parameters<Harness["commit"]>[0]>[0], id: ConversationId): Promise<ConversationSessionData | undefined> => {
+    let sStatus: SessionStatus = "ready", sStatusReason: string | null = null;
+    let sLastActivity: string | null = null, sCreatedAt: string | null = null, sWorker: number | null = null;
+    let sLastTs: number | null = null, sCreatedTs: number | null = null;
+    try {
+      const running = await isRunning(tx, id);
+      const s = await readSessionStatus(tx, id, running);
+      sStatus = s.status; sStatusReason = s.statusReason;
+      const ts = await newestMessageTime(tx, id);
+      if (ts !== null) { sLastTs = ts; sLastActivity = new Date(ts).toISOString(); }
+      const createdRaw: unknown = (await tx.doc(SessionCreated, id)).at;
+      if (typeof createdRaw === "number" && Number.isFinite(createdRaw)) { sCreatedTs = createdRaw; sCreatedAt = new Date(createdRaw).toISOString(); }
+      try {
+        const target = await (tx.doc as unknown as (doc: unknown, id: ConversationId) => Promise<{ worker: number | null }>)(ExecTarget as unknown as never, id).catch(() => null);
+        if (target && typeof (target as { worker: unknown }).worker !== "undefined") sWorker = (target as { worker: number | null }).worker ?? null;
+      } catch {}
+    } catch {}
+    let sSubagentCount = 0;
+    try {
+      const children = await tx.doc(Children, id);
+      sSubagentCount = Array.isArray((children as { children?: unknown[] }).children) ? (children as { children: unknown[] }).children.length : 0;
+    } catch {}
+    return {
+      status: sStatus, statusReason: sStatusReason, lastActivity: sLastActivity,
+      createdAt: sCreatedAt, worker: sWorker, lastTs: sLastTs, createdTs: sCreatedTs,
+      subagentCount: sSubagentCount,
+    };
+  };
+  // Session status for cache-valid conversations is read in small batches: one commit per
+  // conversation dominated the warm path. Batches stay bounded so the mutation queue is released often.
+  const prefetched = new Map<string, ConversationSessionData | undefined>();
+  if (cache) {
+    const ready = conversationList.filter(c => {
+      const k = String(c.id), part = cache.parts.get(k);
+      return part && part.generation === (cache.generations.get(k) ?? 0)
+        && (!!conversationMeta.get(Number(c.id))?.title || part.fallbackTitle !== undefined);
+    });
+    for (let i = 0; i < ready.length; i += 20) {
+      const batch = ready.slice(i, i + 20);
+      const rows = await harness.commit(async tx => {
+        const out: [string, ConversationSessionData | undefined][] = [];
+        for (const c of batch) out.push([String(c.id), (await tx.conversation(c.id)) ? await readCachedSession(tx, c.id) : undefined]);
+        return out;
+      }, context);
+      for (const [k, v] of rows) prefetched.set(k, v);
+      await setImmediate();
+    }
+  }
 
   // Phase 2: Per-conversation reads with independent commits
   let lastYield = performance.now();
@@ -456,34 +505,9 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
       sessionData = res.sessionData;
     } else {
       timings.cacheHits++;
-      const cachedSessionData = await harness.commit(async tx => {
+      const cachedSessionData = prefetched.has(k) ? prefetched.get(k) : await harness.commit(async tx => {
         if (!(await tx.conversation(id))) return undefined;
-        let sStatus: SessionStatus = "ready", sStatusReason: string | null = null;
-        let sLastActivity: string | null = null, sCreatedAt: string | null = null, sWorker: number | null = null;
-        let sLastTs: number | null = null, sCreatedTs: number | null = null;
-        try {
-          const running = await isRunning(tx, id);
-          const s = await readSessionStatus(tx, id, running);
-          sStatus = s.status; sStatusReason = s.statusReason;
-          const ts = await newestMessageTime(tx, id);
-          if (ts !== null) { sLastTs = ts; sLastActivity = new Date(ts).toISOString(); }
-          const createdRaw: unknown = (await tx.doc(SessionCreated, id)).at;
-          if (typeof createdRaw === "number" && Number.isFinite(createdRaw)) { sCreatedTs = createdRaw; sCreatedAt = new Date(createdRaw).toISOString(); }
-          try {
-            const target = await (tx.doc as unknown as (doc: unknown, id: ConversationId) => Promise<{ worker: number | null }>)(ExecTarget as unknown as never, id).catch(() => null);
-            if (target && typeof (target as { worker: unknown }).worker !== "undefined") sWorker = (target as { worker: number | null }).worker ?? null;
-          } catch {}
-        } catch {}
-        let sSubagentCount = 0;
-        try {
-          const children = await tx.doc(Children, id);
-          sSubagentCount = Array.isArray((children as { children?: unknown[] }).children) ? (children as { children: unknown[] }).children.length : 0;
-        } catch {}
-        return {
-          status: sStatus, statusReason: sStatusReason, lastActivity: sLastActivity,
-          createdAt: sCreatedAt, worker: sWorker, lastTs: sLastTs, createdTs: sCreatedTs,
-          subagentCount: sSubagentCount,
-        };
+        return readCachedSession(tx, id);
       }, context);
       if (!cachedSessionData) { cache?.parts.delete(k); continue; }
       sessionData = cachedSessionData;
