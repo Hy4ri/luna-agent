@@ -23,7 +23,7 @@
           </thead>
           <tbody>
             <tr v-if="!sortedRows.length"><td colspan="6" class="p-6 text-center text-muted-foreground">No daily usage recorded.</td></tr>
-            <tr v-for="d in sortedRows" :key="d.date" class="border-b border-border last:border-0 hover:bg-accent/30">
+            <tr v-for="d in sortedRows" :key="d.date" class="vl-row border-b border-border last:border-0 hover:bg-accent/30">
               <td class="p-2.5 text-left font-medium">{{ d.date }}</td>
               <td class="p-2.5 text-right">{{ compact(d.responses) }}</td>
               <td class="p-2.5 text-right">{{ compact(d.input) }}</td>

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { CronJob, CronRun } from "./state";
 import CronRunRow from "./CronRunRow.vue";
+import { computed } from "vue";
+import { useVirtualList } from "@vueuse/core";
 
-defineProps<{
+const props = defineProps<{
   jobs: CronJob[];
   historyRows: CronRun[];
   historyMore: boolean;
@@ -11,6 +13,7 @@ defineProps<{
   busy: boolean;
 }>();
 
+const { list: vHistory, containerProps, wrapperProps } = useVirtualList(computed(() => props.historyRows), { itemHeight: 88, overscan: 8 });
 const emit = defineEmits<{
   (e: "update:historyJob", val: string): void;
   (e: "filterChange"): void;
@@ -33,7 +36,7 @@ const emit = defineEmits<{
       </select>
     </label>
   </div>
-  <CronRunRow v-for="run in historyRows" :key="run.id" :run="run" :active="detailId === run.id" :busy="busy" show-unread @open="emit('openReport', $event)" />
+  <div v-bind="containerProps" class="cron-vlist"><div v-bind="wrapperProps"><CronRunRow v-for="{ data: run } in vHistory" :key="run.id" :run="run" :active="detailId === run.id" :busy="busy" show-unread @open="emit('openReport', $event)" /></div></div>
   <p v-if="!historyRows.length" class="cron-empty-line">No reports in history.</p>
   <button v-if="historyMore" type="button" class="cron-btn cron-load-more" :disabled="busy" @click="emit('loadMore')">Load more</button>
 </template>

@@ -213,7 +213,7 @@ const optionId = (index: number) => 'palette-option-' + index;
         <div id="palette-list" ref="listEl" class="palette-list" role="listbox" aria-label="Commands">
           <div v-for="group in groups" :key="group.name" class="palette-group" role="group" :aria-label="group.name">
             <div class="palette-group-name" aria-hidden="true">{{ group.name }}</div>
-            <div v-for="{ item, index } in group.items" :id="optionId(index)" :key="item.id" class="palette-item" role="option" :data-command="item.id" :data-index="index" :aria-selected="index === active" :aria-disabled="item.disabled ? 'true' : undefined" :aria-current="item.current ? 'true' : undefined" @pointermove="active = index" @click="runItem(item)">
+            <div v-for="{ item, index } in group.items" :id="optionId(index)" :key="item.id" class="palette-item vl vl-sm" role="option" :data-command="item.id" :data-index="index" :aria-selected="index === active" :aria-disabled="item.disabled ? 'true' : undefined" :aria-current="item.current ? 'true' : undefined" @pointermove="active = index" @click="runItem(item)">
               <span class="palette-check" aria-hidden="true"><Check v-if="item.current" :size="14" /></span>
               <span class="palette-label" dir="auto">{{ item.label }}</span>
               <span v-if="item.disabled || item.hint" class="palette-hint">{{ item.disabled || item.hint }}</span>

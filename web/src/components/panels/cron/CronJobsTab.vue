@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import type { CronJob } from "./state";
 import { date, whenText, scheduleDesc } from "./formatters";
+import { computed } from "vue";
+import { useVirtualList } from "@vueuse/core";
 
-defineProps<{
+const props = defineProps<{
   jobs: CronJob[];
   selectedJobId: number | null;
 }>();
 
+const { list: vJobs, containerProps, wrapperProps } = useVirtualList(computed(() => props.jobs), { itemHeight: 64, overscan: 8 });
 const emit = defineEmits<{
   (e: "selectJob", job: CronJob): void;
 }>();
 </script>
 
 <template>
+  <div v-bind="containerProps" class="cron-vlist"><div v-bind="wrapperProps">
   <button
-    v-for="job in jobs"
+    v-for="{ data: job } in vJobs"
     :key="job.id"
     type="button"
     class="cron-item"
@@ -31,6 +35,7 @@ const emit = defineEmits<{
       <span class="cron-item-time" :title="date(job.nextRun)">{{ job.nextRun ? whenText(job.nextRun) : "not scheduled" }}</span>
     </span>
   </button>
+  </div></div>
   <div v-if="!jobs.length" class="cron-empty">
     <h3>No jobs yet.</h3>
     <p>Create a scheduled prompt with New job.</p>

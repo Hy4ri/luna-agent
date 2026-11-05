@@ -41,7 +41,7 @@ function sign(kind: DiffLine["kind"]) { return kind === "add" ? "+" : kind === "
     <div class="flex-1 min-h-0 overflow-auto">
       <table class="w-full border-collapse leading-5">
         <tbody v-if="!split">
-          <tr v-for="(line, idx) in (rows as DiffLine[]).slice(0, limit)" :key="idx" :class="line.kind === 'hunk' || line.kind === 'meta' ? '' : tone(line.kind)">
+          <tr v-for="(line, idx) in (rows as DiffLine[]).slice(0, limit)" :key="idx" class="vl-row" :class="tone(line.kind)">
             <template v-if="line.kind === 'hunk' || line.kind === 'meta'">
               <td colspan="3" class="px-2 whitespace-pre" :class="line.kind === 'hunk' ? 'bg-sky-500/10 text-sky-400' : 'text-muted-foreground'">{{ line.text }}</td>
             </template>
@@ -53,7 +53,7 @@ function sign(kind: DiffLine["kind"]) { return kind === "add" ? "+" : kind === "
           </tr>
         </tbody>
         <tbody v-else>
-          <tr v-for="(row, idx) in (rows as ReturnType<typeof splitRows>).slice(0, limit)" :key="idx">
+          <tr v-for="(row, idx) in (rows as ReturnType<typeof splitRows>).slice(0, limit)" :key="idx" class="vl-row">
             <template v-if="row.kind !== 'pair'">
               <td colspan="4" class="px-2 whitespace-pre" :class="row.kind === 'hunk' ? 'bg-sky-500/10 text-sky-400' : 'text-muted-foreground'">{{ row.text }}</td>
             </template>

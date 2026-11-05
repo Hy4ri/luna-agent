@@ -42,7 +42,7 @@ watch(() => props.files, files => {
       <p class="px-2 py-1.5 text-muted-foreground border-b border-border">{{ files.length }} file{{ files.length === 1 ? '' : 's' }} changed</p>
       <p v-if="!files.length" class="p-3 text-muted-foreground">No file changes.</p>
       <button v-for="file in files" :key="(file.original ?? '') + '\0' + file.path" type="button"
-        class="flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-muted min-w-0"
+        class="flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-muted min-w-0 vl vl-sm"
         :class="selected === file ? 'bg-accent' : ''"
         :title="file.original ? `${file.original} → ${file.path}` : file.path"
         @click="select(file)">

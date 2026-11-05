@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onUnmounted, watch } from "vue";
+import { computed, onUnmounted, watch } from "vue";
+import { useVirtualList } from "@vueuse/core";
 import StatusIcon from "./StatusIcon.vue";
 import type { ListItem } from "../../../../src/github";
 import { MessageSquare, CircleCheck, CircleX, AlertCircle } from "@lucide/vue";
@@ -12,6 +13,7 @@ const props = defineProps<{
   loadingMore: boolean;
 }>();
 
+const { list: vItems, containerProps, wrapperProps } = useVirtualList(computed(() => props.items), { itemHeight: 72, overscan: 8 });
 const emit = defineEmits<{
   (e: "select", item: ListItem): void;
   (e: "loadMore"): void;
@@ -40,15 +42,15 @@ function formatTime(iso: string): string {
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-y-auto divide-y divide-border/40 text-foreground">
+  <div class="flex flex-col h-full overflow-y-auto divide-y divide-border/40 text-foreground" v-bind="containerProps">
     <div v-if="loading && items.length === 0" class="p-8 text-center text-muted-foreground text-sm">
       Loading items…
     </div>
     <div v-else-if="items.length === 0" class="p-8 text-center text-muted-foreground text-sm">
       No items found.
     </div>
-    <button
-      v-for="item in items"
+    <div v-bind="wrapperProps"><button
+      v-for="{ data: item } in vItems"
       :key="item.number"
       type="button"
       @click="$emit('select', item)"
@@ -91,7 +93,7 @@ function formatTime(iso: string): string {
         <MessageSquare class="w-3.5 h-3.5" />
         <span>{{ item.comments }}</span>
       </div>
-    </button>
+    </button></div>
 
     <div v-if="hasNext" class="p-3 text-center">
       <button

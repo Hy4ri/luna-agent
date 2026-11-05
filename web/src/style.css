@@ -419,6 +419,8 @@ aside#side.collapsed #history-rail {
   align-items: center;
   position: relative;
   border-radius: var(--radius-sm);
+  height: 48px;
+  box-sizing: border-box;
 }
 .session-row:hover {
   background: var(--sidebar-accent);

@@ -34,6 +34,7 @@ import {
   SquareCheck,
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
+import { useVirtualList } from "@vueuse/core";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSourceControl } from "@/stores/app";
 import { chat, openSession, newSession } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
@@ -156,6 +157,10 @@ const visibleSessions = computed(() => {
   if (!f) return [];
   return deviceMachine.value ? f.sessions.filter(s => (s.worker ?? null) === deviceMachine.value!.id) : f.sessions;
 });
+/** True windowing: only visible session rows (+overscan) are mounted.
+ *  Rows are fixed-height (48px, see .session-row in style.css); the wrapper
+ *  reserves the full list height so the scrollbar reflects every session. */
+const { list: vSessions, containerProps: sessionsContainerProps, wrapperProps: sessionsWrapperProps } = useVirtualList(visibleSessions, { itemHeight: 48, overscan: 10 });
 
 function drill(key: string | null) {
   device.value = "all";
@@ -543,7 +548,7 @@ onMounted(() => {
         <p v-if="deviceMachine && !deviceMachine.online" class="folder-note">{{ deviceMachine.name }} is offline. You can read these sessions, but you cannot start new ones.</p>
       </div>
 
-      <div id="sessions" v-if="!collapsed">
+      <div id="sessions" v-if="!collapsed" v-bind="sessionsContainerProps">
         <div class="eyebrow px-3 py-1 text-xs font-semibold text-muted-foreground" v-if="history.archived">Archived</div>
 
         <!-- Level 1: project folders -->
@@ -578,8 +583,8 @@ onMounted(() => {
           <p v-if="visibleSessions.length === 0" class="muted px-3 py-2 text-sm">
             {{ searching ? "No matching conversations." : history.archived ? "No archived conversations here." : "Your conversations will appear here." }}
           </p>
-          <div class="group-body">
-            <div v-for="s in visibleSessions" :key="s.id" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
+          <div class="group-body" v-bind="sessionsWrapperProps">
+            <div v-for="{ data: s } in vSessions" :key="s.id" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
               <!-- Inline rename input -->
               <input dir="auto"
                 v-if="renamingId === s.id"

@@ -29,7 +29,7 @@
             <tr
               v-for="m in sortedRows"
               :key="m.key"
-              class="border-b border-border last:border-0 hover:bg-accent/30 cursor-pointer"
+              class="vl-row border-b border-border last:border-0 hover:bg-accent/30 cursor-pointer"
               :class="{ 'bg-primary/10 border-l-2 border-l-primary-text': selectedKey === m.key }"
               @click="emit('select', m.key)"
             >

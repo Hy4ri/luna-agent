@@ -211,7 +211,7 @@ onMounted(async () => {
         <p v-else-if="!history.projects.length" class="pw-muted">No projects yet.</p>
         <p v-else-if="!filtered.length" class="pw-muted">No match.</p>
         <button
-          v-for="p in filtered" :key="p.id" role="listitem" class="pw-item" :data-project="p.id"
+          v-for="p in filtered" :key="p.id" role="listitem" class="pw-item vl vl-sm" :data-project="p.id"
           :aria-current="selected === p.id ? 'true' : undefined" @click="select(p.id)"
         >
           <ProjectIcon :icon="p.icon" :color="p.color" />

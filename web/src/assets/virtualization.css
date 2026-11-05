@@ -1,0 +1,24 @@
+/* Two tiers of list virtualization in this codebase:
+ *
+ * 1. TRUE WINDOWING (useVirtualList from @vueuse/core): only visible rows
+ *    plus overscan are mounted; a wrapper reserves the full list height.
+ *    Used where rows have a fixed/estimable height and a dedicated scroll
+ *    container: Sidebar sessions (48px rows), ModelSelector, GitHub
+ *    ItemList, Cron reports/history/jobs, source-control HistoryTab
+ *    (28px commit rows).
+ *
+ * 2. RENDERING OPTIMIZATION (the .vl classes below): content-visibility:auto
+ *    lets the browser skip layout/paint for off-screen items while KEEPING
+ *    every DOM node mounted. This is not windowing — mount/update cost is
+ *    still O(n) — but it is the correct fallback for variable-height lists
+ *    where unmounting would lose state: chat Transcript (streaming,
+ *    selection, widgets), Board cards (drag-and-drop, keyboard focus,
+ *    variable heights), diff/code bodies, comments, dialogs/tables.
+ *    Do not describe tier 2 as virtualization.
+ */
+.vl { content-visibility: auto; contain-intrinsic-size: auto 96px; }
+.vl-sm { contain-intrinsic-size: auto 40px; }
+.vl-md { contain-intrinsic-size: auto 80px; }
+.vl-lg { contain-intrinsic-size: auto 160px; }
+.vl-xl { contain-intrinsic-size: auto 260px; }
+.vl-row { content-visibility: auto; contain-intrinsic-size: auto 28px; }

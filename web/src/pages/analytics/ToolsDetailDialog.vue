@@ -23,7 +23,7 @@
           </thead>
           <tbody>
             <tr v-if="!sortedRows.length"><td colspan="6" class="p-6 text-center text-muted-foreground">No tools recorded.</td></tr>
-            <tr v-for="t in sortedRows" :key="t.name" class="border-b border-border last:border-0 hover:bg-accent/30">
+            <tr v-for="t in sortedRows" :key="t.name" class="vl-row border-b border-border last:border-0 hover:bg-accent/30">
               <td class="p-2.5 text-left font-medium text-foreground">{{ t.name }}</td>
               <td class="p-2.5 text-right">{{ compact(t.calls) }}</td>
               <td class="p-2.5 text-right" :class="{ 'text-destructive font-medium': t.errors > 0 }">{{ compact(t.errors) }}</td>

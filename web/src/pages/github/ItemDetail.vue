@@ -136,7 +136,7 @@ function formatTime(iso: string): string {
           <span>Checks: <strong class="text-foreground">{{ detail.pr.checkState ?? 'NONE' }}</strong></span>
         </div>
         <div v-if="detail.pr.checks.length > 0" class="pt-2 border-t border-border/40 space-y-1">
-          <div v-for="chk in detail.pr.checks" :key="chk.name" class="flex items-center gap-2">
+          <div v-for="chk in detail.pr.checks" :key="chk.name" class="vl vl-sm flex items-center gap-2">
             <CheckCircle2 v-if="chk.state === 'SUCCESS'" class="w-3.5 h-3.5 text-green-400 shrink-0" />
             <XCircle v-else-if="chk.state === 'FAILURE' || chk.state === 'ERROR'" class="w-3.5 h-3.5 text-destructive shrink-0" />
             <Clock v-else class="w-3.5 h-3.5 text-yellow-400 shrink-0" />
@@ -159,7 +159,7 @@ function formatTime(iso: string): string {
         </h3>
         <button v-if="before" type="button" :disabled="loadingEarlier" @click="loadEarlier" class="px-3 py-1.5 text-xs border border-border rounded disabled:opacity-50">{{ loadingEarlier ? 'Loading…' : 'Load earlier comments' }}</button>
         <p v-if="commentsError" role="alert" class="text-xs text-destructive">{{ commentsError }}</p>
-        <div v-for="c in [...earlier, ...detail.comments]" :key="c.id" class="bg-card border border-border rounded-lg p-4 space-y-2 text-sm">
+        <div v-for="c in [...earlier, ...detail.comments]" :key="c.id" class="vl vl-lg bg-card border border-border rounded-lg p-4 space-y-2 text-sm">
           <div class="flex items-center gap-2 text-xs text-muted-foreground border-b border-border/40 pb-2">
             <span class="font-medium text-foreground">@{{ c.author ?? 'ghost' }}</span>
             <span>commented on {{ formatTime(c.createdAt) }}</span>

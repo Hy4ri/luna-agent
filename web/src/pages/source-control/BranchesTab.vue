@@ -86,7 +86,7 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
             Files show the changes since they split (<span class="font-mono">{{ result.mergeBase.slice(0, 7) }}</span>).
           </p>
           <ul v-if="result.commits.length" class="space-y-0.5">
-            <li v-for="c in result.commits" :key="c.oid" class="flex items-center gap-2 min-w-0">
+            <li v-for="c in result.commits" :key="c.oid" class="flex items-center gap-2 min-w-0 vl vl-sm">
               <span class="font-mono text-muted-foreground shrink-0">{{ c.oid.slice(0, 7) }}</span>
               <span class="truncate flex-1">{{ c.subject }}</span>
               <span class="shrink-0 text-muted-foreground">{{ c.author }} · {{ when(c.date) }}</span>
@@ -105,7 +105,7 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
       <p v-if="branches && !branches.local.length && !branches.remote.length" class="p-4 text-muted-foreground">No branches yet.</p>
       <section v-if="branches?.local.length" class="p-2">
         <h2 class="px-2 pb-1 font-medium text-muted-foreground">Local branches ({{ branches.local.length }})</h2>
-        <div v-for="b in branches.local" :key="b.name" class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted min-w-0">
+        <div v-for="b in branches.local" :key="b.name" class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted min-w-0 vl vl-md">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5 min-w-0">
               <span class="font-medium truncate">{{ b.name }}</span>
@@ -132,7 +132,7 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
       </section>
       <section v-if="branches?.remote.length" class="p-2 border-t border-border">
         <h2 class="px-2 pb-1 font-medium text-muted-foreground">Remote branches without a local branch ({{ branches.remote.length }})</h2>
-        <div v-for="r in branches.remote" :key="r" class="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted">
+        <div v-for="r in branches.remote" :key="r" class="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted vl vl-sm">
           <span class="flex-1 truncate font-mono">{{ r }}</span>
           <button v-if="branches.default && r !== `origin/${branches.default}`" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent shrink-0" :title="`Compare with ${branches.default}`" @click="compareBranch(r)">Compare</button>
         </div>

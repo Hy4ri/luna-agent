@@ -601,3 +601,5 @@
     padding: 14px 14px 28px;
   }
 }
+
+.cron-vlist { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
