@@ -5,6 +5,8 @@ import { Crop, X, Send, Loader2 } from "@lucide/vue";
 import { domToCanvas } from "modern-screenshot";
 import { chat, newSession, addErr } from "@/stores/chat";
 import { composer, addAttachment, send } from "@/stores/composer";
+import { models, selectedKey, setSelectedModel, LEVELS, levelLabel, loadModels } from "@/stores/models";
+import ModelCombobox from "@/components/ModelCombobox.vue";
 
 type Rect = { x: number; y: number; w: number; h: number };
 const MAX_DOM = 200_000;
@@ -14,12 +16,18 @@ const start = ref<{ x: number; y: number } | null>(null);
 const busy = ref(false);
 const note = ref("");
 const preview = ref("");
+const model = ref<string | undefined>();
+const thinking = ref("off");
 let shot: { png: Blob; html: string; rect: Rect; target: string } | null = null;
 
 const box = computed(() => rect.value && ({ left: rect.value.x + "px", top: rect.value.y + "px", width: rect.value.w + "px", height: rect.value.h + "px" }));
 const inUi = (el: Element | null) => !!el?.closest("[data-snap-ui]");
 
-function begin() { mode.value = "select"; rect.value = null; start.value = null; shot = null; note.value = ""; preview.value = ""; }
+function begin() {
+  mode.value = "select"; rect.value = null; start.value = null; shot = null; note.value = ""; preview.value = "";
+  model.value = selectedKey.value || undefined; thinking.value = models.thinking || "off";
+  void loadModels();
+}
 function cancel() { mode.value = "idle"; rect.value = null; start.value = null; shot = null; busy.value = false; }
 function down(e: PointerEvent) {
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -88,12 +96,15 @@ async function capture(r: Rect) {
   const b = root.getBoundingClientRect();
   const scale = Math.min(2, window.devicePixelRatio || 1);
   const canvas = await domToCanvas(root as HTMLElement, {
-    scale, filter: n => !(n instanceof Element && inUi(n)),
+    // Without restoreScrollPosition, scrolled containers render from the top and the crop shows other content.
+    scale, features: { restoreScrollPosition: true }, filter: n => !(n instanceof Element && inUi(n)),
     backgroundColor: getComputedStyle(document.body).backgroundColor,
   });
+  // Use the real canvas ratio: the library floors the canvas size and can clamp it.
+  const sx = canvas.width / b.width, sy = canvas.height / b.height;
   const crop = document.createElement("canvas");
   crop.width = Math.round(r.w * scale); crop.height = Math.round(r.h * scale);
-  crop.getContext("2d")!.drawImage(canvas, Math.round((r.x - b.left) * scale), Math.round((r.y - b.top) * scale), crop.width, crop.height, 0, 0, crop.width, crop.height);
+  crop.getContext("2d")!.drawImage(canvas, (r.x - b.left) * sx, (r.y - b.top) * sy, r.w * sx, r.h * sy, 0, 0, crop.width, crop.height);
   const png = await new Promise<Blob>((res, rej) => crop.toBlob(x => x ? res(x) : rej(new Error("empty image")), "image/png"));
   shot = { png, html: domOf(root, r), rect: r, target: selector(root) };
   preview.value = URL.createObjectURL(png);
@@ -105,6 +116,11 @@ async function submit() {
   const s = shot;
   try {
     if (!await newSession(chat.project)) throw new Error("Could not start a new session.");
+    // newSession resets the draft. Apply the snap choices so createSession uses them.
+    const [provider, ...rest] = (model.value || "").split("/");
+    const pick = model.value ? { provider, modelId: rest.join("/") } : undefined;
+    models.draft = { ...(pick ? { model: pick } : {}), thinkingLevel: thinking.value };
+    setSelectedModel(pick ?? models.defaultModel); models.thinking = thinking.value;
     const stamp = new Date().toISOString().replace(/\W/g, "").slice(0, 15);
     const ctx = { targetSession: null, targetAttachments: composer.attachments };
     await addAttachment(new File([s.png], `snap-${stamp}.png`, { type: "image/png" }), ctx);
@@ -136,6 +152,12 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
     <div v-else class="snap-review" role="dialog" aria-label="Send UI snap" @keydown="key">
       <img :src="preview" alt="Selected area" />
       <textarea v-model="note" rows="3" placeholder="What is wrong? (optional)" class="snap-note" @keydown.ctrl.enter="submit" @keydown.meta.enter="submit" />
+      <div class="snap-options">
+        <ModelCombobox v-model="model" empty-label="Default model" aria-label="Snap session model" content-class="z-[2147483002]" />
+        <select v-model="thinking" class="snap-think" aria-label="Reasoning level" title="Reasoning level">
+          <option v-for="l in LEVELS" :key="l" :value="l">{{ levelLabel(l) }}</option>
+        </select>
+      </div>
       <div class="snap-actions">
         <button type="button" class="snap-btn" @click="cancel">Cancel</button>
         <button type="button" class="snap-btn snap-primary" :disabled="busy" @click="submit"><Loader2 v-if="busy" :size="14" class="spin" /><Send v-else :size="14" /> New session</button>
@@ -154,6 +176,10 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 .snap-review { position: fixed; z-index: 2147483001; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 12px 40px #0009; }
 .snap-review img { max-height: 180px; width: 100%; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--background); }
 .snap-note { width: 100%; resize: none; padding: 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); font-size: 13px; }
+.snap-options { display: flex; gap: 8px; min-width: 0; }
+.snap-options :deep(.combobox-trigger) { flex: 1; min-height: 34px; padding: 6px 10px; border-radius: 6px; }
+.snap-options :deep(.combobox-label) { font-size: 13px; }
+.snap-think { flex: none; min-height: 34px; padding: 0 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 13px; }
 .snap-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .snap-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
 .snap-primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }

@@ -4,6 +4,8 @@ import { ChevronsUpDown } from "@lucide/vue";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useModelRefresh } from "@/lib/use-model-refresh";
 import ModelSelector from "@/components/ModelSelector.vue";
+import { models, modelKey } from "@/stores/models";
+import { cn } from "@/lib/utils";
 
 const props = withDefaults(defineProps<{
   modelValue?: string;
@@ -12,6 +14,7 @@ const props = withDefaults(defineProps<{
   disabled?: boolean;
   ariaLabel?: string;
   dataSetting?: string;
+  contentClass?: string;
 }>(), {
   modelValue: undefined,
   placeholder: "Search models…",
@@ -41,6 +44,8 @@ const displayLabel = computed(() => {
   if (!props.modelValue) return props.emptyLabel;
   const found = choices.value.find(c => c.value === props.modelValue);
   if (found) return found.label;
+  const listed = models.list.find(m => modelKey(m) === props.modelValue);
+  if (listed) return `${listed.provider} · ${listed.name || listed.id}`;
   // fallback: provider · id
   const slash = props.modelValue.indexOf("/");
   if (slash > 0) {
@@ -87,7 +92,7 @@ watch(open, (v) => {
     </PopoverTrigger>
     <PopoverContent
       align="start" side="bottom" :side-offset="6"
-      class="w-[min(440px,calc(100vw-16px))] p-3 max-h-[min(520px,70dvh,var(--reka-popover-content-available-height))] overflow-hidden flex flex-col"
+:class="cn('w-[min(440px,calc(100vw-16px))] p-3 max-h-[min(520px,70dvh,var(--reka-popover-content-available-height))] overflow-hidden flex flex-col', contentClass)"
       @pointerdown.capture="markInteracted()"
       @keydown.capture="markInteracted()"
       @wheel.passive="markInteracted()"
