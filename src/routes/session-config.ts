@@ -111,14 +111,18 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
       thinkingLevel?: string | null;
       instructions?: string | null;
     };
-    if (await harness.commit((tx) => isRunning(tx, conv.id), context))
-      return err(c, 409, "Cannot change the model or agent settings while busy.");
+    // Thinking changes affect the next model request, not the in-flight request.
+    // Keep model and instruction changes idle-only, including mixed patches.
+    const requiresIdle = b.model !== undefined || b.instructions !== undefined;
+    if (requiresIdle && await harness.commit((tx) => isRunning(tx, conv.id), context))
+      return err(c, 409, "Cannot change the model or instructions while busy.");
     if (b.model && opts.models && !opts.models.getModel(b.model.provider, b.model.modelId))
       return err(c, 400, "unknown model");
-    if (b.thinkingLevel && !THINKING_LEVELS.includes(b.thinkingLevel)) return err(c, 400, "invalid thinkingLevel");
+    if (b.thinkingLevel !== undefined && b.thinkingLevel !== null && !THINKING_LEVELS.includes(b.thinkingLevel))
+      return err(c, 400, "invalid thinkingLevel");
     if (b.model !== undefined) await opts.limitContinuer?.cancel(Number(conv.id), "Session model changed.");
     const changed = await serial(String(conv.id), () => harness.commit(async (tx) => {
-      if (await isRunning(tx, conv.id)) return false;
+      if (requiresIdle && await isRunning(tx, conv.id)) return false;
       const previous = (await tx.doc(AgentDoc, conv.id)).model;
       await configure(tx, conv.id, {
         ...(b.model !== undefined && { model: b.model }),
@@ -136,7 +140,7 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
       }
       return true;
     }, context));
-    if (!changed) return err(c, 409, "Cannot change the model or agent settings while busy.");
+    if (!changed) return err(c, 409, "Cannot change the model or instructions while busy.");
     return c.json({ ok: true });
   });
 

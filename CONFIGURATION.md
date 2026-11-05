@@ -1834,6 +1834,12 @@ Its data includes `previous`, `model`, and `text`; the event also enters model c
 Selecting the same model or changing only thinking level or instructions does not create a model-change event.
 Clearing the model records that no model is selected. Model changes do not start an assistant turn.
 
+The reasoning control can change `thinkingLevel` while the session is busy.
+A thinking-only `PATCH /v1/sessions/:id` saves the level immediately, including `null` to reset it to `off`.
+The change applies to the next model request, including the next tool round in the current run.
+It does not restart or interrupt an in-flight model request or tool.
+Patches that include `model` or `instructions` still return 409 while busy, even when they also include `thinkingLevel`.
+
 ### Lightweight session history
 
 `GET /v1/sessions/:id?view=ui&limit=100` requests a display-only projection.
