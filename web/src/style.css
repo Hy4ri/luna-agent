@@ -140,6 +140,9 @@ h1, h2, h3 { text-wrap: balance; }
   outline-offset: -2px;
 }
 
+/* No focus rings unless the user is navigating with Tab. */
+body:not(.kbd-nav) :focus-visible { outline: none !important; }
+
 /* Sidebar & Shell styles */
 aside#side {
   width: var(--side-w, 264px);
