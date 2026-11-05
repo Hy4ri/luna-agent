@@ -65,6 +65,22 @@ function commonAncestor(r: Rect): Element {
   return a || document.body;
 }
 
+type Box = { left: number; top: number; width: number; height: number };
+/**
+ * Element to render and its box. The box must cover the selection: an ancestor can be smaller than its
+ * overflowing or fixed children (Luna's <body> is 0px high), which gives blank crops or a 0-size canvas.
+ * Fallback: render <body> forced to viewport size.
+ */
+function captureRoot(r: Rect): { el: Element; box: Box; forced: boolean } {
+  const covers = (b: DOMRect) => b.width > 0 && b.height > 0 && b.left <= r.x + .5 && b.top <= r.y + .5 && b.right >= r.x + r.w - .5 && b.bottom >= r.y + r.h - .5;
+  for (let a: Element | null = commonAncestor(r); a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+    const b = a.getBoundingClientRect();
+    if (covers(b)) return { el: a, box: b, forced: false };
+  }
+  const b = document.body.getBoundingClientRect();
+  return { el: document.body, box: { left: b.left, top: b.top, width: Math.max(b.width, innerWidth - b.left), height: Math.max(b.height, innerHeight - b.top) }, forced: true };
+}
+
 /** Serialize only elements that intersect the selection. Drops scripts, SVG paths, and inline data URLs. */
 function domOf(root: Element, r: Rect): string {
   let size = 0;
@@ -92,14 +108,15 @@ function domOf(root: Element, r: Rect): string {
 }
 
 async function capture(r: Rect) {
-  const root = commonAncestor(r);
-  const b = root.getBoundingClientRect();
+  const { el: root, box: b, forced } = captureRoot(r);
   const scale = Math.min(2, window.devicePixelRatio || 1);
   const canvas = await domToCanvas(root as HTMLElement, {
+    ...(forced ? { width: b.width, height: b.height } : {}),
     // Without restoreScrollPosition, scrolled containers render from the top and the crop shows other content.
     scale, features: { restoreScrollPosition: true }, filter: n => !(n instanceof Element && inUi(n)),
     backgroundColor: getComputedStyle(document.body).backgroundColor,
   });
+  if (!canvas.width || !canvas.height) throw new Error(`empty render of ${selector(root)}`);
   // Use the real canvas ratio: the library floors the canvas size and can clamp it.
   const sx = canvas.width / b.width, sy = canvas.height / b.height;
   const crop = document.createElement("canvas");
