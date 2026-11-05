@@ -670,15 +670,7 @@ onMounted(() => {
             </div>
           </div>
 
-          </div>
-
-          <!-- Loading indicator -->
-          <div v-if="history.loading && history.rows.length === 0" class="flex items-center justify-center py-6 text-muted-foreground" role="status">
-            <LoaderCircle :size="18" class="motion-safe:animate-spin mr-2" />
-            <span class="text-xs">Loading conversations…</span>
-          </div>
-
-          <!-- Load more outside virtual viewport -->
+          <!-- Pagination follows the virtual spacer so it scrolls with the list. -->
           <div v-if="history.nextCursor" class="px-3 py-2 flex flex-col items-center">
             <button
               type="button"
@@ -689,6 +681,13 @@ onMounted(() => {
               <LoaderCircle v-if="history.loadingMore" :size="12" class="motion-safe:animate-spin" />
               <span>{{ history.loadingMore ? "Loading more…" : "Load more" }}</span>
             </button>
+          </div>
+          </div>
+
+          <!-- Loading indicator -->
+          <div v-if="history.loading && history.rows.length === 0" class="flex items-center justify-center py-6 text-muted-foreground" role="status">
+            <LoaderCircle :size="18" class="motion-safe:animate-spin mr-2" />
+            <span class="text-xs">Loading conversations…</span>
           </div>
         </template>
       </div>
