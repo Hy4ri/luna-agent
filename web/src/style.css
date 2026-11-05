@@ -422,6 +422,7 @@ aside#side.collapsed #history-rail {
   height: 48px;
   box-sizing: border-box;
 }
+.session-open:focus-visible { outline: none; }
 .session-row:hover {
   background: var(--sidebar-accent);
 }
