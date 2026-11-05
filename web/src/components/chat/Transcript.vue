@@ -284,8 +284,10 @@ function backgroundReport(entry: any, message: any): boolean {
         </template>
     </template>
     </template>
+    <!-- Live calls without a durable entry yet. A nested call (codemode child) never gets its own entry:
+         show it only until its parent call has a durable result, or it stays under the last message. -->
     <template v-for="(tool, id) in chat.toolStarts" :key="id">
-      <ToolCall v-if="!calls.has(id) && !durableResults.has(id)" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
+      <ToolCall v-if="!calls.has(id) && !durableResults.has(id) && !(tool.parentCallId && durableResults.has(tool.parentCallId))" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
     </template>
     <PendingMessage v-for="message in inLog" :key="message.requestId" :message="message" />
     <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message vl vl-xl">

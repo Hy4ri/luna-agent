@@ -71,7 +71,7 @@ export const chat = reactive({
   /** Live tool output by call id; replaces the static view while the tool runs. */
   toolLive: {} as Record<string, string>,
   /** Tools reported by the feed that may not be in durable entries yet. */
-  toolStarts: {} as Record<string, { name: string; args?: unknown; timestamp?: number; taskId?: string }>,
+  toolStarts: {} as Record<string, { name: string; args?: unknown; timestamp?: number; taskId?: string; parentCallId?: string }>,
   toolResults: {} as Record<string, any>,
   activeTools: new Set<string>(),
   compactions: new Set<string>(),
@@ -346,7 +346,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     applyAgent(e.agent || {}); chat.usage = e.usage ? markRaw(e.usage) : null;
     for (const slot of slots) {
       if (slot.status === "done" && !slot.parentCallId) continue;
-      if (!chat.toolStarts[slot.callId]) chat.toolStarts[slot.callId] = { name: slot.name, args: slot.arguments, taskId: slot.taskId };
+      if (!chat.toolStarts[slot.callId]) chat.toolStarts[slot.callId] = { name: slot.name, args: slot.arguments, taskId: slot.taskId, ...(slot.parentCallId ? { parentCallId: slot.parentCallId } : {}) };
       if (slot.output) chat.toolLive[slot.callId] = slot.output;
       if (slot.status === "done" && slot.summary) {
         chat.toolResults[slot.callId] = { isError: slot.summary.isError, content: slot.summary.error || slot.output || "" };
@@ -401,7 +401,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
   },
   tool_execution_start(e) {
     chat.activeTools.add(e.toolCallId);
-    if (!chat.toolStarts[e.toolCallId]) chat.toolStarts[e.toolCallId] = { name: e.toolName, args: e.args, timestamp: Date.now(), taskId: e.taskId };
+    if (!chat.toolStarts[e.toolCallId]) chat.toolStarts[e.toolCallId] = { name: e.toolName, args: e.args, timestamp: Date.now(), taskId: e.taskId, ...(e.parentToolCallId ? { parentCallId: e.parentToolCallId } : {}) };
     if (EXTRA_TOOLS.test(e.toolName)) scheduleExtras(e.toolName === "ask_user_question" ? 3 : 0);
   },
   tool_execution_update(e) {
