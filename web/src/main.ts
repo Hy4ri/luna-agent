@@ -25,5 +25,9 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
   }).catch(() => {});
 }
 
+// Show focus rings only after keyboard navigation (Tab), never after mouse or touch.
+window.addEventListener("keydown", e => { if (e.key === "Tab") document.body.classList.add("kbd-nav"); }, true);
+window.addEventListener("pointerdown", () => document.body.classList.remove("kbd-nav"), true);
+
 installExternalLinks();
 createApp(App).mount("#app");
