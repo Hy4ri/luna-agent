@@ -122,7 +122,8 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 </script>
 
 <template>
-  <div data-snap-ui>
+  <!-- Teleported above modal layers. Events stop here so an open dialog does not treat them as outside clicks. -->
+  <Teleport to="body"><div data-snap-ui class="snap-root" @pointerdown.stop @mousedown.stop @focusin.stop @click.stop>
     <button v-if="mode === 'idle'" type="button" class="snap-tab" aria-label="Snap part of the UI" title="Snap part of the UI" @click="begin"><Crop :size="14" /></button>
     <div v-else-if="mode === 'select'" class="snap-overlay" tabindex="-1" @keydown="key" @pointerdown="down" @pointermove="move" @pointerup="up" @vue:mounted="({ el }: any) => el.focus()">
       <div v-if="box" class="snap-box" :style="box" />
@@ -140,16 +141,17 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
         <button type="button" class="snap-btn snap-primary" :disabled="busy" @click="submit"><Loader2 v-if="busy" :size="14" class="spin" /><Send v-else :size="14" /> New session</button>
       </div>
     </div>
-  </div>
+  </div></Teleport>
 </template>
 
 <style scoped>
-.snap-tab { position: fixed; right: 0; top: 55%; z-index: 30; width: 20px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: 8px 0 0 8px; background: var(--card); color: var(--muted-foreground); opacity: .25; transition: opacity .15s, width .15s; }
+.snap-root { pointer-events: auto; }
+.snap-tab { position: fixed; right: 0; top: 55%; z-index: 2147483000; width: 20px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: 8px 0 0 8px; background: var(--card); color: var(--muted-foreground); opacity: .25; transition: opacity .15s, width .15s; }
 .snap-tab:hover, .snap-tab:focus-visible { opacity: 1; width: 30px; color: var(--foreground); }
-.snap-overlay { position: fixed; inset: 0; z-index: 90; cursor: crosshair; background: #0000004d; touch-action: none; outline: none; user-select: none; }
+.snap-overlay { position: fixed; inset: 0; z-index: 2147483001; cursor: crosshair; background: #0000004d; touch-action: none; outline: none; user-select: none; }
 .snap-box { position: fixed; border: 2px solid var(--primary); background: #ffffff1a; box-shadow: 0 0 0 9999px #0006; pointer-events: none; }
 .snap-hint { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); font-size: 13px; cursor: default; }
-.snap-review { position: fixed; z-index: 90; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 12px 40px #0009; }
+.snap-review { position: fixed; z-index: 2147483001; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 12px 40px #0009; }
 .snap-review img { max-height: 180px; width: 100%; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--background); }
 .snap-note { width: 100%; resize: none; padding: 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); font-size: 13px; }
 .snap-actions { display: flex; justify-content: flex-end; gap: 8px; }
