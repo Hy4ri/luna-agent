@@ -4,7 +4,9 @@ export type Widget = ChartWidget | PlotWidget;
 
 export interface ChartWidget {
   type: "chart";
-  kind: "line" | "bar";
+  kind: "line" | "area" | "bar" | "pie" | "donut";
+  /** Bar and area only: series add up instead of overlapping. */
+  stacked?: boolean;
   title?: string;
   x: string[];
   series: {
@@ -73,8 +75,11 @@ export function parseWidget(
 
   if (type === "chart") {
     const kind = obj.kind;
-    if (kind !== "line" && kind !== "bar") {
-      return { ok: false, error: "chart: kind must be 'line' or 'bar'" };
+    if (!["line", "area", "bar", "pie", "donut"].includes(kind)) {
+      return { ok: false, error: "chart: kind must be line, area, bar, pie, or donut" };
+    }
+    if (obj.stacked !== undefined && typeof obj.stacked !== "boolean") {
+      return { ok: false, error: "chart: stacked must be a boolean" };
     }
 
     if (obj.title !== undefined && typeof obj.title !== "string") {
@@ -125,11 +130,24 @@ export function parseWidget(
       return { ok: false, error: "chart: yUnit must be a string" };
     }
 
+    if (obj.stacked === true && series.some((ser: { data: number[] }) => ser.data.some(v => v < 0))) {
+      return { ok: false, error: "chart: stacked values must not be negative" };
+    }
+
+    if (kind === "pie" || kind === "donut") {
+      if (series.length !== 1) return { ok: false, error: `chart: ${kind} takes exactly 1 series` };
+      if (x.length > 12) return { ok: false, error: `chart: ${kind} takes at most 12 slices` };
+      const data: number[] = series[0].data;
+      if (data.some(v => v < 0)) return { ok: false, error: `chart: ${kind} values must not be negative` };
+      if (!data.some(v => v > 0)) return { ok: false, error: `chart: ${kind} needs at least one positive value` };
+    }
+
     return {
       ok: true,
       widget: {
         type: "chart",
         kind,
+        stacked: obj.stacked === true && (kind === "bar" || kind === "area"),
         title: obj.title,
         x,
         series,

@@ -175,6 +175,7 @@ function handleMouseLeave() {
 
 <template>
   <div class="plot-widget">
+    <div v-if="widget.title" class="plot-title">{{ widget.title }}</div>
     <div v-if="!compiled.ok" class="widget-error">
       expr error: {{ compiled.error }}
     </div>
@@ -316,13 +317,17 @@ function handleMouseLeave() {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--card-foreground);
 }
+.plot-title { font-weight: 600; font-size: 14px; padding-right: 72px; }
+.widget-error { font-size: 13px; color: var(--destructive); }
 .chart-container {
   position: relative;
   width: 100%;
-  background: var(--secondary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
   overflow: hidden;
 }
 .plot-svg {
@@ -338,7 +343,7 @@ function handleMouseLeave() {
 .hover-readout {
   position: absolute;
   top: 8px;
-  right: 8px;
+  left: 8px;
   background: var(--popover);
   border: 1px solid var(--border);
   padding: 4px 8px;

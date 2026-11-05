@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, defineAsyncComponent } from "vue";
 import { segments } from "@/lib/segments";
 import Markdown from "./Markdown.vue";
 import Attachment from "./Attachment.vue";
-import HtmlPreview from "./widgets/HtmlPreview.vue";
-import Widget from "./widgets/Widget.vue";
+import UiBlock from "./genui/UiBlock.vue";
+import HtmlBlock from "./genui/HtmlBlock.vue";
+// Mermaid and KaTeX are large; they load only when a message uses them.
+const MermaidBlock = defineAsyncComponent(() => import("./genui/MermaidBlock.vue"));
+const MathBlock = defineAsyncComponent(() => import("./genui/MathBlock.vue"));
 
 const props = defineProps<{ text: string; base?: string; offset?: number }>();
 
@@ -20,7 +23,11 @@ const parsedSegments = computed(() => {
   <template v-for="(seg, i) in parsedSegments" :key="i">
     <Markdown v-if="seg.kind === 'md' && seg.text.trim()" :content="seg.text" />
     <Attachment v-else-if="seg.kind === 'media'" :url="seg.url" :name="seg.name" :type="seg.type as any" />
-    <HtmlPreview v-else-if="seg.kind === 'html'" :html="seg.html" :closed="seg.closed" :excess="seg.excess" />
-    <Widget v-else-if="seg.kind === 'ui'" :json="seg.json" :closed="seg.closed" :excess="seg.excess" />
+    <template v-else-if="seg.kind === 'block'">
+      <UiBlock v-if="seg.lang === 'ui'" :source="seg.source" :closed="seg.closed" :excess="seg.excess" />
+      <HtmlBlock v-else-if="seg.lang === 'html'" :source="seg.source" :closed="seg.closed" :excess="seg.excess" />
+      <MermaidBlock v-else-if="seg.lang === 'mermaid'" :source="seg.source" :closed="seg.closed" />
+      <MathBlock v-else :source="seg.source" :closed="seg.closed" />
+    </template>
   </template>
 </template>

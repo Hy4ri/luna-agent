@@ -257,17 +257,26 @@ Closing the panel preserves unfinished job edits. A successful run is not labele
 
 ## Interactive replies
 
-Assistant replies can include `ui` fences for charts and plots, or `html` fences for custom interactive visuals.
-The Web UI renders these blocks in message order, alongside text and `MEDIA:` attachments.
-There is a combined limit of four previews per message. Extra blocks show their source without execution.
-HTML runs only after the closing fence arrives. Use a `text` fence to show HTML as code without a preview.
+Assistant replies can include rich fences. The Web UI renders them in message order, alongside text and `MEDIA:` attachments:
 
-HTML previews support self-contained markup, inline CSS, inline JavaScript, inline SVG, and data images.
-**Source**, **Reload**, and **copy** controls operate on the displayed block. Source view preserves the running preview.
-The preview area can be resized vertically. Reload and session reopen reset JavaScript state; generated HTML remains in the transcript.
+- `ui`: one JSON object for a native chart (`line`, `area`, `bar`, `pie`, `donut`, optional `stacked`) or a slider plot.
+- `mermaid`: a Mermaid diagram, rendered inline as sanitized SVG with the theme colors. Click it to open it full size.
+- `math`: LaTeX, rendered with KaTeX (`trust: false`).
+- `html`: a custom visual. See below.
+
+There is a combined limit of four `ui` and `html` blocks per message. Extra blocks show their source and do not render.
+A block renders only after its closing fence arrives. Use a `text` fence to show source without rendering.
+Every block has a hover toolbar (always visible on touch screens): source view, copy, and expand or reload where they apply.
+
+An `html` block takes one of two paths:
+
+- **Inline (static):** markup without `<script>`, event-handler attributes, `javascript:` URLs, frames, objects, or form fields. It is sanitized with DOMPurify and rendered in a shadow root inside the chat. Remote URLs are removed from `src`, `href` (except `http(s):`/`mailto:` links, which open in a new tab), and CSS `url()`; `@import` is dropped. Only fragment and `data:image/` references stay. The host uses `contain: layout paint`, so `position: fixed` cannot cover the app. Styles that target `html`, `body`, or `:root` apply to the block root. Theme variables (`--foreground`, `--card`, `--chart-1`…) inherit into the block.
+- **Sandbox (scripted):** anything else runs in the sandboxed iframe described below. The parent adds the theme variables and a dark color scheme (so the frame is transparent), and the frame reports its content height, so it grows to fit (40–1600 px).
+
+`data-luna-prompt="text"` on any element, or `luna.prompt(text)` in a sandboxed script, puts the text in the composer on click. It is appended to an existing draft, never sent automatically. A sandbox request is accepted only during user activation.
 
 `GET /html-preview` serves a public, stateless bootstrap document. It contains no transcript, token, or user HTML.
-The shell signals readiness. The parent then sends only the block's HTML to that iframe, once per fresh shell. HTML is not stored or placed in a URL. An unresponsive shell shows a connection warning after ten seconds.
+The shell signals readiness. The parent then sends only the block's HTML (with the theme and size helper added to its head) to that iframe, once per fresh shell. HTML is not stored or placed in a URL. An unresponsive shell shows a connection warning after ten seconds.
 The endpoint is available without a built frontend. Vite proxies it to the daemon during development.
 No configuration field is required. The example config includes an optional `instructions` reminder for self-contained HTML.
 
