@@ -420,6 +420,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
           <p v-if="editingCard" class="kb-timestamp">Updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
           <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> <bdi>{{ a.text }}</bdi></li></ul>
         </div>
+        <p v-if="error" class="kb-editor-error"><CircleAlert :size="14" />{{ error }}</p>
         <div class="kb-editor-actions"><button type="submit" class="kb-button kb-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save card' }}</button><button type="button" class="kb-button" :disabled="busy" @click="closeEditor">Cancel</button><span></span><button v-if="editingId !== null" type="button" class="kb-button" :disabled="busy" @click="setArchived">{{ editingArchived ? 'Restore' : 'Archive' }}</button><button v-if="editingId !== null" type="button" class="kb-button kb-danger" :disabled="busy" @click="deleteCard">Delete</button></div>
       </form>
     </div>
@@ -429,7 +430,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
         <span class="kb-feedback-text">{{ feedbackText }}</span>
         <button v-if="error && !editing && !busy" class="kb-link" @click="loadBoard(true)">Retry</button>
       </div>
-      <span v-if="selectedPid" class="kb-status-count">{{ visible.length }}{{ visible.length !== cards.length ? ' / ' + cards.length : '' }} cards</span>
+      <span v-if="selectedPid" class="kb-status-count">{{ visible.length }}{{ visible.length !== cards.length ? ' / ' + cards.length : '' }} {{ cards.length === 1 ? 'card' : 'cards' }}</span>
     </footer>
     <Teleport to="body"><div v-if="drag?.moved" class="kb-ghost" :style="{ left: drag.x + 12 + 'px', top: drag.y + 12 + 'px' }" aria-hidden="true"><small>#{{ drag.card.id }}</small><strong dir="auto">{{ drag.card.subject }}</strong></div></Teleport>
   </section>
@@ -533,6 +534,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-editor-fields { overflow:auto; min-height:0; padding:16px; display:grid; gap:14px; scrollbar-width:thin; }.kb-editor label { display:grid; gap:6px; font-size:13px; min-width:0; }.kb-editor input,.kb-editor textarea,.kb-editor select { width:100%; background:var(--background); }.kb-editor textarea { resize:vertical; min-height:80px; font-size:15px; font-weight:450; line-height:1.55; }.kb-editor small { font-size:11px; color:var(--muted-foreground); line-height:1.5; }.kb-editor-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.kb-timestamp { font-size:11px; color:var(--muted-foreground); }
 .kb-editor-actions { display:flex; flex-wrap:wrap; gap:8px; padding:12px; border-top:1px solid var(--border); flex:none; margin-top:auto; }.kb-editor-actions>span { flex:1; }.kb .kb-danger { color:var(--destructive); }
 .kb-answer { display:grid; gap:8px; }
+.kb-editor-error { display:flex; align-items:flex-start; gap:6px; margin:0; padding:8px 14px; border-top:1px solid var(--border); color:var(--destructive); background:color-mix(in srgb,var(--destructive) 10%,var(--card)); font-size:12px; line-height:1.5; overflow-wrap:anywhere; flex:none; }.kb-editor-error svg { flex:none; margin-top:2px; }
 .kb-files { display:grid; gap:8px; }.kb-files-title { font-size:13px; }.kb-files ul { list-style:none; margin:0; padding:0; display:grid; gap:4px; }.kb-files li { display:flex; align-items:center; gap:6px; font-size:12px; }.kb-file-name { flex:1; min-width:0; overflow-wrap:anywhere; }.kb-files .kb-icon { width:28px; min-height:28px; }.kb-attach { cursor:pointer; justify-self:start; }.kb-attach-off { opacity:.45; pointer-events:none; }
 .kb-asks { margin:0; }
 .kb-activity { list-style:none; margin:0; padding:10px 0 0; border-top:1px solid var(--border); display:grid; gap:6px; font-size:12px; color:var(--muted-foreground); max-height:180px; overflow:auto; }
