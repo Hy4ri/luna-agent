@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { serverUrl, token } from '@/lib/api';
 import {
   Moon,
   Plus,
@@ -41,7 +42,7 @@ import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
 import ProjectIcon from "@/components/ProjectIcon.vue";
 import type { ProjectAppearance } from "../../../../src/project-appearance";
-import { history, toggleFavorite, loadSessions, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, moveSession, toggleArchived, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
+import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, moveSession, toggleArchived, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
@@ -53,18 +54,23 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 const ProjectAppearanceDialog = defineAsyncComponent(() => import("@/components/ProjectAppearanceDialog.vue"));
 const appearanceProject = ref<number | null>(null);
 const pruneOpen = ref(false), pruneResult = ref("");
+
 // Multi-select mode: checkboxes on rows and a bulk action bar.
 const selecting = ref(false), selected = ref(new Set<string>()), bulkBusy = ref(false);
-const selectedSessions = computed(() => history.list.filter(s => selected.value.has(String(s.id))));
+const selectedSessions = computed(() => history.rows.filter(s => selected.value.has(String(s.id))));
+const hasMoreRows = computed(() => !!history.nextCursor);
+const selectAllLabel = computed(() => hasMoreRows.value ? "Select loaded conversations" : "Select all / none");
+
 function toggleSelect(id: string | number) {
   const next = new Set(selected.value), k = String(id);
   if (!next.delete(k)) next.add(k);
   selected.value = next;
 }
 function exitSelect() { selecting.value = false; selected.value = new Set(); }
-function selectAllVisible() {
-  const ids = visibleSessions.value.map((s: any) => String(s.id));
-  selected.value = ids.every((i: string) => selected.value.has(i)) ? new Set() : new Set(ids);
+watch([() => history.query, () => history.archived, () => history.drill, () => history.worker, serverUrl, token], exitSelect, { flush: 'sync' });
+function selectAllLoaded() {
+  const ids = history.rows.map(s => String(s.id));
+  selected.value = ids.length > 0 && ids.every(i => selected.value.has(i)) ? new Set() : new Set(ids);
 }
 async function runBulk(action: BulkAction) {
   if (bulkBusy.value) return;
@@ -94,32 +100,18 @@ const titling = ref(false);
 const copyState = ref<"" | "ok" | "fail">("");
 let copyTimer: ReturnType<typeof setTimeout> | null = null;
 
-const sortedActiveSessions = computed(() => {
-  return sortSessions(history.list.filter(s => !!s.archived === history.archived));
-});
-
-const filteredSessions = computed(() => {
-  const q = history.query.trim().toLowerCase();
-  if (!q) return sortedActiveSessions.value;
-  return sortedActiveSessions.value.filter(s => sessionTitle(s).toLowerCase().includes(q));
-});
-
-function sortSessions(sessions: any[]) {
-  return [...sessions].sort((a, b) => {
-    if (!!b.pinned !== !!a.pinned) {
-      return Number(b.pinned) - Number(a.pinned);
-    }
-    const timeB = b.lastActivity ?? b.createdAt ?? 0;
-    const timeA = a.lastActivity ?? a.createdAt ?? 0;
-    if (timeB !== timeA) {
-      return timeB - timeA;
-    }
-    return Number(b.id) - Number(a.id);
-  });
-}
-
 type Machine = { key: string; id: number | null; name: string; online: boolean };
-type Folder = ProjectAppearance & { key: string; name: string; project: number | null; favorite?: boolean; sessions: any[] };
+type Folder = ProjectAppearance & {
+  key: string;
+  name: string;
+  project: number | null;
+  favorite?: boolean;
+  count: number;
+  lastActivity: number;
+  activity: number;
+  statuses: Record<string, number>;
+  machines: Record<string, number>;
+};
 
 /** Machines appear only when workers exist. Each session belongs to one machine. */
 const machines = computed<Machine[]>(() => workers.list.length
@@ -130,107 +122,93 @@ const machineOf = (s: any) => machines.value.find(m => m.id === (s.worker ?? nul
 /** One folder per project, plus "Chats" for sessions without a named project. History opens one folder at a time. */
 const folders = computed<Folder[]>(() => {
   const named = sortProjects(history.projects).filter(p => !p.general);
-  const namedMap = new Map<number, typeof named[number]>();
-  for (const p of named) {
-    namedMap.set(p.id, p);
-  }
+  const result: Folder[] = named.map(p => {
+    const summary = history.groups[String(p.id)] || { count: 0, lastActivity: 0, activity: 0, statuses: {}, machines: {} };
+    return {
+      key: String(p.id),
+      name: p.name,
+      project: p.id,
+      favorite: p.favorite,
+      color: p.color,
+      icon: p.icon,
+      count: summary.count ?? 0,
+      lastActivity: summary.lastActivity ?? 0,
+      activity: summary.activity ?? 0,
+      statuses: summary.statuses ?? {},
+      machines: summary.machines ?? {},
+    };
+  });
 
-  const projectSessions = new Map<number, any[]>();
-  for (const p of named) {
-    projectSessions.set(p.id, []);
-  }
-  const generalSessions: any[] = [];
+  // Rank projects by their activity across both archive modes, keeping favourites above others.
+  result.sort((a, b) => Number(!!b.favorite) - Number(!!a.favorite) || (b.activity - a.activity));
 
-  for (const session of sortedActiveSessions.value) {
-    const pid = session.project != null ? Number(session.project) : null;
-    if (pid !== null && namedMap.has(pid)) {
-      projectSessions.get(pid)!.push(session);
-    } else {
-      generalSessions.push(session);
-    }
-  }
-
-  const result: Folder[] = named.map(p => ({
-    key: String(p.id),
-    name: p.name,
-    project: p.id,
-    favorite: p.favorite,
-    color: p.color,
-    icon: p.icon,
-    sessions: projectSessions.get(p.id)!,
-  }));
-
-  // Rank projects by their newest session activity, independent of pinned sessions
-  // and the archive filter. Keep favourites above the other projects.
-  const activity = new Map<number, number>();
-  for (const session of history.list) {
-    if (session.project == null) continue;
-    const id = Number(session.project);
-    activity.set(id, Math.max(activity.get(id) ?? 0, session.lastActivity ?? session.createdAt ?? 0));
-  }
-  result.sort((a, b) => Number(!!b.favorite) - Number(!!a.favorite)
-    || (activity.get(b.project!) ?? 0) - (activity.get(a.project!) ?? 0));
   const general = history.projects.find(p => p.general);
+  const generalSummary = history.groups["none"] || { count: 0, lastActivity: 0, activity: 0, statuses: {}, machines: {} };
   result.splice(result.filter(f => f.favorite).length, 0, {
     key: "none",
     name: "Chats",
     project: null,
     icon: general?.icon,
     color: general?.color,
-    sessions: generalSessions,
+    count: generalSummary.count ?? 0,
+    lastActivity: generalSummary.lastActivity ?? 0,
+    activity: generalSummary.activity ?? 0,
+    statuses: generalSummary.statuses ?? {},
+    machines: generalSummary.machines ?? {},
   });
   return result;
 });
+
 /** With no named projects there is nothing to choose, so the only folder is always open. */
 const single = computed(() => folders.value.length === 1);
 const openFolder = computed(() => single.value ? folders.value[0]! : folders.value.find(f => f.key === history.drill) ?? null);
 
-/** Device filter inside an open folder: "all" or a machine key. */
-const device = ref("all");
+/** Device filter inside an open folder: "all" or a machine key. Synced with history.worker. */
+const device = computed({
+  get: () => {
+    if (history.worker === "all") return "all";
+    if (history.worker === "main") return "main";
+    return String(history.worker);
+  },
+  set: (val: string) => {
+    if (val === "all") history.worker = "all";
+    else if (val === "main") history.worker = "main";
+    else history.worker = Number(val);
+  },
+});
 const deviceMachine = computed(() => machines.value.find(m => m.key === device.value));
 const searching = computed(() => !!history.query.trim());
-/** Search covers every folder. Otherwise the open folder, narrowed to one device when a device is chosen. */
-const visibleSessions = computed(() => {
-  if (searching.value) return filteredSessions.value;
-  const f = openFolder.value;
-  if (!f) return [];
-  return deviceMachine.value ? f.sessions.filter(s => (s.worker ?? null) === deviceMachine.value!.id) : f.sessions;
-});
+
 /** True windowing: only visible session rows (+overscan) are mounted.
- *  Rows are fixed-height (48px, see .session-row in style.css); the wrapper
- *  reserves the full list height so the scrollbar reflects every session. */
-const { list: vSessions, containerProps: sessionsContainerProps, wrapperProps: sessionsWrapperProps } = useVirtualList(visibleSessions, { itemHeight: 48, overscan: 10 });
+ *  history.rows holds the currently loaded server page window. */
+const { list: vSessions, containerProps: sessionsContainerProps, wrapperProps: sessionsWrapperProps } = useVirtualList(computed(() => history.rows), { itemHeight: 48, overscan: 10 });
 
 function drill(key: string | null) {
-  device.value = "all";
+  history.worker = "all";
   setDrill(key);
   if (key === null) nextTick(() => document.querySelector<HTMLButtonElement>("#sessions .folder-open")?.focus());
   else nextTick(() => document.querySelector<HTMLButtonElement>("#history-back")?.focus());
 }
 
-const folderTime = (f: Folder) => f.sessions.reduce((m, s) => Math.max(m, s.lastActivity ?? s.createdAt ?? 0), 0);
+const folderTime = (f: Folder) => f.lastActivity;
 const folderStatuses = (f: Folder) => {
-  const counts = new Map<ReturnType<typeof sessionState>, number>();
-  for (const session of f.sessions) {
-    const status = sessionState(session);
-    if (status !== "ready" && status !== "stopped") counts.set(status, (counts.get(status) ?? 0) + 1);
-  }
-  return [...counts].map(([status, count]) => ({ status, count, label: sessionStatusLabel({ status }) }));
-};
-const machineCount = (f: Folder, m: Machine) => f.sessions.filter(s => (s.worker ?? null) === m.id).length;
-const sessionProjectFolder = computed(() => {
-  const map = new Map<any, string>();
-  for (const folder of folders.value) {
-    for (const s of folder.sessions) {
-      map.set(s, folder.name);
+  const list: { status: any; count: number; label: string }[] = [];
+  for (const [st, cnt] of Object.entries(f.statuses)) {
+    if (cnt > 0 && st !== "ready" && st !== "stopped") {
+      list.push({ status: st, count: cnt, label: sessionStatusLabel({ status: st as any }) });
     }
   }
-  return map;
-});
+  return list;
+};
+const machineCount = (f: Folder, m: Machine) => f.machines[m.key] ?? 0;
+
 /** Text after the title of a session row: project while searching, machine when several are shown together. */
 function sessionMeta(s: any) {
   const parts: string[] = [];
-  if (searching.value) parts.push(sessionProjectFolder.value.get(s) ?? "Chats");
+  if (searching.value) {
+    const p = history.projects.find(proj => proj.id === s.project);
+    parts.push(p?.name ?? "Chats");
+  }
   if (machines.value.length && (searching.value || !deviceMachine.value)) parts.push(machineOf(s)?.name ?? "Unknown machine");
   return parts.join(" · ");
 }
@@ -272,7 +250,6 @@ function toggleHistoryView() {
 
 function toggleArchivedView(archived: boolean) {
   history.archived = archived;
-  loadSessions().catch(e => { history.status = (e as Error).message; });
 }
 
 // Resizer logic
@@ -540,7 +517,7 @@ onMounted(() => {
 
       <div v-if="selecting && !collapsed" id="bulk-bar" class="flex flex-wrap items-center gap-1 px-3 py-1 text-xs" role="toolbar" aria-label="Bulk actions">
         <span class="text-muted-foreground mr-auto" role="status">{{ selected.size }} selected</span>
-        <button class="icon-button" title="Select all / none" aria-label="Select all or none" @click="selectAllVisible"><SquareCheck :size="16" /></button>
+        <button class="icon-button" :title="selectAllLabel" :aria-label="selectAllLabel" @click="selectAllLoaded"><SquareCheck :size="16" /></button>
         <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Generate titles" aria-label="Generate titles for selected" @click="runBulk('title')"><Sparkles :size="16" /></button>
         <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Pin" aria-label="Pin selected" @click="runBulk('pin')"><Pin :size="16" /></button>
         <button class="icon-button" :disabled="!selected.size || bulkBusy" :title="history.archived ? 'Restore' : 'Archive'" :aria-label="(history.archived ? 'Restore' : 'Archive') + ' selected'" @click="runBulk(history.archived ? 'restore' : 'archive')"><Archive :size="16" /></button>
@@ -579,7 +556,7 @@ onMounted(() => {
           </button>
         </div>
         <div v-if="machines.length" class="device-chips" role="group" aria-label="Machine">
-          <button class="device-chip" :aria-pressed="device === 'all' ? 'true' : 'false'" @click="device = 'all'">All<span class="device-count">{{ openFolder.sessions.length }}</span></button>
+          <button class="device-chip" :aria-pressed="device === 'all' ? 'true' : 'false'" @click="device = 'all'">All<span class="device-count">{{ openFolder.count }}</span></button>
           <button
             v-for="m in machines"
             :key="m.key"
@@ -596,8 +573,14 @@ onMounted(() => {
         <p v-if="deviceMachine && !deviceMachine.online" class="folder-note">{{ deviceMachine.name }} is offline. You can read these sessions, but you cannot start new ones.</p>
       </div>
 
-      <div id="sessions" v-if="!collapsed" v-bind="sessionsContainerProps">
+      <div id="sessions" v-if="!collapsed" :class="{ 'session-window': openFolder || searching }">
         <div class="eyebrow px-3 py-1 text-xs font-semibold text-muted-foreground" v-if="history.archived">Archived</div>
+
+        <div v-if="history.error" class="p-3 text-xs text-destructive flex flex-col gap-1.5" role="alert">
+          <span>{{ history.error }}</span>
+          <button class="self-start underline text-foreground hover:opacity-80" @click="loadSessions">Retry</button>
+        </div>
+        <p v-if="!openFolder && !searching && history.loading" class="muted px-3 py-2 text-sm" role="status">Loading conversations…</p>
 
         <!-- Level 1: project folders -->
         <template v-if="!openFolder && !searching">
@@ -606,7 +589,7 @@ onMounted(() => {
             :key="f.key"
             class="folder-open"
             :data-project="f.key"
-            :aria-label="f.name + ', ' + f.sessions.length + ' conversations'"
+            :aria-label="f.name + ', ' + f.count + ' conversations'"
             @click="drill(f.key)"
           >
             <span class="folder-title-row">
@@ -628,9 +611,11 @@ onMounted(() => {
 
         <!-- Level 2: sessions of the open folder, or search results across all folders -->
         <template v-else>
-          <p v-if="visibleSessions.length === 0" class="muted px-3 py-2 text-sm">
+          <p v-if="history.rows.length === 0 && !history.loading && !history.error" class="muted px-3 py-2 text-sm">
             {{ searching ? "No matching conversations." : history.archived ? "No archived conversations here." : "Your conversations will appear here." }}
           </p>
+
+          <div v-if="history.rows.length > 0" class="session-viewport" v-bind="sessionsContainerProps">
           <div class="group-body" v-bind="sessionsWrapperProps">
             <div v-for="{ data: s } in vSessions" :key="s.id" class="session-row" :class="{ pinned: s.pinned }" :data-session="s.id">
               <!-- Inline rename input -->
@@ -688,6 +673,27 @@ onMounted(() => {
                 <Ellipsis :size="16" />
               </button>
             </div>
+          </div>
+
+          </div>
+
+          <!-- Loading indicator -->
+          <div v-if="history.loading && history.rows.length === 0" class="flex items-center justify-center py-6 text-muted-foreground" role="status">
+            <LoaderCircle :size="18" class="motion-safe:animate-spin mr-2" />
+            <span class="text-xs">Loading conversations…</span>
+          </div>
+
+          <!-- Load more outside virtual viewport -->
+          <div v-if="history.nextCursor" class="px-3 py-2 flex flex-col items-center">
+            <button
+              type="button"
+              class="w-full py-1.5 px-3 text-xs rounded border border-border bg-transparent hover:bg-sidebar-accent text-sidebar-foreground disabled:opacity-50 flex items-center justify-center gap-1.5"
+              :disabled="history.loading || history.loadingMore"
+              @click="loadMoreSessions"
+            >
+              <LoaderCircle v-if="history.loadingMore" :size="12" class="motion-safe:animate-spin" />
+              <span>{{ history.loadingMore ? "Loading more…" : "Load more" }}</span>
+            </button>
           </div>
         </template>
       </div>
@@ -792,3 +798,8 @@ onMounted(() => {
     <PruneSessionsDialog v-if="pruneOpen" :project="openFolder?.project ? { id: openFolder.project, name: openFolder.name } : null" @close="pruneOpen = false" @deleted="message => pruneResult = message" />
   </aside>
 </template>
+
+<style scoped>
+#sessions.session-window { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.session-viewport { flex: 1; min-height: 0; overflow-y: auto; }
+</style>

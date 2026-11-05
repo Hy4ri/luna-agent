@@ -6,7 +6,7 @@ import {
   type EntryId,
 } from "@earendil-works/pi-durable";
 import { GENERAL_PROJECT } from "../projects.js";
-import { isRunning, readSessionStatus, markSessionRead, type SessionState } from "../session-status.js";
+import { isRunning, readSessionStatus, markSessionRead } from "../session-status.js";
 import { Children, readChildReport, type ChildRow } from "../delegate-state.js";
 import { readDelegationUsage } from "../delegate-usage.js";
 import { GoalDoc } from "../goal-doc.js";
@@ -22,37 +22,134 @@ import {
   type SessionRequest,
 } from "../session-create.js";
 import type { ConversationMeta } from "../conversations.js";
-import type { RecoverySummary } from "../limit-continue.js";
 import { projectEntryImages } from "../session-images.js";
 import { projectEntryForUi, extractFullToolResult } from "../session-history-view.js";
 import { activeContextTokens } from "../context-usage.js";
 import { type RouteCtx, type ActiveConversation } from "./context.js";
 import { createSessionRows } from "./session-rows.js";
+import {
+  type SessionItem,
+  type GroupSummary,
+  decodeCursor,
+  encodeCursor,
+  compareSessions,
+  isAfterCursor,
+} from "./session-list.js";
 
 export function registerSessions(app: Hono, ctx: RouteCtx): void {
   const { opts, harness, err, getConv, baseAgent, resumeAt } = ctx;
   const { listRows } = createSessionRows(ctx);
 
   app.get("/v1/sessions", async (c) => {
+    const rawQueries = c.req.queries();
+    const queryKeys = Object.keys(rawQueries);
+    const isPaginated = queryKeys.length > 0;
+
+    // Parameter parsing and strict validation when any query param is provided
+    let limit = 50;
+    let archivedFilter: "0" | "1" | "all" = "0";
+    let projectFilter: "all" | "none" | number = "all";
+    let workerFilter: "all" | "main" | number = "all";
+    let searchQuery: string | null = null;
+    let cursorStr: string | null = null;
+    let idsFilter: number[] | null = null;
+    let runningFilter = false;
+
+    if (isPaginated) {
+      const allowedParams = new Set(["limit", "archived", "project", "worker", "q", "cursor", "ids", "running"]);
+      for (const k of queryKeys) {
+        if (rawQueries[k]!.length !== 1) return err(c, 400, `duplicate query parameter: ${k}`);
+        if (!allowedParams.has(k)) {
+          return err(c, 400, `unknown query parameter: ${k}`);
+        }
+      }
+
+      if (c.req.query("limit") !== undefined) {
+        const rawLimit = Number(c.req.query("limit"));
+        if (!Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 100) {
+          return err(c, 400, "limit must be an integer between 1 and 100");
+        }
+        limit = rawLimit;
+      }
+
+      if (c.req.query("archived") !== undefined) {
+        const rawArchived = c.req.query("archived");
+        if (rawArchived !== "0" && rawArchived !== "1" && rawArchived !== "all") {
+          return err(c, 400, "archived must be 0, 1, or all");
+        }
+        archivedFilter = rawArchived;
+      }
+
+      if (c.req.query("project") !== undefined) {
+        const rawProject = c.req.query("project");
+        if (rawProject === "none") {
+          projectFilter = "none";
+        } else {
+          const num = Number(rawProject);
+          if (!Number.isSafeInteger(num) || num <= 0) {
+            return err(c, 400, "project must be none or a positive integer id");
+          }
+          projectFilter = num;
+        }
+      }
+
+      if (c.req.query("worker") !== undefined) {
+        const rawWorker = c.req.query("worker");
+        if (rawWorker === "main") {
+          workerFilter = "main";
+        } else {
+          const num = Number(rawWorker);
+          if (!Number.isSafeInteger(num) || num <= 0) {
+            return err(c, 400, "worker must be main or a positive integer id");
+          }
+          workerFilter = num;
+        }
+      }
+
+      if (c.req.query("q") !== undefined) {
+        searchQuery = c.req.query("q")!;
+      }
+
+      if (c.req.query("cursor") !== undefined) {
+        cursorStr = c.req.query("cursor")!;
+      }
+
+      if (c.req.query("ids") !== undefined) {
+        const rawIds = c.req.query("ids")!.split(",");
+        const parsedIds: number[] = [];
+        for (const item of rawIds) {
+          const s = item.trim();
+          if (!s) return err(c, 400, "ids contains empty element");
+          const n = Number(s);
+          if (!Number.isSafeInteger(n) || n <= 0) {
+            return err(c, 400, "ids must be comma-separated positive integer ids");
+          }
+          parsedIds.push(n);
+        }
+        if (parsedIds.length === 0 || parsedIds.length > 100) {
+          return err(c, 400, "ids must contain between 1 and 100 positive integer ids");
+        }
+        idsFilter = parsedIds;
+      }
+
+      if (c.req.query("running") !== undefined) {
+        const rawRunning = c.req.query("running");
+        if (rawRunning !== "1") {
+          return err(c, 400, "running must be 1");
+        }
+        runningFilter = true;
+      }
+    }
+
+    const cursor = cursorStr === null ? null : decodeCursor(cursorStr);
+    if (cursorStr !== null && !cursor) return err(c, 400, "malformed cursor");
+
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const built = await listRows();
     const links = opts.conversations?.projects.links();
     const continuing = !!opts.limitContinuer?.enabled();
     const recoveryBudget = opts.limitContinuer?.attemptLimit();
-    const sessions: (SessionState & {
-      id: unknown;
-      parent: unknown;
-      project: number | null;
-      title: string;
-      archived: boolean;
-      pinned: boolean;
-      running: boolean;
-      resumeAt: number | null;
-      recovery: RecoverySummary | null;
-      lastActivity: number | null;
-      createdAt: number | null;
-      worker: number | null;
-    })[] = [];
+    const sessions: SessionItem[] = [];
     for (const [id, row] of built) {
       if (row.hidden) continue;
       const { hidden: _hidden, firstUser, wait, recovery, ...rest } = row;
@@ -70,13 +167,146 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
             : null,
       });
     }
-    sessions.sort(
-      (a, b) =>
-        Number(b.pinned) - Number(a.pinned) ||
-        (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) ||
-        Number(b.id) - Number(a.id),
-    );
-    return c.json({ sessions });
+    sessions.sort(compareSessions);
+
+    if (!isPaginated) {
+      return c.json({ sessions });
+    }
+
+    // Compute groups over ALL visible metadata excluding delegate children
+    // Groups ignore project, worker, and q filters.
+    // They use archived filter for count, statuses, machines, lastActivity.
+    // activity is max timestamp across BOTH archive modes for project ordering.
+    // Group keys: named project id string, or 'none' for General (id 0) / unassigned / unknown project.
+    const projectsList = opts.conversations?.projects.list() ?? [];
+    const knownProjectIds = new Set<number>(projectsList.map((p) => p.id));
+
+    const groups: Record<string, GroupSummary> = {};
+    for (const s of sessions) {
+      const pid = s.project;
+      const groupKey = pid !== null && pid !== 0 && knownProjectIds.has(pid) ? String(pid) : "none";
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          count: 0,
+          lastActivity: 0,
+          activity: 0,
+          statuses: {},
+          machines: {},
+        };
+      }
+      const g = groups[groupKey];
+      const sessionAct = (s.lastActivity ?? s.createdAt ?? 0);
+      if (sessionAct > g.activity) {
+        g.activity = sessionAct;
+      }
+
+      // Check whether session matches the current archived filter
+      const matchesArchived =
+        archivedFilter === "all" ||
+        (archivedFilter === "1" && s.archived) ||
+        (archivedFilter === "0" && !s.archived);
+
+      if (matchesArchived) {
+        g.count++;
+        if (sessionAct > g.lastActivity) {
+          g.lastActivity = sessionAct;
+        }
+        g.statuses[s.status] = (g.statuses[s.status] ?? 0) + 1;
+        const machineKey = s.worker === null ? "main" : String(s.worker);
+        g.machines[machineKey] = (g.machines[machineKey] ?? 0) + 1;
+      }
+    }
+
+    // Prepare project names lookup for search
+    const projectNameMap = new Map<number, string>();
+    for (const p of projectsList) {
+      projectNameMap.set(p.id, p.name);
+    }
+
+    // Tokenized search preparation
+    const searchTokens = searchQuery
+      ? searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean)
+      : [];
+
+    // Filter matching sessions
+    const matching: SessionItem[] = [];
+    for (const s of sessions) {
+      // 1. Archived filter
+      if (archivedFilter === "0" && s.archived) continue;
+      if (archivedFilter === "1" && !s.archived) continue;
+
+      // 2. Background notification tracking: running and/or ids
+      if (idsFilter && runningFilter) {
+        const matchesId = idsFilter.includes(Number(s.id));
+        const matchesRunning = s.running || s.status === "reviewing";
+        if (!matchesId && !matchesRunning) continue;
+      } else if (idsFilter) {
+        if (!idsFilter.includes(Number(s.id))) continue;
+      } else if (runningFilter) {
+        if (!s.running && s.status !== "reviewing") continue;
+      }
+
+      // 3. Project filter
+      if (projectFilter !== "all") {
+        const isGeneralOrUnknown = s.project === null || s.project === 0 || !knownProjectIds.has(s.project);
+        if (projectFilter === "none") {
+          if (!isGeneralOrUnknown) continue;
+        } else {
+          if (s.project !== projectFilter) continue;
+        }
+      }
+
+      // 4. Worker filter
+      if (workerFilter !== "all") {
+        if (workerFilter === "main") {
+          if (s.worker !== null) continue;
+        } else {
+          if (s.worker !== workerFilter) continue;
+        }
+      }
+
+      // 5. Search query (q)
+      if (searchTokens.length > 0) {
+        const sidStr = String(s.id);
+        const titleStr = (s.title || `Conversation ${s.id}`).toLowerCase();
+        let projName = "";
+        if (s.project !== null) {
+          projName = (projectNameMap.get(s.project) ?? "").toLowerCase();
+        }
+        const matchesAll = searchTokens.every(
+          (t) => sidStr.includes(t) || titleStr.includes(t) || projName.includes(t),
+        );
+        if (!matchesAll) continue;
+      }
+
+      matching.push(s);
+    }
+
+    const total = matching.length;
+
+    // Apply cursor
+    let startIndex = 0;
+    if (cursor) {
+      startIndex = matching.findIndex((s) => isAfterCursor(s, cursor));
+      if (startIndex === -1) {
+        startIndex = matching.length;
+      }
+    }
+
+    const pagedSessions = matching.slice(startIndex, startIndex + limit);
+    let nextCursor: string | null = null;
+    if (startIndex + limit < matching.length && pagedSessions.length > 0) {
+      const lastItem = pagedSessions[pagedSessions.length - 1]!;
+      nextCursor = encodeCursor(lastItem);
+    }
+
+    return c.json({
+      sessions: pagedSessions,
+      nextCursor,
+      total,
+      groups,
+    });
   });
 
   // POST preview avoids query-string coercion and shares strict validation with confirmation.

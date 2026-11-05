@@ -44,5 +44,5 @@ const emit = defineEmits<{
 .cron-reports > .cron-vlist { flex: 1; height: auto; }
 .cron-reports > .cron-load-more { flex: none; align-self: flex-start; }
 /* Match the row geometry to the virtual window's fixed-height calculation. */
-.cron-reports :deep(.cron-item) { height: 88px; min-height: 88px; }
+.cron-reports :deep(.cron-item) { height: 88px; min-height: 88px; box-sizing: border-box; padding-block: 10px; }
 </style>

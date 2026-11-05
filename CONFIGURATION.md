@@ -1242,6 +1242,14 @@ The session's own model is never used, so a large session model does not change 
 The web frontend uses Vue 3, Vite, TypeScript, Tailwind CSS, and shadcn-vue.
 Run `pnpm run build:web` before starting the server. The server serves the build from `dist/web`, including the service worker.
 The server does not need the frontend source files at runtime. Rebuilds update the served page and asset list without a server restart.
+The build includes `.vite/manifest.json`. The service worker installs only the page, icons, manifest, and static entry dependencies.
+After the page loads and the browser becomes idle, the worker caches remaining assets sequentially with low network priority.
+This preserves full-build offline coverage after background caching completes. Before that, the installed shell and already cached views work offline.
+Interrupted background caching resumes on the next online page load or reconnection. A worker update also starts background caching after page load.
+API responses are never cached by the service worker. Offline navigation uses the installed page even with session-pane query parameters.
+Offline session panes preserve same-origin framing; ordinary shell pages still deny framing through both frame headers.
+Activation retains the current and one previous `luna-vue-` shell, so open pages can still use cached lazy chunks after an update.
+Older Luna shell caches are removed. Other applications' caches are not changed.
 During a rebuild, requests can fail while Vite replaces the output files. Reload after the build completes.
 Run `pnpm run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
 Use `pnpm run typecheck:web` to check Vue components. `pnpm run test` includes frontend type checking and the production build.
@@ -1844,6 +1852,56 @@ context-only updates.
 The response includes `hasMore` and `nextCursor`. Pass that cursor as `before`
 to fetch older entries in descending order. The web UI loads 100 entries first
 and provides a **Load older messages** button. Reconnecting retains loaded history.
+
+### Paginated session list
+
+`GET /v1/sessions` without query parameters preserves the legacy response: `{ "sessions": [...] }` with all visible sessions, full metadata, and default ordering (pinned descending, activity descending, id descending).
+
+Supplying query parameters opts into the paginated metadata protocol:
+`GET /v1/sessions?limit=50`
+
+Query parameters:
+- `limit`: Integer from 1 to 100 (default 50).
+- `archived`: `0` (active only, default), `1` (archived only), or `all`.
+- `project`: `none` (General/unassigned/unknown), or a positive integer project id. Omitted matches all projects.
+- `worker`: `main` (main host only), or a positive integer worker id. Omitted matches all execution machines.
+- `q`: Search terms. Matches case-insensitive whitespace-split tokens (AND logic) across session title, session id, and project name.
+- `cursor`: Opaque base64url keyset cursor encoding `[pinned, activity, id]`. Malformed cursor returns HTTP 400. Fresh cursors must be used when filters change.
+- `ids`: Comma-separated positive integer conversation IDs (up to 100).
+- `running`: `1` to filter running or reviewing sessions. When `ids` and `running=1` are both supplied, sessions matching either condition are included (used for background notification tracking).
+
+The paginated response returns:
+```json
+{
+  "sessions": [...],
+  "nextCursor": "<opaque-cursor-or-null>",
+  "total": 12,
+  "groups": {
+    "none": {
+      "count": 5,
+      "lastActivity": 1710000000000,
+      "activity": 1710000000000,
+      "statuses": { "ready": 4, "running": 1 },
+      "machines": { "main": 5 }
+    },
+    "1": {
+      "count": 7,
+      "lastActivity": 1710000050000,
+      "activity": 1710000090000,
+      "statuses": { "ready": 7 },
+      "machines": { "main": 5, "2": 2 }
+    }
+  }
+}
+```
+
+The web sidebar loads 50 matching rows first and loads later pages only on request. Search, archive, project, and machine filters run on the server.
+Refreshing retains the loaded window. Bulk selection applies to loaded conversations; the control states this when more pages remain.
+Command-palette and mention searches query the server independently, with loading and retry states. Project counts use global summaries, not the loaded page.
+Global completion notifications track active and previously active sessions independently of the sidebar page.
+The protocol bounds HTTP metadata pages and client allocations. It still scans cached session rows to compute exact global summaries; it does not bound cold backend scans.
+
+`groups` is computed over all visible sessions (excluding delegate subagents) without applying `project`, `worker`, or `q` filters. `activity` reflects the maximum activity timestamp across both archived and unarchived sessions for stable project ordering; `lastActivity`, `count`, `statuses`, and `machines` reflect the selected `archived` mode.
 
 `GET /v1/sessions/:id/events?view=ui&after=<entryId>` uses the same projection.
 The atomic SSE snapshot contains only entries newer than the hydrated page's newest

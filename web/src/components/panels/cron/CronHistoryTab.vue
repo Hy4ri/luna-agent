@@ -23,20 +23,36 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="cron-filter">
-    <label class="cron-filter-field">
-      <span>Job</span>
-      <select
-        aria-label="Filter history by job"
-        :value="historyJob"
-        @change="emit('update:historyJob', ($event.target as HTMLSelectElement).value); emit('filterChange')"
-      >
-        <option value="">All jobs</option>
-        <option v-for="job in jobs" :key="job.id" :value="String(job.id)">{{ job.name }}</option>
-      </select>
-    </label>
+  <div class="cron-history">
+    <div class="cron-filter">
+      <label class="cron-filter-field">
+        <span>Job</span>
+        <select
+          aria-label="Filter history by job"
+          :value="historyJob"
+          @change="emit('update:historyJob', ($event.target as HTMLSelectElement).value); emit('filterChange')"
+        >
+          <option value="">All jobs</option>
+          <option v-for="job in jobs" :key="job.id" :value="String(job.id)">{{ job.name }}</option>
+        </select>
+      </label>
+    </div>
+    <div v-if="historyRows.length" v-bind="containerProps" class="cron-vlist">
+      <div v-bind="wrapperProps">
+        <CronRunRow v-for="{ data: run } in vHistory" :key="run.id" :run="run" :active="detailId === run.id" :busy="busy" show-unread @open="emit('openReport', $event)" />
+      </div>
+    </div>
+    <p v-else class="cron-empty-line">No reports in history.</p>
+    <button v-if="historyMore" type="button" class="cron-btn cron-load-more" :disabled="busy" @click="emit('loadMore')">Load more</button>
   </div>
-  <div v-bind="containerProps" class="cron-vlist"><div v-bind="wrapperProps"><CronRunRow v-for="{ data: run } in vHistory" :key="run.id" :run="run" :active="detailId === run.id" :busy="busy" show-unread @open="emit('openReport', $event)" /></div></div>
-  <p v-if="!historyRows.length" class="cron-empty-line">No reports in history.</p>
-  <button v-if="historyMore" type="button" class="cron-btn cron-load-more" :disabled="busy" @click="emit('loadMore')">Load more</button>
 </template>
+
+<style scoped>
+.cron-history { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.cron-history > .cron-filter { flex: none; }
+.cron-history > .cron-vlist { flex: 1; height: auto; }
+.cron-history > .cron-empty-line { flex: 1; }
+.cron-history > .cron-load-more { flex: none; align-self: flex-start; }
+/* Match the row geometry to the virtual window's fixed-height calculation. */
+.cron-history :deep(.cron-item) { height: 88px; min-height: 88px; box-sizing: border-box; padding-block: 10px; }
+</style>

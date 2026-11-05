@@ -11,7 +11,7 @@ import { savedSession, rememberSession, routeSession, sessionPane, notifySession
 import { boardChanged, focusInput, leavePages } from "./app";
 import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, retirePendingEntries, refreshPending } from "./composer";
 import { models, setSelectedModel } from "./models";
-import { history, loadSessions, resetHistoryView } from "./sessions";
+import { history, loadSessions, loadFocusedSession, resetHistoryView } from "./sessions";
 
 export interface Notice { id: number; text: string; kind: "err" | "muted"; scope: "session" | "run" }
 export interface SideMedia { directive: string; name: string; url: string; type: string }
@@ -459,6 +459,7 @@ export async function openSession(id: string | number, reattach = false) {
   setSession(String(id));
   const sid = chat.session!, epoch = chat.epoch;
   chat.title = history.list.find(s => String(s.id) === sid)?.title || "Conversation " + sid;
+  void loadFocusedSession(sid);
   restoreDraft();
   let hydrated = false;
   let snapshotAfter: number | undefined;

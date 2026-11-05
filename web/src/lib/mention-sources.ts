@@ -1,9 +1,10 @@
 import { formatFileSize } from "./files";
 // `@` completion sources. Each source owns a token namespace (`@session:<id>`, later `@file:<path>`), so a new
 // kind of mention only needs a new entry in `mentionSources`; the composer renders every source as one group.
-import { reactive } from "vue";
-import { json } from "@/lib/api";
-import { history, projectName, sessionTitle } from "@/stores/sessions";
+import { reactive, watch } from "vue";
+import { json, serverUrl, token } from "@/lib/api";
+import { history, projectName, sessionTitle, querySessions } from "@/stores/sessions";
+import type { SessionMeta } from "@/lib/types";
 
 export type MentionItem = {
   /** Unique within the source; used for keys and data attributes. */
@@ -20,6 +21,7 @@ export type MentionItem = {
 };
 /** Where `@` completion looks. A saved session names itself; a draft chat names its machine and project. */
 export type MentionContext = { session: string | null; worker?: number | null; project?: number | null; cwd?: string };
+export type MentionFeedback = { message: string; retry?: () => void };
 export interface MentionSource {
   id: string;
   /** Group header. */
@@ -28,6 +30,7 @@ export interface MentionSource {
   search(query: string, ctx: MentionContext): MentionItem[];
   /** Async sources fetch here when the typed query changes; `search` then reads the result. */
   refresh?(query: string, ctx: MentionContext): void;
+  feedback?(query: string, ctx: MentionContext): MentionFeedback | undefined;
   /** Token namespace, for example `session`. */
   prefix: string;
 }
@@ -42,16 +45,40 @@ export function ago(at: number | null | undefined, now = Date.now()): string {
 }
 
 const MAX_ROWS = 20;
-// The sidebar list already excludes subagent children. Archived sessions stay out of the menu; type the id to use one.
+// Session completion searches beyond the loaded sidebar page. Archived rows remain excluded.
+const sessions = reactive({ items: [] as SessionMeta[], loading: false, error: '' });
+let sessionKey = '', sessionRead: AbortController | undefined;
+watch([serverUrl, token, () => history.groups], () => {
+  sessionRead?.abort(); sessionKey = ''; sessions.items = []; sessions.loading = false; sessions.error = '';
+}, { flush: 'sync' });
 const sessionSource: MentionSource = {
   id: "sessions",
   label: "Sessions",
   prefix: "session",
-  search(query, { session }) {
-    const q = query.trim().toLowerCase();
-    return history.list
+  refresh(query, ctx) {
+    const q = query.trim();
+    const key = JSON.stringify([serverUrl.value, token.value, q, ctx.session]);
+    if (key === sessionKey) return;
+    sessionKey = key;
+    sessionRead?.abort();
+    const controller = new AbortController();
+    sessionRead = controller;
+    sessions.items = []; sessions.loading = true; sessions.error = '';
+    void querySessions({ limit: 50, archived: '0', q }, controller.signal).then(page => {
+      if (sessionKey === key && !controller.signal.aborted) sessions.items = page.sessions;
+    }).catch((error: Error) => {
+      if (sessionKey === key && !controller.signal.aborted) sessions.error = error.message || 'Session search failed.';
+    }).finally(() => {
+      if (sessionKey === key && !controller.signal.aborted) sessions.loading = false;
+    });
+  },
+  feedback(query, ctx) {
+    if (sessions.loading) return { message: 'Loading conversations…' };
+    if (sessions.error) return { message: sessions.error, retry: () => { sessionKey = ''; sessionSource.refresh!(query, ctx); } };
+  },
+  search(_query, { session }) {
+    return sessions.items
       .filter(s => !s.archived && String(s.id) !== String(session ?? ""))
-      .filter(s => !q || String(s.id).startsWith(q) || sessionTitle(s).toLowerCase().includes(q))
       .sort((a, b) => (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0) || Number(b.id) - Number(a.id))
       .slice(0, MAX_ROWS)
       .map(s => ({
@@ -113,5 +140,6 @@ export function searchMentions(raw: string, ctx: MentionContext) {
   const sources = scoped ? [scoped] : mentionSources;
   const query = scoped ? raw.slice(colon + 1) : raw;
   for (const source of sources) source.refresh?.(query, ctx);
-  return sources.map(source => ({ source, items: source.search(query, ctx) })).filter(g => g.items.length);
+  return sources.map(source => ({ source, items: source.search(query, ctx), feedback: source.feedback?.(query, ctx) }))
+    .filter(g => g.items.length || g.feedback);
 }

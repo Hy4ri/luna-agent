@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { MentionItem } from "@/lib/mention-sources";
+import type { MentionFeedback, MentionItem } from "@/lib/mention-sources";
 import ComposerMenu from "./ComposerMenu.vue";
 
 export type AtGroup = {
   id: string;
   label: string;
+  feedback?: MentionFeedback;
   items: { item: MentionItem; flatIndex: number }[];
 };
 
@@ -33,7 +34,11 @@ defineExpose({ menuRef: computed(() => base.value?.menuRef ?? null), scrollActiv
     @select="e => emit('select', e.item)"
     @hover="emit('update:activeAtIndex', $event)"
   >
-    <template #header="{ group }"><span>{{ group.label }}</span></template>
+    <template #header="{ group }">
+      <span>{{ group.label }}</span>
+      <span v-if="group.feedback" role="status">{{ group.feedback.message }}</span>
+      <button v-if="group.feedback?.retry" type="button" @mousedown.prevent @click="group.feedback.retry()">Retry</button>
+    </template>
     <template #item="{ entry }">
       <span dir="auto" class="mention-subject">{{ entry.item.label }}</span>
       <span v-if="entry.item.detail" dir="auto" class="at-detail">{{ entry.item.detail }}</span>

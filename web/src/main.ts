@@ -9,7 +9,20 @@ import { installExternalLinks } from "@/lib/platform";
 (window as any).openSession = openSession;
 
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready).then(registration => {
+    const warm = () => {
+      const start = () => (navigator.serviceWorker.controller ?? registration.active)?.postMessage({ type: "luna:cache-optional" });
+      if ("requestIdleCallback" in window) window.requestIdleCallback(start);
+      else setTimeout(start, 0);
+    };
+    const afterLoad = () => {
+      if (document.readyState === "complete") warm();
+      else window.addEventListener("load", warm, { once: true });
+    };
+    afterLoad();
+    window.addEventListener("online", afterLoad);
+    navigator.serviceWorker.addEventListener("controllerchange", afterLoad);
+  }).catch(() => {});
 }
 
 installExternalLinks();

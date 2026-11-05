@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { confirmAction } from "@/lib/confirm";
-import { ref, reactive, computed, watch, defineAsyncComponent, onMounted, nextTick } from "vue";
+import { ref, reactive, computed, watch, defineAsyncComponent, onMounted, onUnmounted, nextTick } from "vue";
 import { ChevronLeft, Plus, RotateCcw, Star, Palette } from "@lucide/vue";
-import { api, post } from "@/lib/api";
+import { api, post, serverUrl, token } from "@/lib/api";
 import { useMobile } from "@/lib/dom";
-import { history, loadProjects, loadSessions, sessionTitle, toggleFavorite } from "@/stores/sessions";
+import { history, loadProjects, querySessions, sessionTitle, toggleFavorite, type GroupSummary } from "@/stores/sessions";
 import { chat, newSession, openSession } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
 import { loadWorkers, workers } from "@/stores/workers";
@@ -30,9 +30,48 @@ const newWorker = ref<number | null>(null);
 const newWorkerCwd = ref("");
 const busy = ref(false);
 
-const visible = (s: SessionMeta) => !s.archived;
-const sessionsOf = (id: number) => history.list.filter(s => visible(s) && Number(s.project) === id);
-const count = (id: number) => sessionsOf(id).length;
+const projectGroups = ref<Record<string, GroupSummary> | null>(null);
+const count = (id: number) => projectGroups.value ? projectGroups.value[id === 0 ? 'none' : String(id)]?.count ?? 0 : null;
+const recent = ref<SessionMeta[]>([]), recentLoading = ref(false), recentError = ref('');
+let overviewRead: AbortController | undefined, recentRead: AbortController | undefined, disposed = false;
+async function loadOverview() {
+  overviewRead?.abort();
+  const controller = new AbortController(); overviewRead = controller;
+  try {
+    const page = await querySessions({ limit: 1, archived: '0' }, controller.signal);
+    if (!controller.signal.aborted && !disposed) { projectGroups.value = page.groups; errorMsg.value = ''; }
+  } catch (error: any) {
+    if (!controller.signal.aborted && !disposed) errorMsg.value = error.message;
+  }
+}
+async function loadRecent(clear = false) {
+  recentRead?.abort();
+  const controller = new AbortController(); recentRead = controller;
+  if (clear) recent.value = [];
+  recentError.value = '';
+  const id = selected.value;
+  recentLoading.value = typeof id === 'number';
+  if (typeof id !== 'number') { recent.value = []; return; }
+  try {
+    const page = await querySessions({ limit: 5, archived: '0', project: id === 0 ? 'none' : id }, controller.signal);
+    if (!controller.signal.aborted && !disposed) recent.value = page.sessions;
+  } catch (error: any) {
+    if (!controller.signal.aborted && !disposed) recentError.value = error.message;
+  } finally {
+    if (recentRead === controller) recentLoading.value = false;
+  }
+}
+watch(selected, () => { void loadRecent(true); }, { flush: 'sync' });
+watch(() => history.groups, groups => {
+  if (!history.archived) projectGroups.value = groups;
+  else void loadOverview();
+  void loadRecent();
+});
+watch([serverUrl, token], () => {
+  overviewRead?.abort(); recentRead?.abort(); projectGroups.value = null;
+  recent.value = []; recentLoading.value = false; recentError.value = ''; errorMsg.value = '';
+}, { flush: 'sync' });
+onUnmounted(() => { disposed = true; overviewRead?.abort(); recentRead?.abort(); });
 
 const filtered = computed(() => {
   const q = filter.value.trim().toLowerCase();
@@ -40,7 +79,6 @@ const filtered = computed(() => {
   return q ? list.filter(p => p.name.toLowerCase().includes(q) || p.cwd.toLowerCase().includes(q)) : list;
 });
 const current = computed<Project | null>(() => typeof selected.value === "number" ? history.projects.find(p => p.id === selected.value) ?? null : null);
-const recent = computed(() => current.value ? sessionsOf(current.value.id).slice(0, 5) : []);
 const dirty = computed(() => {
   if (selected.value === "new") {
     const workerOnly = newWorker.value !== null && !!newWorkerCwd.value.trim();
@@ -133,7 +171,7 @@ function select(id: number | "new" | null) {
 
 async function refresh(force = true) {
   await loadProjects({ force });
-  await loadSessions().catch(() => {});
+  if (!disposed) await Promise.all([loadOverview(), loadRecent()]);
 }
 
 async function run(action: () => Promise<void>) {
@@ -193,6 +231,7 @@ watch(() => history.projects, list => {
 
 onMounted(async () => {
   try { await Promise.all([refresh(false), loadWorkers().catch(() => [])]); } catch (e) { errorMsg.value = (e as Error).message; }
+  if (disposed) return;
   loading.value = false;
   const active = Number(chat.project ?? localStorage.getItem("luna.project"));
   const start = history.projects.find(p => p.id === active) ?? history.projects[0];
@@ -216,7 +255,7 @@ onMounted(async () => {
         >
           <ProjectIcon :icon="p.icon" :color="p.color" />
           <span dir="auto" class="pw-item-name">{{ p.name }}</span>
-          <span class="pw-count" :title="`${count(p.id)} conversations`">{{ count(p.id) }}</span>
+          <span class="pw-count" :title="count(p.id) === null ? 'Loading conversation count' : `${count(p.id)} conversations`">{{ count(p.id) ?? '…' }}</span>
         </button>
       </div>
       <div class="pw-foot">
@@ -295,7 +334,9 @@ onMounted(async () => {
 
         <div v-if="current" class="pw-sec">
           <h4>Recent conversations</h4>
-          <p v-if="!recent.length" class="pw-muted">No conversations yet.</p>
+          <p v-if="recentLoading && !recent.length" class="pw-muted" role="status">Loading conversations…</p>
+          <p v-else-if="recentError" class="pw-err" role="alert">{{ recentError }} <button type="button" @click="loadRecent()">Retry</button></p>
+          <p v-else-if="!recent.length" class="pw-muted">No conversations yet.</p>
           <button v-for="s in recent" :key="s.id" class="pw-conv" @click="openChat(s)">
             <span dir="auto" class="pw-conv-title">{{ sessionTitle(s) }}</span>
             <span class="pw-muted">{{ ago(s.lastActivity ?? s.createdAt) }}</span>

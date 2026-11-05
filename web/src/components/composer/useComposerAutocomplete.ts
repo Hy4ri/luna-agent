@@ -52,11 +52,11 @@ export function useComposerAutocomplete(options: {
       worker: chat.draftWorker,
       project: activeProjectId.value,
       cwd: chat.draftCwd,
-    }).map(g => ({ id: g.source.id, label: g.source.label, items: g.items.map(item => ({ item, flatIndex: flatIndex++ })) }));
+    }).map(g => ({ id: g.source.id, label: g.source.label, feedback: g.feedback, items: g.items.map(item => ({ item, flatIndex: flatIndex++ })) }));
   });
 
   const atItems = computed<MentionItem[]>(() => atGroups.value.flatMap(g => g.items.map(e => e.item)));
-  const atOpen = computed(() => !mentionOpen.value && !commandOpen.value && atItems.value.length > 0);
+  const atOpen = computed(() => !mentionOpen.value && !commandOpen.value && atGroups.value.length > 0);
 
   function updateAtState() {
     const el = inputRef.value;

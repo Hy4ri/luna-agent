@@ -224,6 +224,7 @@ function handleKeydown(e: KeyboardEvent) {
     if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
       const chosen = atItems.value[activeAtIndex.value];
       if (chosen) { e.preventDefault(); selectAt(chosen); return; }
+      if (e.key === "Enter") { e.preventDefault(); return; }
     }
     if (e.key === "Escape") {
       e.preventDefault();

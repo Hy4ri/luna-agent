@@ -1,16 +1,17 @@
 <script setup lang="ts">
 // Ctrl/Cmd+K palette: every entry runs an existing app action or a real settings write.
-import { computed, nextTick, ref, shallowRef, toRaw, watch } from 'vue';
+import { computed, nextTick, ref, shallowRef, toRaw, watch, onUnmounted } from 'vue';
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { Check, Search } from '@lucide/vue';
 import { ui, setPalette, navigate, openPanel, toggleCollapsed, settingsDirty, settingsChanged } from '@/stores/app';
 import { chat, openSession, scheduleContext } from '@/stores/chat';
-import { history, sessionTitle, projectName } from '@/stores/sessions';
+import { history, sessionTitle, projectName, querySessions } from '@/stores/sessions';
+import type { SessionMeta } from '@/lib/types';
 import { models, modelKey, selectedKey, chooseModel, LEVELS, levelLabel, setThinking } from '@/stores/models';
 import { PANELS } from '@/components/panels';
 import { sections, labelFor, isVisibleSetting, settingRoute } from '@/pages/settings/catalog';
 import { fieldLocation } from '@/pages/settings/settingsSearch';
-import { json, post } from '@/lib/api';
+import { json, post, serverUrl, token } from '@/lib/api';
 import { useMobile } from '@/lib/dom';
 
 const props = defineProps<{ newSession: () => Promise<void>; newSessionDisabled: boolean }>();
@@ -57,6 +58,31 @@ watch(() => ui.palette, value => {
   query.value = ''; active.value = 0; status.value = ''; statusError.value = false;
   void loadSettings();
 });
+
+const sessionOptions = ref<SessionMeta[]>([]);
+const sessionLoading = ref(false), sessionError = ref('');
+let sessionRead: AbortController | undefined;
+async function searchSessions() {
+  sessionRead?.abort();
+  sessionOptions.value = [];
+  sessionError.value = '';
+  sessionLoading.value = open.value;
+  if (!open.value) return;
+  const controller = new AbortController();
+  sessionRead = controller;
+  // Palette group names are searchable, but they are not session metadata search terms.
+  const q = query.value.trim().split(/\s+/).filter(term => !'conversations'.includes(term.toLowerCase())).join(' ');
+  try {
+    const page = await querySessions({ limit: 50, archived: '0', q }, controller.signal);
+    if (sessionRead === controller && !controller.signal.aborted) sessionOptions.value = page.sessions;
+  } catch (error: any) {
+    if (sessionRead === controller && !controller.signal.aborted) sessionError.value = error.message;
+  } finally {
+    if (sessionRead === controller) sessionLoading.value = false;
+  }
+}
+watch([open, query, serverUrl, token, () => history.groups], () => { void searchSessions(); }, { flush: 'sync' });
+onUnmounted(() => { sessionRead?.abort(); });
 
 async function loadSettings() {
   const request = ++loadRequest;
@@ -119,7 +145,7 @@ const items = computed<Item[]>(() => {
   if (!mobile.value) add({ id: 'layout:sidebar', group: 'Layout', label: ui.collapsed ? 'Expand sidebar' : 'Collapse sidebar', keep: true, run: toggleCollapsed });
 
   add({ id: 'session:new', group: 'Conversations', label: 'New conversation', disabled: props.newSessionDisabled ? 'Not available while disconnected' : undefined, run: () => { navigate('chat'); return props.newSession(); } });
-  for (const s of history.list) {
+  for (const s of sessionOptions.value) {
     if (s.archived) continue;
     const id = String(s.id);
     add({ id: 'session:' + id, group: 'Conversations', label: sessionTitle(s), hint: projectName(s.project), current: id === chat.session, run: () => { navigate('chat'); return openSession(id); } });
@@ -154,7 +180,7 @@ const results = computed(() => {
   const terms = query.value.toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return items.value;
   return items.value.filter(item => {
-    const text = `${item.group} ${item.label} ${item.hint || ''}`.toLowerCase();
+    const text = `${item.id} ${item.group} ${item.label} ${item.hint || ''}`.toLowerCase();
     return terms.every(term => text.includes(term));
   });
 });
@@ -222,6 +248,8 @@ const optionId = (index: number) => 'palette-option-' + index;
           </div>
           <p v-if="!results.length" class="palette-empty">No matching commands.</p>
         </div>
+        <p v-if="sessionLoading" class="palette-status" role="status">Searching conversations…</p>
+        <p v-else-if="sessionError" class="palette-status" role="alert" data-error>{{ sessionError }} <button type="button" @click="searchSessions">Retry</button></p>
         <p id="palette-status" class="palette-status" role="status" :data-error="statusError || undefined">{{ status }}</p>
       </DialogContent>
     </DialogPortal>
