@@ -74,6 +74,8 @@ try {
 
 export const composer = reactive({
   text: "",
+  /** Freeze competing sends only until the outgoing snapshot is committed locally. */
+  capturingBackground: false,
   attachments: [] as Attachment[],
   /** Number of uploads currently in flight. */
   uploadingCount: 0,
@@ -335,7 +337,7 @@ export function retryPending(requestId: string) {
   if (body.requestId !== requestId) dismissPending(requestId);
   void submitMessage(sid, body);
 }
-function randomId(): string {
+export function randomId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
     return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
@@ -343,10 +345,9 @@ function randomId(): string {
   }
   return "req-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
 }
-export async function send(text: string, atts: Attachment[]) {
-  let sid = chat.session;
-  if (sid && composer.submitting.has(sid)) return;
-  const content = atts.length
+
+export function buildMessageContent(text: string, atts: Attachment[]): any {
+  return atts.length
     ? [
         ...(text ? [{ type: "text", text }] : []),
         ...atts.map(a => {
@@ -373,6 +374,12 @@ export async function send(text: string, atts: Attachment[]) {
         }),
       ]
     : text;
+}
+
+export async function send(text: string, atts: Attachment[]) {
+  let sid = chat.session;
+  if (sid && composer.submitting.has(sid)) return;
+  const content = buildMessageContent(text, atts);
 
   for (const a of atts) {
     if (a.url) URL.revokeObjectURL(a.url);
@@ -394,7 +401,7 @@ export async function send(text: string, atts: Attachment[]) {
 }
 /** Form submit: takes the draft and sends it. The caller checks the send button state. */
 export function submitDraft() {
-  if (composer.uploadingCount > 0) return;
+  if (composer.uploadingCount > 0 || composer.capturingBackground) return;
   const text = composer.text.trim();
   if (!text && !composer.attachments.length) return;
   const atts = composer.attachments;

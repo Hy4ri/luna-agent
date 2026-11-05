@@ -29,6 +29,25 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
     return c.json({ machine: await machineOf(conv.id), cwd: (await conv.agent(context)).cwd ?? null });
   });
 
+  // Resolve a draft's execution directory without creating a session or listing files.
+  app.get("/v1/session-defaults", (c) => {
+    const rawWorker = c.req.query("worker");
+    const worker = rawWorker ? Number(rawWorker) : null;
+    if (worker !== null && (!Number.isSafeInteger(worker) || !opts.workers?.store.get(worker)))
+      return err(c, 400, "unknown worker");
+    const rawProject = c.req.query("project");
+    if (rawProject !== undefined && (!/^\d+$/.test(rawProject) || !Number.isSafeInteger(Number(rawProject))))
+      return err(c, 400, "invalid project");
+    const project = rawProject === undefined ? undefined : opts.conversations?.projects.get(Number(rawProject));
+    if (rawProject !== undefined && !project) return err(c, 400, "unknown project");
+    const projectCwd = project ? opts.conversations?.projects.dirFor(project.id, worker) : undefined;
+    if (project && !project.general && !projectCwd) return err(c, 400, "project is not linked to this machine");
+    const cwd = c.req.query("cwd") || projectCwd || (worker === null
+      ? ctx.baseAgent().cwd ?? opts.cwd ?? process.cwd() : opts.workers?.defaultCwd(worker));
+    if (!cwd) return err(c, 409, "The machine's working directory is unavailable. Connect it before sending.");
+    return c.json({ worker, cwd });
+  });
+
   // `@file:` completion. Lists the working directory of the session's machine; a typed directory part (`~/x/`, `/etc/`,
   // `../`) lists that directory on the same machine. Without a session, `worker`/`project`/`cwd` describe a draft chat.
   app.get("/v1/files", async (c) => {

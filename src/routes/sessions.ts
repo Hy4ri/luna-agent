@@ -21,6 +21,10 @@ import {
   SessionCreateError,
   type SessionRequest,
 } from "../session-create.js";
+import {
+  SessionCreationDoc,
+  sessionPayloadHash,
+} from "../session-creation.js";
 import type { ConversationMeta } from "../conversations.js";
 import { projectEntryImages } from "../session-images.js";
 import { projectEntryForUi, extractFullToolResult } from "../session-history-view.js";
@@ -394,8 +398,41 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     return c.json({ deleted });
   });
 
+  app.get("/v1/session-creations/:requestId", async (c) => {
+    const requestId = c.req.param("requestId");
+    if (!requestId || !requestId.trim() || requestId.length > 200) {
+      return err(c, 400, "requestId must be a nonempty string at most 200 characters");
+    }
+    const snap = await harness.snapshot(SessionCreationDoc, requestId, context);
+    if (!snap || !snap.sessionId) {
+      return err(c, 404, "no session creation found for this requestId");
+    }
+    const conv = await harness.conversation(snap.sessionId as ConversationId, context);
+    if (!conv) {
+      return c.json({ error: "session deleted", sessionId: snap.sessionId }, 410);
+    }
+    return c.json({ id: snap.sessionId });
+  });
+
+  app.get("/v1/sessions/:id/submissions/by-request/:requestId", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const requestId = c.req.param("requestId");
+    if (!requestId || !requestId.trim() || requestId.length > 200) {
+      return err(c, 400, "requestId must be a nonempty string at most 200 characters");
+    }
+    const record = await harness.commit((tx) => tx.submissionByRequest(conv.id, requestId), context);
+    if (!record) {
+      return err(c, 404, "submission not found");
+    }
+    return c.json(record);
+  });
+
   app.post("/v1/sessions", async (c) => {
-    const b = (await c.req.json().catch(() => ({}))) as SessionRequest;
+    const b = (await c.req.json().catch(() => null)) as SessionRequest | null;
+    if (!b || typeof b !== "object" || Array.isArray(b)) return err(c, 400, "session parameters must be an object");
+    if (b.requestId !== undefined && (typeof b.requestId !== "string" || !b.requestId.trim() || b.requestId.length > 200))
+      return err(c, 400, "requestId must be a nonempty string at most 200 characters");
     let plan;
     try {
       plan = planSession(
@@ -412,6 +449,31 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       if (e instanceof SessionCreateError) return err(c, e.status, e.message);
       throw e;
     }
+
+    if (b.requestId !== undefined) {
+      const { requestId, ...parameters } = b;
+      const payloadHash = sessionPayloadHash(parameters);
+      // The mapping and conversation are durable changes in the SAME storage transaction.
+      const result = await harness.commit(async tx => {
+        const doc = await tx.doc(SessionCreationDoc, requestId, { sessionId: 0, payloadHash });
+        if (doc.sessionId) {
+          if (doc.payloadHash !== payloadHash)
+            return { error: "requestId already used with different session creation parameters", status: 409 as const };
+          if (!await tx.conversation(doc.sessionId as ConversationId))
+            return { error: "session previously created with this requestId has been deleted", status: 410 as const };
+          return { id: doc.sessionId, created: false };
+        }
+        const id = await createPlannedSession(tx, plan);
+        doc.sessionId = id;
+        return { id: Number(id), created: true };
+      }, context);
+      if ("error" in result) return c.json({ error: result.error }, result.status);
+      // Repair interrupted initial linkage on replay, but never undo a later user project move.
+      const projects = opts.conversations?.projects;
+      if (result.created || !projects?.links().has(result.id)) linkProject(projects, result.id, plan);
+      return c.json({ id: result.id }, result.created ? 201 : 200);
+    }
+
     const id = await harness.commit((tx) => createPlannedSession(tx, plan), context);
     linkProject(opts.conversations?.projects, Number(id), plan);
     return c.json({ id }, 201);

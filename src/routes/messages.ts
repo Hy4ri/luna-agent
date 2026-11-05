@@ -15,6 +15,8 @@ import { parseUploadInput as parseInput, type UploadInput } from "../upload-inpu
 import { projectAgentEvent, projectSnapshotImages } from "../session-images.js";
 import { projectAgentEventForUi } from "../session-history-view.js";
 import { context } from "../luna.js";
+import { conversationStorage } from "../conversation-storage.js";
+import { BackgroundCommandStore } from "../background-command.js";
 import { isRunning } from "../session-status.js";
 import type { SideInput } from "../side-commands.js";
 import { type RouteCtx, textOf } from "./context.js";
@@ -277,6 +279,51 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
       }
     });
   };
+
+  // These receipts fence commands whose side effects cannot be replayed after a lost response.
+  // No source-session association is stored: the identity belongs to the destination only.
+  const commands = new BackgroundCommandStore(conversationStorage(harness).db);
+  app.get("/v1/sessions/:id/background-commands/:requestId", async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const receipt = await harness.commit(() => commands.read(Number(conv.id), c.req.param("requestId")), context);
+    return receipt ? c.json(receipt) : err(c, 404, "no such command receipt");
+  });
+  app.post("/v1/sessions/:id/background-commands", bodyLimit({ maxSize: 32 * 1024 * 1024,
+    onError: c => err(c, 413, "message too large (32 MB max)") }), async c => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.requestId !== "string" || !body.requestId.trim() || body.requestId.length > 200)
+      return err(c, 400, "requestId required (at most 200 characters)");
+    const parsed = parseInput(body.content);
+    if (typeof parsed === "string" && typeof body.content !== "string") return err(c, 400, parsed);
+    const text = typeof parsed === "string" ? parsed : parsed.filter(b => b.type === "text").map(b => b.text).join("\n");
+    if (!text.trimStart().startsWith("/")) return err(c, 400, "slash command required");
+    const sid = Number(conv.id), request = body.requestId;
+    return serial(`background-command:${sid}:${request}`, async () => {
+      let claimed: boolean;
+      try { claimed = await harness.commit(() => commands.claim(sid, request, body.content), context); }
+      catch (e) { return err(c, 409, (e as Error).message); }
+      if (!claimed) {
+        const receipt = commands.read(sid, request)!;
+        if (receipt.state === "done") return c.json(receipt.result as object, receipt.status as 200);
+        return err(c, 409, "Command delivery is uncertain. Open the destination session to inspect it; this command will not be repeated automatically.");
+      }
+      // Persist before returning. A crash leaves a non-replayable pending receipt.
+      // Even a transport/response failure must never permit a command's effects to run twice.
+      try {
+        const response = await send(c, String(conv.id), body, true);
+        const result: unknown = await response.clone().json();
+        await harness.commit(() => commands.finish(sid, request, response.status, result), context);
+        return response;
+      } catch {
+        const error = "Command delivery is uncertain. Open the destination session to inspect it; this command will not be repeated.";
+        await harness.commit(() => commands.finish(sid, request, 500, { error }), context);
+        return err(c, 500, error);
+      }
+    });
+  });
 
   app.post("/v1/sessions/:id/messages", bodyLimit({ maxSize: 32 * 1024 * 1024, onError: (c) => err(c, 400, "message too large (32 MB max)") }), async (c) => {
     const asyncParam = c.req.query("async") === "1";

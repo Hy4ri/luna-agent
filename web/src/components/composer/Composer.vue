@@ -6,6 +6,8 @@ import { composer, removeAttachment, saveDraft, submitDraft, retrySend } from "@
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history } from "@/stores/sessions";
 import { modelLabel } from "@/stores/models";
+import { captureBackgroundSend } from "@/stores/background-send";
+import BackgroundSendStatus from "./BackgroundSendStatus.vue";
 import ModelPicker from "./ModelPicker.vue";
 import ReasoningControl from "./ReasoningControl.vue";
 import ComposerAttachments from "./ComposerAttachments.vue";
@@ -118,7 +120,7 @@ const { handleFileChange, handleDrop } = useComposerLifecycle({
 });
 
 const hasDraft = computed(() => composer.text.trim().length > 0 || composer.attachments.length > 0 || composer.uploadingCount > 0);
-const isSendDisabled = computed(() => sendDisabled.value || composer.uploadingCount > 0 || !hasDraft.value);
+const isSendDisabled = computed(() => sendDisabled.value || composer.capturingBackground || composer.uploadingCount > 0 || !hasDraft.value);
 const showStop = busy;
 const sendHidden = computed(() => showStop.value && !hasDraft.value);
 
@@ -149,11 +151,21 @@ function runLocalCommand(): boolean {
 }
 
 function submit() {
+  if (composer.capturingBackground) return;
   if (!runLocalCommand()) submitDraft();
 }
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.isComposing) return;
+
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    if (e.repeat || e.shiftKey || e.altKey) return;
+    void captureBackgroundSend(activeProjectId.value).then(captured => {
+      if (captured && !composer.text) { clearMatches(); grow(); }
+    }).catch(error => addErr((error as Error).message));
+    return;
+  }
 
   if (mentionOpen.value) {
     const total = sortedMentionItems.value.length;
@@ -299,6 +311,8 @@ async function handleSubmit(e?: Event) {
       <button type="button" :disabled="composer.submitting.has(chat.session)" @click="retrySend">Retry send</button>
     </div>
 
+    <BackgroundSendStatus />
+
     <form id="form" @submit="handleSubmit" @drop="handleDrop" @dragover.prevent>
       <textarea
         id="input"
@@ -307,6 +321,8 @@ async function handleSubmit(e?: Event) {
         rows="1"
         placeholder="Message Luna…"
         aria-label="Message Luna"
+        aria-description="Ctrl+Enter or Command+Enter sends to a new session without opening it."
+        title="Ctrl/Cmd+Enter: send to a new session without opening it"
         @input="handleInput"
         @keydown="handleKeydown"
         @click="() => { updateMentionState(); updateCommandState(); updateAtState(); }"
