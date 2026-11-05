@@ -231,23 +231,23 @@ function backgroundReport(entry: any, message: any): boolean {
     </div>
     <Welcome v-if="!entryList.length && !pending.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
     <template v-for="row in shownTimeline" :key="row.key">
-      <SideJobCard v-if="row.job" :job="row.job" />
+      <SideJobCard v-if="row.job" :job="row.job" class="vl vl-lg" />
       <template v-else v-for="entry in [row.entry]" :key="entry.id">
-        <div v-if="entry.kind === 'pi.reset'" class="msg muted">— context reset —</div>
-        <div v-else-if="entry.kind === 'pi.compaction'" class="msg muted">— earlier messages compacted —</div>
-        <div v-else-if="entry.kind === 'luna.model-changed'" class="msg muted">{{ entry.data?.text }}</div>
+        <div v-if="entry.kind === 'pi.reset'" class="msg muted vl vl-lg">— context reset —</div>
+        <div v-else-if="entry.kind === 'pi.compaction'" class="msg muted vl vl-lg">— earlier messages compacted —</div>
+        <div v-else-if="entry.kind === 'luna.model-changed'" class="msg muted vl vl-lg">{{ entry.data?.text }}</div>
         <template v-else v-for="(message, mi) in (entry.model || [])" :key="mi">
           <details v-if="message.role === 'user' && backgroundReport(entry, message)" class="background-report" :data-entry="entry.id">
             <summary>Background report</summary>
             <pre dir="auto">{{ messageText(message.content) }}</pre>
             <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" :entry-id="entry.id" />
           </details>
-          <div v-else-if="message.role === 'user' && peerMessage(entry, message)" class="msg user peer" :data-entry="entry.id">
+          <div v-else-if="message.role === 'user' && peerMessage(entry, message)" class="msg user peer vl vl-lg" :data-entry="entry.id">
             <button type="button" class="peer-chip" :data-peer="peerMessage(entry, message)!.from" :title="'Open session #' + peerMessage(entry, message)!.from" @click="openSession(peerMessage(entry, message)!.from)">From #{{ peerMessage(entry, message)!.from }} {{ peerMessage(entry, message)!.title }}</button>
             <div dir="auto" class="user-content rtl-plaintext">{{ peerMessage(entry, message)!.body }}</div>
             <MessageFooter :text="peerMessage(entry, message)!.body" :timestamp="message.timestamp" :entry-id="entry.id" />
           </div>
-          <div v-else-if="message.role === 'user'" class="msg user" :data-entry="entry.id">
+          <div v-else-if="message.role === 'user'" class="msg user vl vl-lg" :data-entry="entry.id">
             <div dir="auto" class="user-content rtl-plaintext">
               <template v-for="(block, bi) in blocks(message.content)" :key="bi">
                 <UploadAttachment
@@ -268,7 +268,7 @@ function backgroundReport(entry: any, message: any): boolean {
             </div>
             <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" :entry-id="entry.id" />
           </div>
-          <div v-else-if="message.role === 'assistant'" class="msg assistant" :data-entry="entry.id">
+          <div v-else-if="message.role === 'assistant'" class="msg assistant vl vl-xl" :data-entry="entry.id">
             <template v-for="(block, bi) in blocks(message.content)" :key="bi">
               <AssistantText v-if="block.type === 'text' && block.text" :text="block.text" :base="mediaBase(entry)" :offset="mediaOffsets.get(`${entry.id}:${mi}:${bi}`) ?? 0" />
               <details v-else-if="block.type === 'thinking' && block.thinking" class="thinking">
@@ -288,7 +288,7 @@ function backgroundReport(entry: any, message: any): boolean {
       <ToolCall v-if="!calls.has(id) && !durableResults.has(id)" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
     </template>
     <PendingMessage v-for="message in inLog" :key="message.requestId" :message="message" />
-    <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message">
+    <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message vl vl-xl">
       <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre dir="auto">{{ chat.liveThinking }}</pre></details>
       <AssistantText v-if="chat.liveText" :text="chat.liveText" />
     </div>

@@ -358,13 +358,13 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
       <div :inert="editing" class="kb-content">
         <div v-if="archived" class="kb-archive">
           <p v-if="!visible.length && !loading" class="kb-empty">{{ cards.length ? 'No cards match these filters.' : 'No archived cards.' }}</p>
-          <button v-for="c in visible" :key="c.id" class="kb-archive-card" :data-card="c.id" :disabled="busy || loading" @click="openEditor(c)"><span>#{{ c.id }}</span><strong dir="auto">{{ c.subject }}</strong><span class="kb-priority" :class="c.priority">{{ c.priority }}</span><span>{{ c.status.replace('_', ' ') }}</span></button>
+          <button v-for="c in visible" :key="c.id" class="kb-archive-card vl vl-sm" :data-card="c.id" :disabled="busy || loading" @click="openEditor(c)"><span>#{{ c.id }}</span><strong dir="auto">{{ c.subject }}</strong><span class="kb-priority" :class="c.priority">{{ c.priority }}</span><span>{{ c.status.replace('_', ' ') }}</span></button>
         </div>
         <div v-else ref="board" class="kb-board" aria-label="Kanban columns" tabindex="0" :aria-busy="busy || loading" @pointermove="updateDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag">
           <section v-for="[status, title] in columns" :key="status" class="kb-column" :class="{ 'kb-drop': drag?.moved && drag.target === status && drag.card.status !== status }" :data-column="status" :aria-label="title">
             <h3 class="kb-column-title"><span class="kb-dot" :class="status"></span>{{ title }}<span class="kb-count">{{ cardLists[status].length }}</span></h3>
             <div class="kb-cards">
-              <article v-for="c in cardLists[status]" :key="c.id" class="kb-card" :class="{ 'kb-drag-source': drag?.moved && drag.card.id === c.id }" :data-card="c.id" :data-priority="c.priority" :data-status="c.status">
+              <article v-for="c in cardLists[status]" :key="c.id" class="kb-card vl vl-lg" :class="{ 'kb-drag-source': drag?.moved && drag.card.id === c.id }" :data-card="c.id" :data-priority="c.priority" :data-status="c.status">
                 <div class="kb-card-body">
                   <div class="kb-card-top" @pointerdown="startDrag($event, c)">
                     <span class="kb-card-id">#{{ c.id }}</span>
@@ -418,7 +418,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
             <button type="button" class="kb-button" aria-label="Send answer" :disabled="busy || !answer.trim()" @click="sendAnswer">Send answer</button>
           </div>
           <p v-if="editingCard" class="kb-timestamp">Updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
-          <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> <bdi>{{ a.text }}</bdi></li></ul>
+          <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li class="vl vl-sm" v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> <bdi>{{ a.text }}</bdi></li></ul>
         </div>
         <p v-if="error" class="kb-editor-error"><CircleAlert :size="14" />{{ error }}</p>
         <div class="kb-editor-actions"><button type="submit" class="kb-button kb-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save card' }}</button><button type="button" class="kb-button" :disabled="busy" @click="closeEditor">Cancel</button><span></span><button v-if="editingId !== null" type="button" class="kb-button" :disabled="busy" @click="setArchived">{{ editingArchived ? 'Restore' : 'Archive' }}</button><button v-if="editingId !== null" type="button" class="kb-button kb-danger" :disabled="busy" @click="deleteCard">Delete</button></div>

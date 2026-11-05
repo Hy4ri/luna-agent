@@ -6,6 +6,7 @@ import { fetchLog, fetchCommit, fetchRangeDiff, type LogCommit, type CommitDetai
 import { layoutGraph, laneColor } from "./graph";
 import FileDiffList from "./FileDiffList.vue";
 import RefChips from "./RefChips.vue";
+import { useVirtualList } from "@vueuse/core";
 
 /** wide: commit list beside the detail. filesWide: file list beside the diff inside the detail. */
 const props = defineProps<{ session?: string; project?: number; wide: boolean; filesWide: boolean }>();
@@ -52,6 +53,7 @@ function loadFile(file: FileStat) {
   return fetchRangeDiff(owner, d.base, d.oid, file);
 }
 
+const { list: vCommits, containerProps: commitContainerProps, wrapperProps: commitWrapperProps } = useVirtualList(commits, { itemHeight: ROW, overscan: 10 });
 watch(scope, value => { localStorage.setItem(SCOPE_KEY, value); void load(true); });
 watch(() => [props.session, props.project], () => { commits.value = []; more.value = false; closeDetail(); void load(true); }, { immediate: true });
 
@@ -80,9 +82,9 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
 
     <div class="flex-1 min-h-0 flex overflow-hidden" :class="wide ? 'flex-row' : 'flex-col'">
       <!-- Commit list with graph -->
-      <div class="min-h-0 overflow-auto bg-card text-xs" :class="[wide ? 'w-[460px] shrink-0 border-r border-border' : 'flex-1', !wide && selected ? 'hidden' : 'block']">
+      <div class="min-h-0 overflow-auto bg-card text-xs" v-bind="commitContainerProps" :class="[wide ? 'w-[460px] shrink-0 border-r border-border' : 'flex-1', !wide && selected ? 'hidden' : 'block']">
         <p v-if="!loading && !commits.length && !error" class="p-4 text-muted-foreground">No commits yet.</p>
-        <button v-for="(commit, i) in commits" :key="commit.oid" type="button"
+        <div v-bind="commitWrapperProps"><button v-for="{ data: commit, index: i } in vCommits" :key="commit.oid" type="button"
           class="flex items-center w-full text-left hover:bg-muted pr-2" :style="{ height: ROW + 'px' }"
           :class="selected === commit.oid ? 'bg-accent' : ''" :aria-label="`Commit ${commit.oid.slice(0, 7)}: ${commit.subject}`"
           @click="select(commit.oid)">
@@ -98,7 +100,7 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
           </span>
           <span class="shrink-0 pl-2 text-muted-foreground hidden sm:inline">{{ commit.author }}</span>
           <span class="shrink-0 w-8 text-right text-muted-foreground" :title="new Date(commit.date).toLocaleString()">{{ when(commit.date) }}</span>
-        </button>
+        </button></div>
         <button v-if="more" type="button" class="m-2 px-2 py-1 underline text-muted-foreground disabled:opacity-50" :disabled="loading" @click="load(false)">{{ loading ? 'Loading…' : 'Load more commits' }}</button>
       </div>
 

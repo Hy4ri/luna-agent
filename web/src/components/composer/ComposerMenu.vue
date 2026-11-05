@@ -46,7 +46,7 @@ defineExpose({ menuRef, scrollActiveIntoView });
         :key="entryKey(entry)"
         type="button"
         role="option"
-        class="mention-item"
+        class="mention-item vl vl-sm"
         :class="[itemClass, { active: entry.flatIndex === activeIndex }]"
         :aria-selected="entry.flatIndex === activeIndex ? 'true' : 'false'"
         :data-menu-active="entry.flatIndex === activeIndex ? 'true' : undefined"

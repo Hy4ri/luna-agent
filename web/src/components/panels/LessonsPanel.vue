@@ -175,7 +175,7 @@ onMounted(load);
         <b>{{ g.title }}</b> <span class="muted">({{ g.items.length }})</span>
         <div dir="auto" v-if="g.hint" class="muted text-xs">{{ g.hint }}</div>
       </div>
-      <div v-for="l in g.items" :key="l.id" class="card grid" :data-lesson="l.id">
+      <div v-for="l in g.items" :key="l.id" class="card grid vl vl-lg" :data-lesson="l.id">
         <div class="row">
           <span class="pill">{{ l.status === "confirmed" ? "legacy confirmation" : l.status }}</span>
           <b dir="auto" class="grow">{{ l.claim }}</b>
@@ -225,7 +225,7 @@ onMounted(load);
       <button class="link-button" @click="toggleShowHistory">
         {{ showHistory ? "Hide" : "Show" }} rejected and replaced ({{ historyCount }})
       </button>
-      <div v-for="l in showHistory ? history : []" :key="l.id" class="card grid" :data-lesson="l.id">
+      <div v-for="l in showHistory ? history : []" :key="l.id" class="card grid vl vl-lg" :data-lesson="l.id">
         <div class="row"><span class="pill">{{ l.status === "confirmed" ? "legacy confirmation" : l.status }}</span><span dir="auto" class="grow">{{ l.claim }}</span></div>
         <div dir="auto" v-if="l.note" class="muted text-xs">{{ l.note }}</div>
         <button class="link-button" :disabled="loadingHistory[l.id]" @click="toggleHistoryEvidence(l)">

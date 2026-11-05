@@ -112,7 +112,7 @@ onMounted(() => {
     <!-- Items List -->
     <div class="grid">
       <p v-if="!loading && !items.length" class="muted">Nothing stored.</p>
-      <details v-for="m in items" :key="m.id" class="card" :data-memory="m.id"><summary class="row"><ChevronRight :size="16" />
+      <details v-for="m in items" :key="m.id" class="card vl vl-md" :data-memory="m.id"><summary class="row"><ChevronRight :size="16" />
           <span class="pill">{{ m.kind }}</span>
           <b class="grow">{{ m.key || "#" + m.id }}</b>
           <span class="muted">{{ new Date(m.updated).toLocaleDateString() }}</span>

@@ -2,6 +2,7 @@
 import { computed, ref, watch, nextTick, inject, onMounted } from "vue";
 import { Pin, PinOff, Search, Brain, Eye, Check, ArrowUp, ArrowDown, ChevronRight } from "@lucide/vue";
 import { models, modelKey, togglePin, movePin } from "@/stores/models";
+import { useVirtualList } from "@vueuse/core";
 import type { ModelInfo } from "@/lib/types";
 
 const injectedChoices = inject("settingsModelChoices", null as unknown as { value: string; label: string }[] | null);
@@ -69,7 +70,6 @@ const query = ref("");
 const openProviders = ref(new Set<string>());
 const activeIndex = ref(0);
 const searchRef = ref<HTMLInputElement | null>(null);
-const listRef = ref<HTMLElement | null>(null);
 
 const catalogKeys = computed(() => new Set(effectiveModels.value.map(modelKey)));
 // Keep missing catalog entries visible so saved pins can still be removed.
@@ -107,14 +107,18 @@ function toggleProvider(provider: string) {
 const pinnedModels = computed(() => query.value.trim() ? [] : savedPins.value);
 
 type ListItem = { kind: "provider"; key: string; provider: string; count: number; open: boolean }
-  | { kind: "model"; key: string; model: ModelInfo; pinned: boolean; pinIndex: number; index: number };
+  | { kind: "model"; key: string; model: ModelInfo; pinned: boolean; pinIndex: number; index: number }
+  | { kind: "empty" | "section" | "divider"; key: string };
 const listItems = computed<ListItem[]>(() => {
   const items: ListItem[] = [];
   let index = 0;
+  if (props.emptyLabel) items.push({ kind: "empty", key: "__empty__" });
+  if (pinnedModels.value.length) items.push({ kind: "section", key: "__pinned_head__" });
   pinnedModels.value.forEach((entry, pinIndex) => {
     if (entry.model) items.push({ kind: "model", key: entry.key, model: entry.model, pinned: true, pinIndex, index: index++ });
   });
   for (const group of providerGroups.value) {
+    if (pinnedModels.value.length && items.length && items[items.length - 1]!.kind === "model" && pinnedModels.value.some(e => e.model)) items.push({ kind: "divider", key: `__divider__${group.provider}` });
     items.push({ kind: "provider", key: `provider:${group.provider}`, provider: group.provider, count: group.models.length, open: group.open });
     if (group.open) for (const model of group.models) {
       items.push({ kind: "model", key: modelKey(model), model, pinned: false, pinIndex: -1, index: index++ });
@@ -122,6 +126,16 @@ const listItems = computed<ListItem[]>(() => {
   }
   return items;
 });
+/** True windowing over the flattened list (fixed row heights; wrapper
+ *  reserves total height). Heights match the scoped CSS below. */
+const { list: vListItems, containerProps: msContainerProps, wrapperProps: msWrapperProps } = useVirtualList(listItems, {
+  itemHeight: (i: number) => {
+    const k = listItems.value[i]?.kind;
+    return k === "provider" ? 40 : k === "section" ? 28 : k === "divider" ? 9 : k === "empty" ? 36 : 38;
+  },
+  overscan: 12,
+});
+const listRef = msContainerProps.ref;
 const visibleModels = computed(() => listItems.value.flatMap(item => item.kind === "model" ? [item.model] : []));
 
 function isSelected(m: ModelInfo) {
@@ -219,6 +233,7 @@ function onKeydown(e: KeyboardEvent) {
     : Math.max(0, Math.min(rows.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
   const nextRow = rows[next];
   if (nextRow) { nextRow.focus({ preventScroll: true }); scrollToRow(nextRow); }
+  else if (listRef.value) listRef.value.scrollTop += e.key === "ArrowDown" ? 38 : -38;
 }
 
 watch(() => props.searchVisible, visible => { if (!visible) query.value = ""; });
@@ -291,10 +306,12 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
     <p v-if="pinError" class="ms-notice ms-error" role="alert">{{ pinError }}</p>
     <p v-if="selecting" class="ms-notice" role="status">Changing model…</p>
 
-    <div ref="listRef" class="ms-list" role="group" aria-label="Models" :aria-busy="loading || selecting">
+    <div class="ms-list" role="group" aria-label="Models" :aria-busy="loading || selecting" v-bind="msContainerProps">
+    <div v-bind="msWrapperProps" class="ms-wrapper">
 
-      <button
-        v-if="emptyLabel"
+      <template v-for="{ data: item } in vListItems" :key="item.key">
+        <button
+        v-if="item.kind === 'empty'"
         type="button"
         class="ms-row"
         :disabled="selecting"
@@ -309,13 +326,11 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
         <Check v-if="!value" :size="14" class="ms-selected" aria-hidden="true" />
       </button>
 
-      <div v-if="pinnedModels.length" class="ms-section-head">
+        <div v-if="item.kind === 'section'" class="ms-section-head">
         <span class="ms-section-label">Pinned</span>
         <button type="button" class="ms-edit" :aria-pressed="editingPins" @click="editingPins = !editingPins">{{ editingPins ? "Done" : "Edit" }}</button>
       </div>
-      <template v-for="(item, itemIndex) in listItems" :key="item.key">
         <template v-if="item.kind === 'provider'">
-          <div v-if="pinnedModels.length && itemIndex === pinnedModels.length" class="ms-divider" role="separator" aria-label="Other models"></div>
           <component
             :is="query.trim() ? 'div' : 'button'"
             :type="query.trim() ? undefined : 'button'"
@@ -331,7 +346,7 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
             <span class="ms-provider-count">{{ item.count }}</span>
           </component>
         </template>
-        <template v-else>
+        <template v-else-if="item.kind === 'model'">
               <div class="ms-entry" :class="{ 'ms-entry-pinned': item.pinned }">
             <button
               type="button"
@@ -367,7 +382,9 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
             </button>
               </div>
         </template>
+        <div v-else-if="item.kind === 'divider'" class="ms-divider" role="separator" aria-label="Other models"></div>
       </template>
+    </div>
 
       <p v-if="!filtered.length && !loading && (!error || query.trim())" class="ms-empty" role="status">
         <template v-if="query.trim()">No models match “{{ query }}”.</template>
@@ -389,7 +406,7 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-search input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .ms-search input::placeholder { color: var(--muted-foreground); }
 .ms-count { position: absolute; right: 10px; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
-.ms-provider { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
+ .ms-provider { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; box-sizing: border-box; padding: 8px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
 .ms-provider:not(.ms-provider-label):hover { background: var(--accent); }
 .ms-provider-label { cursor: default; }
 .ms-provider:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
@@ -400,22 +417,24 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-entry:not(.ms-entry-pinned) { margin-left: 14px; border-left: 1px solid var(--border); padding-left: 3px; }
 @media (max-width: 767px) { .ms-search input { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .ms-provider-chevron { transition: none; } }
-.ms-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 0 10px; }
+ .ms-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 28px; box-sizing: border-box; padding: 0 10px; }
 .ms-section-label { font-size: 11px; font-weight: 600; color: var(--muted-foreground); }
 .ms-edit { min-height: 28px; padding: 0 6px; background: transparent; border: 0; color: var(--muted-foreground); font-size: 11px; cursor: pointer; }
 .ms-edit:hover { color: var(--foreground); }
-.ms-divider { flex: none; height: 1px; margin: 8px 0; background: color-mix(in srgb, var(--foreground) 22%, var(--border)); }
+ .ms-divider { flex: none; height: 1px; margin: 4px 0; background: color-mix(in srgb, var(--foreground) 22%, var(--border)); }
 .ms-entry { display: flex; align-items: center; min-width: 0; }
 .ms-entry > .ms-row { flex: 1; min-width: 0; width: auto; }
 .ms-pin-actions { display: flex; flex: none; }
 .ms-pin:disabled { opacity: .35; cursor: default; }
 .ms-edit:focus-visible, .ms-pin:focus-visible, .ms-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 /* One scroll owner. Expanding providers must never shrink or clip pinned rows. */
-.ms-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px; overflow-anchor: none; }
+.ms-list { flex: 1 1 auto; min-height: 0; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px; overflow-anchor: none; }
+.ms-wrapper { width: 100%; }
+.ms-wrapper > * { margin-bottom: 2px; }
 .ms-list > * { flex-shrink: 0; }
 .ms-compact-picker .ms-list { max-height: none; }
 .ms-compact-picker .ms-divider { margin: 4px 0; }
-.ms-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 36px; padding: 3px 8px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
+ .ms-row { display: flex; align-items: center; gap: 6px; width: 100%; height: 38px; box-sizing: border-box; padding: 3px 8px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
 .ms-row:not(:disabled):hover, .ms-row[data-active="true"] { background: var(--accent); border-color: var(--border); }
 .ms-row[data-selected="true"] { background: var(--acc-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
 .ms-row-main { flex: 1; min-width: 0; display: grid; gap: 0; line-height: 1.15; }

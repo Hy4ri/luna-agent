@@ -1,5 +1,6 @@
 import { createApp } from "vue";
 import "./style.css";
+import "./assets/virtualization.css";
 import App from "./App.vue";
 import { openSession } from "@/stores/chat";
 import { installExternalLinks } from "@/lib/platform";

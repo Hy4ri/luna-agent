@@ -59,7 +59,7 @@ Directory: {{ detailJob.execution.cwd || "Server default" }}</pre>
     </section>
     <section class="cron-block">
       <h4>Recent runs</h4>
-      <details v-for="run in jobRuns" :key="run.id" class="cron-run" @toggle="emit('toggleRun', $event, run.id)">
+      <details v-for="run in jobRuns" :key="run.id" class="cron-run vl vl-md" @toggle="emit('toggleRun', $event, run.id)">
         <summary>
           <span class="cron-pill" :class="run.status">{{ statusLabel(run) }}</span>
           <span class="cron-run-snippet" dir="auto">{{ outcome(run) }}</span>
