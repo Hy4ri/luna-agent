@@ -735,7 +735,6 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .tool img.tool-image { display: block; max-width: calc(100% - 24px); max-height: 420px; margin: 0 12px 12px; border-radius: var(--radius); object-fit: contain; }
 #activity { display: grid; grid-template-columns: 6px minmax(0, 1fr); align-items: center; column-gap: 8px; color: var(--muted-foreground); font-size: 13.5px; padding: 4px 0; min-height: 24px; }
 #activity::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
-.activity-details { grid-column: 2; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .side-job { font-size: 14px; font-weight: 440; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted-foreground); }
 .side-job-btn {
   display: inline-flex;
