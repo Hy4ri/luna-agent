@@ -47,6 +47,11 @@ function onInlineClick(e: Event) {
 
 // ---- sandbox: markup with script runs in an opaque-origin frame ----
 const frame = ref<HTMLIFrameElement>();
+const box = ref<HTMLElement>();
+// A frame exists only near the visible part of the transcript. Far frames are removed, so their
+// scripts and timers stop; the box keeps its last height so the transcript does not jump.
+const near = ref(false);
+let observer: IntersectionObserver | undefined;
 const generation = ref(0);
 const height = ref(120);
 const sandboxState = ref<"loading" | "ready" | "failed">("loading");
@@ -80,7 +85,7 @@ function reload() {
   sent = false;
   sandboxState.value = "loading";
   generation.value++;
-  if (route.value?.mode === "sandbox") loadTimer = setTimeout(() => { sandboxState.value = "failed"; }, 10_000);
+  if (route.value?.mode === "sandbox" && near.value) loadTimer = setTimeout(() => { sandboxState.value = "failed"; }, 10_000);
 }
 
 function onMessage(event: MessageEvent) {
@@ -105,12 +110,25 @@ watch(route, () => {
   else if (route.value?.mode === "inline") mountInline();
 }, { immediate: true, flush: "post" });
 watch(previewUrl, reload);
+watch(near, reload);
+watch(box, (el) => {
+  observer?.disconnect();
+  observer = undefined;
+  if (!el) { near.value = false; return; }
+  // The transcript scrolls inside #log; margins on the viewport would be clipped by it.
+  observer = new IntersectionObserver((entries) => {
+    const entry = entries[entries.length - 1];
+    if (entry) near.value = entry.isIntersecting;
+  }, { root: el.closest("#log"), rootMargin: "800px 0px" });
+  observer.observe(el);
+}, { flush: "post" });
 onMounted(() => {
   window.addEventListener("message", onMessage);
   mountInline();
 });
 onUnmounted(() => {
   clearTimeout(loadTimer);
+  observer?.disconnect();
   window.removeEventListener("message", onMessage);
 });
 </script>
@@ -121,9 +139,10 @@ onUnmounted(() => {
       <button v-if="route?.mode === 'sandbox'" type="button" title="Reload" aria-label="Reload HTML" @click="reload"><RotateCw :size="14" /></button>
     </template>
     <div v-if="route?.mode === 'inline'" ref="host" class="html-inline" @click="onInlineClick" />
-    <div v-else-if="route?.mode === 'sandbox'" class="html-sandbox">
-      <p v-if="sandboxState === 'loading'" class="pending" role="status">Loading…</p>
+    <div v-else-if="route?.mode === 'sandbox'" ref="box" class="html-sandbox" :style="{ minHeight: `${height}px` }">
+      <p v-if="near && sandboxState === 'loading'" class="pending" role="status">Loading…</p>
       <iframe
+        v-if="near"
         :key="generation"
         ref="frame"
         :src="previewUrl"
