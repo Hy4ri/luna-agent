@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue';
-import { fetchChanges, fetchBranches, fetchDiff, mutateGit } from './client';
+import { serverUrl, token } from '@/lib/api';
+import { fetchChanges, fetchBranches, fetchDiff, mutateGit, isAbortError } from './client';
 import type { Changes, Branches, DiffResult, SelectorParams, ChangeFile } from './client';
 import ChangeList from './ChangeList.vue';
 import DiffView from './DiffView.vue';
@@ -31,6 +32,23 @@ const pushTitle = computed(() => !changes.value ? '' : changes.value.detached ? 
   : changes.value.upstream ? `Push to ${changes.value.upstream}` : 'Publish branch');
 
 let epoch = 0, stateTicket = 0, diffTicket = 0, disposed = false, noticeTimer: ReturnType<typeof setTimeout> | undefined;
+let stateController: AbortController | null = null;
+let diffController: AbortController | null = null;
+let branchesController: AbortController | null = null;
+
+function cancelState() {
+  if (stateController) {
+    stateController.abort();
+    stateController = null;
+  }
+}
+
+function cancelDiff() {
+  if (diffController) {
+    diffController.abort();
+    diffController = null;
+  }
+}
 
 function showNotice(text: string) {
   notice.value = text;
@@ -41,7 +59,14 @@ function showNotice(text: string) {
 /** Keep the selected file on the side (staged or working) that still has changes. */
 function reconcileSelection(files: ChangeFile[]): boolean {
   const file = files.find(f => f.path === selectedPath.value);
-  if (!file) { selectedPath.value = null; diff.value = null; diffTicket++; loadingDiff.value = false; return false; }
+  if (!file) {
+    selectedPath.value = null;
+    diff.value = null;
+    diffTicket++;
+    cancelDiff();
+    loadingDiff.value = false;
+    return false;
+  }
   const working = file.untracked || (!file.conflict && file.worktree !== '.');
   if (selectedStaged.value && !file.staged) selectedStaged.value = false;
   else if (!selectedStaged.value && !working && file.staged) selectedStaged.value = true;
@@ -53,48 +78,81 @@ function applyChanges(c: Changes, keepSelection: boolean) {
   branchSelectValue.value = c.branch;
   emit('repo', c.repo);
   if (pushedBranch.value && pushedBranch.value !== c.branch) pushedBranch.value = null;
-  if (!keepSelection) { selectedPath.value = null; diff.value = null; diffTicket++; return; }
+  if (!keepSelection) {
+    selectedPath.value = null;
+    diff.value = null;
+    diffTicket++;
+    cancelDiff();
+    loadingDiff.value = false;
+    return;
+  }
   if (selectedPath.value && reconcileSelection(c.files)) void loadDiff(selectedPath.value, selectedStaged.value, true);
 }
 
 async function loadState(keepSelection = true, clearError = true) {
+  cancelState();
   const generation = epoch, ticket = ++stateTicket, owner = { ...selector.value };
+  const controller = new AbortController();
+  stateController = controller;
   loadingState.value = true;
   if (clearError) error.value = null;
   try {
-    const [c, b] = await Promise.all([fetchChanges(owner), fetchBranches(owner)]);
+    const [c, b] = await Promise.all([fetchChanges(owner, controller.signal), fetchBranches(owner, controller.signal)]);
     if (disposed || generation !== epoch || ticket !== stateTicket) return;
     branches.value = b;
     applyChanges(c, keepSelection);
   } catch (e) {
-    if (!disposed && generation === epoch && ticket === stateTicket) error.value = (e as Error).message;
+    if (!disposed && generation === epoch && ticket === stateTicket && !isAbortError(e)) {
+      error.value = (e as Error).message;
+    }
   } finally {
-    if (!disposed && generation === epoch && ticket === stateTicket) loadingState.value = false;
+    if (!disposed && generation === epoch && ticket === stateTicket) {
+      if (stateController === controller) stateController = null;
+      loadingState.value = false;
+    }
   }
 }
 
 async function loadBranches() {
+  if (disposed) return;
+  branchesController?.abort();
+  const controller = branchesController = new AbortController();
   const generation = epoch, owner = { ...selector.value };
-  try { const b = await fetchBranches(owner); if (!disposed && generation === epoch) branches.value = b; } catch { /* the next refresh retries */ }
+  try { const b = await fetchBranches(owner, controller.signal); if (!disposed && generation === epoch && !controller.signal.aborted) branches.value = b; } catch { /* the next refresh retries */ }
+  finally { if (branchesController === controller) branchesController = null; }
 }
 
 /** quiet: keep the current diff on screen while the refreshed one loads (no flicker). */
 async function loadDiff(path: string, staged: boolean, quiet = false) {
+  cancelDiff();
   const generation = epoch, ticket = ++diffTicket, owner = { ...selector.value };
+  const controller = new AbortController();
+  diffController = controller;
   loadingDiff.value = !quiet;
   if (!quiet) diff.value = null;
   try {
-    const d = await fetchDiff(owner, path, staged);
+    const d = await fetchDiff(owner, path, staged, controller.signal);
     if (!disposed && generation === epoch && ticket === diffTicket) diff.value = d;
   } catch (e) {
-    if (!disposed && generation === epoch && ticket === diffTicket) error.value = (e as Error).message;
+    if (!disposed && generation === epoch && ticket === diffTicket && !isAbortError(e)) {
+      error.value = (e as Error).message;
+    }
   } finally {
-    if (!disposed && generation === epoch && ticket === diffTicket) loadingDiff.value = false;
+    if (!disposed && generation === epoch && ticket === diffTicket) {
+      if (diffController === controller) diffController = null;
+      loadingDiff.value = false;
+    }
   }
 }
 
 function handleSelectFile(path: string, staged: boolean) { selectedPath.value = path; selectedStaged.value = staged; void loadDiff(path, staged); }
-function closeDiff() { selectedPath.value = null; diff.value = null; diffTicket++; loadingDiff.value = false; }
+function closeDiff() {
+  selectedPath.value = null;
+  diff.value = null;
+  diffTicket++;
+  cancelDiff();
+  loadingDiff.value = false;
+}
 
 const BUSY: Record<string, string> = { stage: 'Staging…', unstage: 'Unstaging…', commit: 'Committing…', switch: 'Switching branch…', fetch: 'Fetching…', pull: 'Pulling…', push: 'Pushing…' };
 /** Actions that can change branch names, upstreams, or ahead/behind counts. */
@@ -182,13 +240,19 @@ async function confirmAndRetryPush() {
 function refreshIfIdle() { if (!loadingState.value && changes.value && document.visibilityState === 'visible') void loadState(true, false); }
 onMounted(() => { window.addEventListener('focus', refreshIfIdle); document.addEventListener('visibilitychange', refreshIfIdle); });
 onUnmounted(() => {
-  disposed = true; epoch++; diffTicket++; clearTimeout(noticeTimer);
+  disposed = true; epoch++; diffTicket++; stateTicket++; clearTimeout(noticeTimer);
+  cancelState();
+  cancelDiff();
+  branchesController?.abort();
   window.removeEventListener('focus', refreshIfIdle); document.removeEventListener('visibilitychange', refreshIfIdle);
 });
 // A finished agent run has usually changed files.
 watch(() => props.runActive, (active, was) => { if (was && !active) refreshIfIdle(); });
-watch(() => [props.session, props.project], () => {
+watch(() => [props.session, props.project, serverUrl.value, token.value], () => {
   epoch++; stateTicket++; diffTicket++;
+  cancelState();
+  cancelDiff();
+  branchesController?.abort();
   changes.value = null; branches.value = null; diff.value = null; selectedPath.value = null; commitMessage.value = '';
   pushedBranch.value = null; notice.value = null; loadingDiff.value = false; confirmDefaultModal.value = { open: false }; cancelNewBranch();
   void loadState(false);

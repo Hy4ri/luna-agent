@@ -131,8 +131,8 @@ function select(id: number | "new" | null) {
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
 }
 
-async function refresh() {
-  await loadProjects();
+async function refresh(force = true) {
+  await loadProjects({ force });
   await loadSessions().catch(() => {});
 }
 
@@ -192,7 +192,7 @@ watch(() => history.projects, list => {
 });
 
 onMounted(async () => {
-  try { await Promise.all([refresh(), loadWorkers().catch(() => [])]); } catch (e) { errorMsg.value = (e as Error).message; }
+  try { await Promise.all([refresh(false), loadWorkers().catch(() => [])]); } catch (e) { errorMsg.value = (e as Error).message; }
   loading.value = false;
   const active = Number(chat.project ?? localStorage.getItem("luna.project"));
   const start = history.projects.find(p => p.id === active) ?? history.projects[0];

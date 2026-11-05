@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { confirmAction } from "@/lib/confirm";
 // Cron floating panel: an unread report inbox, job management, and one shared report history.
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { CheckCheck, Plus, RefreshCw } from "@lucide/vue";
-import { json, post } from "@/lib/api";
+import { json, post, serverUrl, token } from "@/lib/api";
 import { handleTablistKeydown } from "@/lib/keyboard";
 import { closePanel, ui } from "@/stores/app";
 import { continueCronRun } from "@/stores/chat";
@@ -24,6 +24,9 @@ const tabs: { id: CronTab; label: string }[] = [
 
 const jobs = ref<CronJob[]>([]);
 const inbox = ref<CronRun[]>([]);
+const inboxCursor = ref<string | null>(null);
+const inboxMore = ref(false);
+const inboxLoading = ref(false);
 const historyRows = ref<CronRun[]>([]);
 const historyMore = ref(false);
 const jobRuns = ref<CronRun[]>([]);
@@ -39,67 +42,126 @@ const openRuns = ref(new Set<number>());
 let timer: ReturnType<typeof setInterval> | undefined;
 let jobRunsSeq = 0;
 let historySeq = 0;
-let inboxSeq = 0;
+let inboxSeq = 0, disposed = false;
+const context = () => JSON.stringify([serverUrl.value, token.value]);
+
+let inboxAbortController: AbortController | null = null;
+let historyAbortController: AbortController | null = null;
+let jobRunsAbortController: AbortController | null = null;
+let jobsAbortController: AbortController | null = null;
 
 function message(text: string, error = false) {
   panel.status = text;
   panel.statusError = error;
 }
 function fail(e: unknown) {
+  if (e instanceof DOMException && e.name === "AbortError") return;
   message(e instanceof Error ? e.message : String(e), true);
 }
 async function guard(action: () => Promise<void>) {
+  if (disposed) return;
+  const scope = context();
   if (busy.value) return;
   busy.value = true;
   panel.status = "";
   try {
     await action();
   } catch (e) {
-    fail(e);
+    if (!disposed && scope === context()) fail(e);
   } finally {
-    busy.value = false;
+    if (!disposed && scope === context()) busy.value = false;
   }
 }
 
 async function loadJobs() {
-  const data = await json("/v1/cron?summary=1");
-  jobs.value = data.jobs;
-  if (data.unreadCount !== undefined) ui.cronUnread = data.unreadCount;
-  if (!jobs.value.some(j => j.id === panel.jobId)) panel.jobId = jobs.value[0]?.id ?? null;
-}
-async function loadInbox() {
-  const seq = ++inboxSeq;
-  const rows: CronRun[] = [];
-  let before: number | undefined;
-  let unread = 0;
-  for (;;) {
-    const data = await json("/v1/cron/reports?limit=100" + (before ? `&before=${before}` : ""));
-    if (seq !== inboxSeq) return;
-    rows.push(...data.reports);
-    unread = data.unreadCount ?? 0;
-    if (data.reports.length < 100) break;
-    before = data.reports.at(-1).id;
+  if (disposed) return;
+  jobsAbortController?.abort();
+  const controller = new AbortController();
+  jobsAbortController = controller;
+  try {
+    const data = await json("/v1/cron?summary=1", { signal: controller.signal });
+    if (controller.signal.aborted) return;
+    jobs.value = data.jobs;
+    if (data.unreadCount !== undefined) ui.cronUnread = data.unreadCount;
+    if (!jobs.value.some(j => j.id === panel.jobId)) panel.jobId = jobs.value[0]?.id ?? null;
+  } finally {
+    if (jobsAbortController === controller) jobsAbortController = null;
   }
-  inbox.value = rows.sort((a, b) => Number(b.status === "error") - Number(a.status === "error") || b.id - a.id);
-  ui.cronUnread = unread;
 }
+
+async function loadInbox(reset = true, refreshLoaded = false) {
+  if (disposed) return;
+  inboxAbortController?.abort();
+  const controller = new AbortController();
+  inboxAbortController = controller;
+  const seq = ++inboxSeq;
+
+  inboxLoading.value = true;
+
+  try {
+    // Background refresh keeps the expanded window. Initial and explicit pages stay bounded to PAGE.
+    const target = refreshLoaded ? Math.max(PAGE, inbox.value.length) : PAGE;
+    const rows: CronRun[] = [];
+    let cursor = reset ? null : inboxCursor.value;
+    let unreadCount: number | undefined;
+    do {
+      const q = new URLSearchParams({ order: "attention", limit: String(Math.min(100, target - rows.length)) });
+      if (cursor) q.set("cursor", cursor);
+      const data = await json<{ reports: CronRun[]; nextCursor?: string | null; unreadCount?: number }>("/v1/cron/reports?" + q, { signal: controller.signal });
+      if (seq !== inboxSeq || controller.signal.aborted) return;
+      rows.push(...data.reports);
+      cursor = data.nextCursor ?? null;
+      unreadCount = data.unreadCount;
+    } while (refreshLoaded && cursor && rows.length < target);
+    inbox.value = reset ? rows : [...inbox.value, ...rows];
+    inboxCursor.value = cursor;
+    inboxMore.value = !!cursor;
+    if (unreadCount !== undefined) ui.cronUnread = unreadCount;
+  } finally {
+    if (seq === inboxSeq) inboxLoading.value = false;
+    if (inboxAbortController === controller) inboxAbortController = null;
+  }
+}
+
 async function loadHistory(reset = true) {
+  if (disposed) return;
+  historyAbortController?.abort();
+  const controller = new AbortController();
+  historyAbortController = controller;
   const seq = ++historySeq;
-  const q = new URLSearchParams({ history: "1", limit: String(PAGE) });
-  if (panel.historyJob) q.set("jobId", panel.historyJob);
-  const before = reset ? null : historyRows.value.at(-1)?.id;
-  if (before) q.set("before", String(before));
-  const data = await json("/v1/cron/reports?" + q);
-  if (seq !== historySeq) return;
-  historyRows.value = reset ? data.reports : [...historyRows.value, ...data.reports];
-  historyMore.value = data.reports.length === PAGE;
+
+  try {
+    const q = new URLSearchParams({ history: "1", limit: String(PAGE) });
+    if (panel.historyJob) q.set("jobId", panel.historyJob);
+    const before = reset ? null : historyRows.value.at(-1)?.id;
+    if (before) q.set("before", String(before));
+
+    const data = await json("/v1/cron/reports?" + q, { signal: controller.signal });
+    if (seq !== historySeq || controller.signal.aborted) return;
+
+    historyRows.value = reset ? data.reports : [...historyRows.value, ...data.reports];
+    historyMore.value = data.reports.length === PAGE;
+  } finally {
+    if (historyAbortController === controller) historyAbortController = null;
+  }
 }
+
 async function loadJobRuns() {
+  if (disposed) return;
+  jobRunsAbortController?.abort();
   const id = panel.jobId, seq = ++jobRunsSeq;
   if (id === null) { jobRuns.value = []; return; }
-  const data = await json(`/v1/cron/runs?jobId=${id}&history=1&limit=10`);
-  if (seq !== jobRunsSeq || panel.jobId !== id) return;
-  jobRuns.value = data.runs;
+
+  const controller = new AbortController();
+  jobRunsAbortController = controller;
+
+  try {
+    const data = await json(`/v1/cron/runs?jobId=${id}&history=1&limit=10`, { signal: controller.signal });
+    if (seq !== jobRunsSeq || panel.jobId !== id || controller.signal.aborted) return;
+    jobRuns.value = data.runs;
+  } finally {
+    if (jobRunsAbortController === controller) jobRunsAbortController = null;
+  }
 }
 
 function selectTab(tab: CronTab) {
@@ -110,7 +172,7 @@ function selectTab(tab: CronTab) {
   void guard(async () => {
     if (tab === "history") await loadHistory(true);
     if (tab === "jobs") { await loadJobs(); await loadJobRuns(); }
-    if (tab === "reports") await loadInbox();
+    if (tab === "reports") await loadInbox(true);
   });
 }
 
@@ -121,6 +183,9 @@ function applyHistoryFilter() {
 function loadMoreHistory() {
   void guard(() => loadHistory(false));
 }
+function loadMoreInbox() {
+  void guard(() => loadInbox(false));
+}
 
 function openReport(run: CronRun) {
   panel.detail = run;
@@ -129,20 +194,21 @@ function openReport(run: CronRun) {
     const updated = await post(`/v1/cron/reports/${run.id}`, { read: true }, "PATCH");
     if (panel.detail?.id === run.id) panel.detail = updated;
     // Keep the selected detail visible; older reports stay superseded in History.
-    await loadInbox();
+    await loadInbox(true);
   });
 }
 function markUnread(run: CronRun) {
   void guard(async () => {
     const updated = await post(`/v1/cron/reports/${run.id}`, { read: false }, "PATCH");
     if (panel.detail?.id === run.id) panel.detail = updated;
-    await loadInbox();
+    await loadInbox(true);
   });
 }
 function markAllRead() {
   void guard(async () => {
-    await Promise.all(inbox.value.map(run => post(`/v1/cron/reports/${run.id}`, { read: true }, "PATCH")));
-    await loadInbox();
+    const res = await post("/v1/cron/reports/read-all", {});
+    if (res?.unreadCount !== undefined) ui.cronUnread = res.unreadCount;
+    await loadInbox(true);
   });
 }
 function backToList() {
@@ -239,21 +305,38 @@ function onRunToggle(event: Event, id: number) {
   openRuns.value = next;
 }
 
+watch([serverUrl, token], () => {
+  inboxSeq++; historySeq++; jobRunsSeq++;
+  inboxAbortController?.abort(); historyAbortController?.abort(); jobRunsAbortController?.abort(); jobsAbortController?.abort();
+  inbox.value = []; historyRows.value = []; jobRuns.value = []; jobs.value = [];
+  inboxCursor.value = null; inboxMore.value = false; historyMore.value = false; busy.value = false; ui.cronUnread = 0;
+  void guard(async () => { await loadInbox(); await loadJobs(); });
+}, { flush: "sync" });
 onMounted(() => {
   void guard(async () => {
-    await loadInbox();
+    await loadInbox(true);
     await loadJobs();
     if (panel.tab === "history") await loadHistory(true);
     if (panel.tab === "jobs") await loadJobRuns();
   });
   timer = setInterval(() => {
     if (document.hidden || busy.value) return;
-    if (panel.tab === "reports") void loadInbox().catch((e: unknown) => { fail(e); });
+    // Revalidate only the loaded window, without collapsing expanded pages.
+    if (panel.tab === "reports") {
+      if (!inboxLoading.value) {
+        void loadInbox(true, true).catch((e: unknown) => { fail(e); });
+      }
+    }
     else if (panel.tab === "jobs") { void loadJobs().then(loadJobRuns).catch((e: unknown) => { fail(e); }); }
   }, 5000);
 });
 onUnmounted(() => {
+  disposed = true;
   clearInterval(timer);
+  inboxAbortController?.abort();
+  historyAbortController?.abort();
+  jobRunsAbortController?.abort();
+  jobsAbortController?.abort();
   ++inboxSeq;
   ++historySeq;
   ++jobRunsSeq;
@@ -307,7 +390,10 @@ onUnmounted(() => {
           :inbox="inbox"
           :detail-id="detail?.id"
           :busy="busy"
+          :has-more="inboxMore"
+          :loading="inboxLoading"
           @open-report="openReport"
+          @load-more="loadMoreInbox"
         />
         <CronJobsTab
           v-else-if="panel.tab === 'jobs'"

@@ -44,7 +44,20 @@
 
     <!-- Bento Matrix Content -->
     <div data-analytics-content class="max-w-[1475px] mx-auto">
-      <template v-if="snapshot">
+      <div v-if="!snapshot && busy" class="a-skeleton" role="status" aria-busy="true" aria-label="Loading analytics">
+        <span class="sr-only">Loading analytics…</span>
+        <div class="a-kpis grid gap-3 my-3 mb-5" aria-hidden="true">
+          <div v-for="i in 4" :key="i" class="a-kpi border border-border rounded-[var(--radius)] p-4 bg-card">
+            <div v-for="width in ['w-20', 'w-28', 'w-36']" :key="width" :class="width" class="a-skeleton-bar h-4 bg-secondary rounded-[var(--radius)] mb-3"></div>
+          </div>
+        </div>
+        <div class="a-grid grid gap-4 mb-6" aria-hidden="true">
+          <div v-for="(tile, i) in ['a-timeline', 'a-tile', 'a-tile', 'a-tile', 'a-tile', 'a-footprint']" :key="i" :class="tile" class="border border-border rounded-[var(--radius)] p-4 bg-card min-h-48">
+            <div v-for="row in 4" :key="row" class="a-skeleton-bar h-4 w-2/3 bg-secondary rounded-[var(--radius)] mb-5"></div>
+          </div>
+        </div>
+      </div>
+      <template v-else-if="snapshot">
         <!-- 4 Top KPI Cards -->
         <div class="a-kpis grid gap-3 my-3 mb-5">
           <div class="border border-border rounded-[var(--radius)] p-4 bg-card a-kpi">
@@ -394,13 +407,13 @@
 
     <!-- Modal Dialogs -->
     <DailyValuesDialog
-      v-if="snapshot"
+      v-if="snapshot && dailyValuesOpen"
       v-model:open="dailyValuesOpen"
       :items="visibleTimeline"
     />
 
     <ModelsCatalogDialog
-      v-if="snapshot"
+      v-if="snapshot && modelsCatalogOpen"
       v-model:open="modelsCatalogOpen"
       :models="snapshot.models"
       :selected-key="selected"
@@ -408,18 +421,19 @@
     />
 
     <ToolsDetailDialog
-      v-if="snapshot"
+      v-if="snapshot && toolsDetailOpen"
       v-model:open="toolsDetailOpen"
       :tools="snapshot.toolsDetailed || []"
     />
 
     <SessionsConsoleDialog
-      v-if="snapshot"
+      v-if="snapshot && sessionsConsoleOpen"
       v-model:open="sessionsConsoleOpen"
       @inspect="inspectSession"
     />
 
     <SessionInspectDialog
+      v-if="sessionInspectOpen"
       v-model:open="sessionInspectOpen"
       :session="inspectingSession"
     />
@@ -427,7 +441,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted, nextTick } from "vue"
+import { ref, computed, watch, onUnmounted, nextTick, defineAsyncComponent } from "vue"
 import { Menu, X, RefreshCw } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { ui, setDrawer, navigate } from "@/stores/app"
@@ -438,11 +452,11 @@ import { statusLabel, statusChipClass } from "@/lib/session-status"
 import type { DailyItem, AnalyticsSession } from "./analytics/types"
 import { full, compact, usd, pct, when, COLORS, FIELDS } from "./analytics/formatters"
 
-import DailyValuesDialog from "./analytics/DailyValuesDialog.vue"
-import ModelsCatalogDialog from "./analytics/ModelsCatalogDialog.vue"
-import ToolsDetailDialog from "./analytics/ToolsDetailDialog.vue"
-import SessionsConsoleDialog from "./analytics/SessionsConsoleDialog.vue"
-import SessionInspectDialog from "./analytics/SessionInspectDialog.vue"
+const DailyValuesDialog = defineAsyncComponent(() => import("./analytics/DailyValuesDialog.vue"))
+const ModelsCatalogDialog = defineAsyncComponent(() => import("./analytics/ModelsCatalogDialog.vue"))
+const ToolsDetailDialog = defineAsyncComponent(() => import("./analytics/ToolsDetailDialog.vue"))
+const SessionsConsoleDialog = defineAsyncComponent(() => import("./analytics/SessionsConsoleDialog.vue"))
+const SessionInspectDialog = defineAsyncComponent(() => import("./analytics/SessionInspectDialog.vue"))
 
 const opened = ref(false)
 const generation = ref(0)
@@ -644,6 +658,11 @@ async function load(force = false) {
   }
 }
 
+watch([serverUrl, token], () => {
+  dailyValuesOpen.value = false; modelsCatalogOpen.value = false; toolsDetailOpen.value = false;
+  sessionsConsoleOpen.value = false; sessionInspectOpen.value = false; inspectingSession.value = null;
+}, { flush: "sync" })
+
 watch(
   () => [ui.view, serverUrl.value, token.value] as const,
   ([newView]) => {
@@ -710,5 +729,20 @@ onUnmounted(() => {
 }
 @container (max-width: 420px) {
   .a-kpis { grid-template-columns: minmax(0, 1fr); }
+}
+
+.a-skeleton-bar {
+  animation: a-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes a-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a-skeleton-bar {
+    animation: none;
+  }
 }
 </style>

@@ -255,6 +255,14 @@ Older, superseded reports remain in History, even when marked unread. History is
 The sidebar badge counts unread inbox entries and is hidden at zero. Job health stays separate in Jobs.
 Closing the panel preserves unfinished job edits. A successful run is not labeled as proof that an earlier problem was resolved.
 
+#### Cron endpoints
+
+- `GET /v1/cron/reports`: list reports. Supports `history=1` (or `history=true`) to query historical superseded or read reports, or default inbox (newest unread report per job). Optional filters: `jobId` (positive integer), `limit` (integer 1..100, default 50).
+  Pagination modes:
+  - Default ID-descending order: uses `before=<id>` cursor.
+  - Priority inbox order: `order=attention` (inbox only, errors first then newest ID). Paginates via opaque keyset cursor `cursor='0:<id>'` (for error rank) or `'1:<id>'` (for standard rank). Responses with `order=attention` include `nextCursor` (string or `null`).
+- `POST /v1/cron/reports/read-all`: atomically marks all current unread inbox reports as read (`read_at = Date.now()`). Superseded historical reports remain unchanged. Returns `{ ok: true, count: number, unreadCount: 0 }`.
+
 ## Interactive replies
 
 Assistant replies can include rich fences. The Web UI renders them in message order, alongside text and `MEDIA:` attachments:

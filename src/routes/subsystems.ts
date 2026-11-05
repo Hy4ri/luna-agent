@@ -163,12 +163,59 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
     const jobId = c.req.query("jobId") !== undefined ? Number(c.req.query("jobId")) : undefined;
     const before = c.req.query("before") !== undefined ? Number(c.req.query("before")) : undefined;
     const limit = c.req.query("limit") !== undefined ? Number(c.req.query("limit")) : 50;
+    const order = c.req.query("order");
+    const cursorStr = c.req.query("cursor");
+
+    if (order !== undefined && order !== "attention") return err(c, 400, "invalid order");
+    if (order === "attention" && history) return err(c, 400, "order=attention is only supported for inbox");
+    if (cursorStr !== undefined && order !== "attention") return err(c, 400, "cursor is only supported with order=attention");
+    if (order === "attention" && before !== undefined) return err(c, 400, "before is not supported with order=attention");
+
+    let parsedCursor: { rank: number; id: number } | undefined;
+    if (cursorStr !== undefined) {
+      const parts = cursorStr.split(":");
+      if (parts.length !== 2 || (parts[0] !== "0" && parts[0] !== "1")) {
+        return err(c, 400, "invalid cursor format");
+      }
+      const rank = Number(parts[0]);
+      const id = Number(parts[1]);
+      if (!Number.isSafeInteger(id) || id < 1) {
+        return err(c, 400, "invalid cursor id");
+      }
+      parsedCursor = { rank, id };
+    }
+
     if (jobId !== undefined && (!Number.isSafeInteger(jobId) || jobId < 1)) return err(c, 400, "invalid jobId");
     if (before !== undefined && (!Number.isSafeInteger(before) || before < 1))
       return err(c, 400, "invalid before cursor");
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) return err(c, 400, "invalid limit (1..100)");
-    const reports = opts.store!.reports({ history, jobId, before, limit });
-    return c.json({ reports, unreadCount: opts.store!.unreadCount() });
+    const reports = opts.store!.reports({ history, jobId, before, limit, order: order as "attention" | undefined, cursor: parsedCursor });
+
+    let nextCursor: string | null = null;
+    if (order === "attention" && reports.length === limit && reports.length > 0) {
+      const last = reports[reports.length - 1];
+      if (last) {
+        const lastRank = last.status === "error" ? 0 : 1;
+        nextCursor = `${lastRank}:${last.id}`;
+      }
+    }
+
+    return c.json({
+      reports,
+      unreadCount: opts.store!.unreadCount(),
+      ...(order === "attention" ? { nextCursor } : {}),
+    });
+  });
+
+  app.post("/v1/cron/reports/read-all", (c) => {
+    const no = cron(c);
+    if (no) return no;
+    try {
+      const count = opts.store!.markAllReportsRead();
+      return c.json({ ok: true, count, unreadCount: opts.store!.unreadCount() });
+    } catch (e) {
+      return err(c, 400, (e as Error).message);
+    }
   });
 
   app.get("/v1/cron/runs", (c) => {

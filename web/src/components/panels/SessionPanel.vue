@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import PanelStatus from "./PanelStatus.vue";
 import { confirmAction } from "@/lib/confirm";
-import { ref, onMounted, watch } from "vue";
-import { json, post } from "@/lib/api";
+import { ref, onMounted, onUnmounted, watch } from "vue";
+import { json, post, serverUrl, token } from "@/lib/api";
 import { chat, openSession } from "@/stores/chat";
 import { closePanel } from "@/stores/app";
 import { useToast } from "@/lib/toast";
@@ -33,25 +33,39 @@ const sessionData = ref<any>(null);
 const { toasts, toast } = useToast();
 const instructions = ref("");
 
+let requestGeneration = 0, disposed = false;
+let readController: AbortController | undefined;
 async function fetchData() {
-  if (!chat.session) {
+  if (disposed) return;
+  const generation = ++requestGeneration, sid = chat.session;
+  readController?.abort();
+  const controller = new AbortController();
+  readController = controller;
+  sessionData.value = null;
+  instructions.value = "";
+  target.value = sid ? "" : (chat.draftWorker ? String(chat.draftWorker) : "");
+  targetCwd.value = sid ? "" : chat.draftCwd;
+  errorMsg.value = "";
+  const current = () => !disposed && generation === requestGeneration && sid === chat.session;
+  if (!sid) {
     loading.value = false;
     return;
   }
   loading.value = true;
   errorMsg.value = "";
   try {
-    const r = await json(`/v1/sessions/${chat.session}?limit=1`);
+    const r = await json(`/v1/sessions/${sid}?limit=1`, { signal: controller.signal });
+    if (!current()) return;
     sessionData.value = r;
     target.value = r.machine ? String(r.machine.id) : "";
     targetCwd.value = r.agent?.cwd || "";
     instructions.value = r.agent?.instructions || "";
   } catch (e: any) {
-    if (e.message !== "unauthorized") {
+    if (current() && !controller.signal.aborted && e.message !== "unauthorized") {
       errorMsg.value = e.message;
     }
   } finally {
-    loading.value = false;
+    if (current()) { loading.value = false; readController = undefined; }
   }
 }
 
@@ -95,7 +109,8 @@ onMounted(() => {
   loadWorkers().catch(e => { errorMsg.value = e.message; });
   fetchData();
 });
-watch(() => chat.session, fetchData);
+watch([() => chat.session, serverUrl, token], fetchData, { flush: "sync" });
+onUnmounted(() => { disposed = true; requestGeneration++; readController?.abort(); });
 </script>
 
 <template>
@@ -107,16 +122,16 @@ watch(() => chat.session, fetchData);
     <div class="card grid" id="machine-picker">
       <b>Execution machine</b>
       <label>Machine
-        <select v-model="target" aria-label="Target machine" :disabled="moving || chat.runActive">
+        <select v-model="target" aria-label="Target machine" :disabled="loading || !!errorMsg || moving || chat.runActive">
           <option value="">This host</option>
           <option v-for="w in workers.list" :key="w.id" :value="String(w.id)">{{ w.name }} · {{ w.online ? 'Online' : 'Offline' }}</option>
         </select>
       </label>
       <label>Working directory
-        <input v-model="targetCwd" aria-label="Target working directory" placeholder="Machine default directory" :disabled="moving || chat.runActive" />
+        <input v-model="targetCwd" aria-label="Target working directory" placeholder="Machine default directory" :disabled="loading || !!errorMsg || moving || chat.runActive" />
       </label>
       <p class="muted text-xs">File and command tools use this machine. Browser and other tools stay on the main host. Files and running processes do not move.</p>
-      <button type="button" :disabled="moving || chat.runActive" @click="moveMachine">{{ chat.session ? 'Move future execution' : 'Select execution machine' }}</button>
+      <button type="button" :disabled="loading || !!errorMsg || moving || chat.runActive" @click="moveMachine">{{ chat.session ? 'Move future execution' : 'Select execution machine' }}</button>
       <span v-if="chat.runActive" class="muted text-xs">Stop or wait for the current turn before moving execution.</span>
     </div>
 

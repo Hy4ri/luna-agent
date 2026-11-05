@@ -66,23 +66,30 @@ function queryParams(selector: SelectorParams): string {
   return s ? `?${s}` : "";
 }
 
-export async function fetchChanges(selector: SelectorParams): Promise<Changes> {
-  const res = await json<Changes>(`/v1/git/changes${queryParams(selector)}`);
+export function isAbortError(error: unknown): boolean {
+  if (!error) return false;
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
+  return false;
+}
+
+export async function fetchChanges(selector: SelectorParams, signal?: AbortSignal): Promise<Changes> {
+  const res = await json<Changes>(`/v1/git/changes${queryParams(selector)}`, signal ? { signal } : undefined);
   return res;
 }
 
-export async function fetchBranches(selector: SelectorParams): Promise<Branches> {
-  const res = await json<Branches>(`/v1/git/branches${queryParams(selector)}`);
+export async function fetchBranches(selector: SelectorParams, signal?: AbortSignal): Promise<Branches> {
+  const res = await json<Branches>(`/v1/git/branches${queryParams(selector)}`, signal ? { signal } : undefined);
   return res;
 }
 
-export async function fetchDiff(selector: SelectorParams, path: string, staged: boolean): Promise<DiffResult> {
+export async function fetchDiff(selector: SelectorParams, path: string, staged: boolean, signal?: AbortSignal): Promise<DiffResult> {
   const params = new URLSearchParams();
   if (selector.session) params.set("session", selector.session);
   if (selector.project !== undefined) params.set("project", String(selector.project));
   params.set("path", path);
   params.set("staged", staged ? "1" : "0");
-  const res = await json<DiffResult>(`/v1/git/diff?${params.toString()}`);
+  const res = await json<DiffResult>(`/v1/git/diff?${params.toString()}`, signal ? { signal } : undefined);
   return res;
 }
 
@@ -100,18 +107,18 @@ function withSelector(selector: SelectorParams, extra: Record<string, string>): 
   return params.toString();
 }
 
-export function fetchLog(selector: SelectorParams, scope: "head" | "all", skip: number, limit = 100): Promise<{ commits: LogCommit[]; more: boolean }> {
-  return json(`/v1/git/log?${withSelector(selector, { scope, skip: String(skip), limit: String(limit) })}`);
+export function fetchLog(selector: SelectorParams, scope: "head" | "all", skip: number, limit = 100, signal?: AbortSignal): Promise<{ commits: LogCommit[]; more: boolean }> {
+  return json(`/v1/git/log?${withSelector(selector, { scope, skip: String(skip), limit: String(limit) })}`, signal ? { signal } : undefined);
 }
 
-export function fetchCommit(selector: SelectorParams, oid: string): Promise<CommitDetail> {
-  return json(`/v1/git/commit?${withSelector(selector, { oid })}`);
+export function fetchCommit(selector: SelectorParams, oid: string, signal?: AbortSignal): Promise<CommitDetail> {
+  return json(`/v1/git/commit?${withSelector(selector, { oid })}`, signal ? { signal } : undefined);
 }
 
-export function fetchCompare(selector: SelectorParams, base: string, head: string): Promise<Compare> {
-  return json(`/v1/git/compare?${withSelector(selector, { base, head })}`);
+export function fetchCompare(selector: SelectorParams, base: string, head: string, signal?: AbortSignal): Promise<Compare> {
+  return json(`/v1/git/compare?${withSelector(selector, { base, head })}`, signal ? { signal } : undefined);
 }
 
-export function fetchRangeDiff(selector: SelectorParams, base: string, head: string, file: FileStat): Promise<DiffResult> {
-  return json(`/v1/git/range-diff?${withSelector(selector, { base, head, path: file.path, ...(file.original ? { original: file.original } : {}) })}`);
+export function fetchRangeDiff(selector: SelectorParams, base: string, head: string, file: FileStat, signal?: AbortSignal): Promise<DiffResult> {
+  return json(`/v1/git/range-diff?${withSelector(selector, { base, head, path: file.path, ...(file.original ? { original: file.original } : {}) })}`, signal ? { signal } : undefined);
 }

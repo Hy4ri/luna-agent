@@ -1,5 +1,5 @@
 // Conversation history list + projects for the sidebar. Port of vanilla sidebar.js data logic.
-import { reactive } from "vue";
+import { reactive, watch } from "vue";
 import { api, json, post, serverUrl, token } from "@/lib/api";
 import { notify } from "@/lib/platform";
 import { sessionState, SESSION_STATUS_LABELS } from "@/lib/session-status";
@@ -15,6 +15,8 @@ function readDrill(): string | null {
 export const history = reactive({
   list: [] as SessionMeta[],
   projects: [] as Project[],
+  projectsLoaded: false,
+  projectsError: "",
   archived: false,
   searchOpen: false,
   query: "",
@@ -32,44 +34,85 @@ export function setDrill(key: string | null) {
   try { key === null ? localStorage.removeItem(DRILL_KEY) : localStorage.setItem(DRILL_KEY, key); } catch {}
 }
 
-let inFlightProjects: { origin: string; credential: string; promise: Promise<void> } | null = null;
+const PROJECT_FRESH_MS = 30_000;
+const favoriteContextKey = (id: number) => JSON.stringify([serverUrl.value, token.value, id]);
+const favoriteBusy = new Set<string>();
+const favoriteValues = new Map<string, boolean>();
+let projectsFreshUntil = 0, projectsGeneration = 0;
+let projectsController: AbortController | undefined;
+let inFlightProjects: Promise<void> | undefined;
 
-export async function loadProjects(): Promise<void> {
-  const origin = serverUrl.value, credential = token.value;
-  if (inFlightProjects && inFlightProjects.origin === origin && inFlightProjects.credential === credential) {
-    return inFlightProjects.promise;
+/** Discard pre-mutation reads without clearing the last successful project list. */
+export function invalidateProjects() {
+  projectsFreshUntil = 0;
+  projectsGeneration++;
+  projectsController?.abort();
+  projectsController = undefined;
+  inFlightProjects = undefined;
+}
+watch([serverUrl, token], () => {
+  invalidateProjects();
+  history.projects = [];
+  history.projectsLoaded = false;
+  history.projectsError = "";
+}, { flush: "sync" });
+
+/** Cached-first on reopen; force waits for a fresh server receipt after a mutation. */
+export function loadProjects(options: { force?: boolean } = {}): Promise<void> {
+  if (!options.force && projectsFreshUntil > Date.now()) return Promise.resolve();
+  if (options.force) invalidateProjects();
+  if (!inFlightProjects) {
+    const generation = projectsGeneration;
+    const controller = new AbortController();
+    projectsController = controller;
+    const request = json<{ projects: Project[] }>("/v1/projects", { signal: controller.signal }).then(res => {
+      if (generation !== projectsGeneration) return;
+      history.projects = sortProjects(res.projects.map(p => favoriteValues.has(favoriteContextKey(p.id)) ? { ...p, favorite: favoriteValues.get(favoriteContextKey(p.id))! } : p));
+      history.projectsLoaded = true;
+      history.projectsError = "";
+      projectsFreshUntil = Date.now() + PROJECT_FRESH_MS;
+      const saved = localStorage.getItem("luna.project");
+      if (!saved || !history.projects.some(p => String(p.id) === saved)) {
+        if (history.projects.length) localStorage.setItem("luna.project", String(history.projects[0].id));
+        else localStorage.removeItem("luna.project");
+      }
+    }).catch(error => {
+      if (generation === projectsGeneration && !controller.signal.aborted) {
+        history.projectsError = (error as Error).message;
+        throw error;
+      }
+    }).finally(() => {
+      if (inFlightProjects === request) { inFlightProjects = undefined; projectsController = undefined; }
+    });
+    inFlightProjects = request;
   }
-
-  const task = (async () => {
-    const res = await json<{ projects: Project[] }>("/v1/projects").catch(() => ({ projects: [] as Project[] }));
-    if (origin !== serverUrl.value || credential !== token.value) return;
-    history.projects = sortProjects(res.projects || []);
-    const saved = localStorage.getItem("luna.project");
-    if (!saved || !history.projects.some(p => String(p.id) === saved)) {
-      if (history.projects.length) localStorage.setItem("luna.project", String(history.projects[0].id));
-      else localStorage.removeItem("luna.project");
-    }
-  })();
-
-  const current = { origin, credential, promise: task };
-  inFlightProjects = current;
-  const cleanup = () => { if (inFlightProjects === current) inFlightProjects = null; };
-  task.then(cleanup, cleanup);
-  return task;
+  // A failed refresh never turns a populated sidebar into an empty one.
+  if (history.projectsLoaded && !options.force) {
+    void inFlightProjects.catch(() => {});
+    return Promise.resolve();
+  }
+  return inFlightProjects;
 }
 
-const favoriteBusy = new Set<number>();
 /** Flip a project's favourite flag at once and roll it back when the server refuses. */
 export async function toggleFavorite(id: number) {
-  const p = history.projects.find(x => x.id === id);
-  if (!p || p.general || favoriteBusy.has(id)) return;
-  favoriteBusy.add(id);
+  const p = history.projects.find(x => x.id === id), key = favoriteContextKey(id);
+  if (!p || p.general || favoriteBusy.has(key)) return;
+  const origin = serverUrl.value, credential = token.value;
+  const current = () => origin === serverUrl.value && credential === token.value;
+  favoriteBusy.add(key);
   const before = !!p.favorite, next = !before;
-  const set = (v: boolean) => { const cur = history.projects.find(x => x.id === id); if (cur) cur.favorite = v; history.projects = sortProjects([...history.projects].sort((a, b) => Number(!!b.general) - Number(!!a.general) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))); };
-  set(next);
-  try { await post(`/v1/projects/${id}`, { favorite: next }, "PATCH"); }
-  catch (e) { set(before); history.status = (e as Error).message; }
-  finally { favoriteBusy.delete(id); }
+  const set = (v: boolean) => {
+    if (!current()) return;
+    const cur = history.projects.find(x => x.id === id); if (cur) cur.favorite = v;
+    history.projects = sortProjects([...history.projects].sort((a, b) => Number(!!b.general) - Number(!!a.general) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })));
+  };
+  invalidateProjects(); favoriteValues.set(key, next); set(next);
+  try {
+    const saved = await post<Project>(`/v1/projects/${id}`, { favorite: next }, "PATCH");
+    if (current()) { invalidateProjects(); set(!!saved.favorite); }
+  } catch (e) { if (current()) { set(before); history.status = (e as Error).message; } }
+  finally { favoriteBusy.delete(key); favoriteValues.delete(key); }
 }
 
 // Desktop notifications: a session that was running and now needs attention or has stopped.
@@ -101,7 +144,7 @@ export async function loadSessions(): Promise<void> {
     const request = ++historyRequest;
     const r = await json<{ sessions: SessionMeta[] }>("/v1/sessions");
     if (request !== historyRequest || origin !== serverUrl.value || credential !== token.value) return;
-    history.list = r.sessions;
+    history.list = r.sessions.map(row => pinValues.has(pinContextKey(row.id)) ? { ...row, pinned: pinValues.get(pinContextKey(row.id)) } : row);
     notifyChanges(r.sessions);
     const active = history.list.find(s => String(s.id) === String(chat.session));
     if (active?.title) chat.title = active.title;
@@ -138,8 +181,31 @@ export const generateTitle = (s: SessionMeta) =>
   act(() => post(`/v1/sessions/${s.id}/title`, {}));
 export const moveSession = (s: SessionMeta, project: number) =>
   act(() => post(`/v1/sessions/${s.id}/metadata`, { project }, "PATCH"));
-export const togglePinned = (s: SessionMeta) =>
-  act(() => post(`/v1/sessions/${s.id}/metadata`, { pinned: !s.pinned }, "PATCH"));
+const pinContextKey = (id: string | number) => JSON.stringify([serverUrl.value, token.value, String(id)]);
+const pinBusy = new Set<string>();
+const pinValues = new Map<string, boolean>();
+export async function togglePinned(s: SessionMeta): Promise<boolean> {
+  const id = String(s.id), key = pinContextKey(s.id), origin = serverUrl.value, credential = token.value;
+  if (pinBusy.has(key)) return false;
+  pinBusy.add(key);
+  const before = !!s.pinned, next = !before;
+  const current = () => origin === serverUrl.value && credential === token.value;
+  const set = (value: boolean) => {
+    if (!current()) return;
+    const row = history.list.find(row => String(row.id) === id);
+    if (row) row.pinned = value;
+  };
+  history.status = ""; pinValues.set(key, next); set(next);
+  try {
+    const saved = await post<{ pinned?: boolean }>(`/v1/sessions/${s.id}/metadata`, { pinned: next }, "PATCH");
+    set(!!saved.pinned);
+    return true;
+  } catch (e) {
+    set(before);
+    if (current()) history.status = (e as Error).message;
+    return false;
+  } finally { pinBusy.delete(key); pinValues.delete(key); }
+}
 export const toggleArchived = (s: SessionMeta) => act(async () => {
   await post(`/v1/sessions/${s.id}/metadata`, { archived: !s.archived }, "PATCH");
   if (!s.archived && String(chat.session) === String(s.id)) clearConversation();

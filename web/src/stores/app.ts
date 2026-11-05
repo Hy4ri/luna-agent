@@ -297,7 +297,7 @@ export async function boot() {
       : (composer.restoreDraft(), Promise.resolve());
     await Promise.all([
       models.loadModels(),
-      sessions.loadProjects(),
+      sessions.loadProjects().catch(() => {}),
       ...(sessionPane ? [sessions.loadSessions()] : []),
       sessionOpenTask,
       remembered,

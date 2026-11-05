@@ -71,18 +71,69 @@ const openProviders = ref(new Set<string>());
 const activeIndex = ref(0);
 const searchRef = ref<HTMLInputElement | null>(null);
 
-const catalogKeys = computed(() => new Set(effectiveModels.value.map(modelKey)));
+const effectiveModelMap = computed(() => {
+  const map = new Map<string, ModelInfo>();
+  for (const m of effectiveModels.value) {
+    map.set(modelKey(m), m);
+  }
+  return map;
+});
+const catalogKeys = computed(() => new Set(effectiveModelMap.value.keys()));
+
 // Keep missing catalog entries visible so saved pins can still be removed.
 const savedPins = computed(() => models.pins.map(key => {
-  const [provider, ...rest] = key.split("/");
-  const id = rest.join("/");
-  const model = effectiveModels.value.find(m => modelKey(m) === key) ?? { provider, id, name: id } as ModelInfo;
+  const model = effectiveModelMap.value.get(key) ?? (() => {
+    const [provider, ...rest] = key.split("/");
+    const id = rest.join("/");
+    return { provider, id, name: id } as ModelInfo;
+  })();
   return { key, model };
 }));
+
+type ModelSearchEntry = {
+  model: ModelInfo;
+  searchText: string;
+};
+
+const searchEntries = computed<ModelSearchEntry[]>(() => {
+  const entries: ModelSearchEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const m of effectiveModels.value) {
+    const key = modelKey(m);
+    seen.add(key);
+    entries.push({
+      model: m,
+      searchText: `${m.provider}/${m.id} ${m.name || ""}`.toLowerCase(),
+    });
+  }
+
+  for (const p of savedPins.value) {
+    if (!seen.has(p.key)) {
+      seen.add(p.key);
+      const m = p.model;
+      entries.push({
+        model: m,
+        searchText: `${m.provider}/${m.id} ${m.name || ""}`.toLowerCase(),
+      });
+    }
+  }
+
+  return entries;
+});
+
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
-  const entries = [...effectiveModels.value, ...savedPins.value.filter(p => !catalogKeys.value.has(p.key)).map(p => p.model)];
-  return entries.filter(m => !q || `${m.provider}/${m.id} ${m.name || ""}`.toLowerCase().includes(q));
+  if (!q) {
+    return searchEntries.value.map(e => e.model);
+  }
+  const result: ModelInfo[] = [];
+  for (const e of searchEntries.value) {
+    if (e.searchText.includes(q)) {
+      result.push(e.model);
+    }
+  }
+  return result;
 });
 const providerGroups = computed(() => {
   const searching = !!query.value.trim();
@@ -157,11 +208,11 @@ function reasoning(m: ModelInfo) {
 
 function selectKey(key: string) {
   if (props.selecting || !catalogKeys.value.has(key)) return;
-  const [provider, ...rest] = key.split("/");
-  const id = rest.join("/");
-  const model = effectiveModels.value.find(m => m.provider === provider && m.id === id) || null;
+  const model = effectiveModelMap.value.get(key) || null;
   if (!model && key) {
     // allow selecting unknown pinned key as minimal ModelInfo
+    const [provider, ...rest] = key.split("/");
+    const id = rest.join("/");
     const fallback: ModelInfo = { provider, id, name: id };
     emit("select", key, fallback);
     emit("change", key);

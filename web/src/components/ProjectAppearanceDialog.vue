@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import ProjectIcon from "@/components/ProjectIcon.vue";
 import { PROJECT_ICONS, isValidCustomIcon, type ProjectIcon as IconId } from "../../../src/project-appearance";
-import { json, post } from "@/lib/api";
+import { post } from "@/lib/api";
 import type { Project } from "@/lib/types";
-import { history } from "@/stores/sessions";
+import { history, loadProjects, invalidateProjects } from "@/stores/sessions";
 
 const props = defineProps<{ projectId: number }>();
 const emit = defineEmits<{ close: [] }>();
@@ -105,9 +105,9 @@ function selectIcon(id: IconId | null) {
 // Mounted only while open: read server state on every open, not a stale sidebar snapshot.
 onMounted(async () => {
   try {
-    const result = await json<{ projects: Project[] }>("/v1/projects");
+    await loadProjects({ force: true });
     if (!alive) return;
-    const p = result.projects.find(p => p.id === props.projectId);
+    const p = history.projects.find(p => p.id === props.projectId);
     if (!p) throw new Error("Project no longer exists");
     project.value = p;
     const initIcon = p.icon ?? null;
@@ -125,6 +125,7 @@ async function save() {
   busy.value = true; error.value = "";
   try {
     const saved = await post<Project>(`/v1/projects/${props.projectId}`, { icon: icon.value, color: color.value }, "PATCH");
+    invalidateProjects();
     if (!alive) return;
     // Use the server receipt. Do not overwrite a concurrent favourite/name change with the opening snapshot.
     history.projects = history.projects.map(p => p.id === saved.id ? { ...p, icon: saved.icon, color: saved.color } : p);

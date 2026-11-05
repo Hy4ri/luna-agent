@@ -2,7 +2,8 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { RefreshCw, ChevronLeft, AlertCircle, GitCompare, ArrowUp, ArrowDown } from "@lucide/vue";
 import { ago } from "@/lib/mention-sources";
-import { fetchBranches, fetchCompare, fetchRangeDiff, type Branches, type Compare, type SelectorParams, type FileStat } from "./client";
+import { serverUrl, token } from "@/lib/api";
+import { fetchBranches, fetchCompare, fetchRangeDiff, isAbortError, type Branches, type Compare, type SelectorParams, type FileStat } from "./client";
 import FileDiffList from "./FileDiffList.vue";
 
 const props = defineProps<{ session?: string; project?: number; wide: boolean }>();
@@ -11,7 +12,29 @@ const branches = ref<Branches | null>(null), loading = ref(false), error = ref<s
 const base = ref(""), head = ref("");
 const result = ref<Compare | null>(null), comparing = ref(false), compareError = ref<string | null>(null), shownCompare = ref<{ base: string; head: string } | null>(null);
 let epoch = 0, compareTicket = 0;
-onUnmounted(() => { epoch++; compareTicket++; });
+let branchesController: AbortController | null = null;
+let compareController: AbortController | null = null;
+
+function cancelBranches() {
+  if (branchesController) {
+    branchesController.abort();
+    branchesController = null;
+  }
+}
+
+function cancelCompare() {
+  if (compareController) {
+    compareController.abort();
+    compareController = null;
+  }
+}
+
+onUnmounted(() => {
+  epoch++;
+  compareTicket++;
+  cancelBranches();
+  cancelCompare();
+});
 
 /** A branch with no commit for this long is marked stale. */
 const STALE_DAYS = 90;
@@ -19,29 +42,66 @@ const stale = (iso: string) => !!iso && Date.now() - Date.parse(iso) > STALE_DAY
 const names = computed(() => branches.value ? [...branches.value.local.map(b => b.name), ...branches.value.remote] : []);
 
 async function load() {
+  cancelBranches();
   const mine = ++epoch, owner = { ...selector.value };
-  loading.value = true; error.value = null;
+  const controller = new AbortController();
+  branchesController = controller;
+  loading.value = true;
+  error.value = null;
   try {
-    const b = await fetchBranches(owner);
+    const b = await fetchBranches(owner, controller.signal);
     if (mine !== epoch) return;
     branches.value = b;
     if (!base.value) base.value = b.default ?? b.local[0]?.name ?? "";
     if (!head.value) head.value = b.current || b.local[0]?.name || "";
-  } catch (e) { if (mine === epoch) error.value = (e as Error).message; }
-  finally { if (mine === epoch) loading.value = false; }
+  } catch (e) {
+    if (mine === epoch && !isAbortError(e)) error.value = (e as Error).message;
+  } finally {
+    if (mine === epoch) {
+      if (branchesController === controller) branchesController = null;
+      loading.value = false;
+    }
+  }
 }
 
 async function compare(from = base.value.trim(), to = head.value.trim()) {
   if (!from || !to) return;
-  base.value = from; head.value = to;
+  cancelCompare();
+  base.value = from;
+  head.value = to;
   const mine = ++compareTicket, owner = { ...selector.value };
-  shownCompare.value = { base: from, head: to }; result.value = null; compareError.value = null; comparing.value = true;
-  try { const r = await fetchCompare(owner, from, to); if (mine === compareTicket) result.value = r; }
-  catch (e) { if (mine === compareTicket) compareError.value = (e as Error).message; }
-  finally { if (mine === compareTicket) comparing.value = false; }
+  const controller = new AbortController();
+  compareController = controller;
+  shownCompare.value = { base: from, head: to };
+  result.value = null;
+  compareError.value = null;
+  comparing.value = true;
+  try {
+    const r = await fetchCompare(owner, from, to, controller.signal);
+    if (mine === compareTicket) result.value = r;
+  } catch (e) {
+    if (mine === compareTicket && !isAbortError(e)) compareError.value = (e as Error).message;
+  } finally {
+    if (mine === compareTicket) {
+      if (compareController === controller) compareController = null;
+      comparing.value = false;
+    }
+  }
 }
-function closeCompare() { compareTicket++; shownCompare.value = null; result.value = null; compareError.value = null; comparing.value = false; }
-function loadFile(file: FileStat) { const r = result.value!, owner = { ...selector.value }; return fetchRangeDiff(owner, r.mergeBase, r.head, file); }
+
+function closeCompare() {
+  compareTicket++;
+  cancelCompare();
+  shownCompare.value = null;
+  result.value = null;
+  compareError.value = null;
+  comparing.value = false;
+}
+
+function loadFile(file: FileStat, signal?: AbortSignal) {
+  const r = result.value!, owner = { ...selector.value };
+  return fetchRangeDiff(owner, r.mergeBase, r.head, file, signal);
+}
 /** Compare a branch with the default branch, or with its upstream when it is the default. */
 function compareBranch(name: string, upstream?: string) {
   const def = branches.value?.default;
@@ -50,7 +110,15 @@ function compareBranch(name: string, upstream?: string) {
   if (upstream) return compare(upstream, name);
 }
 
-watch(() => [props.session, props.project], () => { branches.value = null; base.value = ""; head.value = ""; closeCompare(); void load(); }, { immediate: true });
+watch(() => [props.session, props.project, serverUrl.value, token.value], () => {
+  epoch++;
+  cancelBranches();
+  branches.value = null;
+  base.value = "";
+  head.value = "";
+  closeCompare();
+  void load();
+}, { immediate: true });
 const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
 </script>
 

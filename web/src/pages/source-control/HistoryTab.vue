@@ -2,7 +2,8 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { RefreshCw, ChevronLeft, AlertCircle } from "@lucide/vue";
 import { ago } from "@/lib/mention-sources";
-import { fetchLog, fetchCommit, fetchRangeDiff, type LogCommit, type CommitDetail, type SelectorParams, type FileStat } from "./client";
+import { serverUrl, token } from "@/lib/api";
+import { fetchLog, fetchCommit, fetchRangeDiff, isAbortError, type LogCommit, type CommitDetail, type SelectorParams, type FileStat } from "./client";
 import { layoutGraph, laneColor } from "./graph";
 import FileDiffList from "./FileDiffList.vue";
 import RefChips from "./RefChips.vue";
@@ -16,7 +17,29 @@ const scope = ref<"head" | "all">(localStorage.getItem(SCOPE_KEY) === "all" ? "a
 const commits = ref<LogCommit[]>([]), more = ref(false), loading = ref(false), error = ref<string | null>(null);
 const selected = ref<string | null>(null), detail = ref<CommitDetail | null>(null), loadingDetail = ref(false), detailError = ref<string | null>(null);
 let epoch = 0, detailTicket = 0;
-onUnmounted(() => { epoch++; detailTicket++; });
+let logController: AbortController | null = null;
+let detailController: AbortController | null = null;
+
+function cancelLog() {
+  if (logController) {
+    logController.abort();
+    logController = null;
+  }
+}
+
+function cancelDetail() {
+  if (detailController) {
+    detailController.abort();
+    detailController = null;
+  }
+}
+
+onUnmounted(() => {
+  epoch++;
+  detailTicket++;
+  cancelLog();
+  cancelDetail();
+});
 
 const graph = computed(() => layoutGraph(commits.value));
 /** Lanes drawn; more lanes than this are clipped so the subject stays readable. */
@@ -29,33 +52,73 @@ function edge(from: number, to: number, y1: number, y2: number) {
 }
 
 async function load(reset: boolean) {
-  const mine = reset ? ++epoch : epoch, owner = { ...selector.value }, skip = reset ? 0 : commits.value.length;
-  loading.value = true; error.value = null;
+  cancelLog();
+  const mine = ++epoch, owner = { ...selector.value }, skip = reset ? 0 : commits.value.length;
+  const controller = new AbortController();
+  logController = controller;
+  loading.value = true;
+  error.value = null;
   try {
-    const page = await fetchLog(owner, scope.value, skip);
+    const page = await fetchLog(owner, scope.value, skip, 100, controller.signal);
     if (mine !== epoch) return;
     commits.value = reset ? page.commits : [...commits.value, ...page.commits];
     more.value = page.more;
-  } catch (e) { if (mine === epoch) error.value = (e as Error).message; }
-  finally { if (mine === epoch) loading.value = false; }
+  } catch (e) {
+    if (mine === epoch && !isAbortError(e)) error.value = (e as Error).message;
+  } finally {
+    if (mine === epoch) {
+      if (logController === controller) logController = null;
+      loading.value = false;
+    }
+  }
 }
 
 async function select(oid: string) {
+  cancelDetail();
   const mine = ++detailTicket, owner = { ...selector.value };
-  selected.value = oid; detail.value = null; detailError.value = null; loadingDetail.value = true;
-  try { const d = await fetchCommit(owner, oid); if (mine === detailTicket) detail.value = d; }
-  catch (e) { if (mine === detailTicket) detailError.value = (e as Error).message; }
-  finally { if (mine === detailTicket) loadingDetail.value = false; }
+  const controller = new AbortController();
+  detailController = controller;
+  selected.value = oid;
+  detail.value = null;
+  detailError.value = null;
+  loadingDetail.value = true;
+  try {
+    const d = await fetchCommit(owner, oid, controller.signal);
+    if (mine === detailTicket) detail.value = d;
+  } catch (e) {
+    if (mine === detailTicket && !isAbortError(e)) detailError.value = (e as Error).message;
+  } finally {
+    if (mine === detailTicket) {
+      if (detailController === controller) detailController = null;
+      loadingDetail.value = false;
+    }
+  }
 }
-function closeDetail() { detailTicket++; selected.value = null; detail.value = null; detailError.value = null; loadingDetail.value = false; }
-function loadFile(file: FileStat) {
+
+function closeDetail() {
+  detailTicket++;
+  cancelDetail();
+  selected.value = null;
+  detail.value = null;
+  detailError.value = null;
+  loadingDetail.value = false;
+}
+
+function loadFile(file: FileStat, signal?: AbortSignal) {
   const d = detail.value!, owner = { ...selector.value };
-  return fetchRangeDiff(owner, d.base, d.oid, file);
+  return fetchRangeDiff(owner, d.base, d.oid, file, signal);
 }
 
 const { list: vCommits, containerProps: commitContainerProps, wrapperProps: commitWrapperProps } = useVirtualList(commits, { itemHeight: ROW, overscan: 10 });
 watch(scope, value => { localStorage.setItem(SCOPE_KEY, value); void load(true); });
-watch(() => [props.session, props.project], () => { commits.value = []; more.value = false; closeDetail(); void load(true); }, { immediate: true });
+watch(() => [props.session, props.project, serverUrl.value, token.value], () => {
+  epoch++;
+  cancelLog();
+  commits.value = [];
+  more.value = false;
+  closeDetail();
+  void load(true);
+}, { immediate: true });
 
 const when = (iso: string) => ago(Date.parse(iso));
 const subject = (message: string) => message.split("\n")[0] ?? "";

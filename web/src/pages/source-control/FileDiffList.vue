@@ -3,30 +3,63 @@ import { ref, watch, onUnmounted } from "vue";
 import { ChevronLeft } from "@lucide/vue";
 import DiffView from "./DiffView.vue";
 import { statusStyle } from "@/lib/diff";
-import type { DiffResult, FileStat } from "./client";
+import { isAbortError, type DiffResult, type FileStat } from "./client";
 
 /**
  * Changed files with their diffs. load: fetch one file's diff on demand.
  * Without load, each file carries its patch text (GitHub pull requests).
  */
-const props = defineProps<{ files: FileStat[]; load?: (file: FileStat) => Promise<DiffResult>; wide: boolean; truncated?: boolean; externalUrl?: string }>();
+const props = defineProps<{ files: FileStat[]; load?: (file: FileStat, signal?: AbortSignal) => Promise<DiffResult>; wide: boolean; truncated?: boolean; externalUrl?: string }>();
 const selected = ref<FileStat | null>(null), diff = ref<DiffResult | null>(null), loading = ref(false), error = ref<string | null>(null);
 let ticket = 0;
-onUnmounted(() => { ticket++; });
-function close() { ticket++; selected.value = null; diff.value = null; loading.value = false; error.value = null; }
+let loadController: AbortController | null = null;
+
+function cancelLoad() {
+  if (loadController) {
+    loadController.abort();
+    loadController = null;
+  }
+}
+
+onUnmounted(() => {
+  ticket++;
+  cancelLoad();
+});
+
+function close() {
+  ticket++;
+  cancelLoad();
+  selected.value = null;
+  diff.value = null;
+  loading.value = false;
+  error.value = null;
+}
 
 async function select(file: FileStat) {
   const mine = ++ticket;
-  selected.value = file; error.value = null; diff.value = null;
+  cancelLoad();
+  selected.value = file;
+  error.value = null;
+  diff.value = null;
   if (!props.load) {
     diff.value = file.patch == null ? null : { path: file.path, binary: false, directory: false, text: file.patch, truncated: false };
     loading.value = false;
     return;
   }
+  const controller = new AbortController();
+  loadController = controller;
   loading.value = true;
-  try { const d = await props.load(file); if (mine === ticket) diff.value = d; }
-  catch (e) { if (mine === ticket) error.value = (e as Error).message; }
-  finally { if (mine === ticket) loading.value = false; }
+  try {
+    const d = await props.load(file, controller.signal);
+    if (mine === ticket) diff.value = d;
+  } catch (e) {
+    if (mine === ticket && !isAbortError(e)) error.value = (e as Error).message;
+  } finally {
+    if (mine === ticket) {
+      if (loadController === controller) loadController = null;
+      loading.value = false;
+    }
+  }
 }
 // A new file set (another commit) clears the selection; "Load more" keeps it.
 watch(() => props.files, files => {

@@ -1,6 +1,7 @@
 // Cron panel state lives outside the component so closing the floating window keeps the active tab,
 // the selected job, the history filter, and any unfinished job edit. Report detail is cleared on close.
-import { reactive } from "vue";
+import { reactive, watch } from "vue";
+import { serverUrl, token } from "@/lib/api";
 
 export type CronTab = "reports" | "jobs" | "history";
 export type ReportPolicy = "always" | "changes" | "failures";
@@ -60,3 +61,9 @@ export const cronPanel = reactive({
   status: "",
   statusError: false,
 });
+
+// Drafts and selected private reports belong only to one authenticated connection.
+watch([serverUrl, token], () => {
+  cronPanel.detail = null; cronPanel.jobId = null; cronPanel.historyJob = "";
+  cronPanel.editor = null; cronPanel.status = ""; cronPanel.statusError = false;
+}, { flush: "sync" });

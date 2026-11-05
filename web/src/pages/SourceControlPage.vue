@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, watch } from "vue";
 import { backToChat, setDrawer } from "@/stores/app";
 import { chat } from "@/stores/chat";
-import { serverUrl, token, json } from "@/lib/api";
+import { serverUrl, token } from "@/lib/api";
+import { history, loadProjects } from "@/stores/sessions";
 import { handleTablistKeydown } from "@/lib/keyboard";
 import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
-import { get as cached, makeKey, forget } from "./github/cache";
-import ChangesTab from "./source-control/ChangesTab.vue";
-import HistoryTab from "./source-control/HistoryTab.vue";
-import BranchesTab from "./source-control/BranchesTab.vue";
+import { get as cached, makeKey } from "./github/cache";
+const ChangesTab = defineAsyncComponent(() => import("./source-control/ChangesTab.vue"));
+const HistoryTab = defineAsyncComponent(() => import("./source-control/HistoryTab.vue"));
+const BranchesTab = defineAsyncComponent(() => import("./source-control/BranchesTab.vue"));
 import ItemList from "./github/ItemList.vue";
-import ItemDetail from "./github/ItemDetail.vue";
+const ItemDetail = defineAsyncComponent(() => import("./github/ItemDetail.vue"));
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
 import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu, X } from "@lucide/vue";
 
@@ -54,16 +55,16 @@ const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 let lastWorkspaceRepo: string | null = null;
 let disposed = false, loadGeneration = 0, detailGeneration = 0, initGeneration = 0, infoGeneration = 0;
 let displayedListKey = "";
+let listController: AbortController | undefined, detailController: AbortController | undefined, infoController: AbortController | undefined, initController: AbortController | undefined;
 let prefetchController: AbortController | null = null;
-let prefetchedItem = "", prefetchedKey = "";
+function cancelReads() { listController?.abort(); detailController?.abort(); infoController?.abort(); initController?.abort(); }
 const context = () => JSON.stringify([serverUrl.value, token.value]);
 const handleResize = () => { isWide.value = window.innerWidth >= 900; isVeryWide.value = window.innerWidth >= 1280; };
 function cancelPrefetch() {
   if (prefetchController) {
-    // Remove this pending entry before aborting, so a fast reselect cannot join it.
-    forget(prefetchedKey); prefetchController.abort();
+    prefetchController.abort();
   }
-  prefetchController = null; prefetchedItem = ''; prefetchedKey = '';
+  prefetchController = null;
 }
 function storageKey() { return `luna.github.repo.${serverUrl.value || "default"}`; }
 function itemKey(repo: string, number: number) {
@@ -99,13 +100,14 @@ function setSection(value: Section) {
 async function loadSourceProjects() {
   const scope = context();
   try {
-    const result = await json<{projects: typeof sourceProjects.value}>('/v1/projects');
+    await loadProjects();
     if (disposed || scope !== context()) return;
-    sourceProjects.value = result.projects.filter(p => !p.general && p.cwd);
+    sourceProjects.value = history.projects.filter(p => !p.general && p.cwd);
     if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
   } catch (e) { if (!disposed && scope === context()) listError.value = (e as Error).message; }
 }
 async function init() {
+  initController?.abort(); const controller = initController = new AbortController();
   const gen = ++initGeneration, scope = context();
   const current = () => !disposed && gen === initGeneration && scope === context();
   if (!selectedRepo.value) {
@@ -116,10 +118,10 @@ async function init() {
   }
   // Status and discovery must not block a known repository's list watcher.
   await Promise.all([
-    fetchGhStatus().then(value => { if (current()) status.value = value; }).catch(e => {
+    fetchGhStatus(false, controller.signal).then(value => { if (current()) status.value = value; }).catch(e => {
       if (current()) status.value = { state: 'error', message: e.message };
     }),
-    fetchRepos().then(result => {
+    fetchRepos(controller.signal).then(result => {
       if (!current()) return;
       repos.value = result.repos;
       showCustomRepo.value = !result.repos.length && !selectedRepo.value;
@@ -131,22 +133,24 @@ async function init() {
   ]);
 }
 async function loadInfo(fresh = false) {
+  infoController?.abort(); const controller = infoController = new AbortController();
   const repo = selectedRepo.value, scope = context(), gen = ++infoGeneration;
   const [owner, name] = repo.split('/');
   if (!owner || !name) return;
   const key = makeKey('repo-info', { owner: owner.toLowerCase(), name: name.toLowerCase() });
   repoInfo.value = cached<RepoInfo>(key)?.data ?? null;
   try {
-    const value = await fetchRepoInfo(owner, name, fresh);
+    const value = await fetchRepoInfo(owner, name, fresh, controller.signal);
     if (!disposed && gen === infoGeneration && repo === selectedRepo.value && scope === context()) repoInfo.value = value;
   } catch (e) {
-    if (!disposed && gen === infoGeneration && repo === selectedRepo.value && scope === context()) listError.value = (e as Error).message;
+    if (!disposed && gen === infoGeneration && repo === selectedRepo.value && scope === context() && !controller.signal.aborted) listError.value = (e as Error).message;
   }
 }
 async function loadList(loadMore = false, fresh = false) {
   const repo = selectedRepo.value, type = kind.value, state = stateFilter.value, q = appliedSearch.value, scope = context();
   const [owner, name] = repo.split('/');
   if (!owner || !name || (loadMore && (loadingMore.value || !nextCursor.value))) return;
+  listController?.abort(); const controller = listController = new AbortController();
   const gen = ++loadGeneration;
   const current = () => !disposed && gen === loadGeneration && repo === selectedRepo.value && scope === context();
   const key = listKey(repo, type, state, q), cursor = loadMore ? nextCursor.value : null;
@@ -166,19 +170,17 @@ async function loadList(loadMore = false, fresh = false) {
     refreshingItems.value = true;
   }
   try {
-    const page = await fetchItems(owner, name, type, state, q, cursor, fresh);
+    const page = await fetchItems(owner, name, type, state, q, cursor, fresh, controller.signal);
     if (!current()) return;
     items.value = loadMore ? [...items.value, ...page.items.filter(row => !items.value.some(old => old.number === row.number))] : page.items;
     totalCount.value = page.total; nextCursor.value = page.next;
     lastUpdated.value = new Date().toLocaleTimeString();
-    if (!loadMore && !q) {
-      const other: Kind = type === 'pr' ? 'issue' : 'pr';
-      if (!cached<ItemPage>(listKey(repo, other, state, q))) void fetchItems(owner, name, other, state, q).catch(() => {});
-    }
-  } catch (e) { if (current()) listError.value = (e as Error).message; }
+
+  } catch (e) { if (current() && !controller.signal.aborted) listError.value = (e as Error).message; }
   finally { if (current()) { loadingItems.value = false; loadingMore.value = false; refreshingItems.value = false; } }
 }
 async function loadDetail(number: number, fresh = false) {
+  detailController?.abort(); const controller = detailController = new AbortController();
   const repo = selectedRepo.value, scope = context(), gen = ++detailGeneration;
   const [owner, name] = repo.split('/');
   if (!owner || !name) return;
@@ -189,9 +191,9 @@ async function loadDetail(number: number, fresh = false) {
   else if (detail.value?.number !== number) detail.value = null;
   loadingDetail.value = !detail.value;
   try {
-    const value = await fetchItemDetail(owner, name, number, fresh);
+    const value = await fetchItemDetail(owner, name, number, fresh, controller.signal);
     if (current()) detail.value = value;
-  } catch (e) { if (current()) detailError.value = (e as Error).message; }
+  } catch (e) { if (current() && !controller.signal.aborted) detailError.value = (e as Error).message; }
   finally { if (current()) loadingDetail.value = false; }
 }
 function prefetchItem(item: ListItem) {
@@ -200,19 +202,19 @@ function prefetchItem(item: ListItem) {
   const [owner, name] = repo.split('/');
   if (!owner || !name) return;
   cancelPrefetch();
-  const controller = new AbortController(); prefetchController = controller; prefetchedItem = `${repo}#${item.number}`; prefetchedKey = itemKey(repo, item.number);
+  const controller = new AbortController(); prefetchController = controller;
   void fetchItemDetail(owner, name, item.number, false, controller.signal).catch(() => {}).finally(() => {
     if (prefetchController === controller) prefetchController = null;
   });
 }
 function handleSearchSubmit() { appliedSearch.value = searchQuery.value.trim(); void loadList(); }
 function selectItem(item: ListItem) {
-  // Promote this request: later hover changes must not cancel the selected detail.
-  if (prefetchedItem === `${selectedRepo.value}#${item.number}`) { prefetchController = null; prefetchedItem = ''; prefetchedKey = ''; }
-  else cancelPrefetch();
-  selectedItemNumber.value = item.number; void loadDetail(item.number);
+  selectedItemNumber.value = item.number;
+  // Subscribe the selected detail before cancelling a hover consumer of the same request.
+  void loadDetail(item.number);
+  cancelPrefetch();
 }
-function backToList() { detailGeneration++; selectedItemNumber.value = null; detail.value = null; loadingDetail.value = false; detailError.value = null; }
+function backToList() { detailController?.abort(); detailGeneration++; selectedItemNumber.value = null; detail.value = null; loadingDetail.value = false; detailError.value = null; }
 function handleRepoChange(e: Event) {
   const val = (e.target as HTMLSelectElement).value;
   if (val === '__custom__') { showCustomRepo.value = true; repoInputError.value = ''; }
@@ -246,7 +248,7 @@ function refresh() {
   void fetchGhStatus(true).then(value => { if (!disposed && scope === context()) status.value = value; }).catch(() => {});
 }
 watch(selectedRepo, val => {
-  cancelPrefetch(); loadGeneration++; infoGeneration++; backToList();
+  cancelPrefetch(); listController?.abort(); infoController?.abort(); loadGeneration++; infoGeneration++; backToList();
   if (val && REPO_REGEX.test(val)) {
     try { localStorage.setItem(storageKey(), val); } catch {}
     void loadInfo(); void loadList();
@@ -254,16 +256,20 @@ watch(selectedRepo, val => {
 }, { flush: 'sync' });
 watch([kind, stateFilter], () => { cancelPrefetch(); backToList(); void loadList(); });
 watch([serverUrl, token], () => {
-  loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelPrefetch();
+  loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
   lastWorkspaceRepo = null; selectedRepo.value = ''; detail.value = null; items.value = []; repoInfo.value = null;
   totalCount.value = 0; nextCursor.value = null; displayedListKey = ''; lastUpdated.value = ''; listError.value = null; detailError.value = null;
   status.value = null; repos.value = []; sourceProjects.value = [];
   loadingItems.value = loadingMore.value = refreshingItems.value = loadingDetail.value = false;
   void init(); void loadSourceProjects();
 }, { flush: 'sync' });
+watch(() => history.projects, projects => {
+  sourceProjects.value = projects.filter(p => !p.general && p.cwd);
+  if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
+});
 onMounted(() => { window.addEventListener('resize', handleResize); void loadSourceProjects(); void init(); });
 onUnmounted(() => {
-  disposed = true; loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelPrefetch();
+  disposed = true; loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
   window.removeEventListener('resize', handleResize);
 });
 </script>

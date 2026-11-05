@@ -94,9 +94,14 @@ const titling = ref(false);
 const copyState = ref<"" | "ok" | "fail">("");
 let copyTimer: ReturnType<typeof setTimeout> | null = null;
 
+const sortedActiveSessions = computed(() => {
+  return sortSessions(history.list.filter(s => !!s.archived === history.archived));
+});
+
 const filteredSessions = computed(() => {
   const q = history.query.trim().toLowerCase();
-  return history.list.filter(s => !!s.archived === history.archived && sessionTitle(s).toLowerCase().includes(q));
+  if (!q) return sortedActiveSessions.value;
+  return sortedActiveSessions.value.filter(s => sessionTitle(s).toLowerCase().includes(q));
 });
 
 function sortSessions(sessions: any[]) {
@@ -124,10 +129,37 @@ const machineOf = (s: any) => machines.value.find(m => m.id === (s.worker ?? nul
 
 /** One folder per project, plus "Chats" for sessions without a named project. History opens one folder at a time. */
 const folders = computed<Folder[]>(() => {
-  const list = history.list.filter(s => !!s.archived === history.archived);
   const named = sortProjects(history.projects).filter(p => !p.general);
-  const isNamed = (s: any) => !!s.project && named.some(p => p.id === s.project);
-  const result: Folder[] = named.map(p => ({ key: String(p.id), name: p.name, project: p.id, favorite: p.favorite, color: p.color, icon: p.icon, sessions: sortSessions(list.filter(s => Number(s.project) === Number(p.id))) }));
+  const namedMap = new Map<number, typeof named[number]>();
+  for (const p of named) {
+    namedMap.set(p.id, p);
+  }
+
+  const projectSessions = new Map<number, any[]>();
+  for (const p of named) {
+    projectSessions.set(p.id, []);
+  }
+  const generalSessions: any[] = [];
+
+  for (const session of sortedActiveSessions.value) {
+    const pid = session.project != null ? Number(session.project) : null;
+    if (pid !== null && namedMap.has(pid)) {
+      projectSessions.get(pid)!.push(session);
+    } else {
+      generalSessions.push(session);
+    }
+  }
+
+  const result: Folder[] = named.map(p => ({
+    key: String(p.id),
+    name: p.name,
+    project: p.id,
+    favorite: p.favorite,
+    color: p.color,
+    icon: p.icon,
+    sessions: projectSessions.get(p.id)!,
+  }));
+
   // Rank projects by their newest session activity, independent of pinned sessions
   // and the archive filter. Keep favourites above the other projects.
   const activity = new Map<number, number>();
@@ -139,7 +171,14 @@ const folders = computed<Folder[]>(() => {
   result.sort((a, b) => Number(!!b.favorite) - Number(!!a.favorite)
     || (activity.get(b.project!) ?? 0) - (activity.get(a.project!) ?? 0));
   const general = history.projects.find(p => p.general);
-  result.splice(result.filter(f => f.favorite).length, 0, { key: "none", name: "Chats", project: null, icon: general?.icon, color: general?.color, sessions: sortSessions(list.filter(s => !isNamed(s))) });
+  result.splice(result.filter(f => f.favorite).length, 0, {
+    key: "none",
+    name: "Chats",
+    project: null,
+    icon: general?.icon,
+    color: general?.color,
+    sessions: generalSessions,
+  });
   return result;
 });
 /** With no named projects there is nothing to choose, so the only folder is always open. */
@@ -152,7 +191,7 @@ const deviceMachine = computed(() => machines.value.find(m => m.key === device.v
 const searching = computed(() => !!history.query.trim());
 /** Search covers every folder. Otherwise the open folder, narrowed to one device when a device is chosen. */
 const visibleSessions = computed(() => {
-  if (searching.value) return sortSessions(filteredSessions.value);
+  if (searching.value) return filteredSessions.value;
   const f = openFolder.value;
   if (!f) return [];
   return deviceMachine.value ? f.sessions.filter(s => (s.worker ?? null) === deviceMachine.value!.id) : f.sessions;
@@ -179,10 +218,19 @@ const folderStatuses = (f: Folder) => {
   return [...counts].map(([status, count]) => ({ status, count, label: sessionStatusLabel({ status }) }));
 };
 const machineCount = (f: Folder, m: Machine) => f.sessions.filter(s => (s.worker ?? null) === m.id).length;
+const sessionProjectFolder = computed(() => {
+  const map = new Map<any, string>();
+  for (const folder of folders.value) {
+    for (const s of folder.sessions) {
+      map.set(s, folder.name);
+    }
+  }
+  return map;
+});
 /** Text after the title of a session row: project while searching, machine when several are shown together. */
 function sessionMeta(s: any) {
   const parts: string[] = [];
-  if (searching.value) parts.push(folders.value.find(f => f.sessions.includes(s))?.name ?? "Chats");
+  if (searching.value) parts.push(sessionProjectFolder.value.get(s) ?? "Chats");
   if (machines.value.length && (searching.value || !deviceMachine.value)) parts.push(machineOf(s)?.name ?? "Unknown machine");
   return parts.join(" · ");
 }

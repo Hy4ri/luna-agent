@@ -1,15 +1,19 @@
+<script lang="ts">
+// Retain only successful snapshots across panel remounts; every open revalidates.
+const boardSnapshots = new Map<string, unknown[]>();
+let boardCacheContext = "";
+</script>
 <script setup lang="ts">
 import { confirmAction } from "@/lib/confirm";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight, Paperclip, Download } from '@lucide/vue';
-import { api, json, post } from '@/lib/api';
+import { api, json, post, serverUrl, token } from '@/lib/api';
 import { saveFile } from '@/lib/platform';
-import { history } from '@/stores/sessions';
+import { history, loadProjects } from '@/stores/sessions';
 import { chat } from '@/stores/chat';
 import { boardChanged, openPanel, ui } from '@/stores/app';
 import BoardImage from './BoardImage.vue';
 import type { Project } from '@/lib/types';
-import { sortProjects } from '@/lib/projects';
 
 type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
@@ -25,7 +29,11 @@ const answer = ref(''), activity = ref<{ id: number; at: number; by: string; tex
 const board = ref<HTMLElement>(), editorTitle = ref<HTMLInputElement>(), fileInput = ref<HTMLInputElement>();
 let generation = 0, disposed = false, controller: AbortController | undefined, refreshQueued = false;
 let editorReturn: HTMLElement | null = null;
-const visible = computed(() => cards.value.filter(c => (!priority.value || c.priority === priority.value) && `${c.subject} ${c.description} ${c.labels.join(' ')} ${c.owner || ''} #${c.id}`.toLowerCase().includes(search.value.toLowerCase())));
+const searchEntries = computed(() => cards.value.map(card => ({ card, text: `${card.subject} ${card.description} ${card.labels.join(' ')} ${card.owner || ''} #${card.id}`.toLowerCase() })));
+const visible = computed(() => {
+  const query = search.value.toLowerCase();
+  return searchEntries.value.filter(({ card, text }) => (!priority.value || card.priority === priority.value) && text.includes(query)).map(entry => entry.card);
+});
 const cardLists = computed(() => Object.fromEntries(columns.map(([s]) => [s, visible.value.filter(c => c.status === s)])) as Record<Status, Card[]>);
 const editingCard = computed(() => cards.value.find(c => c.id === editingId.value));
 const locked = computed(() => busy.value || editing.value || !!drag.value);
@@ -46,8 +54,8 @@ async function loadBoard(refreshProjects = false, background = false) {
   if (!background) { loading.value = true; error.value = ''; }
 
   let projectsPromise: Promise<{ projects: Project[] }> | undefined;
-  if (refreshProjects) {
-    projectsPromise = json<{ projects: Project[] }>('/v1/projects', { signal: request.signal });
+  if (refreshProjects || !history.projectsLoaded) {
+    projectsPromise = loadProjects().then(() => ({ projects: history.projects }));
   }
 
   try {
@@ -59,9 +67,9 @@ async function loadBoard(refreshProjects = false, background = false) {
     let pid = selectedPid.value, isArchived = archived.value;
 
     if (projectsPromise && !pid) {
-      const data = await projectsPromise;
+      await projectsPromise;
       if (ticket !== generation || disposed) return;
-      history.projects = sortProjects(data.projects);
+      // The shared project store applies the authenticated result.
       if (!history.projects.length) {
         selectedPid.value = ''; cards.value = []; return;
       }
@@ -69,10 +77,10 @@ async function loadBoard(refreshProjects = false, background = false) {
       selectedPid.value = pid;
       if (pid) rememberProject();
     } else if (projectsPromise) {
-      void projectsPromise.then(data => {
+      void projectsPromise.then(() => {
         if (ticket !== generation || disposed) return;
         if (busy.value || editing.value || drag.value) { refreshQueued = true; return; }
-        history.projects = sortProjects(data.projects);
+        // The shared project store applies the authenticated result.
         if (!history.projects.length) {
           generation++; request.abort();
           selectedPid.value = ''; cards.value = []; loading.value = false; return;
@@ -97,10 +105,16 @@ async function loadBoard(refreshProjects = false, background = false) {
     }
 
     if (!pid) { cards.value = []; return; }
+    const context = JSON.stringify([serverUrl.value, token.value]);
+    if (boardCacheContext !== context) { boardSnapshots.clear(); boardCacheContext = context; }
+    const cacheKey = JSON.stringify([pid, isArchived]);
+    if (!cards.value.length && boardSnapshots.has(cacheKey)) cards.value = boardSnapshots.get(cacheKey)! as Card[];
     const data = await json<{ cards: Card[] }>(`/v1/projects/${pid}/board${isArchived ? '?archived=1' : ''}`, { signal: request.signal });
     if (ticket !== generation || disposed) return;
     if (background && (busy.value || editing.value || drag.value)) { refreshQueued = true; return; }
     cards.value = data.cards;
+    boardSnapshots.delete(cacheKey); boardSnapshots.set(cacheKey, data.cards);
+    if (boardSnapshots.size > 12) boardSnapshots.delete(boardSnapshots.keys().next().value!);
     const target = ui.boardTarget;
     if (target && String(target.projectId) === pid) {
       let found = cards.value.find(card => card.id === target.cardId);
@@ -148,17 +162,20 @@ function closeEditor() {
 }
 async function mutate(action: () => Promise<unknown>, success: string, close = false, settle?: () => void) {
   if (busy.value || disposed) return;
+  const scope = JSON.stringify([serverUrl.value, token.value]);
+  const current = () => !disposed && scope === JSON.stringify([serverUrl.value, token.value]);
   busy.value = true; error.value = ''; notice.value = '';
+  boardSnapshots.clear();
   try {
     await action();
-    if (disposed) return;
+    if (!current()) return;
     if (close) { editing.value = false; ui.boardEditing = false; }
     notice.value = success;
     if (settle) { settle(); rememberProject(); }
     await loadBoard(false);
     if (close) void nextTick(() => { if (editorReturn?.isConnected) editorReturn.focus(); else board.value?.focus(); });
-  } catch (e) { if (!disposed) error.value = message(e); }
-  finally { busy.value = false; if (refreshQueued && !editing.value && !disposed) void loadBoard(true, true); }
+  } catch (e) { if (current()) error.value = message(e); }
+  finally { if (current()) { busy.value = false; if (refreshQueued && !editing.value) void loadBoard(true, true); } }
 }
 function saveCard() {
   if (!form.subject.trim()) { error.value = 'Enter a card title.'; return; }
@@ -231,17 +248,37 @@ async function deleteCard() {
   const path = `/v1/projects/${selectedPid.value}/cards/${editingId.value}`;
   void mutate(() => json(path, { method: 'DELETE' }), 'Card deleted.', true);
 }
-function moveCard(c: Card, status: Status) {
-  if (busy.value || c.status === status) return;
-  const path = `/v1/projects/${selectedPid.value}/cards/${c.id}`;
+async function moveCard(c: Card, status: Status) {
+  if (busy.value || loading.value || c.status === status) return;
+  const pid = selectedPid.value, before = c.status;
+  const context = JSON.stringify([serverUrl.value, token.value]);
+  const path = `/v1/projects/${pid}/cards/${c.id}`;
   const keyboardFocus = document.activeElement?.matches('.kb-move');
-  void mutate(() => post(path, { status }, 'PATCH'), `Card #${c.id} moved to ${columns.find(([s]) => s === status)?.[1]}.`).then(() => nextTick(() => {
-    // Moving across columns replaces the row. Keep keyboard users on the moved card.
-    if (keyboardFocus && !disposed && document.activeElement === document.body) {
-      board.value?.querySelector<HTMLElement>(`[data-card="${c.id}"] .kb-move`)?.focus();
+  const current = () => !disposed && pid === selectedPid.value && context === JSON.stringify([serverUrl.value, token.value]);
+  const apply = (value: Status) => { cards.value = cards.value.map(card => card.id === c.id ? { ...card, status: value } : card); };
+  const restoreFocus = () => nextTick(() => {
+    if (keyboardFocus && current() && document.activeElement === document.body) board.value?.querySelector<HTMLElement>(`[data-card="${c.id}"] .kb-move`)?.focus();
+  });
+  busy.value = true; error.value = ''; notice.value = '';
+  // Fence a pre-write background read before publishing the optimistic position.
+  generation++; controller?.abort();
+  apply(status); void restoreFocus();
+  boardSnapshots.delete(JSON.stringify([pid, archived.value]));
+  try {
+    const saved = await post<Card>(path, { status }, 'PATCH');
+    if (!current()) return;
+    cards.value = cards.value.map(card => card.id === c.id ? saved : card);
+    notice.value = `Card #${c.id} moved to ${columns.find(([s]) => s === status)?.[1]}.`;
+  } catch (e) {
+    if (current()) { apply(before); error.value = message(e); }
+  } finally {
+    if (current()) {
+      busy.value = false; void restoreFocus();
+      if (refreshQueued) void loadBoard(false, true);
     }
-  }));
+  }
 }
+
 function blockers(c: Card) { return c.blockedBy.filter(id => !cards.value.some(other => other.id === id && other.status === 'done')); }
 
 // Pointer events cover mouse, pen, and touch. Only the grip prevents touch scrolling.
@@ -313,6 +350,11 @@ function escapeEditor(event: KeyboardEvent) {
   if (document.querySelector('[data-dismissable-layer][data-state="open"], :popover-open') || (event.target as HTMLElement | null)?.closest('select')) return;
   if (drag.value || editing.value) { event.preventDefault(); event.stopImmediatePropagation(); if (drag.value) cancelDrag(); else closeEditor(); }
 }
+watch([serverUrl, token], () => {
+  generation++; controller?.abort(); boardSnapshots.clear(); boardCacheContext = '';
+  cards.value = []; selectedPid.value = ''; editing.value = false; ui.boardEditing = false; busy.value = false;
+  void loadBoard(true);
+}, { flush: 'sync' });
 watch(() => chat.project, project => {
   if (project === null || String(project) === selectedPid.value || !history.projects.some(p => p.id === project)) return;
   selectedPid.value = String(project); changeProject();
@@ -349,7 +391,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
       </div>
       <div class="kb-toolbar-end">
         <button class="kb-button" :disabled="locked || loading || !selectedPid" @click="toggleArchived"><ArrowLeft v-if="archived" :size="15" /><Archive v-else :size="15" />{{ archived ? 'Back to board' : 'Archived' }}</button>
-        <button class="kb-icon" aria-label="Refresh board" title="Refresh board" :disabled="locked || loading" @click="loadBoard(true)"><RefreshCw :size="16" /></button>
+        <button class="kb-icon" aria-label="Refresh board" title="Refresh board" :disabled="locked || loading" @click="loadProjects({ force: true }).then(() => loadBoard(false)).catch(e => error = message(e))"><RefreshCw :size="16" /></button>
         <button v-if="!archived" class="kb-button kb-primary" :disabled="locked || loading || !selectedPid" title="New card (N)" @click="openEditor()"><Plus :size="15" />New card</button>
       </div>
     </div>
@@ -428,7 +470,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
       <div class="kb-feedback" :role="error ? 'alert' : 'status'" aria-atomic="true">
         <CircleAlert v-if="error" :size="15" /><RefreshCw v-else-if="busy || loading" class="kb-saving-icon" :size="14" /><ArrowRight v-else-if="drag?.moved" :size="14" /><Check v-else-if="notice && !editing" :size="15" />
         <span class="kb-feedback-text">{{ feedbackText }}</span>
-        <button v-if="error && !editing && !busy" class="kb-link" @click="loadBoard(true)">Retry</button>
+        <button v-if="error && !editing && !busy" class="kb-link" @click="loadProjects({ force: true }).then(() => loadBoard(false)).catch(e => error = message(e))">Retry</button>
       </div>
       <span v-if="selectedPid" class="kb-status-count">{{ visible.length }}{{ visible.length !== cards.length ? ' / ' + cards.length : '' }} {{ cards.length === 1 ? 'card' : 'cards' }}</span>
     </footer>

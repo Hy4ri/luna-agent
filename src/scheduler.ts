@@ -494,8 +494,8 @@ export class CronStore {
     }
   }
 
-  reports(options: { history?: boolean; jobId?: number; before?: number; limit?: number } = {}): Run[] {
-    const { history = false, jobId, before, limit = 50 } = options;
+  reports(options: { history?: boolean; jobId?: number; before?: number; limit?: number; order?: "attention"; cursor?: { rank: number; id: number } } = {}): Run[] {
+    const { history = false, jobId, before, limit = 50, order, cursor } = options;
     const params: (string | number)[] = [];
     let query = `
       SELECT r.* FROM runs r
@@ -513,13 +513,22 @@ export class CronStore {
       query += " AND r.job_id=?";
       params.push(jobId);
     }
-    if (before !== undefined) {
-      query += " AND r.id<?";
-      params.push(before);
+    if (order === "attention") {
+      if (cursor) {
+        query += " AND ((CASE WHEN r.status = 'error' THEN 0 ELSE 1 END > ?) OR ((CASE WHEN r.status = 'error' THEN 0 ELSE 1 END = ?) AND r.id < ?))";
+        params.push(cursor.rank, cursor.rank, cursor.id);
+      }
+      query += " ORDER BY (CASE WHEN r.status = 'error' THEN 0 ELSE 1 END) ASC, r.id DESC LIMIT ?";
+      params.push(limit);
+    } else {
+      if (before !== undefined) {
+        query += " AND r.id<?";
+        params.push(before);
+      }
+      // Keep the ID cursor consistent with newest-first pagination.
+      query += " ORDER BY r.id DESC LIMIT ?";
+      params.push(limit);
     }
-    // Keep the ID cursor consistent with newest-first pagination.
-    query += " ORDER BY r.id DESC LIMIT ?";
-    params.push(limit);
 
     return (this.db.prepare(query).all(...params) as unknown as RunDbRow[]).map((r) => this.run(r));
   }
@@ -527,6 +536,13 @@ export class CronStore {
   unreadCount(): number {
     const r = this.db.prepare(`SELECT COUNT(*) as c FROM (${inboxIds})`).get() as { c: number } | undefined;
     return r?.c ?? 0;
+  }
+
+  markAllReportsRead(now = Date.now()): number {
+    const info = this.db.prepare(
+      `UPDATE runs SET read_at=? WHERE id IN (${inboxIds})`
+    ).run(now);
+    return Number(info.changes);
   }
 
   markRead(id: number, read = true): Run {
