@@ -369,7 +369,6 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
       lessons: activeLessons,
       historyCount,
       unassigned: opts.learn!.store.pendingCount(),
-      projection: opts.learn!.store.projectionState(opts.memory),
       metrics: opts.learn!.store.metrics(),
     });
   });

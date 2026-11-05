@@ -13,8 +13,6 @@ for (const fork of [false, true]) {
   test(`${fork ? "forked" : "fresh"} subagent has a neutral identity and delivers its result`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "luna-delegate-"));
     writeFileSync(join(dir, "SOUL.md"), "PERSONA_SENTINEL: You are Luna, the user's wife.");
-    writeFileSync(join(dir, "USER.md"), "USER_SENTINEL");
-    writeFileSync(join(dir, "MEMORY.md"), "MEMORY_SENTINEL");
     const faux = fauxProvider({ models: [{ id: "parent" }, { id: "child" }] });
     const models = createModels();
     models.setProvider(faux.provider);
@@ -52,7 +50,7 @@ for (const fork of [false, true]) {
       assert.equal(run.status, "done");
       assert.equal(childPrompts.length, 2, "child must execute and report through the real delegate tool");
       for (const prompt of childPrompts) {
-        assert.doesNotMatch(prompt, /PERSONA_SENTINEL|USER_SENTINEL|MEMORY_SENTINEL/);
+        assert.doesNotMatch(prompt, /PERSONA_SENTINEL/);
         assert.match(prompt, /task-focused subagent/);
         assert.match(prompt, /TASK_POLICY: Never publish without approval/);
         if (fork) assert.match(prompt, /Implement only the assigned scope/);

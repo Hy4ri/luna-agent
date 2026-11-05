@@ -5,7 +5,7 @@ import { json, post } from "@/lib/api";
 
 type Evidence = { id: number; kind: string; session: number; message: number; summary: string; ts: number | null; context: { task?: number; action?: number; actionSummary?: string; tools?: string[] } };
 type Lesson = {
-  id: number; claim: string; cause: string | null; scope: "skill" | "memory" | "user" | "project" | "projection"; skill: string | null; status: string;
+  id: number; claim: string; cause: string | null; scope: "skill" | "memory" | "project"; skill: string | null; status: string;
   proposal: string | null; tests: string[]; fact_key: string | null; note: string | null; needs_guard: boolean;
   failures: number; version: number | null; sessions: number; current: string | null; evidenceCount?: number; evidence: Evidence[]; updated: number;
   critical: string | null; domain: string; target: string | null; effect: string; currentMatches: boolean | null;
@@ -22,7 +22,6 @@ const historyCount = ref(0);
 const historyNextOffset = ref<number | null>(null);
 const loadingMoreHistory = ref(false);
 const unassigned = ref(0);
-const projectionStale = ref(false);
 const dueReview = ref<{ id: number; claim: string }[]>([]);
 const busy = ref<number | "scan" | null>(null);
 const open = ref<Record<number, boolean>>({});
@@ -37,7 +36,6 @@ async function load() {
     lessons.value = r.lessons || [];
     historyCount.value = r.historyCount || 0;
     unassigned.value = r.unassigned || 0;
-    projectionStale.value = !!r.projection?.stale;
     dueReview.value = r.metrics?.dueReview ?? [];
   } catch (e: any) {
     if (e.message !== "unauthorized") errorMsg.value = e.message;
@@ -164,7 +162,6 @@ onMounted(load);
       <span class="muted grow">{{ unassigned }} signal{{ unassigned === 1 ? "" : "s" }} waiting for contextual review</span>
       <button :disabled="busy !== null" @click="scan">{{ busy === "scan" ? "Scanning…" : "Scan idle sessions" }}</button>
     </div>
-    <p v-if="projectionStale" class="msg err">MEMORY.md is stale or manually edited. The runtime omits that projection until reviewed. Database facts remain available.</p>
     <p v-for="item in dueReview" :key="item.id" class="muted">Review due · #{{ item.id }}: {{ item.claim }}</p>
     <p v-if="loading" class="muted" role="status">Loading…</p>
     <p v-if="errorMsg" class="msg err" role="alert">{{ errorMsg }}</p>

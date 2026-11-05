@@ -30,14 +30,10 @@ export class LearnFiles {
       if (!l.skill) throw new Error("skill name required");
       path = imp.skillPath(l.skill);
       if (imp.read(l.skill) !== undefined && !existsSync(path)) throw new Error("external skill is read-only; propose a new managed skill name");
-    } else if (l.scope === "user") path = join(this.dataDir, "USER.md");
-    else if (l.scope === "projection") path = join(this.dataDir, "MEMORY.md");
-    else if (l.scope === "project") {
+    } else if (l.scope === "project") {
       if (!l.target || !isAbsolute(l.target)) throw new Error("project target must be an absolute enrolled file path");
       path = resolve(l.target);
       if (!this.enrolled().some(f => resolve(f.path) === path && f.domain === l.domain)) throw new Error("file/domain not enrolled in learn.files by the user");
-      // Identity files cannot become project files, regardless of enrollment.
-      if (["SOUL.md", "USER.md", "MEMORY.md"].some(f => path === resolve(this.dataDir, f))) throw new Error("identity file cannot be a project target");
     } else throw new Error("unsupported file scope");
     path = resolve(path);
     if (path === resolve(this.dataDir, "SOUL.md")) throw new Error("SOUL.md is protected");

@@ -18,7 +18,7 @@ export interface MemoryRow {
 }
 
 export interface MemoryOptions {
-  /** Max chars of the injected prompt section (default 3000). */
+  /** Max chars of the injected prompt section (default 8000). It also holds user facts; no USER.md exists. */
   budget?: number;
   /** Live (unarchived) notes kept before the oldest are folded into the digest (default 40). */
   maxNotes?: number;
@@ -32,7 +32,7 @@ export class MemoryStore {
   constructor(path: string, opts: MemoryOptions = {}) {
     this.db = new DatabaseSync(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
-    this.budget = opts.budget ?? 3000;
+    this.budget = opts.budget ?? 8000;
     this.maxNotes = opts.maxNotes ?? 40;
     this.db.exec(`
       PRAGMA journal_mode = WAL;
@@ -140,22 +140,6 @@ export class MemoryStore {
       this.db.prepare("INSERT INTO memory_history(key,before_text,after_text,created) VALUES(?,?,?,?)").run(key,expected,before,Date.now());
       this.db.exec("COMMIT");
     } catch(e) { this.db.exec("ROLLBACK"); throw e; }
-  }
-
-  /** A complete bounded projection. Refuse overflow instead of silently dropping selected facts. */
-  projection(keys: string[]): string {
-    const lines = ["# Memory", "", "<!-- Managed projection from memory.db. Refresh through a reviewed learning proposal. -->", ""];
-    for (const key of [...new Set(keys)].sort()) {
-      const snapshot = this.factSnapshot(key);
-      if (!snapshot) throw new Error(`missing fact ${key}`);
-      const { row, metadata } = JSON.parse(snapshot) as { row: MemoryRow; metadata: { domain?: string; reviewAt?: number } | null };
-      if (metadata?.domain && metadata.domain !== "global") throw new Error("project fact cannot enter global projection");
-      if (metadata?.reviewAt && metadata.reviewAt <= Date.now()) throw new Error(`fact ${key} needs review`);
-      lines.push(`- ${key}: ${row.content.replace(/\s+/g," ")}`);
-    }
-    const out = lines.join("\n") + "\n";
-    if (out.length > 4000) throw new Error("projection exceeds identity budget (4000 chars); select fewer facts");
-    return out;
   }
 
   get(id: number): MemoryRow | undefined {

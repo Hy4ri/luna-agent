@@ -185,7 +185,7 @@ A capability is complete only when all three layers are verified:
 ### 5. Prompt Caching & Token Budgets
 - `pi-durable` sends a stable per-conversation `sessionId` and re-sends system prompt sections only when their content changes.
 - **Keep system sections deterministic:** Never inject per-turn timestamps, random IDs, or unstable sort orders into always-on system sections (`identity`, `memory`, `skills`, `board`).
-- **Enforce strict character caps:** Always-on prompt sections (`SOUL.md`, `USER.md`, `MEMORY.md` at 4000 chars each in `src/runtime.ts`; memory section at 3000 chars in `src/memory.ts`) must truncate excess text and append a clear `[truncated: ...]` marker pointing to the full source. Skill descriptions are shown in every prompt; the skill lint in `src/improve.ts` rejects descriptions over 300 chars.
+- **Enforce strict character caps:** Always-on prompt sections (`SOUL.md` at 4000 chars in `src/runtime.ts`; memory section at 8000 chars in `src/memory.ts`) must truncate excess text and append a clear `[truncated: ...]` marker pointing to the full source. Skill descriptions are shown in every prompt; the skill lint in `src/improve.ts` rejects descriptions over 300 chars.
 - **Defer MCP schemas:** MCP tools default to `defer: true` (`src/mcp.ts`) and are discovered on demand via `tool_search`. Keep this default so every model call does not carry every MCP tool schema.
 - **Compaction ownership:** `pi-durable` executes compaction. Luna resolves live absolute thresholds centrally in `openLuna`, with separate session and delegate limits from `compaction` configuration. The dependency patch clamps them to model-capacity safety thresholds. Check both layers before changing context behavior.
 
