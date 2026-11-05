@@ -16,6 +16,7 @@ import PanelHost from '@/components/panels/PanelHost.vue';
 import CommandPalette from '@/components/CommandPalette.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ImageViewer from '@/components/ui/ImageViewer.vue';
+import SnapTool from '@/components/SnapTool.vue';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
@@ -464,6 +465,7 @@ onUnmounted(() => {
       </div>
       <PanelHost />
       <ImageViewer />
+      <SnapTool v-if="!sessionPane && !ui.login" />
       <CommandPalette v-if="!sessionPane" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
       <ConnectionRecovery v-if="!sessionPane" />
       <div v-if="ui.login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" class="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-5">
