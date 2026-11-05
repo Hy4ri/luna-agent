@@ -7,7 +7,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
-  SquarePen,
   Clock,
   FolderKanban,
   Kanban,
@@ -433,10 +432,6 @@ onMounted(() => {
 
     <!-- Nav Top -->
     <nav id="nav" class="side-top">
-      <button id="new" title="New chat" class="side-item" @click="handleNewChat()">
-        <SquarePen :size="16" />
-        <span class="side-label">New chat</span>
-      </button>
       <button class="side-item" data-panel="cron" title="Cron" @click="openPanel('cron')">
         <Clock :size="16" />
         <span class="side-label">Cron</span>
