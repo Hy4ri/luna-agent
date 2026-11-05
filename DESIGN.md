@@ -184,7 +184,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 - **Surfaces:** charts, plots, and diagrams sit on one `--card` surface with a `--border` outline. Inline HTML brings its own layout and inherits the theme variables.
 - **Colors:** series and diagram accents use `--chart-1` to `--chart-6`. No raw hex in templates. A series keeps its color when another series is hidden. Mermaid gets literal values read from the live theme.
 - **Charts (`ui`):** `line`, `area`, `bar` (grouped or `stacked`), `pie`, `donut`. Legend items are `<button aria-pressed>`; hovering shows a readout row. Plots use native `input[type=range]` sliders and make no request.
-- **HTML:** static markup renders inline in a shadow root after sanitizing (`web/src/lib/genui/sanitize.ts`). Markup with script goes to the sandboxed iframe, which is transparent, themed, and sized to its content. Never render model HTML in the app document without that sanitizer.
+- **HTML:** static markup renders inline in a shadow root after sanitizing (`web/src/lib/genui/sanitize.ts`). Markup with script goes to the sandboxed iframe, which is transparent, themed, and sized to its content. A frame exists only within about 800 px of the visible transcript; far frames are removed so their scripts stop, and they reload when they come back. Never render model HTML in the app document without that sanitizer.
 - **Actions:** `data-luna-prompt` fills the composer. Generated UI never sends a message itself.
 - **Limits:** at most 4 `ui` and `html` blocks per message. Extra blocks show their source and the reason.
 - **Data:** a widget shows only data the model got from the user or a tool. No decorative or placeholder charts.
