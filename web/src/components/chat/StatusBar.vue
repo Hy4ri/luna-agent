@@ -33,8 +33,7 @@ onMounted(() => { document.addEventListener('pointerdown', dismiss); document.ad
 onUnmounted(() => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', dismiss); });
 </script>
 <template>
-  <section v-if="props.docked && (contextView || usageText)" id="statusbar" class="card rail-session" aria-label="Context and usage">
-    <h4>Session</h4>
+  <section v-if="props.docked && (contextView || usageText)" id="statusbar" class="card rail-session" aria-label="Session context and usage">
     <ContextUsage />
   </section>
   <details v-else-if="contextView || usageText" id="statusbar" ref="disclosure" class="usage-disclosure">

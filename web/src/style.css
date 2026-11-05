@@ -855,7 +855,7 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .activity.docked .activity-body { max-height: none; overflow: visible; border-top: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .activity.docked .activity-section { margin: 0; padding: 2px 10px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 .activity.docked .activity-section[aria-label='Tasks'] { order: 1; }
-.rail-session { display: grid; gap: 10px; padding: 10px 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); font-size: 12px; color: var(--muted-foreground); }
+.rail-session { display: grid; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); font-size: 12px; color: var(--muted-foreground); }
 .rail-session h4 { display: flex; justify-content: space-between; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .todo-item { display: flex; gap: 8px; padding: 6px 0; align-items: flex-start; }
 .todo-item > svg { margin-top: 3px; flex: none; color: var(--muted-foreground); }
@@ -1057,12 +1057,21 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .usage-percent { font-variant-numeric: tabular-nums; }
 .usage-cost { padding-left: 8px; border-left: 1px solid var(--border); }
 .usage-details { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; width: min(320px, calc(100vw - 32px)); padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--popover); box-shadow: var(--shadow); display: grid; gap: 12px; }
-#context-bar { display: grid; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
-#context-meter { width: 100%; height: 5px; background: var(--border); border-radius: var(--radius); overflow: hidden; }
+#context-bar { display: grid; gap: 6px; color: var(--muted-foreground); font-size: 12px; }
+.ctx-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ctx-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+#context-text { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctx-percent { font-weight: 500; color: var(--foreground); }
+#context-bar[data-level='amber'] .ctx-percent { color: var(--warn); }
+#context-bar[data-level='red'] .ctx-percent { color: var(--destructive); }
+#context-meter { width: 100%; height: 3px; background: var(--border); border-radius: var(--radius); overflow: hidden; }
 #context-fill { height: 100%; width: 0; background: var(--ok); transition: width .2s; }
 #context-bar[data-level='amber'] #context-fill { background: var(--warn); }
 #context-bar[data-level='red'] #context-fill { background: var(--destructive); }
-#usage { color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+#usage { display: flex; justify-content: space-between; gap: 8px; margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+#usage > div { display: flex; gap: 4px; min-width: 0; cursor: default; }
+#usage dt { color: var(--faint); }
+#usage dd { margin: 0; color: var(--foreground); white-space: nowrap; }
 @media (max-width: 760px) {
   #top { gap: 6px; padding-left: 12px; padding-right: 12px; }
   #log { padding: 20px 16px; gap: 20px; }
