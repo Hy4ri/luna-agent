@@ -349,8 +349,9 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
     </div>
     </Teleport>
 
-    <p v-if="loading" class="ms-notice" role="status">{{ effectiveModels.length ? "Refreshing models…" : "Loading models…" }}</p>
-    <div v-else-if="error" class="ms-notice ms-error" role="alert">
+    <!-- Keep refresh feedback in the layout, including after the request completes. -->
+    <p class="ms-notice ms-refresh-status" role="status">{{ loading ? (effectiveModels.length ? "Refreshing models…" : "Loading models…") : "" }}</p>
+    <div v-if="error && !loading" class="ms-notice ms-error" role="alert">
       <span>{{ error }}</span>
       <button type="button" class="ms-retry" @click="emit('retry')">Retry</button>
     </div>
@@ -507,6 +508,7 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-empty { padding: 16px 8px; text-align: center; font-size: 13px; color: var(--muted-foreground); }
 .ms-footer { flex: none; display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 8px; }
 .ms-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; font-size: 12px; color: var(--muted-foreground); }
+.ms-refresh-status { box-sizing: border-box; min-height: 26px; margin: 0; line-height: 18px; }
 .ms-error { color: var(--destructive); }
 .ms-retry { flex: none; min-height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--foreground); cursor: pointer; }
 .ms-retry:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
