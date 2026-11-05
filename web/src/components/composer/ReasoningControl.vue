@@ -6,48 +6,125 @@ import { chat } from "@/stores/chat";
 const trigger = ref<HTMLButtonElement | null>(null);
 const picker = ref<HTMLElement | null>(null);
 const open = ref(false);
+const scrubbing = ref(false);
+
 const index = computed(() => Math.max(0, LEVELS.findIndex(level => level === models.thinking)));
 const preview = ref(index.value);
-const active = computed(() => open.value ? preview.value : index.value);
-const colors = ["#9ba1a6", "#7dd3fc", "#5eead4", "#86d3a0", "#e6c27a", "#f4a571", "#c4a1f5"];
-const color = computed(() => colors[active.value]);
+const active = computed(() => (open.value ? preview.value : index.value));
+
+const colors = [
+  "#9ba1a6", // Off
+  "#7dd3fc", // Minimal
+  "#5eead4", // Low
+  "#86d3a0", // Medium
+  "#e6c27a", // High
+  "#f4a571", // Xhigh
+  "#e86060", // Max
+];
+
+const shortLabels = ["OFF", "MIN", "LOW", "MED", "HIGH", "XHGH", "MAX"];
+
+const color = computed(() => colors[active.value] ?? colors[0]);
 const label = computed(() => levelLabel(LEVELS[active.value]!));
-const point = (i: number, radius: number) => {
-  const angle = (-190 + i * 200 / (LEVELS.length - 1)) * Math.PI / 180;
-  return { x: 12 + Math.cos(angle) * radius, y: 15 + Math.sin(angle) * radius };
-};
-const ticks = LEVELS.map((level, i) => ({ level, outer: point(i, 9), inner: point(i, 6.8) }));
-const needle = computed(() => point(active.value, 5));
+
+// Vertical stack of 7 LED segments for the small composer trigger (top = Max, bottom = Off)
+const triggerSlices = LEVELS.map((level, i) => ({
+  level,
+  index: i,
+  color: colors[i]!,
+  y: 1 + (LEVELS.length - 1 - i) * 2.5,
+})).reverse();
 
 function position() {
   if (!trigger.value || !picker.value) return;
   const rect = trigger.value.getBoundingClientRect();
-  const width = Math.min(280, innerWidth - 16);
+  const width = Math.min(288, innerWidth - 16);
   Object.assign(picker.value.style, {
     width: `${width}px`,
     left: `${Math.max(8, Math.min(rect.right - width, innerWidth - width - 8))}px`,
     bottom: `${innerHeight - rect.top + 8}px`,
-    top: "auto", right: "auto",
+    top: "auto",
+    right: "auto",
   });
 }
+
 function beforeToggle(event: Event) {
   if ((event as ToggleEvent).newState === "open") {
     preview.value = index.value;
     position();
   }
 }
+
 function toggle(event: Event) {
   open.value = (event as ToggleEvent).newState === "open";
-  if (!open.value) preview.value = index.value;
+  if (!open.value) {
+    scrubbing.value = false;
+    preview.value = index.value;
+  }
 }
-function change(event: Event) {
-  preview.value = Number((event.target as HTMLInputElement).value);
-  void setThinking(LEVELS[preview.value]!);
+
+function selectLevel(i: number) {
+  const clamped = Math.max(0, Math.min(LEVELS.length - 1, i));
+  preview.value = clamped;
+  void setThinking(LEVELS[clamped]!);
 }
-watch(index, value => { preview.value = value; });
+
+function handlePointerDown(i: number, event: PointerEvent) {
+  scrubbing.value = true;
+  (event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
+  selectLevel(i);
+}
+
+function handlePointerEnter(i: number) {
+  if (scrubbing.value) {
+    selectLevel(i);
+  }
+}
+
+function stopScrub() {
+  scrubbing.value = false;
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key >= "1" && event.key <= "7") {
+    event.preventDefault();
+    selectLevel(Number(event.key) - 1);
+    return;
+  }
+  if (event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "l" || event.key === "k") {
+    event.preventDefault();
+    selectLevel(active.value + 1);
+    return;
+  }
+  if (event.key === "ArrowLeft" || event.key === "ArrowDown" || event.key === "h" || event.key === "j") {
+    event.preventDefault();
+    selectLevel(active.value - 1);
+    return;
+  }
+  if (event.key === "Home") {
+    event.preventDefault();
+    selectLevel(0);
+    return;
+  }
+  if (event.key === "End") {
+    event.preventDefault();
+    selectLevel(LEVELS.length - 1);
+  }
+}
+
+watch(index, value => {
+  preview.value = value;
+});
 watch(() => chat.session, () => picker.value?.hidePopover());
-onMounted(() => window.addEventListener("resize", position));
-onUnmounted(() => window.removeEventListener("resize", position));
+
+onMounted(() => {
+  window.addEventListener("resize", position);
+  window.addEventListener("pointerup", stopScrub);
+});
+onUnmounted(() => {
+  window.removeEventListener("resize", position);
+  window.removeEventListener("pointerup", stopScrub);
+});
 </script>
 
 <template>
@@ -55,46 +132,256 @@ onUnmounted(() => window.removeEventListener("resize", position));
     id="think"
     ref="trigger"
     type="button"
-    class="icon-button"
     popovertarget="reasoning-picker"
     :aria-expanded="open"
     aria-controls="reasoning-picker"
     aria-haspopup="dialog"
     :aria-label="`Reasoning level: ${label}`"
     :title="`Reasoning level: ${label}`"
-    :style="{ color }"
+    :style="{ '--reasoning-color': color }"
   >
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true">
-      <path d="M 3.14 16.56 A 9 9 0 1 1 20.86 16.56" stroke-width="1" opacity=".2" />
-      <line v-for="(tick, i) in ticks" :key="tick.level" :data-level="tick.level" :data-active="i <= active"
-        :x1="tick.inner.x" :y1="tick.inner.y" :x2="tick.outer.x" :y2="tick.outer.y"
-        :stroke="i <= active ? colors[i] : 'var(--muted-foreground)'" :opacity="i <= active ? 1 : .22" stroke-width="1.8" />
-      <path :d="`M 12 15 L ${needle.x} ${needle.y}`" stroke-width="1.8" />
-      <circle cx="12" cy="15" r="1.5" fill="currentColor" stroke="none" />
+    <svg class="think-eq-icon" viewBox="0 0 12 18" fill="none" aria-hidden="true">
+      <rect
+        v-for="item in triggerSlices"
+        :key="item.level"
+        :data-level="item.level"
+        :data-active="item.index <= active"
+        x="1"
+        :y="item.y"
+        width="10"
+        height="1.6"
+        rx="0.4"
+        :fill="item.index <= active ? item.color : 'var(--muted-foreground)'"
+        :opacity="item.index <= active ? 1 : 0.24"
+      />
     </svg>
+    <span class="think-level-text">{{ label }}</span>
   </button>
-  <div id="reasoning-picker" ref="picker" popover role="dialog" aria-label="Reasoning level"
-    :style="{ '--reasoning-color': color }" @beforetoggle="beforeToggle" @toggle="toggle">
-    <div class="reasoning-heading"><label for="reasoning-slider">Reasoning level</label><output for="reasoning-slider">{{ label }}</output></div>
-    <input id="reasoning-slider" type="range" min="0" :max="LEVELS.length - 1" step="1" :value="preview"
-      aria-label="Reasoning level" :aria-valuetext="label" autofocus
-      @input="preview = Number(($event.target as HTMLInputElement).value)" @change="change" />
-    <div class="reasoning-stops" aria-hidden="true"><span v-for="(level, i) in LEVELS" :key="level" :class="{ active: i === active }"></span></div>
-    <div class="reasoning-endpoints" aria-hidden="true"><span>Off</span><span>Max</span></div>
+
+  <div
+    id="reasoning-picker"
+    ref="picker"
+    popover
+    role="dialog"
+    aria-label="Reasoning level"
+    tabindex="-1"
+    :style="{ '--reasoning-color': color }"
+    @beforetoggle="beforeToggle"
+    @toggle="toggle"
+    @keydown="handleKeydown"
+  >
+    <div class="reasoning-heading">
+      <span class="reasoning-title">Reasoning level</span>
+      <output class="reasoning-output">{{ label }}</output>
+    </div>
+
+    <div class="eq-fader-rack" role="radiogroup" aria-label="Reasoning level">
+      <button
+        v-for="(level, i) in LEVELS"
+        :key="level"
+        type="button"
+        role="radio"
+        class="eq-channel"
+        :class="{ active: i === active, engaged: i <= active }"
+        :aria-checked="i === active"
+        :aria-label="levelLabel(level)"
+        :title="levelLabel(level)"
+        :style="{ '--ch-color': colors[i] }"
+        :autofocus="i === active"
+        @pointerdown="handlePointerDown(i, $event)"
+        @pointerenter="handlePointerEnter(i)"
+        @click="selectLevel(i)"
+      >
+        <span class="eq-leds" aria-hidden="true">
+          <span
+            v-for="seg in 7"
+            :key="seg"
+            class="eq-led"
+            :class="{
+              lit: 8 - seg <= i + 1 && i <= active,
+              dim: 8 - seg <= i + 1 && i > active,
+              peak: 8 - seg === i + 1,
+            }"
+          ></span>
+        </span>
+        <span class="eq-cap">{{ shortLabels[i] }}</span>
+      </button>
+    </div>
   </div>
 </template>
 
 <style scoped>
-#think { flex: none; width: 36px; height: 36px; border: 1px solid transparent; background: transparent; }
-#think:hover, #think[aria-expanded="true"] { background: var(--accent); border-color: var(--border); }
-#think svg { width: 25px; height: 25px; }
-#reasoning-picker { position: fixed; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); box-shadow: var(--shadow); }
-.reasoning-heading, .reasoning-endpoints { display: flex; align-items: center; justify-content: space-between; }
-.reasoning-heading { font-size: 13px; margin-bottom: 14px; gap: 16px; }
-.reasoning-heading output { color: var(--reasoning-color); font-weight: 600; }
-#reasoning-slider { display: block; width: 100%; min-height: 28px; margin: 0; padding: 0; accent-color: var(--reasoning-color); cursor: pointer; }
-.reasoning-stops { display: flex; align-items: center; justify-content: space-between; padding: 0 7px; pointer-events: none; }
-.reasoning-stops span { height: 3px; width: 1px; background: var(--muted-foreground); opacity: .5; }
-.reasoning-stops span.active { height: 9px; width: 2px; border-radius: 1px; background: var(--reasoning-color); opacity: 1; }
-.reasoning-endpoints { margin-top: 6px; font-size: 12px; color: var(--muted-foreground); }
+#think {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+#think:hover,
+#think[aria-expanded="true"] {
+  background: var(--secondary);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+#think:focus-visible {
+  outline: 2px solid var(--reasoning-color);
+  outline-offset: 2px;
+}
+
+.think-eq-icon {
+  width: 12px;
+  height: 18px;
+  flex: none;
+  display: block;
+}
+
+.think-level-text {
+  color: var(--reasoning-color);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+#reasoning-picker {
+  position: fixed;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--shadow);
+  user-select: none;
+}
+
+#reasoning-picker:focus-visible {
+  outline: none;
+}
+
+.reasoning-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.reasoning-title {
+  color: var(--muted-foreground);
+}
+
+.reasoning-output {
+  color: var(--reasoning-color);
+  font-weight: 600;
+}
+
+.eq-fader-rack {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.eq-channel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  touch-action: none;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+
+.eq-channel:hover {
+  border-color: var(--muted-foreground);
+  background: var(--secondary);
+}
+
+.eq-channel.active {
+  border-color: var(--ch-color);
+  background: color-mix(in srgb, var(--ch-color) 12%, var(--background));
+}
+
+.eq-channel:focus-visible {
+  outline: 2px solid var(--ch-color);
+  outline-offset: 1px;
+}
+
+.eq-leds {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 3px;
+}
+
+.eq-led {
+  display: block;
+  width: 100%;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--secondary);
+  opacity: 0.45;
+  transition: background-color 0.1s, opacity 0.1s;
+}
+
+.eq-led.dim {
+  background: var(--muted-foreground);
+  opacity: 0.25;
+}
+
+.eq-led.lit {
+  background: var(--ch-color);
+  opacity: 0.85;
+}
+
+.eq-channel.active .eq-led.lit {
+  opacity: 1;
+}
+
+.eq-channel.active .eq-led.peak {
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ch-color) 65%, transparent);
+}
+
+.eq-cap {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--muted-foreground);
+}
+
+.eq-channel.engaged .eq-cap {
+  color: var(--foreground);
+}
+
+.eq-channel.active .eq-cap {
+  color: var(--ch-color);
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  #think {
+    padding: 0 6px;
+    gap: 5px;
+  }
+}
 </style>
