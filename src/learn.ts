@@ -380,6 +380,9 @@ export class LearnStore {
       if (!memory || !a.fact?.trim() || !a.fact_key?.trim()) throw new Error("memory enabled, fact, and stable fact_key required");
       target = a.fact_key.trim();
       if (!/^[a-zA-Z][a-zA-Z0-9_.:-]{0,127}$/.test(target) || redact(target) !== target) throw new Error("fact_key must be a non-sensitive stable identifier");
+      // User facts replace USER.md, so they keep its rule: an explicit user statement, not an inference.
+      if (target.startsWith("user.") && !this.db.prepare("SELECT 1 FROM assessments a JOIN signals s ON s.id=a.signal WHERE s.lesson=? AND a.role='explicit'").get(l.id))
+        throw new Error("user.* facts require an explicit user statement, not inferred preferences");
       before = memory.factSnapshot(target); after = a.fact.trim();
       metadata = { domain: l.domain, reviewAt: l.review_at, sources: this.evidence(l.id).map(s => ({ conv: s.conv, entry: s.entry })) };
     } else {

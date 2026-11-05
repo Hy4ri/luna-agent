@@ -435,7 +435,7 @@ Existing ledger records are retained, not reset.
 
 | Scope | Destination and rule |
 | --- | --- |
-| `memory` | One global fact in `memory.db`; `fact` and stable `fact_key` are required. Versioned snapshots detect stale approvals. |
+| `memory` | One global fact in `memory.db`; `fact` and stable `fact_key` are required. Versioned snapshots detect stale approvals. A `user.*` key requires an explicitly assessed user statement; inferences do not qualify. |
 | `skill` | One managed `SKILL.md`; `skill` and complete `content` required. External skills remain read-only. Lint and a 1500-character growth budget apply. Retrieval fixes change the description. |
 | `project` | One explicitly enrolled file, with a matching non-global domain. Project-only knowledge cannot enter a global destination. |
 
