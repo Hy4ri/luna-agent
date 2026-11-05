@@ -134,7 +134,7 @@ button, summary, [role="tab"], [role="tabpanel"], [role="dialog"], [role="separa
 
 h1, h2, h3 { text-wrap: balance; }
 
-:is(button, a[href], input, textarea, select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+:is(button, a[href], select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 2px solid var(--ring);
   /* Keep the indicator visible inside clipped rows and scrolling containers. */
   outline-offset: -2px;
@@ -1027,7 +1027,7 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 
 #form { display: flex; flex-direction: column; padding: 10px 12px; gap: 8px; }
 #input { width: 100%; min-height: 38px; max-height: 22dvh; resize: none; overflow-y: auto; scrollbar-width: thin; border: 0; background: transparent; border-radius: 0; padding: 4px 2px 6px; outline: none; font-size: 16px; font-weight: 450; line-height: 1.6; }
-#input:focus-visible, #palette-input:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+input:focus-visible, textarea:focus-visible { outline: none; }
 .compose-bar { display: flex; align-items: center; gap: 8px; }
 #attach, #camera { flex: none; color: var(--muted-foreground); }
 @media (pointer: fine) { #camera { display: none; } }
