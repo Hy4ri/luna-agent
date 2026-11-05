@@ -630,6 +630,8 @@ aside#side.collapsed #history-rail {
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: .65em 0; }
 .md ul, .md ol { margin: .5em 0; padding-inline-start: 1.5em; }
+/* Monospace decimal markers need extra room inside paint-contained messages. */
+.md ol { padding-inline-start: 3em; }
 .md li { margin: .25em 0; }
 .md li > p { margin: .25em 0; }
 .md ul li.task-list-item, .md ol li.task-list-item { list-style: none; margin-inline-start: -1.2em; display: flex; align-items: baseline; gap: 8px; }
