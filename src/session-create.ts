@@ -11,6 +11,7 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 export class SessionCreateError extends Error { constructor(readonly status: 400, message: string) { super(message); } }
 
 export interface SessionRequest {
+  requestId?: string;
   model?: { provider: string; modelId: string };
   thinkingLevel?: string;
   instructions?: string;

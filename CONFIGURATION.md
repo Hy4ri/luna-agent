@@ -1667,6 +1667,11 @@ Scheduled runs and delegated children do not receive the board tool.
   The empty directory means General has no directory override.
 - `GET /v1/sessions` and `GET /v1/sessions/:id` report `project: 0` for General chats.
 - `POST /v1/sessions` accepts `project: 0`. Omitting `project` also uses General.
+  It accepts an optional `requestId` string (nonempty, at most 200 characters) for idempotent session creation. Repeated requests with the same `requestId` and matching creation parameters return the previously created session ID (`200 OK`). Conflicting parameters return `409 Conflict`. If the created session was subsequently deleted, retrying returns `410 Gone`.
+- `GET /v1/session-creations/:requestId` performs read-only reconciliation lookup for a creation request ID. Returns `{ id }` (`200 OK`) if created and alive, `410 Gone` (`{ error: "session deleted", sessionId }`) if deleted, or `404 Not Found` if the request ID is unknown. It never creates new documents or sessions.
+- `GET /v1/sessions/:id/submissions/by-request/:requestId` performs read-only lookup of an admitted submission within a session by its request ID, returning the submission record (`200 OK`) or `404 Not Found`.
+- `GET /v1/session-defaults?project=&worker=&cwd=` resolves authoritative machine and directory defaults for fresh composer sessions, returning `{ worker, cwd }`.
+- `POST /v1/sessions/:id/background-commands` and `GET /v1/sessions/:id/background-commands/:requestId` provide durable at-most-once submission and receipt lookup for slash commands executed in background sessions.
 - Creation also accepts optional `model: { provider, modelId }` and `thinkingLevel` overrides. Valid reasoning levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Omitted overrides use the configured defaults. The empty chat keeps explicit choices locally and sends them when the first message creates the session.
 - Existing board and card routes accept `/v1/projects/0/board` and `/v1/projects/0/cards`.
 - `PATCH /v1/projects/0` allows `color` and `icon` appearance updates; other fields (`name`, `cwd`, `favorite`) and `DELETE /v1/projects/0` return `409`. The name General is reserved for new projects.
@@ -1674,6 +1679,12 @@ Scheduled runs and delegated children do not receive the board tool.
 - `GET /v1/projects/:id/skills` returns `[{ name, description, global, override, effective }]`. `global` is the global state (not in `disabledSkills`). `override` is `true`, `false`, or `null` (inherit). `effective` is `override ?? global`.
 - `PUT /v1/projects/:id/skills/:name` with `{ "enabled": true | false | null }` sets the project override. `null` resets the skill to the global setting. It returns `404` for an unknown project or skill, and `409` for General (General uses the global setting only).
 - A skill disabled for a project is hidden from the skills list and cannot be loaded with `skill_view` in that project's conversations. Overrides are deleted with the project.
+
+### Background send (Ctrl+Enter / Cmd+Enter)
+
+Pressing `Ctrl+Enter` or `Cmd+Enter` in the composer creates an independent, top-level empty session and sends the composer payload to it without navigating away or changing the visible view. The new session inherits the currently selected provider/model, thinking level, project, execution machine, and working directory (including active git worktree paths). It starts with a clean context: visible conversation history, instructions, and pending approvals are not copied.
+
+The outgoing payload and snapshot are persisted to client-side IndexedDB before the composer clears, ensuring that draft text is not lost on network failure or unexpected refresh. Retrying after reload requires an explicit user action; unconfirmed sends are never automatically resubmitted. Any failed or uncertain background sends remain recoverable in the client outbox until confirmed or discarded. The new session shares the selected working directory on the target host (it does not create an isolated worktree). Client-only slash commands (`/model`, `/models`, `/compact`, `/compress`) are rejected in background send drafts and remain in the composer.
 
 Open **Board** from the sidebar. It selects the active chat's project when opened.
 General cards also appear in the composer's `#` picker. Card references remain scoped to the selected project.
