@@ -183,7 +183,7 @@ transactional submission API, not a host callback stored in a submission.
   Set both provider and model, or omit both to inherit the parent model. A selected profile can override provider/model and thinking.
   Profiles apply to new children only. Each profile has an exact `tools` allowlist, optional `instructions`, and `context` (`fresh` by default, or `fork`).
   An explicit `spawn.fork` overrides the profile context. Without a profile, children retain the parent's currently model-offered tools except delegation, board, and hidden questionnaires.
-  New children omit the runtime's personal `identity` block (`SOUL.md`, `USER.md`, and `MEMORY.md`) and receive a neutral, task-focused role instruction.
+  New children omit the runtime's personal `identity` block (`SOUL.md`) and receive a neutral, task-focused role instruction.
   Parent and profile instructions still apply, including scope and approval requirements. Forked history remains task context, not the child's identity.
   This is a prompt-role boundary, not a file-access restriction. Existing children are not migrated; top-level sessions, including crew members, keep their identity.
   The built-in profiles are `scout`, `reviewer`, and `worker`. Scout and reviewer can read files, list directories with `delegate_files`, load existing skills with `skill_view`, and hand off; they have no shell or write tools.
@@ -435,10 +435,8 @@ Existing ledger records are retained, not reset.
 
 | Scope | Destination and rule |
 | --- | --- |
-| `memory` | One global fact in `memory.db`; `fact` and stable `fact_key` are required. Versioned snapshots detect stale approvals. |
+| `memory` | One global fact in `memory.db`; `fact` and stable `fact_key` are required. Versioned snapshots detect stale approvals. A `user.*` key requires an explicitly assessed user statement; inferences do not qualify. |
 | `skill` | One managed `SKILL.md`; `skill` and complete `content` required. External skills remain read-only. Lint and a 1500-character growth budget apply. Retrieval fixes change the description. |
-| `user` | `<dataDir>/USER.md`; requires an explicitly assessed user statement and full proposed content. Inferences do not qualify. |
-| `projection` | `<dataDir>/MEMORY.md`, generated from explicit `memory_keys`. Existing manual contents remain untouched until approval. |
 | `project` | One explicitly enrolled file, with a matching non-global domain. Project-only knowledge cannot enter a global destination. |
 
 `SOUL.md` cannot be written through learning proposals. Identity changes remain a separate explicit task.
@@ -453,7 +451,7 @@ Enrollment is not approval of a change. Targets must be regular text files; syml
 files over 100 KB are refused. Learning refuses proposals whose snapshots contain recognizable credentials.
 Redaction is heuristic, not a guarantee that every secret format is detected. Store databases and backups securely.
 
-`lesson_propose` accepts `lesson_id`, optional `content`, `fact`, `fact_key`, `memory_keys`, `must_contain`, and
+`lesson_propose` accepts `lesson_id`, optional `content`, `fact`, `fact_key`, `must_contain`, and
 `critical` (review explanation). It saves a before/after snapshot and waits for the user. `must_contain` checks
 text only; it is not behavioral verification. Proposals do not run shell commands or paid model benchmarks.
 Skill learning rollback uses the learning journal, not the separate `skill_rollback` version series.
@@ -478,15 +476,11 @@ observations, and review-due notices. Approve applies the exact reviewed change;
 - `forget` removes that fact's current memory, provenance, and memory history. Source transcripts and existing
   learning journals are separate records and are not purged by this action.
 
-### MEMORY.md projection
+### Identity and user facts
 
-A projection is a complete, sorted selection of database facts, limited to 4000 characters. Overflow is refused,
-not silently truncated. Missing or review-due facts cannot be projected. Approval checks both the selected fact
-snapshots and the existing file. A database change or manual file edit marks the projection stale. The runtime
-omits the stale file from the identity section, reports the problem, and keeps database recall available.
-Refresh requires another reviewed proposal; no automatic file overwrite occurs. Manual files not yet adopted
-as a projection retain their previous behavior. General `remember` updates clear old learning provenance rather
-than falsely attributing new content to an older source.
+`<dataDir>/SOUL.md` is the only identity file in the prompt. The runtime does not read `USER.md` or `MEMORY.md`.
+Keep user preferences and other durable facts in `memory.db` (`remember`, or a `memory` scope lesson). General
+`remember` updates clear old learning provenance rather than falsely attributing new content to an older source.
 
 ### Outcomes and cost
 
@@ -496,7 +490,7 @@ an applied change and source timestamp. Repeated source content is deduplicated.
 `ineffective`; no observations means effect unknown. The user can verify a successful observation only while the
 applied target still matches and no later failure contradicts it. This verifies that observation, not every future task.
 
-`learn_review` returns paged open lessons and signals (default 20, maximum 100), projection state, and observation
+`learn_review` returns paged open lessons and signals (default 20, maximum 100) and observation
 counts. Use `offset` for pagination, `history: true` for closed lessons and legacy signals, or `lesson_id` for evidence, change journal,
 and revision history. Legacy signals lack original-source fingerprints and stay outside the default queue.
 Metrics include reported outcomes, observed lesson/session pairs, and review-due items.
@@ -508,7 +502,7 @@ No replacement job is created. Idle capture makes **zero model calls**; review o
 session or after a relevant correction. There is no automatic replay evaluator or automatic policy promotion.
 
 HTTP routes:
-- `GET /v1/lessons`: active lessons, evidence, assessments, changes, observations, projection state, metrics, and `historyCount`.
+- `GET /v1/lessons`: active lessons, evidence, assessments, changes, observations, metrics, and `historyCount`.
 - `GET /v1/lessons?history=1&offset=0&limit=20`: lightweight history summaries for rejected, retired, and replaced lessons. Returns `historyCount` and `nextOffset` (null at the end). Offset must be nonnegative; limit is bounded to 1–100. Evidence is loaded through the detail route.
 - `GET /v1/lessons/:id`: full lesson detail, including evidence. The history panel fetches this on expansion.
 - `POST /v1/lessons/scan`: deterministic idle capture (respects capture configuration).

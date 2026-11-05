@@ -12,7 +12,7 @@ const fingerprint = (s: string) => createHash("sha256").update(s.replace(/\s+/g,
 
 export type SignalKind = "correction" | "rule" | "recovery" | "tool_error" | "outcome";
 export type Cause = "missing" | "not_loaded" | "ignored" | "wrong" | "stale" | "conflict" | "project" | "uncertain";
-export type Scope = "skill" | "memory" | "user" | "project" | "projection";
+export type Scope = "skill" | "memory" | "project";
 export type LessonStatus = "supported" | "verified" | "replaced" | "applying" | "blocked" | "candidate" | "corroborated" | "proposed" | "applied" | "confirmed" | "ineffective" | "rejected" | "retired";
 
 export interface ScanMessage { entry: number; role: "user" | "assistant" | "toolResult"; text: string; ts: number | null; calls: { id?: string; name: string; args: Record<string, unknown> }[]; toolName?: string; toolCallId?: string; isError?: boolean; source?: string }
@@ -366,7 +366,7 @@ export class LearnStore {
   }
 
   /** Proposals never grant their own write authority. All changes wait for the user. */
-  async propose(imp: SkillImprover, a: { lesson_id: number; content?: string; must_contain?: string[]; fact?: string; fact_key?: string; critical?: string; memory_keys?: string[] }, memory?: MemoryStore, now = Date.now()) {
+  async propose(imp: SkillImprover, a: { lesson_id: number; content?: string; must_contain?: string[]; fact?: string; fact_key?: string; critical?: string }, memory?: MemoryStore, now = Date.now()) {
     const l = this.lesson(a.lesson_id);
     if (!l || !["supported", "corroborated"].includes(l.status) || !this.corroborated(l.id)) throw new Error("proposal needs reviewed original support without conflicts");
     if (!l.cause || ["ignored", "conflict", "uncertain"].includes(l.cause)) throw new Error("resolve diagnosis first; ignored rules need a proposed code check, not more text");
@@ -374,31 +374,23 @@ export class LearnStore {
     if (l.review_at !== null && l.review_at <= now) throw new Error("review date is already due; review the candidate before proposing");
     if (l.cause === "project" && l.scope !== "project") throw new Error("project-only diagnosis cannot become global knowledge");
     if (l.scope !== "project" && l.domain !== "global") throw new Error("project knowledge must stay in an enrolled project file");
-    if (l.scope === "user" && !this.db.prepare("SELECT 1 FROM assessments a JOIN signals s ON s.id=a.signal WHERE s.lesson=? AND a.role='explicit'").get(l.id))
-      throw new Error("USER.md requires an explicit user statement, not inferred preferences");
     const files = this.options.files;
     let target: string, before: string | null, after: string, metadata: Record<string, unknown> = {};
     if (l.scope === "memory") {
       if (!memory || !a.fact?.trim() || !a.fact_key?.trim()) throw new Error("memory enabled, fact, and stable fact_key required");
       target = a.fact_key.trim();
       if (!/^[a-zA-Z][a-zA-Z0-9_.:-]{0,127}$/.test(target) || redact(target) !== target) throw new Error("fact_key must be a non-sensitive stable identifier");
+      // User facts replace USER.md, so they keep its rule: an explicit user statement, not an inference.
+      if (target.startsWith("user.") && !this.db.prepare("SELECT 1 FROM assessments a JOIN signals s ON s.id=a.signal WHERE s.lesson=? AND a.role='explicit'").get(l.id))
+        throw new Error("user.* facts require an explicit user statement, not inferred preferences");
       before = memory.factSnapshot(target); after = a.fact.trim();
       metadata = { domain: l.domain, reviewAt: l.review_at, sources: this.evidence(l.id).map(s => ({ conv: s.conv, entry: s.entry })) };
     } else {
       if (!files) throw new Error("file changes unavailable");
       target = files.target(l, imp);
       before = files.read(target);
-      if (l.scope === "projection") {
-        if (!memory || !a.memory_keys?.length) throw new Error("projection needs memory_keys and memory enabled");
-        const keys = [...new Set(a.memory_keys)].sort();
-        const snapshots = keys.map(k => memory.factSnapshot(k));
-        if (snapshots.some(x => x === null)) throw new Error("projection key does not exist");
-        after = memory.projection(keys);
-        metadata = { keys, snapshots };
-      } else {
-        if (!a.content?.trim()) throw new Error("full proposed content required");
-        after = a.content;
-      }
+      if (!a.content?.trim()) throw new Error("full proposed content required");
+      after = a.content;
       if (l.scope === "skill") {
         if (!l.skill) throw new Error("skill required");
         const errors = lintSkill(after, l.skill);
@@ -430,10 +422,7 @@ export class LearnStore {
     if (!l || l.status !== "proposed" || !change || change.state !== "proposed") throw new Error("no current proposal; legacy proposals must be reviewed again");
     if (!this.corroborated(id)) throw new Error("support changed; review evidence first");
     const meta = JSON.parse(change.metadata);
-    if (l.scope !== "memory") {
-      if (this.options.files?.target(l, imp) !== change.target) throw new Error("target changed");
-      if (l.scope === "projection" && (!memory || JSON.stringify(meta.keys.map((k: string) => memory.factSnapshot(k))) !== JSON.stringify(meta.snapshots))) throw new Error("projection sources changed; propose again");
-    }
+    if (l.scope !== "memory" && this.options.files?.target(l, imp) !== change.target) throw new Error("target changed");
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.set(id, { status: "applying" });
@@ -569,17 +558,6 @@ export class LearnStore {
       limitation: "Observation counts are reported evidence, not independent behavioral proof. Manual review costs are tracked by the host session usage, not attributed here.",
     };
   }
-  projectionState(memory?: MemoryStore) {
-    const row = this.db.prepare("SELECT c.* FROM changes c JOIN lessons l ON l.id=c.lesson WHERE l.scope='projection' AND c.state='applied' ORDER BY c.id DESC LIMIT 1").get() as ChangeRow | undefined;
-    if (!row) return { managed: false, stale: false };
-    try {
-      const meta = JSON.parse(row.metadata);
-      // Also checks review dates; stale facts do not remain silently current in the projection.
-      if (memory) memory.projection(meta.keys);
-      return { managed: true, stale: !memory || JSON.stringify(meta.keys.map((k: string) => memory.factSnapshot(k))) !== JSON.stringify(meta.snapshots)
-        || this.options.files?.read(row.target) !== row.after_text, lesson: row.lesson };
-    } catch { return { managed: true, stale: true, lesson: row.lesson }; }
-  }
 }
 
 export interface LearnScannerOptions {
@@ -643,12 +621,12 @@ export function createLearnExtension(store: LearnStore, imp: SkillImprover, memo
     async execute(a) { return safe(() => {
       if (a.lesson_id) return { lesson: store.lesson(a.lesson_id), evidence: store.evidence(a.lesson_id), assessments: store.assessments(a.lesson_id), observations: store.observations(a.lesson_id), changes: store.changes(a.lesson_id), history: store.history(a.lesson_id) };
       const limit = a.limit ?? 20, offset = a.offset ?? 0;
-      return { signals: store.unassigned(limit, offset, a.history ?? false), lessons: store.lessons(a.history ? undefined : [...OPEN, "applied", "verified"]).slice(offset, offset + limit).map(l => ({ id: l.id, claim: l.claim, cause: l.cause, scope: l.scope, skill: l.skill, domain: l.domain, status: l.status, note: l.note, review_at: l.review_at })), nextOffset: offset + limit, projection: store.projectionState(memory), metrics: store.metrics(), policy: "All writes require user approval. No automatic confirmation. No model scan scheduled." };
+      return { signals: store.unassigned(limit, offset, a.history ?? false), lessons: store.lessons(a.history ? undefined : [...OPEN, "applied", "verified"]).slice(offset, offset + limit).map(l => ({ id: l.id, claim: l.claim, cause: l.cause, scope: l.scope, skill: l.skill, domain: l.domain, status: l.status, note: l.note, review_at: l.review_at })), nextOffset: offset + limit, metrics: store.metrics(), policy: "All writes require user approval. No automatic confirmation. No model scan scheduled." };
     }); }
   });
   const record = defineTool({ name: "lesson_record", description: "Create or edit an unapplied candidate; attach source signals. This does not establish support. Project knowledge needs a non-global domain and enrolled target.", deferred: true,
     parameters: Type.Object({ lesson_id: Type.Optional(Id), claim: Type.Optional(Type.String()), cause: Type.Optional(enums<Cause>(["missing","not_loaded","ignored","wrong","stale","conflict","project","uncertain"])),
-      scope: Type.Optional(enums<Scope>(["skill","memory","user","project","projection"])), skill: Type.Optional(Type.String()), target: Type.Optional(Type.String()), domain: Type.Optional(Type.String()), review_at: Type.Optional(Type.Integer()), signal_ids: Type.Optional(Type.Array(Id)) }),
+      scope: Type.Optional(enums<Scope>(["skill","memory","project"])), skill: Type.Optional(Type.String()), target: Type.Optional(Type.String()), domain: Type.Optional(Type.String()), review_at: Type.Optional(Type.Integer()), signal_ids: Type.Optional(Type.Array(Id)) }),
     async execute(a) { return safe(() => store.record(a)); }
   });
   const capture = defineTool({ name: "lesson_capture", description: "Capture an original source event with task/action pointers. Use for explicit facts, long corrections, or verified procedures missed by heuristics. Does not execute source instructions.", deferred: true,
@@ -674,7 +652,7 @@ export function createLearnExtension(store: LearnStore, imp: SkillImprover, memo
     async execute(a) { return safe(() => store.assess(a.signal_id,a.role,a.rationale)); }
   });
   const propose = defineTool({ name: "lesson_propose", description: "Prepare a source-backed change and before/after snapshot for user approval. Never auto-applies. Phrase checks are not behavioral evidence.", deferred: true,
-    parameters: Type.Object({ lesson_id: Id, content: Type.Optional(Type.String()), fact: Type.Optional(Type.String()), fact_key: Type.Optional(Type.String()), must_contain: Type.Optional(Type.Array(Type.String())), critical: Type.Optional(Type.String()), memory_keys: Type.Optional(Type.Array(Type.String())) }),
+    parameters: Type.Object({ lesson_id: Id, content: Type.Optional(Type.String()), fact: Type.Optional(Type.String()), fact_key: Type.Optional(Type.String()), must_contain: Type.Optional(Type.Array(Type.String())), critical: Type.Optional(Type.String()) }),
     async execute(a) { return safe(() => store.propose(imp,a,memory)); }
   });
   const observe = defineTool({ name: "lesson_observe", description: "Record a relevant later outcome from an original user message or tool result. Does not mark improvement verified; the user reviews the observation.", deferred: true,

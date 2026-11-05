@@ -187,17 +187,13 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   ]), { hub: () => workers }));
   // Identity belongs to top-level and cron sessions. Delegated children remove this extension.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
-    const projection = learn?.projectionState(memory || undefined);
-    const files = ["SOUL.md", "USER.md", ...(projection?.managed && projection.stale ? [] : ["MEMORY.md"])];
-    // Sent with every prompt, so each file is capped; the model can read the full file with its tools.
-    const CAP = 4000;
-    const text = files.filter(f => existsSync(join(cfg.dataDir, f)))
-      .map((f) => {
-        const body = readFileSync(join(cfg.dataDir, f), "utf8");
-        const cut = body.length > CAP ? `${body.slice(0, CAP)}\n[truncated: ${body.length - CAP} more chars in ${join(cfg.dataDir, f)}]` : body;
-        return `## ${f}\n${cut}`;
-      }).join("\n\n");
-    return (text + (projection?.managed && projection.stale ? "\nMEMORY.md projection is stale or edited. Use recall for current database facts; request review before refreshing the file." : "")) || undefined;
+    // SOUL.md is the only identity file. User facts and memories live in memory.db (memory section).
+    // Sent with every prompt, so the file is capped; the model can read the full file with its tools.
+    const CAP = 4000, path = join(cfg.dataDir, "SOUL.md");
+    if (!existsSync(path)) return undefined;
+    const body = readFileSync(path, "utf8");
+    const cut = body.length > CAP ? `${body.slice(0, CAP)}\n[truncated: ${body.length - CAP} more chars in ${path}]` : body;
+    return `## SOUL.md\n${cut}`;
   })] }));
   if (on("delegate")) extensions.push(DelegateResults, createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
   // Crew sessions are full sessions, created with the same rules as the web UI's new-session request.
