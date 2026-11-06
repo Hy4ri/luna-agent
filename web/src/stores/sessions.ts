@@ -256,13 +256,14 @@ async function trackActiveNotifications() {
 const ACTIVITY_STATUSES: SessionStatus[] = ["finished", "review_finished", "needs_input", "needs_approval", "failed", "limit_reached"];
 const BLOCKING = new Set<SessionStatus>(["needs_input", "needs_approval"]);
 const ACTIVITY_KEY = "luna.activitySeen";
-const loadSeen = (): { before: number; ids: Record<string, number> } => {
-  try { return { before: 0, ids: {}, ...JSON.parse(localStorage.getItem(ACTIVITY_KEY) || "{}") }; } catch { return { before: 0, ids: {} }; }
+const loadSeen = (): { before: number; ids: Record<string, number>; dismissed: Record<string, number> } => {
+  try { return { before: 0, ids: {}, dismissed: {}, ...JSON.parse(localStorage.getItem(ACTIVITY_KEY) || "{}") }; } catch { return { before: 0, ids: {}, dismissed: {} }; }
 };
 const seen = loadSeen();
 const saveSeen = () => {
   const ids = Object.fromEntries(Object.entries(seen.ids).slice(-300));
   seen.ids = ids;
+  seen.dismissed = Object.fromEntries(Object.entries(seen.dismissed).slice(-300));
   try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(seen)); } catch { /* storage full or blocked */ }
 };
 export const activity = reactive({ items: [] as SessionMeta[] });
@@ -272,7 +273,7 @@ const stamp = (s: SessionMeta) => Number(s.lastActivity ?? s.createdAt ?? 0);
 const isUnread = (s: SessionMeta) => {
   const st = sessionState(s);
   if (!ACTIVITY_STATUSES.includes(st)) return false;
-  if (BLOCKING.has(st)) return true; // Still waiting on the user.
+  if (BLOCKING.has(st)) return stamp(s) > (seen.dismissed[String(s.id)] ?? 0); // Waiting on the user until dismissed.
   return stamp(s) > Math.max(seen.before, seen.ids[String(s.id)] ?? 0);
 };
 
@@ -294,9 +295,18 @@ export function markActivitySeen(id: string | number) {
   activity.items = activity.items.filter(s => String(s.id) !== String(id) || BLOCKING.has(sessionState(s)));
 }
 
+/** Mark one entry read without opening it. Also hides sessions that are still waiting on the user. */
+export function dismissActivity(id: string | number) {
+  seen.dismissed[String(id)] = Date.now();
+  seen.ids[String(id)] = Date.now();
+  saveSeen();
+  activity.items = activity.items.filter(s => String(s.id) !== String(id));
+}
+
 export function markAllActivitySeen() {
   seen.before = Date.now();
   seen.ids = {};
+  for (const s of activity.items) seen.dismissed[String(s.id)] = Date.now();
   saveSeen();
   activity.items = activity.items.filter(s => BLOCKING.has(sessionState(s)));
 }

@@ -42,7 +42,7 @@ import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
 import ProjectIcon from "@/components/ProjectIcon.vue";
 import type { ProjectAppearance } from "../../../../src/project-appearance";
-import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, projectName, renameSession, generateTitle, titleModelAvailable, togglePinned, moveSession, toggleArchived, activity, markActivitySeen, markAllActivitySeen, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
+import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, projectName, renameSession, generateTitle, titleModelAvailable, togglePinned, moveSession, toggleArchived, activity, markActivitySeen, dismissActivity, markAllActivitySeen, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
@@ -91,6 +91,7 @@ const mobile = useMobile();
 const collapsed = computed(() => ui.collapsed && !mobile.value);
 defineProps<{ inert?: boolean }>();
 
+const activityOpen = ref(false);
 const searchInputRef = ref<HTMLInputElement | null>(null);
 const searchToggleRef = ref<HTMLButtonElement | null>(null);
 const renamingId = ref<string | number | null>(null);
@@ -481,31 +482,32 @@ onMounted(() => {
         >
           <Search :size="16" />
         </button>
-        <Popover>
+        <Popover v-model:open="activityOpen">
           <PopoverTrigger as-child>
             <button id="activity-bell" class="icon-button relative" :aria-label="activity.items.length ? `Activity, ${activity.items.length} new` : 'Activity'" title="Activity across all projects">
               <Bell :size="16" />
               <span v-if="activity.items.length" class="absolute top-0.5 right-0.5 size-2 rounded-full bg-primary" aria-hidden="true"></span>
             </button>
           </PopoverTrigger>
-          <PopoverContent align="start" class="w-72 p-1">
+          <PopoverContent align="start" class="w-96 max-w-[calc(100vw-1rem)] p-1.5">
             <div class="flex items-center px-2 py-1 text-xs font-semibold text-muted-foreground">
               <span class="mr-auto">Activity</span>
               <button v-if="activity.items.length" class="hover:text-foreground" @click="markAllActivitySeen">Mark all read</button>
             </div>
             <p v-if="!activity.items.length" class="px-2 py-3 text-xs text-muted-foreground">Nothing new.</p>
-            <button
-              v-for="s in activity.items"
-              :key="s.id"
-              class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-secondary"
-              @click="markActivitySeen(s.id); setDrawer(false); openSession(s.id)"
-            >
-              <span class="session-state size-2 shrink-0 rounded-full bg-current" :data-status="sessionState(s)" aria-hidden="true"></span>
-              <span class="min-w-0 flex-1">
-                <span class="block truncate">{{ sessionTitle(s) }}</span>
-                <span class="block truncate text-xs text-muted-foreground">{{ sessionStatusLabel(s) }}<template v-if="projectName(s.project)"> · {{ projectName(s.project) }}</template></span>
-              </span>
-            </button>
+            <div v-for="s in activity.items" :key="s.id" class="flex items-center gap-1 rounded-sm hover:bg-secondary">
+              <button
+                class="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left text-sm"
+                @click="markActivitySeen(s.id); activityOpen = false; setDrawer(false); openSession(s.id)"
+              >
+                <span class="session-state size-2 shrink-0 rounded-full bg-current" :data-status="sessionState(s)" aria-hidden="true"></span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate">{{ sessionTitle(s) }}</span>
+                  <span class="block truncate text-xs text-muted-foreground">{{ sessionStatusLabel(s) }}<template v-if="projectName(s.project)"> · {{ projectName(s.project) }}</template></span>
+                </span>
+              </button>
+              <button class="icon-button mr-1 shrink-0" title="Mark as read" :aria-label="`Mark ${sessionTitle(s)} as read`" @click="dismissActivity(s.id)"><Check :size="16" /></button>
+            </div>
           </PopoverContent>
         </Popover>
         <button
