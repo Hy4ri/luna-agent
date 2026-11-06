@@ -8,7 +8,7 @@ import { parseConfig } from "../src/config.js";
 import { startRuntime } from "../src/runtime.js";
 import { createApp } from "../src/server.js";
 import {
-  formatRequest, matches, render, RETRY_DELAYS_MS, sign, verifyRequest, WebhookStore, Webhooks,
+  DEDUPE_KEEP_MS, formatRequest, matches, render, RETRY_DELAYS_MS, sign, verifyRequest, WebhookStore, Webhooks,
   type InboundTarget, type WebhookTargets,
 } from "../src/webhooks.js";
 
@@ -134,6 +134,74 @@ test("inbound: signature, filter, dedupe, rate limit, targets and log", async ()
 
   await assert.rejects(w.checkTarget({ kind: "session", id: 999 }), /no such session 999/);
   await assert.rejects(w.checkTarget({ kind: "bogus", id: 1 }), /target must be/);
+  await w.close();
+  store.close();
+});
+
+test("inbound dedupe: concurrent same id dispatches once, survives log trimming, and frees the id after a failure", async () => {
+  const store = new WebhookStore(":memory:");
+  let clock = 2_000_000;
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  let created = 0, fail = false;
+  const t: WebhookTargets = {
+    async toSession() { return true; },
+    async newSession() { await gate; if (fail) throw new Error("boom"); return ++created; },
+    async runCron() { return 1; },
+    async exists() { return true; },
+  };
+  const w = new Webhooks(store, { targets: () => t, clock: () => clock });
+  const { hook, secret } = store.createInbound({ name: "h", target: { kind: "project", id: 0 }, verify: "token" });
+  const send = (id: string) => w.receive(hook.slug, enc("{}"), hdr({ "x-webhook-token": secret, "x-luna-delivery": id }), noQuery);
+
+  // Two requests with one delivery id race: the second sees the claim and does not dispatch.
+  const a = send("R1"), b = send("R1");
+  release();
+  const [ra, rb] = await Promise.all([a, b]);
+  assert.deepEqual([ra.status, rb.status].sort(), [202, 409]);
+  assert.equal(created, 1, "one session for one delivery id");
+  assert.deepEqual([(await send("R1")).status, (await send("R1")).body.sessionId], [200, 1]);
+
+  // More than 100 log entries (duplicates included) do not evict the dedupe record.
+  for (let i = 0; i < 120; i++) { clock += 2_000; assert.equal((await send("R1")).status, 200); }
+  assert.equal(store.inboundLog(hook.id, 500).length, 100);
+  assert.equal((await send("R1")).status, 200);
+  assert.equal(created, 1);
+
+  // A failed dispatch frees the id, so the sender's retry runs.
+  clock += 61_000;
+  fail = true;
+  assert.equal((await send("R2")).status, 500);
+  fail = false;
+  assert.equal((await send("R2")).status, 202);
+  assert.equal((await send("R2")).status, 200);
+
+  // A claim left by a crashed dispatch is taken over after 10 minutes.
+  assert.deepEqual(store.reserve(hook.id, "R3", clock), { state: "new" });
+  assert.deepEqual(store.reserve(hook.id, "R3", clock + 1_000), { state: "busy" });
+  assert.deepEqual(store.reserve(hook.id, "R3", clock + 11 * 60_000), { state: "new" });
+
+  // Dedupe ids expire after 30 days through prune.
+  store.prune(clock + DEDUPE_KEEP_MS + 120 * 60_000);
+  assert.deepEqual(store.reserve(hook.id, "R1", clock), { state: "new" });
+  await w.close();
+  store.close();
+});
+
+test("outbound: the running dispatcher prunes old finished deliveries, not only at start", async () => {
+  const store = new WebhookStore(":memory:");
+  let clock = 9_000_000;
+  const fetchFake = (async () => new Response(null, { status: 204 })) as unknown as typeof fetch;
+  const w = new Webhooks(store, { targets: () => undefined, fetch: fetchFake, clock: () => clock });
+  const { sub } = store.createSub({ name: "s", url: "https://example.test/h", events: [] });
+  w.start();
+  w.emit("session.finished", { title: "S" }, "evt_old");
+  await w.flush();
+  assert.equal(store.deliveries(sub.id).length, 1);
+  clock += 8 * 24 * 3_600_000;
+  w.emit("session.finished", { title: "S" }, "evt_new");
+  await w.flush();
+  assert.deepEqual(store.deliveries(sub.id).map(d => d.eventId), ["evt_new"]);
   await w.close();
   store.close();
 });

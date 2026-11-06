@@ -1052,9 +1052,11 @@ so the daemon token does not apply; the hook secret protects it. The sender must
   `{{action}}`, `{{delivery}}`, `{{hook}}`, `{{payload}}` (the whole body). Without a template the input is the formatted body.
   Every input starts with a line that names the hook and says the payload is untrusted data.
 - Dedupe: a repeated `X-GitHub-Delivery`, `X-Gitlab-Event-UUID`, `X-Luna-Delivery`, `Webhook-Id`, `X-Delivery-Id` or `X-Request-Id`
-  answers 200 `{ duplicate: true }` and does not run again. A rejected or failed attempt does not count.
+  answers 200 `{ duplicate: true }` and does not run again. The id is claimed before dispatch, so a concurrent repeat
+  answers 409 and does not run either. A rejected or failed attempt frees the id for a retry. Accepted and ignored ids are kept
+  30 days, separately from the call log.
 - Limits: 1 MB body (413), 60 requests per minute per hook (429). GitHub `ping` answers 200.
-- Responses: 202 accepted (`sessionId` or `runId`), 401 bad signature, 404 unknown or disabled hook, 410 target session deleted.
+- Responses: 202 accepted (`sessionId` or `runId`), 401 bad signature, 404 unknown or disabled hook, 409 same delivery in progress, 410 target session deleted.
 - Each hook keeps its last 100 calls with the outcome: `delivered`, `ignored`, `duplicate`, `rejected` or `failed`.
 
 The older `POST /v1/webhooks/:sessionId` route (daemon token, no per-hook secret) still works.
@@ -1071,7 +1073,7 @@ for the user. Subagent and archived sessions send none; cron sessions send only 
   `X-Luna-Signature: sha256=<hex HMAC-SHA256 of the body with the subscription secret>`.
 - JSON envelope: `{ "id": "evt_…", "event": "session.failed", "createdAt": "<ISO time>", "data": { "title", "text", "sessionId", ... } }`.
 - Delivery: a durable outbox. A 2xx is success. Other answers and network errors retry after 30 s, 2 min, 10 min, 1 h and 6 h, then
-  the delivery fails. `410 Gone` fails it at once. Pending deliveries survive a restart. Finished deliveries are kept 7 days.
+  the delivery fails. `410 Gone` fails it at once. Pending deliveries survive a restart. Finished deliveries are kept 7 days; cleanup runs hourly.
 - Redirects are not followed. The request times out after 10 s.
 
 ### Webhook endpoints

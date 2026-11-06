@@ -43,6 +43,12 @@ const KINDS: readonly TargetKind[] = ["session", "project", "cron"];
 export const RETRY_DELAYS_MS = [30_000, 120_000, 600_000, 3_600_000, 6 * 3_600_000];
 const LOG_KEEP = 100;
 const OUTBOX_KEEP_MS = 7 * 24 * 3_600_000;
+/** Accepted and ignored delivery ids block a repeat for this long, independent of the 100-entry display log. */
+export const DEDUPE_KEEP_MS = 30 * 24 * 3_600_000;
+/** A reservation older than this belongs to a dispatch that crashed; a retry may take it over. */
+const RESERVE_STALE_MS = 10 * 60_000;
+/** Cleanup of old outbox rows and dedupe ids runs at most this often while the daemon runs. */
+const PRUNE_EVERY_MS = 3_600_000;
 const MAX_CONTENT = 50_000;
 
 const now = () => Date.now();
@@ -101,6 +107,9 @@ export class WebhookStore {
         id INTEGER PRIMARY KEY AUTOINCREMENT, hook_id INTEGER NOT NULL, at INTEGER NOT NULL, event TEXT, delivery_id TEXT,
         outcome TEXT NOT NULL, session_id INTEGER, detail TEXT);
       CREATE INDEX IF NOT EXISTS luna_webhook_inbound_log_hook ON luna_webhook_inbound_log(hook_id, delivery_id);
+      CREATE TABLE IF NOT EXISTS luna_webhook_inbound_seen (
+        hook_id INTEGER NOT NULL, delivery_id TEXT NOT NULL, state TEXT NOT NULL, session_id INTEGER, at INTEGER NOT NULL,
+        PRIMARY KEY(hook_id, delivery_id));
       CREATE TABLE IF NOT EXISTS luna_webhook_subs (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, url TEXT NOT NULL, secret TEXT NOT NULL,
         events TEXT NOT NULL DEFAULT '[]', format TEXT NOT NULL DEFAULT 'json', enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
@@ -158,13 +167,29 @@ export class WebhookStore {
   }
   removeInbound(id: number): boolean {
     this.db.prepare("DELETE FROM luna_webhook_inbound_log WHERE hook_id=?").run(id);
+    this.db.prepare("DELETE FROM luna_webhook_inbound_seen WHERE hook_id=?").run(id);
     return this.db.prepare("DELETE FROM luna_webhook_inbound WHERE id=?").run(id).changes > 0;
   }
-  /** A delivery id this hook already accepted or ignored. Rejected and failed attempts may be retried by the sender. */
-  seen(hookId: number, deliveryId: string): InboundLog | undefined {
-    const r = this.db.prepare("SELECT * FROM luna_webhook_inbound_log WHERE hook_id=? AND delivery_id=? AND outcome IN ('delivered','ignored') ORDER BY id LIMIT 1")
-      .get(hookId, deliveryId) as Record<string, unknown> | undefined;
-    return r && this.logRow(r);
+  /**
+   * Claim a delivery id before dispatch. The primary key makes the claim atomic, so concurrent requests with one id
+   * dispatch once. "new": the caller owns it and must settle or release it. "done": accepted or ignored before.
+   * "busy": another request is dispatching it now. A claim older than RESERVE_STALE_MS (crashed dispatch) is taken over.
+   */
+  reserve(hookId: number, deliveryId: string, at = now()): { state: "new" } | { state: "done"; sessionId: number | null } | { state: "busy" } {
+    if (this.db.prepare("INSERT OR IGNORE INTO luna_webhook_inbound_seen(hook_id, delivery_id, state, at) VALUES (?,?,'pending',?)").run(hookId, deliveryId, at).changes) return { state: "new" };
+    if (this.db.prepare("UPDATE luna_webhook_inbound_seen SET at=? WHERE hook_id=? AND delivery_id=? AND state='pending' AND at<?")
+      .run(at, hookId, deliveryId, at - RESERVE_STALE_MS).changes) return { state: "new" };
+    const r = this.db.prepare("SELECT state, session_id FROM luna_webhook_inbound_seen WHERE hook_id=? AND delivery_id=?").get(hookId, deliveryId) as { state: string; session_id: number | null } | undefined;
+    if (!r) return this.reserve(hookId, deliveryId, at); // released between the two statements
+    return r.state === "pending" ? { state: "busy" } : { state: "done", sessionId: r.session_id == null ? null : Number(r.session_id) };
+  }
+  /** Record the final outcome of a claimed delivery id; it then blocks repeats for DEDUPE_KEEP_MS. */
+  settle(hookId: number, deliveryId: string, state: "delivered" | "ignored", sessionId: number | null, at = now()) {
+    this.db.prepare("UPDATE luna_webhook_inbound_seen SET state=?, session_id=?, at=? WHERE hook_id=? AND delivery_id=?").run(state, sessionId, at, hookId, deliveryId);
+  }
+  /** Drop a claim after a failed dispatch so the sender can retry. */
+  release(hookId: number, deliveryId: string) {
+    this.db.prepare("DELETE FROM luna_webhook_inbound_seen WHERE hook_id=? AND delivery_id=? AND state='pending'").run(hookId, deliveryId);
   }
   log(hookId: number, e: { event: string | null; deliveryId: string | null; outcome: InboundOutcome; sessionId?: number | null; detail?: string | null }, at = now()) {
     this.db.prepare("INSERT INTO luna_webhook_inbound_log(hook_id, at, event, delivery_id, outcome, session_id, detail) VALUES (?,?,?,?,?,?,?)")
@@ -267,6 +292,7 @@ export class WebhookStore {
   }
   prune(at = now()) {
     this.db.prepare("DELETE FROM luna_webhook_outbox WHERE status!='pending' AND created_at<?").run(at - OUTBOX_KEEP_MS);
+    this.db.prepare("DELETE FROM luna_webhook_inbound_seen WHERE state!='pending' AND at<?").run(at - DEDUPE_KEEP_MS);
   }
 }
 
@@ -338,7 +364,7 @@ export interface WebhookTargets {
   exists(t: InboundTarget): Promise<boolean>;
 }
 
-export interface ReceiveResult { status: 200 | 202 | 401 | 404 | 410 | 429 | 500; body: Record<string, unknown> }
+export interface ReceiveResult { status: 200 | 202 | 401 | 404 | 409 | 410 | 429 | 500; body: Record<string, unknown> }
 
 const RATE_PER_MIN = 60;
 
@@ -347,6 +373,7 @@ export class Webhooks {
   private timer?: ReturnType<typeof setTimeout>;
   private running?: Promise<void>;
   private closed = false;
+  private prunedAt = 0;
 
   constructor(readonly store: WebhookStore, private readonly o: {
     targets: () => WebhookTargets | undefined;
@@ -387,18 +414,26 @@ export class Webhooks {
     const shown = event ? (action ? `${event}.${action}` : event) : null;
     if (event === "ping" && header("x-github-event")) return { status: 200, body: { ok: true, pong: true } };
     if (deliveryId) {
-      const prior = this.store.seen(hook.id, deliveryId);
-      if (prior) {
-        this.store.log(hook.id, { event: shown, deliveryId, outcome: "duplicate", sessionId: prior.sessionId });
-        return { status: 200, body: { duplicate: true, ...(prior.sessionId ? { sessionId: prior.sessionId } : {}) } };
+      const claim = this.store.reserve(hook.id, deliveryId, this.now());
+      if (claim.state === "done") {
+        this.store.log(hook.id, { event: shown, deliveryId, outcome: "duplicate", sessionId: claim.sessionId });
+        return { status: 200, body: { duplicate: true, ...(claim.sessionId ? { sessionId: claim.sessionId } : {}) } };
+      }
+      if (claim.state === "busy") {
+        this.store.log(hook.id, { event: shown, deliveryId, outcome: "duplicate", detail: "same delivery in progress" });
+        return { status: 409, body: { error: "same delivery is in progress" } };
       }
     }
+    // From here a claimed delivery id is settled on success and released on failure.
+    const settle = (state: "delivered" | "ignored", sessionId: number | null) => { if (deliveryId) this.store.settle(hook.id, deliveryId, state, sessionId, this.now()); };
+    const release = () => { if (deliveryId) this.store.release(hook.id, deliveryId); };
     if (!matches(hook.events, event, action)) {
+      settle("ignored", null);
       this.store.log(hook.id, { event: shown, deliveryId, outcome: "ignored", detail: "event not in filter" });
       return { status: 202, body: { ignored: true, event: shown } };
     }
     const targets = this.o.targets();
-    if (!targets) return { status: 500, body: { error: "webhook targets unavailable" } };
+    if (!targets) { release(); return { status: 500, body: { error: "webhook targets unavailable" } }; }
     const headers: Record<string, string> = {};
     for (const k of ["x-github-event", "x-gitlab-event", "x-event-type", "user-agent", "content-type"]) { const v = header(k); if (v) headers[k] = v; }
     let rendered = hook.template ? render(hook.template, { body, headers, event, action, delivery: deliveryId, hook: hook.name, payload: pretty }) : pretty;
@@ -410,6 +445,7 @@ export class Webhooks {
       let sessionId: number | null = null, detail: string | null = null;
       if (hook.target.kind === "session") {
         if (!await targets.toSession(hook.target.id, content, requestId)) {
+          release();
           this.store.log(hook.id, { event: shown, deliveryId, outcome: "failed", detail: `session ${hook.target.id} no longer exists` });
           return { status: 410, body: { error: "target session no longer exists" } };
         }
@@ -419,13 +455,16 @@ export class Webhooks {
       } else {
         const runId = await targets.runCron(hook.target.id);
         detail = `cron run #${runId}`;
+        settle("delivered", null);
         this.store.log(hook.id, { event: shown, deliveryId, outcome: "delivered", detail });
         return { status: 202, body: { accepted: true, runId } };
       }
+      settle("delivered", sessionId);
       this.store.log(hook.id, { event: shown, deliveryId, outcome: "delivered", sessionId, detail });
       return { status: 202, body: { accepted: true, ...(sessionId ? { sessionId } : {}) } };
     } catch (e) {
       const msg = (e as Error).message ?? String(e);
+      release();
       this.store.log(hook.id, { event: shown, deliveryId, outcome: "failed", detail: msg });
       this.o.log?.(`webhook ${hook.id}: ${msg}`);
       return { status: 500, body: { error: "delivery failed" } };
@@ -456,7 +495,15 @@ export class Webhooks {
     return this.store.deliveries(sub.id, 1)[0]!;
   }
 
-  start() { this.closed = false; this.store.prune(this.now()); this.arm(); }
+  start() { this.closed = false; this.prune(); this.arm(); }
+
+  /** Remove finished outbox rows after 7 days and dedupe ids after 30, at most hourly. */
+  private prune() {
+    const at = this.now();
+    if (at - this.prunedAt < PRUNE_EVERY_MS) return;
+    this.prunedAt = at;
+    try { this.store.prune(at); } catch (e) { this.o.log?.(`webhooks prune: ${(e as Error).message}`); }
+  }
 
   /** Run due deliveries soon. */
   kick() { if (!this.closed) { clearTimeout(this.timer); this.timer = setTimeout(() => void this.flush(), 0); this.timer.unref?.(); } }
@@ -479,7 +526,7 @@ export class Webhooks {
           await Promise.all(batch.map(d => this.send(d)));
         }
       } catch (e) { this.o.log?.(`webhooks: ${(e as Error).message}`); }
-      finally { this.running = undefined; this.arm(); }
+      finally { this.running = undefined; this.prune(); this.arm(); }
     })();
     return this.running;
   }
