@@ -6,7 +6,7 @@ import { api, post, serverUrl, token } from "@/lib/api";
 import { useMobile } from "@/lib/dom";
 import { history, loadProjects, querySessions, sessionTitle, toggleFavorite, type GroupSummary } from "@/stores/sessions";
 import { chat, newSession, openSession } from "@/stores/chat";
-import { closePanel } from "@/stores/app";
+import { closePanel, ui } from "@/stores/app";
 import { loadWorkers, workers } from "@/stores/workers";
 import type { Project, SessionMeta } from "@/lib/types";
 import { sortProjects } from "@/lib/projects";
@@ -222,7 +222,7 @@ const remove = () => run(async () => {
   if (!resp.ok) throw new Error(((await resp.json().catch(() => ({}))) as { error?: string }).error || resp.statusText);
   await refresh();
   select(history.projects[0]?.id ?? null);
-  showDetail.value = false;
+  showDetail.value = target !== null;
 });
 
 const startChat = () => run(async () => {
@@ -247,7 +247,9 @@ onMounted(async () => {
   try { await Promise.all([refresh(false), loadWorkers().catch(() => [])]); } catch (e) { errorMsg.value = (e as Error).message; }
   if (disposed) return;
   loading.value = false;
-  const active = Number(chat.project ?? localStorage.getItem("luna.project"));
+  const target = ui.projectsTarget;
+  ui.projectsTarget = null;
+  const active = target ?? Number(chat.project ?? localStorage.getItem("luna.project"));
   const start = history.projects.find(p => p.id === active) ?? history.projects[0];
   select(start ? start.id : "new");
   showDetail.value = false;
