@@ -349,7 +349,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
         return harness.busyTools?.sessionProcesses(id as ConversationId, owner).some((p) => p.status === "running") ?? false;
       });
       if (!preview) await opts.limitContinuer?.reconcile();
-      return c.json(preview ? { ids: selected } : { deleted: selected });
+      return c.json(preview ? selected : { deleted: selected.ids });
     });
 
   app.patch("/v1/sessions/:id/metadata", async (c) => {
