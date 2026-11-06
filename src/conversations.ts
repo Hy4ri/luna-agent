@@ -1,6 +1,6 @@
 // pi-durable 1.5 has no native delete operation. Keep its SQLite-specific purge here, on the harness mutation line.
 import type { DatabaseSync } from "node:sqlite";
-import type { ConversationRecord, Tx } from "@earendil-works/pi-durable";
+import type { ConversationId, ConversationRecord, Tx } from "@earendil-works/pi-durable";
 import { conversationStorage } from "./conversation-storage.js";
 import { context } from "./luna.js";
 import type { RecallIndex } from "./recall.js";
@@ -11,6 +11,9 @@ import { ProjectSkills } from "./project-skills.js";
 import { newestMessageTime, SessionCreated } from "./session-activity.js";
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 export type PruneOptions = { days: number; includeArchived: boolean; excludeIds: number[]; projectId?: number };
+/** One top-level root of a selected deletion tree. `ids` is the whole tree: the root, then its forks and subagents. */
+export type PruneSession = { id: number; title: string | null; activity: number; ids: number[] };
+export type PruneResult = { ids: number[]; sessions: PruneSession[] };
 export type ConversationMeta = { title: string | null; archived: boolean; pinned: boolean };
 export class ConversationError extends Error {
   constructor(readonly status: 404 | 409, message: string) { super(message); }
@@ -106,25 +109,50 @@ export class ConversationStore {
     if (written) this.notify();
     return written;
   }
-  /** Same dependency closure used by manual deletion and pruning. */
+  /**
+   * Parent links of the deletion tree: forks, owned conversations, and delegate.child markers. Entries are append-only
+   * and conversation links never change after creation, so each call reads only rows past the last watermark. The read
+   * runs on the mutation line with immediate durability, so every row below the watermark was already stored.
+   */
+  private readonly links = { children: new Map<number, Set<number>>(), conversation: 0, entry: 0 };
   private deletionTree() {
-    const records = this.db.prepare("SELECT record FROM conversations").all() as { record: string }[];
-    const children = new Map<number, Set<number>>();
+    const { children } = this.links;
     const link = (parent: number, id: number) => {
       const set = children.get(parent) ?? new Set<number>(); set.add(id); children.set(parent, set);
     };
-    for (const row of records) {
+    const conversations = this.db.prepare("SELECT id, record FROM conversations WHERE id > ? ORDER BY id").all(this.links.conversation) as { id: number; record: string }[];
+    for (const row of conversations) {
       const c = JSON.parse(row.record) as ConversationRecord;
       if (c.parent) link(c.parent.conversationId, c.id);
       if (c.owner) link(c.owner.conversationId, c.id);
+      this.links.conversation = row.id;
     }
-    const delegates = this.db.prepare("SELECT conversation_id AS id, json_extract(record, '$.data.parent') AS parent FROM entries WHERE json_extract(record, '$.kind')='delegate.child'").all() as { id: number; parent: number }[];
-    for (const child of delegates) link(child.parent, child.id);
-    return (roots: number[]) => {
+    const top = (this.db.prepare("SELECT COALESCE(MAX(id),0) AS n FROM entries").get() as { n: number }).n;
+    if (top > this.links.entry) {
+      const delegates = this.db.prepare("SELECT conversation_id AS id, json_extract(record, '$.data.parent') AS parent FROM entries WHERE id > ? AND id <= ? AND json_extract(record, '$.kind')='delegate.child'").all(this.links.entry, top) as { id: number; parent: number }[];
+      for (const child of delegates) if (Number.isSafeInteger(child.parent)) link(child.parent, child.id);
+      this.links.entry = top;
+    }
+    return (roots: Iterable<number>) => {
       const selected = new Set(roots);
       for (const id of selected) for (const child of children.get(id) ?? []) selected.add(child);
       return [...selected];
     };
+  }
+  private forgetLinks(ids: number[]) {
+    const gone = new Set(ids);
+    for (const id of ids) this.links.children.delete(id);
+    for (const set of this.links.children.values()) for (const id of set) if (gone.has(id)) set.delete(id);
+    for (const id of ids) this.activity.delete(id);
+  }
+  /** Newest message time per conversation, valid while the newest visible entry ID is unchanged. */
+  private readonly activity = new Map<number, { latest: number | undefined; at: number | null }>();
+  private async lastMessage(tx: Tx, id: ConversationId) {
+    const latest = await tx.latestEntryId(id) as number | undefined, hit = this.activity.get(id);
+    if (hit && hit.latest === latest) return hit.at;
+    const at = await newestMessageTime(tx, id);
+    this.activity.set(id, { latest, at });
+    return at;
   }
   async delete(id: number) {
     return this.purge(async tx => {
@@ -132,38 +160,54 @@ export class ConversationStore {
       return this.deletionTree()([id]);
     });
   }
-  /** Recheck every member of each deletion tree on the harness mutation line. Unknown ages stay safe. */
-  async prune(options: PruneOptions, confirmed?: number[], protectedSession?: (id: number, tx: Tx) => Promise<boolean>) {
+  /**
+   * Select whole deletion trees whose every member is old enough and unprotected. An excluded session keeps its
+   * descendants too. Without `confirmed` nothing is deleted and the selection is returned with one summary per root.
+   * Unknown ages stay safe. Deletion rechecks every member on the harness mutation line.
+   */
+  async prune(options: PruneOptions, confirmed?: number[], protectedSession?: (id: number, tx: Tx) => Promise<boolean>): Promise<PruneResult> {
     const cutoff = Date.now() - options.days * 86400000;
-    return this.purge(async tx => {
+    let sessions: PruneSession[] = [];
+    const ids = await this.purge(async tx => {
       const treeOf = this.deletionTree();
-      const eligible = new Set<number>(), excluded = new Set(options.excludeIds);
+      const meta = new Map((this.db.prepare("SELECT id, title, archived, pinned FROM luna_conversations").all() as { id: number; title: string | null; archived: number; pinned: number }[]).map(r => [r.id, r]));
+      const excluded = new Set(treeOf(options.excludeIds));
       const allowed = confirmed && new Set(confirmed);
       const busy = new Set((this.db.prepare("SELECT DISTINCT conversation_id AS id FROM tasks WHERE status <> 'terminal'").all() as { id: number }[]).map(r => r.id));
       const links = options.projectId === undefined ? null : this.projects.links();
+      const eligible = new Map<number, number>();
       let cursor;
       do {
         const page = await tx.scanConversations({}, 100, cursor);
         for (const row of page.items) {
-          const id = Number(row.id);
-          const meta = this.get(id);
-          if (meta.pinned || excluded.has(id) || busy.has(id) || (allowed && !allowed.has(id)) || (!options.includeArchived && meta.archived)) continue;
+          const id = Number(row.id), m = meta.get(id);
+          if (m?.pinned || excluded.has(id) || busy.has(id) || (allowed && !allowed.has(id)) || (!options.includeArchived && m?.archived)) continue;
           if (links && (links.get(id) ?? GENERAL_PROJECT.id) !== options.projectId) continue;
-          if (await protectedSession?.(id, tx)) continue;
-          const message = await newestMessageTime(tx, row.id), created = (await tx.doc(SessionCreated, row.id)).at;
+          const message = await this.lastMessage(tx, row.id), created = (await tx.doc(SessionCreated, row.id)).at;
           const activity = message === null ? created : Math.max(message, created ?? 0);
-          if (activity !== null && Number.isFinite(activity) && activity < cutoff) eligible.add(id);
+          if (activity === null || !Number.isFinite(activity) || activity >= cutoff) continue;
+          // Process and side-job checks cost the most, so they run only for sessions that are otherwise old enough.
+          if (await protectedSession?.(id, tx)) continue;
+          eligible.set(id, activity);
         }
         cursor = page.next;
       } while (cursor);
-      const selected = new Set<number>();
-      for (const id of eligible) {
+      const selected = new Set<number>(), trees = new Map<number, number[]>();
+      for (const id of eligible.keys()) {
         const tree = treeOf([id]);
         // Never cascade through a pinned, recent, archived, running, excluded, or unconfirmed descendant.
-        if (tree.every(child => eligible.has(child))) for (const child of tree) selected.add(child);
+        if (tree.every(child => eligible.has(child))) { trees.set(id, tree); for (const child of tree) selected.add(child); }
+      }
+      if (confirmed === undefined) {
+        const covered = new Set<number>();
+        for (const [id, tree] of trees) for (const child of tree) if (child !== id) covered.add(child);
+        sessions = [...trees].filter(([id]) => !covered.has(id))
+          .map(([id, tree]) => ({ id, title: meta.get(id)?.title ?? null, activity: eligible.get(id)!, ids: [id, ...tree.filter(child => child !== id).sort((a, b) => a - b)] }))
+          .sort((a, b) => a.activity - b.activity || a.id - b.id);
       }
       return [...selected].sort((a, b) => a - b);
     }, confirmed === undefined);
+    return { ids, sessions };
   }
   private async purge(select: (tx: Tx) => Promise<number[]>, preview = false) {
     const store = conversationStorage(this.harness);
@@ -229,6 +273,7 @@ export class ConversationStore {
       });
 
       this.recall?.forget(ids);
+      this.forgetLinks(ids);
       for (const cb of [...this.deletionListeners]) { try { cb(ids); } catch {} }
       this.notify();
       return ids;
