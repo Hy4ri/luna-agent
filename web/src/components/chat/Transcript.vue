@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from "vue";
 import { ArrowDown, X } from "@lucide/vue";
-import { chat, entryList, activityLabel, dismissNotice, openSession, loadOlderEntries } from "@/stores/chat";
+import { chat, entryList, activityLabel, dismissNotice, openSession, loadOlderEntries, userIndexFor, refreshUserIndex, ensureEntryLoaded } from "@/stores/chat";
 import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
 import ReportContext from "./ReportContext.vue";
@@ -167,18 +167,24 @@ onBeforeUnmount(resetRows);
 const shownTimeline = computed(() => allRows.value || timeline.value.length <= FIRST_ROWS ? timeline.value : timeline.value.slice(-FIRST_ROWS));
 // Rail of thin ticks, one per user message. A click scrolls the log to that message.
 const userTicks = computed(() => {
-  const ticks: { id: number; label: string }[] = [];
-  for (const row of shownTimeline.value) {
+  // Loaded entries first (they update live), then the server index for entries not loaded yet.
+  const loaded: { id: number; label: string }[] = [];
+  for (const row of timeline.value) {
     const entry = row.entry;
     if (!entry) continue;
     for (const m of entry.model || []) {
       if (m.role !== 'user' || backgroundReport(entry, m)) continue;
       const text = messageText(m.content).replace(/\s+/g, ' ').trim();
-      ticks.push({ id: entry.id, label: text.length > 80 ? text.slice(0, 80) + '…' : text || 'Message' });
+      loaded.push({ id: entry.id, label: text.length > 80 ? text.slice(0, 80) + '…' : text || 'Message' });
       break;
     }
   }
-  return ticks;
+  const indexed = userIndexFor(chat.session);
+  if (!indexed.length) return loaded;
+  const seen = new Set(loaded.map(t => t.id));
+  const minLoaded = loaded.length ? loaded[0]!.id : Infinity;
+  const older = indexed.filter(t => !seen.has(t.id) && t.id < minLoaded);
+  return [...older, ...loaded];
 });
 const activeTick = ref<number | null>(null);
 let railRaf: number | undefined;
@@ -199,8 +205,17 @@ function updateActive() {
 }
 function scheduleActive() { if (railRaf === undefined) railRaf = requestAnimationFrame(updateActive); }
 watch(userTicks, scheduleActive, { flush: "post" });
+let lastIndexed = -1;
+watch(() => userTicks.value.length, (n) => { if (chat.session && n > lastIndexed && lastIndexed >= 0 && !chat.loadingOlder) void refreshUserIndex(); lastIndexed = n; });
 onBeforeUnmount(() => { if (railRaf !== undefined) cancelAnimationFrame(railRaf); });
-function jumpToUser(id: number) {
+async function jumpToUser(id: number) {
+  if (!userEl(id)) {
+    // Older entries are not loaded yet: load pages until this one exists, then render every row.
+    const sid = chat.session;
+    if (!(await ensureEntryLoaded(id)) || chat.session !== sid) return;
+    allRows.value = true;
+    await nextTick();
+  }
   const log = logRef.value, el = userEl(id);
   if (!log || !el) return;
   pinned = false;

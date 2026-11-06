@@ -2,7 +2,7 @@ import { compactNumber } from "@/lib/numbers";
 // Open conversation: durable entries, live generation, tools, extras, context, run controls.
 // Port of vanilla session.js + extras.js + transcript.js state. Components only render this.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { computed, markRaw, reactive } from "vue";
+import { computed, markRaw, reactive, ref } from "vue";
 import type { Machine } from "./workers";
 import { api, json, post } from "@/lib/api";
 import { watchFeed, type Feed } from "@/lib/sync";
@@ -460,6 +460,7 @@ export async function openSession(id: string | number, reattach = false) {
         snapshotAfter = Math.max(...entryIds);
       }
       hydrated = true; chat.rev++;
+      void refreshUserIndex();
       chat.project = s.project ?? history.list.find(row => String(row.id) === sid)?.project ?? null;
       chat.machine = s.machine ?? null;
       chat.parentSessionId = s.parentSessionId ?? null;
@@ -473,6 +474,29 @@ export async function openSession(id: string | number, reattach = false) {
       chat.connected = false; return error.message !== "unauthorized";
     },
   });
+}
+
+/** Index of every user message in the session, loaded or not. Drives the transcript rail. */
+export const userIndex = ref<{ id: number; label: string }[]>([]);
+let userIndexSession: string | null = null;
+export async function refreshUserIndex() {
+  const sid = chat.session, epoch = chat.epoch;
+  if (!sid) { userIndex.value = []; userIndexSession = null; return; }
+  try {
+    const r = await json<{ messages: { id: number; label: string }[] }>(`/v1/sessions/${sid}/user-messages`, { timeoutMs: 30000 });
+    if (chat.session !== sid || chat.epoch !== epoch) return;
+    userIndex.value = r.messages; userIndexSession = sid;
+  } catch { /* the rail falls back to loaded entries */ }
+}
+export function userIndexFor(sid: string | null) { return sid && sid === userIndexSession ? userIndex.value : []; }
+/** Loads older pages until the entry is present. */
+export async function ensureEntryLoaded(id: number): Promise<boolean> {
+  for (let i = 0; i < 100 && !entries.has(id); i++) {
+    if (!chat.hasMoreEntries) return false;
+    await loadOlderEntries();
+    if (chat.loadingOlder) return false;
+  }
+  return entries.has(id);
 }
 
 /** Loads older entries using the cursor pagination contract. */

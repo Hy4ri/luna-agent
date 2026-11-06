@@ -622,6 +622,30 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     });
   });
 
+  // Lightweight index of every user message, so the UI rail works before older entries are loaded.
+  app.get("/v1/sessions/:id/user-messages", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const out: { id: number; label: string }[] = [];
+    let cursor: { after: number; order: "descending" } | undefined;
+    for (let guard = 0; guard < 200; guard++) {
+      const page = await conv.entries({ order: "descending" }, 500, cursor as never, context);
+      for (const entry of page.items) {
+        const user = (entry.model ?? []).find((m: any) => m.role === "user") as any;
+        if (!user) continue;
+        const text = (typeof user.content === "string" ? user.content
+          : Array.isArray(user.content) ? user.content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" ") : "")
+          .replace(/\s+/g, " ").trim();
+        if (entry.kind === "pi.user" && /^Background process [a-f0-9-]+ finished:/.test(text)) continue;
+        out.push({ id: Number(entry.id), label: text.length > 80 ? text.slice(0, 80) + "…" : text || "Message" });
+      }
+      if (page.next === undefined) break;
+      cursor = { after: page.next.after as number, order: "descending" };
+    }
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ messages: out.reverse() });
+  });
+
   app.get("/v1/sessions/:id", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
