@@ -85,6 +85,16 @@ function stopScrub() {
   scrubbing.value = false;
 }
 
+let lastWheel = 0;
+function handleWheel(event: WheelEvent) {
+  if (event.deltaY === 0) return;
+  event.preventDefault();
+  const now = performance.now();
+  if (now - lastWheel < 80) return;
+  lastWheel = now;
+  selectLevel(preview.value + (event.deltaY < 0 ? 1 : -1));
+}
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key >= "1" && event.key <= "7") {
     event.preventDefault();
@@ -139,6 +149,7 @@ onUnmounted(() => {
     :aria-label="`Reasoning level: ${label}`"
     :title="`Reasoning level: ${label}`"
     :style="{ '--reasoning-color': color }"
+    @wheel.prevent="handleWheel"
   >
     <svg class="think-eq-icon" viewBox="0 0 12 18" fill="none" aria-hidden="true">
       <rect
