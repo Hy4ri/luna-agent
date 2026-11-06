@@ -113,6 +113,7 @@ luna-pi/
 │   ├── luna.ts                 # openLuna() wrapper around pi-durable harness + coding/memory/skills
 │   ├── server.ts               # Hono HTTP/SSE API routes and static web asset serving
 │   ├── routes/                 # Route handler modules registered by server.ts
+│   ├── terminal/               # User terminals: node-pty host, session-owned registry, attach tickets and WebSocket (worker relay in workers.ts)
 │   ├── config.ts               # Strict Zod ConfigSchema and path/env resolution
 │   ├── settings.ts             # SettingsStore: live config reading, validation, and atomic writes
 │   ├── cli.ts                  # Interactive terminal client against the daemon HTTP/SSE API
@@ -193,6 +194,7 @@ A capability is complete only when all three layers are verified:
 - **Network binding:** Binding `server.host` to any non-loopback address (`0.0.0.0`, LAN IP) requires `LUNA_TOKEN` in the environment. `src/daemon.ts` refuses to start otherwise.
 - **Secrets handling:** API tokens and provider credentials belong in environment variables or `<dataDir>/auth.json` (mode `0600`). HTTP API responses (such as `/v1/mcp` or `/v1/providers`) must expose secret key names/status only, never secret values.
 - **MCP child environment:** Stdio MCP servers must receive `getDefaultEnvironment()` merged with their explicitly configured `env` map—never raw `process.env` (which would leak `LUNA_TOKEN` and provider API keys).
+- **User terminals:** `terminal.user` is off by default and read live. The shell environment must never contain `LUNA_TOKEN` or `LUNA_WORKER_TOKEN`. The attach WebSocket takes a single-use ticket, never the Bearer token in a URL.
 - **Gated execution:** Background shell processes (`processes.enabled`) and shell command skill benchmarks (`improve.allowCommandBenchmarks`) are disabled by default and must remain config-gated.
 - **External notifications:** When sending process or ask notifications to `cron.notifyUrl`, send status summaries only; never leak raw shell stdout/stderr into external push notifications.
 

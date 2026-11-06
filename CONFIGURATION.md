@@ -1231,6 +1231,26 @@ The session's own model is never used, so a large session model does not change 
 - Focus an image preview and press **Enter / Space** to open it. The viewer supports the same keys to change zoom.
 - In split view, tab to the divider controls. Swap tiles with the button; use arrow keys to resize, or Enter/Space to reset.
 
+## User terminal
+
+An interactive shell in a bottom dock of the web UI, drawn by ghostty-web and backed by node-pty. It is off by default.
+
+- `terminal.user` (boolean, default `false`): allow user terminals. Settings > Tools > Terminal. It is read live and enforced at the WebSocket upgrade, so turning it off stops new attaches without a restart.
+- Open the dock with the header button, **Ctrl+\`**, or "Show terminal" in the command palette. A session can run up to 8 terminals at once.
+- The shell is the daemon's `$SHELL` as a login shell (`-l`), or `/bin/sh` when `$SHELL` is unset or missing. The environment has `TERM=xterm-256color` and `COLORTERM=truecolor`. `LUNA_TOKEN` and `LUNA_WORKER_TOKEN` are removed. On a worker machine the worker picks its own shell from its own environment.
+- A terminal belongs to its session. It survives closing the dock or the browser tab, keeps the last 2 MB of output, and replays it on re-attach. It closes when the session is deleted or the daemon stops. A session on a worker machine runs its terminals on that machine; if the worker goes offline they end with the reason. Workers older than this feature report no `pty` capability, and the terminal says to update and restart them.
+- Anyone with the API token can open a shell as the daemon's user. Enable it only on a daemon you already trust with that access.
+
+Routes (Bearer token; a terminal that belongs to another session returns 404):
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/sessions/:sid/terminals` | `{ enabled, terminals }` |
+| `POST /v1/sessions/:sid/terminals` | Start one. Body `{ cols?, rows? }`. 403 when off, 503 when the machine is unavailable, 409 at the limit |
+| `POST /v1/sessions/:sid/terminals/:id/ticket` | Single-use attach ticket, valid 30 seconds |
+| `DELETE /v1/sessions/:sid/terminals/:id` | Close a terminal |
+| `GET /v1/terminals/:id/attach?ticket=` (WebSocket) | Raw input and output. The Bearer token never goes in a URL |
+
 ## Web frontend development
 
 The web frontend uses Vue 3, Vite, TypeScript, Tailwind CSS, and shadcn-vue.
