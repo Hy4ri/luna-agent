@@ -88,12 +88,12 @@ export class TerminalRegistry {
       if (left > 0) this.pending.set(input.session, left); else this.pending.delete(input.session);
     }
     const entry: Entry = {
-      info: { id: randomUUID(), session: input.session, owner: input.owner ?? "user", worker: input.worker, cwd: input.cwd, shell: basename(file), cols, rows, status: "running", exitCode: null, createdAt: Date.now() },
+      info: { id: randomUUID(), session: input.session, owner: input.owner ?? "user", worker: input.worker, cwd: input.cwd, shell: proc.shell ?? basename(file), cols, rows, status: "running", exitCode: null, createdAt: Date.now() },
       proc, ring: [], ringBytes: 0, listeners: new Set(),
     };
     this.entries.set(entry.info.id, entry);
     proc.onData(chunk => this.output(entry, chunk));
-    proc.onExit(exit => this.end(entry, exit.exitCode, exit.signal ? `Killed by signal ${exit.signal}.` : undefined));
+    proc.onExit(exit => this.end(entry, exit.exitCode, exit.reason ?? (exit.signal ? `Killed by signal ${exit.signal}.` : undefined)));
     this.pruneEnded(input.session);
     return { ...entry.info };
   }

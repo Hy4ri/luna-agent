@@ -4,6 +4,7 @@
 import { homedir, hostname, userInfo } from "node:os";
 import { pathToFileURL } from "node:url";
 import WebSocket from "ws";
+import { defaultShell, shellEnvironment, spawnNodePty, type PtyProcess } from "./terminal/pty-host.js";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError } from "@earendil-works/pi-durable/env";
@@ -72,7 +73,7 @@ export function startWorker(o: WorkerOptions) {
   const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
     user: userInfo().username, home: workerHome, cwd, path: process.env.PATH, browser: services.browserCapability(),
     generatedFiles: generatedRootPath !== undefined,
-    uploadFiles: uploadStore !== undefined };
+    uploadFiles: uploadStore !== undefined, pty: true };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
   let socket: WebSocket | undefined, stopped = false, delay = 1000, retry: ReturnType<typeof setTimeout> | undefined;
   let connected: (() => void) | undefined;
@@ -85,12 +86,15 @@ export function startWorker(o: WorkerOptions) {
     const ws = new WebSocket(target, { headers: { authorization: `Bearer ${o.token}` } });
     socket = ws;
     const envs = new Map<string, NodeExecutionEnv>();
+    const ptys = new Map<number, PtyProcess>();
     const calls = new Map<number, AbortController>();
     const handles = new Map<number, Record<string, (...args: unknown[]) => Promise<unknown>>>();
     let nextHandle = 1, liveness: ReturnType<typeof setTimeout> | undefined;
     const alive = () => { clearTimeout(liveness); liveness = setTimeout(() => ws.terminate(), 45_000); };
     let released: Promise<void> | undefined;
     release = () => released ??= (async () => {
+      for (const p of ptys.values()) try { p.kill(); } catch { /* already gone */ }
+      ptys.clear();
       for (const c of calls.values()) c.abort();
       calls.clear();
       await Promise.all([...handles.values()].map(h => h.close?.(BACKGROUND_CONTEXT).catch(() => {})));
@@ -117,6 +121,20 @@ export function startWorker(o: WorkerOptions) {
       if (!m || typeof m !== "object") return;
       if (m.t === "welcome") { log(`worker: connected to ${o.url} as "${m.name}" (id ${m.workerId})`); connected?.(); return; }
       if (m.t === "abort") { calls.get(m.id)?.abort(); return; }
+      if (m.t === "pty.open") {
+        try {
+          const { file, args } = defaultShell(process.env);
+          const p = spawnNodePty({ file, args, cwd: m.cwd || cwd, env: shellEnvironment(process.env), cols: m.cols, rows: m.rows });
+          ptys.set(m.id, p);
+          p.onData(d => send({ t: "pty.output", id: m.id, data: d.toString("base64") }));
+          p.onExit(e => { if (ptys.delete(m.id)) send({ t: "pty.exit", id: m.id, exitCode: e.exitCode, ...(e.signal ? { signal: e.signal } : {}) }); });
+          send({ t: "pty.opened", id: m.id, shell: file.split("/").pop() || "sh" });
+        } catch (error) { send({ t: "pty.error", id: m.id, message: error instanceof Error ? error.message : String(error) }); }
+        return;
+      }
+      if (m.t === "pty.input") { ptys.get(m.id)?.write(Buffer.from(m.data, "base64")); return; }
+      if (m.t === "pty.resize") { try { ptys.get(m.id)?.resize(m.cols, m.rows); } catch { /* exited */ } return; }
+      if (m.t === "pty.kill") { const p = ptys.get(m.id); ptys.delete(m.id); try { p?.kill(); } catch { /* exited */ } return; }
       if (m.t !== "call" && m.t !== "handle" && m.t !== "browser" && m.t !== "mcpList" && m.t !== "mcpCall") return;
       const controller = new AbortController();
       calls.set(m.id, controller);

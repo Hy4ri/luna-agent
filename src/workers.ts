@@ -9,9 +9,10 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { Context } from "@earendil-works/chord";
 import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
+import type { PtyProcess } from "./terminal/pty-host.js";
 import { ExecutionError, FileError, type ExecutionEnv, type Result, type ShellExecOptions } from "@earendil-works/pi-durable/env";
 import { CONNECT_PATH, PROTOCOL_VERSION, decodeResult, encode,
-  type BrowserMethod, type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
+  type BrowserMethod, type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type PtyFrame, type WorkerMessage } from "./worker-protocol.js";
 
 /** Where a session's file and shell tools run. `worker: null` is the main host. Forks keep their source's machine. */
 export const ExecTarget = defineDoc<{ worker: number | null }>({
@@ -69,6 +70,7 @@ const failure = (method: EnvMethod | "handle" | "browser" | "mcp", code: string,
 
 class Link {
   private pending = new Map<number, Pending>();
+  readonly ptys = new Map<number, (m: PtyFrame) => void>();
   private next = 1;
   private beat: ReturnType<typeof setInterval>;
   private alive = true;
@@ -84,6 +86,7 @@ class Link {
       let m: WorkerMessage;
       try { m = JSON.parse(String(raw)) as WorkerMessage; } catch { return; }
       if (!m || typeof m !== "object") return;
+      if (typeof m.t === "string" && m.t.startsWith("pty.")) { this.ptys.get((m as PtyFrame).id)?.(m as PtyFrame); return; }
       const p = "id" in m ? this.pending.get(m.id) : undefined;
       if (!p || !("id" in m)) return;
       try {
@@ -117,9 +120,11 @@ class Link {
     });
   }
   send(m: MainMessage) { this.ws.send(JSON.stringify(m)); }
+  nextId() { return this.next++; }
   /** The link is gone. Fail in-flight calls; never rerun them on another machine. */
   drop(reason: string) {
     clearInterval(this.beat);
+    for (const [id, fn] of [...this.ptys]) { this.ptys.delete(id); fn({ t: "pty.exit", id, exitCode: null, reason }); }
     for (const [id, p] of this.pending) {
       this.pending.delete(id);
       p.resolve(failure(p.method, "unknown", `${reason} ${p.method === "exec" ? "The command was not rerun. Its state on the worker is unknown; check before you repeat it." : "The operation was not retried."}`));
@@ -209,6 +214,44 @@ export class WorkerHub {
     const link = this.links.get(workerId);
     if (!link) return Promise.resolve(failure("handle", "unknown", this.offline(workerId)));
     return link.call("handle", id => ({ t: "handle", id, handle, op, args: encode(args) as unknown[] }), context);
+  }
+  /** Open an interactive shell on a worker. The worker picks the shell and environment; main only relays bytes. */
+  openPty(workerId: number, options: { cwd: string; cols: number; rows: number }): Promise<PtyProcess> {
+    const link = this.links.get(workerId);
+    if (!link) return Promise.reject(new Error(this.offline(workerId)));
+    if (!link.capabilities.pty) return Promise.reject(new Error("This machine's worker cannot host terminals. Update and restart it."));
+    const id = link.nextId();
+    let dataFn: ((d: Buffer) => void) | undefined, exitFn: Parameters<PtyProcess["onExit"]>[0] | undefined;
+    const early: Buffer[] = [];
+    let exited: Parameters<Parameters<PtyProcess["onExit"]>[0]>[0] | undefined;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { link.ptys.delete(id); reject(new Error("The worker did not start the terminal in time.")); }, 10_000);
+      link.ptys.set(id, m => {
+        if (m.t === "pty.opened") {
+          clearTimeout(timer);
+          resolve({
+            pid: undefined, shell: String(m.shell || "sh"),
+            onData: fn => { dataFn = fn; for (const b of early.splice(0)) fn(b); },
+            onExit: fn => { exitFn = fn; if (exited) fn(exited); },
+            write: data => { if (link.ptys.has(id)) link.send({ t: "pty.input", id, data: Buffer.from(data).toString("base64") }); },
+            resize: (cols, rows) => { if (link.ptys.has(id)) link.send({ t: "pty.resize", id, cols, rows }); },
+            kill: () => { if (link.ptys.delete(id)) { try { link.send({ t: "pty.kill", id }); } catch { /* link closed */ } } },
+          });
+        } else if (m.t === "pty.error") {
+          clearTimeout(timer); link.ptys.delete(id); reject(new Error(String(m.message)));
+        } else if (m.t === "pty.output") {
+          if (typeof m.data !== "string") return;
+          const b = Buffer.from(m.data, "base64");
+          if (dataFn) dataFn(b); else early.push(b);
+        } else if (m.t === "pty.exit") {
+          clearTimeout(timer);
+          link.ptys.delete(id);
+          const e = { exitCode: typeof m.exitCode === "number" ? m.exitCode : null, ...(typeof m.signal === "number" && { signal: m.signal }), ...(typeof m.reason === "string" && { reason: m.reason }) };
+          if (exitFn) exitFn(e); else { exited = e; reject(new Error(e.reason ?? "The terminal exited before it started.")); }
+        }
+      });
+      link.send({ t: "pty.open", id, cwd: options.cwd, cols: options.cols, rows: options.rows });
+    });
   }
   browserCall(workerId: number, method: BrowserMethod, args: unknown[], context: Context): Promise<Result<unknown, Error>> {
     const link = this.links.get(workerId);

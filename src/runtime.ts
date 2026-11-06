@@ -132,7 +132,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const extensions: Extension[] = [];
   // Workers hub early so browser tools can proxy to the session's worker.
   const terminals = new TerminalService({
-    registry: new TerminalRegistry({ launcher: localLauncher }),
+    registry: new TerminalRegistry({
+      launcher: (worker, options) => worker === null ? localLauncher(null, options) : workers.openPty(worker, { cwd: options.cwd, cols: options.cols, rows: options.rows }),
+    }),
     enabled: () => (settings?.resolved() ?? cfg).terminal.user,
   });
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
