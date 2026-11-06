@@ -21,6 +21,7 @@ export const models = reactive({
   defaultModel: null as ModelRef | null,
   selected: null as ModelRef | null,
   thinking: "off",
+  defaultThinkingLevel: "off",
   draft: {} as { model?: ModelRef; thinkingLevel?: string },
   pins: [] as string[],
   loaded: false,
@@ -97,9 +98,10 @@ export async function loadModels(options?: LoadModelsOptions): Promise<boolean> 
     await pinOperation();
     if (generation !== modelsRequest || origin !== serverUrl.value || credential !== token.value) return false;
     try {
-      const r = await json<{ models: ModelInfo[]; default: ModelRef | null; refresh: typeof models.refresh }>("/v1/models");
+      const r = await json<{ models: ModelInfo[]; default: ModelRef | null; defaultThinkingLevel?: string; refresh: typeof models.refresh }>("/v1/models");
       if (generation !== modelsRequest || origin !== serverUrl.value || credential !== token.value) return false;
       models.list = r.models; models.defaultModel = r.default; models.refresh = r.refresh;
+      models.defaultThinkingLevel = r.defaultThinkingLevel ?? "off";
       catalogFresh = { origin, credential, expires: Date.now() + 30_000 };
     } catch {
       // Keep the last usable catalog when the server is unavailable.
@@ -109,7 +111,10 @@ export async function loadModels(options?: LoadModelsOptions): Promise<boolean> 
       return false;
     }
     models.loaded = true;
-    if (!chat.session) setSelectedModel(models.draft.model ?? models.defaultModel);
+    if (!chat.session) {
+      setSelectedModel(models.draft.model ?? models.defaultModel);
+      models.thinking = models.draft.thinkingLevel ?? models.defaultThinkingLevel;
+    }
     return true;
   })();
 

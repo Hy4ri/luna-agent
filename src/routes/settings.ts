@@ -4,7 +4,7 @@ import { invalidateOpencodeStatus } from "../opencode-cli.js";
 import { invalidateClaudeLoginStatus } from "../claude-native/status.js";
 
 export function registerSettings(app: Hono, ctx: RouteCtx): void {
-  const { opts, err } = ctx;
+  const { opts, err, baseAgent } = ctx;
 
   app.get("/v1/settings", (c) =>
     opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"),
@@ -102,7 +102,7 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
       input: m.input,
       contextWindow: m.contextWindow,
     }));
-    return c.json({ default: cur, models: list, refresh: opts.providers?.catalogStatus() ?? null });
+    return c.json({ default: cur, defaultThinkingLevel: baseAgent().thinkingLevel ?? "off", models: list, refresh: opts.providers?.catalogStatus() ?? null });
   });
 
   app.post("/v1/models/refresh", async (c) => {

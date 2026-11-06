@@ -9,6 +9,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { openLuna, context } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
 import { createApp } from "../src/server.js";
+import { SettingsStore } from "../src/settings.js";
 
 function gate() {
   let resolve!: () => void;
@@ -72,6 +73,39 @@ test("busy sessions accept thinking-only changes without interrupting the run; m
     assert.equal((await patch({ instructions: "idle change" })).status, 200);
   } finally {
     finish.resolve();
+    await harness.close(context);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The draft UI needs the same default as POST /v1/sessions before any message exists.
+test("model catalog exposes the live new-session reasoning default", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-thinking-default-"));
+  const faux = fauxProvider({ models: [{ id: "thinking", reasoning: true }] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel("thinking")!;
+  const ref = { provider: model.provider, modelId: model.id };
+  const harness = await openLuna({ dbPath: join(dir, "luna.db"), models, memory: false, coding: false });
+  try {
+    const app = createApp({ harness, models, agent: { model: ref, thinkingLevel: "high" } });
+    assert.equal((await (await app.request("/v1/models")).json() as { defaultThinkingLevel: string }).defaultThinkingLevel, "high");
+    const unset = createApp({ harness, models, agent: { model: ref } });
+    assert.equal((await (await unset.request("/v1/models")).json() as { defaultThinkingLevel: string }).defaultThinkingLevel, "off");
+    const settings = new SettingsStore(join(dir, "config.json"), dir);
+    const live = createApp({ harness, models, settings, agent: { model: ref, thinkingLevel: "high" } });
+    for (const level of ["max", "off"] as const) {
+      settings.update(s => { s.thinkingLevel = level; });
+      assert.equal((await (await live.request("/v1/models")).json() as { defaultThinkingLevel: string }).defaultThinkingLevel, level);
+      const created = await live.request("/v1/sessions", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      assert.equal(created.status, 201);
+      const { id } = await created.json() as { id: number };
+      const session = await (await live.request(`/v1/sessions/${id}?view=ui`)).json() as { agent: { thinkingLevel: string } };
+      assert.equal(session.agent.thinkingLevel, level, "empty session and catalog must agree");
+    }
+  } finally {
     await harness.close(context);
     rmSync(dir, { recursive: true, force: true });
   }

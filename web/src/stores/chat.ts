@@ -299,7 +299,7 @@ export function clearConversation() {
   saveDraft(); detachView(); setSession(null);
   chat.title = "New conversation";
   models.draft = {};
-  setSelectedModel(models.defaultModel); models.thinking = "off"; chat.usage = null;
+  setSelectedModel(models.defaultModel); models.thinking = models.defaultThinkingLevel; chat.usage = null;
   restoreDraft();
 }
 function applyAgent(agent: any) {

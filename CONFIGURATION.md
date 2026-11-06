@@ -2261,6 +2261,14 @@ common GitHub token formats. Git authentication errors are not Luna login failur
 
 `POST /v1/sessions/:id/submissions/:submission/send-now` accepts `{ content }`. It withdraws only the selected queued input and submits a redirect with a stable replacement request ID. Retries do not duplicate delivery. Already placed messages return 409. Busy-input safety guards still apply, so blocked redirects remain queued.
 
+### New-session model and reasoning defaults
+
+`GET /v1/models` returns `{ default, defaultThinkingLevel, models, refresh }`.
+`default` is the default model reference (`{ provider, modelId }` or `null`).
+`defaultThinkingLevel` is the live reasoning default used when creating a session (`off` if unset).
+Before the first message, the web composer displays these defaults unless the user has selected a draft override.
+Refreshing the catalog preserves draft overrides and does not change an existing session's reasoning level.
+
 ### Ordered pinned models
 
 `pinnedModels` is an ordered array of unique `provider/modelId` strings (default `[]`).
