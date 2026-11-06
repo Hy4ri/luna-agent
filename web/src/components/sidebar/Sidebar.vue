@@ -568,14 +568,16 @@ onMounted(() => {
         <p v-if="deviceMachine && !deviceMachine.online" class="folder-note">{{ deviceMachine.name }} is offline. You can read these sessions, but you cannot start new ones.</p>
       </div>
 
-      <div id="sessions" v-if="!collapsed" :class="{ 'session-window': openFolder || searching }">
+      <div id="sessions" v-if="!collapsed" class="relative" :class="{ 'session-window': openFolder || searching }">
         <div class="eyebrow px-3 py-1 text-xs font-semibold text-muted-foreground" v-if="history.archived">Archived</div>
 
         <div v-if="history.error" class="p-3 text-xs text-destructive flex flex-col gap-1.5" role="alert">
           <span>{{ history.error }}</span>
           <button class="self-start underline text-foreground hover:opacity-80" @click="loadSessions">Retry</button>
         </div>
-        <p v-if="!openFolder && !searching && history.loading" class="muted px-3 py-2 text-sm" role="status">Loading conversations…</p>
+        <span v-if="history.loading" class="absolute right-2 top-1 z-10 text-muted-foreground pointer-events-none" role="status" aria-label="Loading conversations" title="Loading conversations">
+          <LoaderCircle :size="14" class="motion-safe:animate-spin" aria-hidden="true" />
+        </span>
 
         <!-- Level 1: project folders -->
         <template v-if="!openFolder && !searching">
@@ -684,11 +686,6 @@ onMounted(() => {
           </div>
           </div>
 
-          <!-- Loading indicator -->
-          <div v-if="history.loading && history.rows.length === 0" class="flex items-center justify-center py-6 text-muted-foreground" role="status">
-            <LoaderCircle :size="18" class="motion-safe:animate-spin mr-2" />
-            <span class="text-xs">Loading conversations…</span>
-          </div>
         </template>
       </div>
     </section>
