@@ -6,6 +6,7 @@ import { ArrowLeft, Menu, ScanEye, SquareTerminal, Ellipsis, Moon, Plus, Pin, Pi
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
+import ProjectIcon from '@/components/ProjectIcon.vue';
 import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
 import ReviewInspector from "@/components/chat/ReviewInspector.vue";
@@ -296,6 +297,12 @@ const activeProject = computed(() => {
   return null;
 });
 
+/** Project shown in the chat header: the open session's project (or draft), else the general "Chats" project for sessions without one. */
+const headerProject = computed(() => {
+  const id = activeProject.value;
+  return (id !== null ? history.projects.find(p => p.id === id) : undefined) ?? history.projects.find(p => p.general);
+});
+
 const newSessionPending = ref(false);
 
 async function handleNewSession() {
@@ -406,7 +413,10 @@ onUnmounted(() => {
             <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" :aria-controls="sessionPane ? undefined : 'side'" :aria-expanded="sessionPane ? undefined : ui.drawer" @click="openNavigation"><Menu :size="18" /></button>
             <button v-if="chat.parentSessionId" id="back-to-main-agent" type="button" class="icon-button shrink-0" aria-label="Back to main agent" :title="`Back to main agent · Session ${chat.parentSessionId}`" @click="openSession(chat.parentSessionId)"><ArrowLeft :size="18" /></button>
             <div class="heading min-w-0 flex-1">
-              <span dir="auto" id="title" class="block truncate text-sm font-medium">{{ chat.title }}</span>
+              <div class="flex min-w-0 items-center gap-2">
+                <span v-if="headerProject" class="shrink-0" :title="headerProject.name"><ProjectIcon :icon="headerProject.icon" :color="headerProject.color" :size="20" :align-label="chat.title" /></span>
+                <span dir="auto" id="title" class="block min-w-0 truncate text-sm font-medium">{{ chat.title }}</span>
+              </div>
               <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
               <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt, undefined, activeSession.recovery?.exact ?? true) }}<template v-if="activeSession.recovery"> · {{ activeSession.recovery.attempt }}/{{ activeSession.recovery.maxAttempts }}</template></span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
               <span v-else-if="activeSession?.recovery?.pausedReason" id="limit-paused" class="session-status block truncate text-muted-foreground" :title="activeSession.recovery.pausedReason" role="status">Auto-retry paused · {{ activeSession.recovery.pausedReason }}</span>
