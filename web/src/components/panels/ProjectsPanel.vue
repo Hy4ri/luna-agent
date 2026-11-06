@@ -222,7 +222,7 @@ const remove = () => run(async () => {
   if (!resp.ok) throw new Error(((await resp.json().catch(() => ({}))) as { error?: string }).error || resp.statusText);
   await refresh();
   select(history.projects[0]?.id ?? null);
-  showDetail.value = target !== null;
+  showDetail.value = false;
 });
 
 const startChat = () => run(async () => {
@@ -252,7 +252,7 @@ onMounted(async () => {
   const active = target ?? Number(chat.project ?? localStorage.getItem("luna.project"));
   const start = history.projects.find(p => p.id === active) ?? history.projects[0];
   select(start ? start.id : "new");
-  showDetail.value = false;
+  showDetail.value = target !== null;
 });
 </script>
 
