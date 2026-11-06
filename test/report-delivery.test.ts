@@ -96,7 +96,7 @@ test("background process output reaches the next active model request", { timeou
   let calls = 0, nextContext = "";
   faux.setResponses(Array.from({ length: 8 }, () => request => {
     switch (calls++) {
-      case 0: return fauxAssistantMessage([fauxToolCall("process_start", { command: `cat '${fifo}'` })], { stopReason: "toolUse" });
+      case 0: return fauxAssistantMessage([fauxToolCall("process", { action: "start", command: `cat '${fifo}'` })], { stopReason: "toolUse" });
       case 1: return fauxAssistantMessage([fauxToolCall("hold", {})], { stopReason: "toolUse" });
       case 2: nextContext = JSON.stringify(request.messages);
     }

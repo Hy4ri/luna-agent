@@ -5,19 +5,19 @@ export type AnsiSpan = { text: string; cls: string };
 export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" | "web_search" | "web_extract" | "answers" | "skill" | "media" | "codemode" | "text" | "generic";
 
 const TEXT_TOOLS = new Set([
-  "board", "remember", "recall", "forget", "cron_create", "cron_list", "cron_runs", "cron_toggle", "cron_remove",
-  "create_goal", "get_goal", "update_goal", "set_goal_tasks", "update_goal_task", "delegate_task", "session_search",
-  "tool_search", "inspect_runs", "extract_lessons", "skill_rollback", "skill_list", "skill_manage", "session_handoff",
-  "browser_open", "browser_navigate", "browser_close", "browser_snapshot", "browser_click", "browser_type", "browser_scroll", "browser_screenshot",
+  "board", "memory", "cron", "cron_history", "goal", "delegate_task", "session_search",
+  "tool_search", "session_handoff", "browser_tab", "browser_inspect", "browser_act",
 ]);
 
 /** Which renderer a call uses. Unknown tools (MCP and others) keep the generic arguments/output card. */
 export function toolView(name: string): ToolView {
   if (name === "codemode") return "codemode";
   if (["edit", "bash", "write", "read", "todo", "web_search", "web_extract"].includes(name)) return name as ToolView;
-  if (name === "process_start" || name === "process_manage") return "process";
+  if (name === "process") return "process";
   if (name === "ask_user_question") return "answers";
-  if (name === "skill_view" || name === "skill_propose") return "skill";
+  if (name === "skill_view") return "skill";
+  // Content-carrying skill changes show the proposed SKILL.md; list and other actions stay plain text.
+  if (name === "skill_manage") return "skill";
   if (name === "image_generate" || name === "vision_analyze") return "media";
   return TEXT_TOOLS.has(name) ? "text" : "generic";
 }
@@ -39,19 +39,31 @@ export function toolSummary(name: string, args: unknown): string {
       const to = from !== undefined && typeof a.limit === "number" ? from + a.limit - 1 : undefined;
       return clip(a.path) + (from === undefined ? "" : to === undefined ? `:${from}` : `:${from}–${to}`);
     }
-    case "browser_click": return clip(str(a.ref) ? "ref " + a.ref : str(a.selector));
-    case "browser_type": return clip(`"${str(a.text)}" → ${str(a.ref) ? "ref " + a.ref : str(a.selector)}`);
-    case "browser_scroll": return [str(a.direction), typeof a.amount === "number" ? a.amount + "px" : ""].filter(Boolean).join(" ");
-    case "process_manage": return [str(a.action), str(a.id).slice(0, 8)].filter(Boolean).join(" ");
+    case "browser_tab": return [str(a.action), clip(str(a.url), 60) || str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
+    case "browser_inspect": return [str(a.action), str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
+    case "browser_act": {
+      const el = str(a.ref) ? "ref " + a.ref : str(a.selector);
+      if (a.action === "type") return clip(`type "${str(a.text)}" → ${el}`);
+      if (a.action === "scroll") return ["scroll", str(a.direction), typeof a.amount === "number" ? a.amount + "px" : ""].filter(Boolean).join(" ");
+      return clip(["click", el].filter(Boolean).join(" "));
+    }
+    case "process": return a.action === "start" ? clip("start " + str(a.command)) : [str(a.action), str(a.id).slice(0, 8)].filter(Boolean).join(" ");
     case "todo": return [str(a.action), typeof a.id === "number" ? "#" + a.id : "", str(a.subject) || str(a.status)].filter(Boolean).map(s => clip(s, 60)).join(" ");
     case "board": return [str(a.action), typeof a.id === "number" ? "#" + a.id : "", clip(str(a.subject), 60) || str(a.status)].filter(Boolean).join(" ");
-    case "cron_create": return [str(a.name), str(a.expr) && `[${a.expr}]`].filter(Boolean).join(" ");
-    case "cron_toggle": case "cron_remove": case "cron_runs": return typeof a.id === "number" ? `job ${a.id}` + (typeof a.enabled === "boolean" ? (a.enabled ? " on" : " off") : "") : "";
-    case "forget": return typeof a.id === "number" ? "#" + a.id : "";
-    case "remember": return clip(str(a.key) || str(a.content));
-    case "update_goal_task": return [str(a.task_id), str(a.status)].filter(Boolean).join(" ");
-    case "update_goal": return str(a.status);
-    case "set_goal_tasks": return Array.isArray(a.tasks) ? `${a.tasks.length} task${a.tasks.length === 1 ? "" : "s"}` : "";
+    case "cron": {
+      if (a.action === "create") return [str(a.action), str(a.name), str(a.expr) && `[${a.expr}]`].filter(Boolean).join(" ");
+      return [str(a.action), typeof a.id === "number" ? `job ${a.id}` : typeof a.runId === "number" ? `run #${a.runId}` : "", typeof a.enabled === "boolean" ? (a.enabled ? "on" : "off") : ""].filter(Boolean).join(" ");
+    }
+    case "cron_history": return [str(a.action), typeof a.runId === "number" ? `run #${a.runId}` : typeof a.id === "number" ? `job ${a.id}` : ""].filter(Boolean).join(" ");
+    case "memory": return [str(a.action), a.action === "forget" ? (typeof a.id === "number" ? "#" + a.id : "") : clip(str(a.key) || str(a.content) || str(a.query), 60)].filter(Boolean).join(" ");
+    case "goal": {
+      if (a.action === "update_task") return ["update_task", str(a.task_id), str(a.status)].filter(Boolean).join(" ");
+      if (a.action === "update") return ["update", str(a.status)].filter(Boolean).join(" ");
+      if (a.action === "set_tasks") return Array.isArray(a.tasks) ? `set_tasks ${a.tasks.length} task${a.tasks.length === 1 ? "" : "s"}` : "set_tasks";
+      if (a.action === "create") return clip("create " + str(a.objective));
+      return str(a.action);
+    }
+    case "skill_manage": return [str(a.action), str(a.name), str(a.file_path)].filter(Boolean).join(" ");
     case "ask_user_question": return Array.isArray(a.questions) && a.questions[0] ? clip(str(a.questions[0].question)) + (a.questions.length > 1 ? ` +${a.questions.length - 1}` : "") : "";
     case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
     case "codemode": return clip(str(a.code));

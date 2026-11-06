@@ -1,14 +1,14 @@
-// Skill management tools: skill_list (catalog with write authority) and skill_manage (create, edit, delete,
-// linked files, restore). Write authority: only skills under the managed dir (<dataDir>/skills) change; skills from
+// Skill management tool: skill_manage (list with write authority, create, edit, benchmark-gated propose, rollback,
+// delete, linked files, restore). Write authority: only skills under the managed dir (<dataDir>/skills) change; skills from
 // other configured skillDirs are read-only. SKILL.md writes go through SkillImprover.propose (lint + version backup,
-// rollback with skill_rollback). Deletes and replaced linked files move to <historyDir>/.trash and can be restored.
+// rollback with skill_manage action=rollback). Deletes and replaced linked files move to <historyDir>/.trash and can be restored.
 // Everything is plain files rescanned on every use, so changes reach the catalog on the next model call.
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
-import type { ProposalResult, SkillImprover } from "./improve.js";
+import { proposeBenchmark, type ProposalResult, type ProposeOptions, type SkillImprover } from "./improve.js";
 import { linkedFiles, scanSkills, type Skill } from "./skills.js";
 
 export interface TrashEntry {
@@ -94,7 +94,7 @@ export class SkillManager {
     if (!inside(s.dir, abs)) throw new Error("file_path escapes the skill directory");
     const parts = relative(s.dir, abs).split(sep);
     if (parts.some((p) => p.startsWith("."))) throw new Error("file_path parts may not start with '.' (hidden files are not linked)");
-    if (parts.at(-1)!.toLowerCase() === "skill.md") throw new Error("SKILL.md is not a linked file; use create/edit (or skill_propose)");
+    if (parts.at(-1)!.toLowerCase() === "skill.md") throw new Error("SKILL.md is not a linked file; use create/edit (or propose)");
     // No symlinks on the way, and no nested skill owning the path.
     let d = s.dir;
     for (const p of parts) {
@@ -179,41 +179,33 @@ const text = (t: string, isError = false) => ({ output: [{ type: "text" as const
 const trashLine = (e: TrashEntry) =>
   `- ${e.id}: ${e.kind} ${e.skill}${e.file ? `/${e.file}` : ""} (${e.reason} ${new Date(e.deletedAt).toISOString()})`;
 
-/** Tools: skill_list, skill_manage. */
-export function createSkillManageExtension(mgr: SkillManager) {
-  const list = defineTool({
-    name: "skill_list",
-    description:
-      "List all skills with source and write authority: managed skills can be changed with skill_manage; external ones are read-only. " +
-      "Set include_deleted to also list trash entries that skill_manage restore can bring back.",
-    parameters: Type.Object({ include_deleted: Type.Optional(Type.Boolean()) }),
-    replay: "safe",
-    async execute({ include_deleted }) {
-      const skills = mgr.list();
-      let out = skills.length
-        ? skills.map((s) => `- ${s.name} [${s.managed ? "managed" : "external, read-only"}] ${s.files} linked file(s): ${s.description}\n  ${s.path}`).join("\n")
-        : "No skills.";
-      const trash = include_deleted ? mgr.trash() : [];
-      if (include_deleted) out += `\n\nDeleted (restorable):\n${trash.map(trashLine).join("\n") || "(none)"}`;
-      return { ...text(out), details: { skills, ...(include_deleted ? { trash } : {}) } as unknown as undefined };
-    },
-  });
-
+/** Tool: skill_manage (list, create, edit, propose, rollback, delete, write_file, delete_file, restore). */
+export function createSkillManageExtension(mgr: SkillManager, imp: SkillImprover, o: ProposeOptions = {}) {
+  const named = Object.keys(o.benchmarks ?? {});
   const manage = defineTool({
     name: "skill_manage",
     description:
-      "Change managed skills. create: new skill from full SKILL.md content. edit: replace SKILL.md (content) or one exact old_text with new_text. " +
-      "create/edit are linted only (no benchmark; use skill_propose for benchmark-gated changes) and back up the previous SKILL.md for skill_rollback. " +
+      "List and change skills. list: all skills with source and write authority (managed skills can change; external ones are read-only); include_deleted adds restorable trash entries. " +
+      "create: new skill from full SKILL.md content. edit: replace SKILL.md (content) or one exact old_text with new_text. create/edit are linted only and back up the previous SKILL.md. " +
+      "propose: create or update a skill (full SKILL.md) gated by a benchmark: it is linted, scored, and installed only if it does not regress; " +
+      "benchmark (named: " + (named.join(", ") || "none registered") + "), benchmark_command (shell, exit 0 = pass, $SKILL_PATH = candidate), or must_contain phrases; dry_run checks without installing. " +
+      "rollback: restore a backed-up SKILL.md version (default: latest). " +
       "delete: move the skill to the trash. write_file / delete_file: a linked file (file_path relative to the skill dir); a replaced or deleted file goes to the trash. " +
-      "restore: bring a trash entry back by id (see skill_list include_deleted).",
+      "restore: bring a trash entry back by id (see list include_deleted).",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("create"), Type.Literal("edit"), Type.Literal("delete"), Type.Literal("write_file"), Type.Literal("delete_file"), Type.Literal("restore")]),
-      name: Type.Optional(Type.String({ description: "Skill name (all actions except restore)." })),
-      content: Type.Optional(Type.String({ description: "create/edit: full SKILL.md. write_file: file content." })),
+      action: Type.Union([Type.Literal("list"), Type.Literal("create"), Type.Literal("edit"), Type.Literal("propose"), Type.Literal("rollback"), Type.Literal("delete"), Type.Literal("write_file"), Type.Literal("delete_file"), Type.Literal("restore")]),
+      name: Type.Optional(Type.String({ description: "Skill name (all actions except list and restore)." })),
+      content: Type.Optional(Type.String({ description: "create/edit/propose: full SKILL.md including frontmatter. write_file: file content." })),
       old_text: Type.Optional(Type.String({ description: "edit: exact text in SKILL.md to replace (must match once)." })),
       new_text: Type.Optional(Type.String({ description: "edit: replacement for old_text." })),
       file_path: Type.Optional(Type.String({ description: "write_file/delete_file: path relative to the skill directory." })),
       id: Type.Optional(Type.String({ description: "restore: trash entry id." })),
+      include_deleted: Type.Optional(Type.Boolean({ description: "list: also list restorable trash entries." })),
+      benchmark: Type.Optional(Type.String({ description: "propose: named benchmark." })),
+      benchmark_command: Type.Optional(Type.String({ description: "propose: shell benchmark, exit 0 = pass." })),
+      must_contain: Type.Optional(Type.Array(Type.String(), { description: "propose: phrases the skill must keep." })),
+      dry_run: Type.Optional(Type.Boolean({ description: "propose: check without installing." })),
+      version: Type.Optional(Type.Number({ description: "rollback: version to restore (default: latest backup)." })),
     }),
     replay: "unsafe",
     async execute(a) {
@@ -221,8 +213,26 @@ export function createSkillManageExtension(mgr: SkillManager) {
         const need = (v: string | undefined, what: string): string => { if (v === undefined || v === "") throw new Error(`${a.action} needs ${what}`); return v; };
         const proposal = (r: ProposalResult) => ({ ...text(JSON.stringify(r, null, 2), !r.applied && r.reason !== "no change"), details: r as unknown as undefined });
         switch (a.action) {
+          case "list": {
+            const skills = mgr.list();
+            let out = skills.length
+              ? skills.map((s) => `- ${s.name} [${s.managed ? "managed" : "external, read-only"}] ${s.files} linked file(s): ${s.description}\n  ${s.path}`).join("\n")
+              : "No skills.";
+            const trash = a.include_deleted ? mgr.trash() : [];
+            if (a.include_deleted) out += `\n\nDeleted (restorable):\n${trash.map(trashLine).join("\n") || "(none)"}`;
+            return { ...text(out), details: { skills, ...(a.include_deleted ? { trash } : {}) } as unknown as undefined };
+          }
           case "create": return proposal(await mgr.create(need(a.name, "name"), need(a.content, "content")));
           case "edit": return proposal(await mgr.edit(need(a.name, "name"), a));
+          case "propose": {
+            const r = await imp.propose(need(a.name, "name"), need(a.content, "content"), proposeBenchmark(o, a), a.dry_run ?? false);
+            return { ...text(JSON.stringify(r, null, 2), !r.applied && r.reason !== "no change" && !r.reason.startsWith("verified (dry")), details: r as unknown as undefined };
+          }
+          case "rollback": {
+            const name = need(a.name, "name");
+            try { return text(`Restored ${name} to v${imp.rollback(name, a.version)}`); }
+            catch (e) { return text(`${(e as Error).message}. Versions: ${imp.versions(name).join(", ") || "none"}`, true); }
+          }
           case "delete": { const e = mgr.deleteSkill(need(a.name, "name")); return text(`Deleted skill ${e.skill}; restore with id ${e.id}`); }
           case "write_file": {
             const r = mgr.writeFile(need(a.name, "name"), need(a.file_path, "file_path"), a.content ?? need(a.content, "content"));
@@ -234,5 +244,5 @@ export function createSkillManageExtension(mgr: SkillManager) {
       } catch (e) { return text((e as Error).message, true); }
     },
   });
-  return defineExtension({ name: "skill-manage", tools: [list, manage] });
+  return defineExtension({ name: "skill-manage", tools: [manage] });
 }

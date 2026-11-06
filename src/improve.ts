@@ -5,8 +5,6 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Type } from "typebox";
-import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { parseFrontmatter, scanSkills } from "./skills.js";
 
 export interface RunRecord { id: number; source: string; label: string; status: "ok" | "error" | "running"; startedAt: number; text: string }
@@ -219,75 +217,23 @@ export class SkillImprover {
   }
 }
 
-const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
+/** Benchmark options for benchmark-gated skill changes (skill_manage action=propose). */
+export type ProposeOptions = Pick<ImproverOptions, "benchmarks" | "allowCommandBenchmarks">;
 
-/** Tools: inspect_runs, extract_lessons, skill_propose, skill_rollback. */
-export function createImproveExtension(imp: SkillImprover, o: Pick<ImproverOptions, "benchmarks" | "allowCommandBenchmarks"> = {}) {
+/** Pick the benchmark a propose call asked for: a named one, a shell command (when allowed), or must_contain phrases. */
+export function proposeBenchmark(o: ProposeOptions, a: { benchmark?: string; benchmark_command?: string; must_contain?: string[] }): Benchmark | undefined {
   const named = o.benchmarks ?? {};
-  const allowCmd = () => typeof o.allowCommandBenchmarks === "function" ? o.allowCommandBenchmarks() : (o.allowCommandBenchmarks ?? false);
-  const inspect = defineTool({
-    name: "inspect_runs",
-    description: "List recent past runs (scheduled jobs etc.) with status and error/output text, newest first.",
-    parameters: Type.Object({
-      limit: Type.Optional(Type.Number({ description: "Max runs (default 20)." })),
-      status: Type.Optional(Type.Union([Type.Literal("ok"), Type.Literal("error")])),
-    }),
-    replay: "safe",
-    async execute({ limit, status }) {
-      const runs = imp.inspectRuns({ limit: limit ?? 20, ...(status ? { status } : {}) });
-      return text(runs.length ? runs.map((r) => `#${r.id} [${r.source}/${r.label}] ${r.status}: ${r.text.slice(0, 200).replace(/\s+/g, " ")}`).join("\n") : "No runs recorded.");
-    },
-  });
-  const lessons = defineTool({
-    name: "extract_lessons",
-    description: "Group recent failed runs by normalized error signature and return recurring patterns (count, affected jobs, example). Use these to decide which skill to draft or update.",
-    parameters: Type.Object({ min_count: Type.Optional(Type.Number({ description: "Minimum occurrences (default 2)." })) }),
-    replay: "safe",
-    async execute({ min_count }) {
-      const ls = imp.lessons({ minCount: min_count ?? 2 });
-      return text(ls.length ? ls.map((l, i) => `${i + 1}. x${l.count} ${l.signature}\n   jobs: ${l.labels.join(", ")}\n   example: ${l.example.replace(/\s+/g, " ")}`).join("\n") : "No recurring failure patterns.");
-    },
-  });
-  const propose = defineTool({
-    name: "skill_propose",
-    description:
-      "Create or update a skill (full SKILL.md text with name/description frontmatter). It is always linted; when a benchmark is given it is also scored and only installed if it does not regress; " +
-      "the previous version is backed up. Benchmark: `benchmark` (named: " + (Object.keys(named).join(", ") || "none registered") + "), `benchmark_command` (shell, exit 0 = pass, $SKILL_PATH = candidate), or `must_contain` phrases.",
-    parameters: Type.Object({
-      name: Type.String(),
-      content: Type.String({ description: "Complete SKILL.md including frontmatter." }),
-      benchmark: Type.Optional(Type.String()),
-      benchmark_command: Type.Optional(Type.String()),
-      must_contain: Type.Optional(Type.Array(Type.String())),
-      dry_run: Type.Optional(Type.Boolean()),
-    }),
-    replay: "unsafe",
-    async execute(a) {
-      let bench: Benchmark | undefined;
-      if (a.benchmark) {
-        bench = named[a.benchmark];
-        if (!bench) return text(`Unknown benchmark "${a.benchmark}". Registered: ${Object.keys(named).join(", ") || "none"}`, true);
-      } else if (a.benchmark_command) {
-        if (!allowCmd()) return text("benchmark_command is disabled", true);
-        bench = commandBenchmark(a.benchmark_command);
-      } else if (a.must_contain?.length) bench = containsBenchmark(a.must_contain);
-      try {
-        const r = await imp.propose(a.name, a.content, bench, a.dry_run ?? false);
-        return { ...text(JSON.stringify(r, null, 2), !r.applied && r.reason !== "no change" && !r.reason.startsWith("verified (dry")), details: r as unknown as undefined };
-      } catch (e) { return text(String((e as Error).message), true); }
-    },
-  });
-  const rollback = defineTool({
-    name: "skill_rollback",
-    description: "Restore a previous version of a skill (default: latest backup). Lists available versions on failure.",
-    parameters: Type.Object({ name: Type.String(), version: Type.Optional(Type.Number()) }),
-    replay: "unsafe",
-    async execute({ name, version }) {
-      try { return text(`Restored ${name} to v${imp.rollback(name, version)}`); }
-      catch (e) { return text(`${(e as Error).message}. Versions: ${imp.versions(name).join(", ") || "none"}`, true); }
-    },
-  });
-  return defineExtension({ name: "improve", tools: [inspect, lessons, propose, rollback] });
+  const allowCmd = typeof o.allowCommandBenchmarks === "function" ? o.allowCommandBenchmarks() : (o.allowCommandBenchmarks ?? false);
+  if (a.benchmark) {
+    const bench = named[a.benchmark];
+    if (!bench) throw new Error(`Unknown benchmark "${a.benchmark}". Registered: ${Object.keys(named).join(", ") || "none"}`);
+    return bench;
+  }
+  if (a.benchmark_command) {
+    if (!allowCmd) throw new Error("benchmark_command is disabled");
+    return commandBenchmark(a.benchmark_command);
+  }
+  return a.must_contain?.length ? containsBenchmark(a.must_contain) : undefined;
 }
 
 export { scanSkills };

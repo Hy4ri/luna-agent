@@ -45,7 +45,7 @@ onMounted(() => {
     <PanelStatus :loading="loading" :error="errorMsg" />
 
     <p v-if="!loading && !skillsList.length" class="muted">
-      No skills yet. Luna creates them with skill_propose, or drop SKILL.md files into the skills directory.
+      No skills yet. Luna creates them with skill_manage, or drop SKILL.md files into the skills directory.
     </p>
 
     <details v-for="s in skillsList" :key="s.name" class="card vl vl-md" :data-skill="s.name" @toggle="toggleSkill(s.name, ($event.target as HTMLDetailsElement).open)"><summary class="row"><ChevronRight :size="16" /><b class="grow">{{ s.name }}</b></summary><div class="grid manager-body">

@@ -32,13 +32,13 @@ import { BUILTIN_EXTENSIONS, BUILTIN_REGISTRY_NAMES, type LunaConfig } from "./c
 import { createToggleExtension } from "./toggles.js";
 import { createSessionWorktreeExtension } from "./session-worktree.js";
 import { createAskExtension } from "./ask.js";
-import { createCronExtension, deliverRun } from "./cron-tools.js";
+import { createCronExtension, createCronHistoryExtension, deliverRun } from "./cron-tools.js";
 import { createDelegateExtension } from "./delegate.js";
 import { DelegateResults } from "./delegate-results.js";
 import { createGoalExtension } from "./goal.js";
 import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
-import { createImproveExtension, cronRunSource, SkillImprover } from "./improve.js";
+import { cronRunSource, SkillImprover } from "./improve.js";
 import { createSkillManageExtension, SkillManager } from "./skill-manage.js";
 import { createLearnExtension, LEARN_JOB, LearnStore, scanIdle } from "./learn.js";
 import { LearnFiles } from "./learn-files.js";
@@ -70,8 +70,8 @@ import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
 export const IMPROVE_PROMPT =
-  "Self-improvement pass. 1) Call extract_lessons. 2) If it reports no recurring failure, answer 'nothing to improve' and stop. " +
-  "3) For each recurring failure, load related skills with skill_view, then draft or update ONE focused skill with skill_propose " +
+  "Self-improvement pass. 1) Call cron_history with action=lessons. 2) If it reports no recurring failure, answer 'nothing to improve' and stop. " +
+  "3) For each recurring failure, load related skills with skill_view, then draft or update ONE focused skill with skill_manage action=propose " +
   "(full SKILL.md with name and description frontmatter, concrete steps that avoid the failure) and a must_contain benchmark " +
   "listing the key steps. 4) Answer with what was applied or blocked and why.";
 
@@ -231,8 +231,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
     : undefined;
-  if (on("improve")) extensions.push(createImproveExtension(improver!, { allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks }));
-  if (on("skills")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs)));
+  // cron_history: runs need cron or improve; its lessons action needs improve.
+  if (on("cron") || on("improve")) extensions.push(createCronHistoryExtension(store!, on("improve") ? improver : undefined));
+  // skill_manage carries benchmark-gated propose and rollback, which the improve job needs even with "skills" off.
+  if (on("skills") || on("improve")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs), improver!, { allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks }));
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
   const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db"), {
     files: new LearnFiles(cfg.dataDir, () => live().learn.files),
