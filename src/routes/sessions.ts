@@ -62,7 +62,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     let statusFilter: Set<string> | null = null;
 
     if (isPaginated) {
-      const allowedParams = new Set(["limit", "archived", "project", "worker", "q", "cursor", "ids", "running"]);
+      const allowedParams = new Set(["limit", "archived", "project", "worker", "q", "cursor", "ids", "running", "status"]);
       for (const k of queryKeys) {
         if (rawQueries[k]!.length !== 1) return err(c, 400, `duplicate query parameter: ${k}`);
         if (!allowedParams.has(k)) {
