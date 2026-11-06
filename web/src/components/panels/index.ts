@@ -77,6 +77,11 @@ export const PANELS: Record<string, { title: string; desc: string; component: Co
     desc: DESCRIPTIONS.mcp,
     component: defineAsyncComponent(() => import("./McpPanel.vue")),
   },
+  webhooks: {
+    title: "Webhooks",
+    desc: "Receive events from other services and send Luna events out.",
+    component: defineAsyncComponent(() => import("./WebhooksPanel.vue")),
+  },
   lessons: {
     title: TITLES.lessons,
     desc: DESCRIPTIONS.lessons,

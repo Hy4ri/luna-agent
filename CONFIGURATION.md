@@ -1029,6 +1029,65 @@ Saved output and completed exit codes remain available after restart until reten
 Run `pnpm run verify:process-tools` for real shell execution through the native runtime tools.
 The test uses a scripted model; it does not prove real-model tool choice.
 
+## Webhooks
+
+Luna receives webhooks from other services and sends its own events out. State lives in `<dataDir>/webhooks.db` (mode 600).
+The receiver always runs. The `webhooks` extension controls only the agent tools: `webhook_list`, `webhook_create`,
+`webhook_update`, `webhook_remove`, `webhook_test` and `webhook_log`. The tools never return secrets.
+
+### Inbound
+
+Each inbound hook has a random URL, `POST /hooks/<slug>`, and its own secret (`whsec_…`). This route is outside `/v1`,
+so the daemon token does not apply; the hook secret protects it. The sender must reach the daemon (LAN, Tailscale, or a public HTTPS address).
+
+- `verify: "hmac"` (default): the request carries `sha256=<hex HMAC-SHA256 of the raw body>` in `X-Hub-Signature-256`
+  (GitHub), `X-Signature-256`, `X-Luna-Signature` or `X-Signature`.
+- `verify: "token"`: the secret in `Authorization: Bearer`, `X-Webhook-Token`, `X-Gitlab-Token` or `?token=`.
+- Target: `{ "kind": "session", "id": N }` sends the payload to that session as input. `{ "kind": "project", "id": N }`
+  creates a new session in project N per call (`0` is General), titled `<hook name>: <event>`. `{ "kind": "cron", "id": N }` runs that job now.
+- `events`: optional filter. The event comes from `X-GitHub-Event`, `X-Gitlab-Event`, `X-Luna-Event`, `X-Event-Type`, or the body's
+  `type`/`event` field. `pull_request` matches all actions, `pull_request.opened` one action (the body's `action`), `issues.*` a prefix.
+  Other events answer 202 `{ ignored: true }`.
+- `template`: optional text for the session input. Placeholders: `{{body.path.to.field}}`, `{{headers.x-github-event}}`, `{{event}}`,
+  `{{action}}`, `{{delivery}}`, `{{hook}}`, `{{payload}}` (the whole body). Without a template the input is the formatted body.
+  Every input starts with a line that names the hook and says the payload is untrusted data.
+- Dedupe: a repeated `X-GitHub-Delivery`, `X-Gitlab-Event-UUID`, `X-Luna-Delivery`, `Webhook-Id`, `X-Delivery-Id` or `X-Request-Id`
+  answers 200 `{ duplicate: true }` and does not run again. The id is claimed before dispatch, so a concurrent repeat
+  answers 409 and does not run either. A rejected or failed attempt frees the id for a retry. Accepted and ignored ids are kept
+  30 days, separately from the call log.
+- Limits: 1 MB body (413), 60 requests per minute per hook (429). GitHub `ping` answers 200.
+- Responses: 202 accepted (`sessionId` or `runId`), 401 bad signature, 404 unknown or disabled hook, 409 same delivery in progress, 410 target session deleted.
+- Each hook keeps its last 100 calls with the outcome: `delivered`, `ignored`, `duplicate`, `rejected` or `failed`.
+
+The older `POST /v1/webhooks/:sessionId` route (daemon token, no per-hook secret) still works.
+
+### Outbound
+
+A subscription sends matching events to a URL. Events: `session.finished`, `session.review_finished`, `session.needs_input`,
+`session.needs_approval`, `session.failed`, `session.limit_reached`, `cron.run.ok`, `cron.run.failed`. A filter may use `session.*`,
+`cron.*` or `*`; an empty filter receives all. Session events follow the same rules as push: a session that was running stops or asks
+for the user. Subagent and archived sessions send none; cron sessions send only `session.failed`.
+
+- Formats: `json` (the envelope below), `ntfy` (plain text with a `Title` header), `discord` (`content`), `slack` (`text`).
+- Every request carries `X-Luna-Event`, `X-Luna-Delivery` (the event id, stable across retries), `X-Luna-Timestamp` and
+  `X-Luna-Signature: sha256=<hex HMAC-SHA256 of the body with the subscription secret>`.
+- JSON envelope: `{ "id": "evt_…", "event": "session.failed", "createdAt": "<ISO time>", "data": { "title", "text", "sessionId", ... } }`.
+- Delivery: a durable outbox. A 2xx is success. Other answers and network errors retry after 30 s, 2 min, 10 min, 1 h and 6 h, then
+  the delivery fails. `410 Gone` fails it at once. Pending deliveries survive a restart. Finished deliveries are kept 7 days; cleanup runs hourly.
+- Redirects are not followed. The request times out after 10 s.
+
+### Webhook endpoints
+
+All need the daemon token. Secrets appear only in the create, rotate and `secret` responses.
+
+- `GET|POST /v1/webhooks/inbound`, `PATCH|DELETE /v1/webhooks/inbound/:id`: list, create (`name`, `target`, `verify`, `template`,
+  `events`), change (also `enabled`), delete. Responses include `path` (`/hooks/<slug>`).
+- `POST /v1/webhooks/inbound/:id/rotate`, `GET /v1/webhooks/inbound/:id/secret`, `GET /v1/webhooks/inbound/:id/log`.
+- `GET|POST /v1/webhooks/outbound`, `PATCH|DELETE /v1/webhooks/outbound/:id`: subscriptions (`name`, `url`, `events`, `format`, `enabled`).
+- `POST /v1/webhooks/outbound/:id/rotate`, `GET /v1/webhooks/outbound/:id/secret`.
+- `POST /v1/webhooks/outbound/:id/test` queues a `webhook.test` event (filter ignored). `GET /v1/webhooks/outbound/:id/deliveries`
+  lists attempts. `POST /v1/webhooks/deliveries/:id/redeliver` sends one again with a fresh retry budget.
+
 ## Code Mode
 
 Enable or configure Code Mode under **Settings → Tools → Code Mode**:
