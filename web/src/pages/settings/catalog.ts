@@ -3,7 +3,7 @@ export const sections = [
   { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'compaction', 'busyInput', 'autoContinue', 'afterFailedRun', 'maxTurns', 'sessionTalk'] },
   { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'pinnedModels', 'subagents', 'auxiliary'] },
   { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
-  { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'codemode', 'extensions', 'disabledTools'] },
+  { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'terminal', 'codemode', 'extensions', 'disabledTools'] },
   { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge and learning from conversations.', keys: ['skillDirs', 'disabledSkills', 'learn'] },
   { id: 'media', title: 'Media', description: 'Configure image analysis, image generation, and video analysis.', keys: ['vision', 'image_gen', 'video'] },
   { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill improvement behavior.', keys: ['cron', 'improve'] },
@@ -52,7 +52,7 @@ export const fieldTitles: Record<string, string> = {
   web: 'Web search & page extraction', searchProvider: 'Search provider', searchFallbacks: 'Fallback search providers', extractProvider: 'Page extraction provider',
   searxng: 'SearXNG options', freeserp: 'FreeSerp options',
   ddgs: 'DDGS search options', mcpServer: 'MCP connection name', backend: 'Search backend', region: 'Search region', safesearch: 'Safe search',
-  browser: 'Browser control', camofox: 'Camofox options', moli: 'Moli options', chromium: 'Chromium options', executablePath: 'Browser executable', headless: 'Headless', processes: 'Background commands', retentionHours: 'Completed output retention (hours)',
+  browser: 'Browser control', camofox: 'Camofox options', moli: 'Moli options', chromium: 'Chromium options', executablePath: 'Browser executable', headless: 'Headless', processes: 'Background commands', terminal: 'Terminal', user: 'Terminal for you', retentionHours: 'Completed output retention (hours)',
   maxOutputBytes: 'Retained output per command (bytes)', mcpServers: 'Saved MCP definitions', extensions: 'Built-in tool groups', disabledTools: 'Disabled tools', disabledSkills: 'Disabled skills',
   transport: 'Transport', enabled: 'Enabled', defer: 'Load tools on demand', timeoutMs: 'Tool timeout (milliseconds)',
   command: 'Command', args: 'Arguments', env: 'Environment variables', url: 'URL', headers: 'Headers',
@@ -83,6 +83,7 @@ export function labelFor(path: (string | number)[]): string {
   if (full === 'browser.provider') return 'Browser provider'
   if (full === 'image_gen.provider') return 'Image generation provider ID'
   if (full === 'processes.enabled') return 'Enable background command starts'
+  if (full === 'terminal.user') return 'Allow an interactive terminal in the chat view'
   if (full === 'autoContinue.enabled') return 'Continue automatically when a usage limit resets'
   if (full === 'sessionTalk.enabled') return 'Allow sessions to message each other'
   if (full.startsWith('vision.profiles.') && path.length === 3) return String(key)
@@ -143,6 +144,7 @@ const fieldHelp: Record<string, string> = {
   'browser.providers.moli.executablePath': 'Path to the Moli binary. Luna starts it on a private loopback port.',
   'browser.providers.moli.profileDir': 'Optional directory where Moli keeps cookies and storage between runs.',
   'browser.providers.camofox.mcpServer': 'Name of the MCP connection that provides Camofox browser tools.',
+  'terminal.user': 'A terminal is a real shell with the same host access as bash, on the machine of the session. Anyone with your access token can open one, so keep this off unless you need it.',
   'processes.enabled': 'Background commands have the same host access as bash. Completion resumes the owning chat. Normal shutdown stops commands.',
   'processes.retentionHours': 'How long completed command output remains available.',
   'processes.maxOutputBytes': 'Maximum retained output for each command. Extra output is truncated.',
@@ -175,7 +177,7 @@ export function helpFor(path: (string | number)[]): string {
 }
 
 export const timing: Record<string, string> = {
-  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live',
+  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live', terminal: 'Applies live',
   codemode: 'Restart required', dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Disable live; enable may need restart', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required', push: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
@@ -194,6 +196,7 @@ export const summaries: Record<string, string> = {
   browser: 'Connect browser tools to a Camofox MCP server, a local Moli engine, or a local Chromium-based browser.',
   codemode: 'Run JavaScript workflows through existing Luna tools, with bounded memory and execution time.',
   processes: 'Allow long-running shell commands and choose how much output to retain.',
+  terminal: 'Allow an interactive shell in the chat view. Closing the tab does not stop it.',
   mcpServers: 'Edit saved external-tool connections, including commands and protected credentials.',
   extensions: 'Disabling applies on the next call. Enabling a group that did not start at boot needs a restart.',
   disabledTools: 'Choose individual tools that Luna must not use.', disabledSkills: 'Choose skills to hide from Luna.',
