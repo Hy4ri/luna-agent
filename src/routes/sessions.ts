@@ -59,6 +59,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     let cursorStr: string | null = null;
     let idsFilter: number[] | null = null;
     let runningFilter = false;
+    let statusFilter: Set<string> | null = null;
 
     if (isPaginated) {
       const allowedParams = new Set(["limit", "archived", "project", "worker", "q", "cursor", "ids", "running"]);
@@ -143,6 +144,12 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
           return err(c, 400, "running must be 1");
         }
         runningFilter = true;
+      }
+
+      if (c.req.query("status") !== undefined) {
+        const list = c.req.query("status")!.split(",").map((x) => x.trim()).filter(Boolean);
+        if (!list.length) return err(c, 400, "status must list at least one status");
+        statusFilter = new Set(list);
       }
     }
 
@@ -251,6 +258,8 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       } else if (runningFilter) {
         if (!s.running && s.status !== "reviewing") continue;
       }
+
+      if (statusFilter && !statusFilter.has(s.status)) continue;
 
       // 3. Project filter
       if (projectFilter !== "all") {

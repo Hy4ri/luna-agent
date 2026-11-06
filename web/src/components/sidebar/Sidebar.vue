@@ -13,6 +13,7 @@ import {
   History as HistoryIcon,
   Search,
   Archive,
+  Bell,
   ChevronRight,
   ChevronLeft,
   Pin,
@@ -41,13 +42,14 @@ import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
 import ProjectIcon from "@/components/ProjectIcon.vue";
 import type { ProjectAppearance } from "../../../../src/project-appearance";
-import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, renameSession, generateTitle, titleModelAvailable, togglePinned, moveSession, toggleArchived, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
+import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, projectName, renameSession, generateTitle, titleModelAvailable, togglePinned, moveSession, toggleArchived, activity, markActivitySeen, markAllActivitySeen, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
 import { ago } from "@/lib/mention-sources";
 
 const PruneSessionsDialog = defineAsyncComponent(() => import("./PruneSessionsDialog.vue"));
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 const ProjectAppearanceDialog = defineAsyncComponent(() => import("@/components/ProjectAppearanceDialog.vue"));
@@ -70,6 +72,7 @@ function toggleSelect(id: string | number) {
   selected.value = next;
 }
 function exitSelect() { selecting.value = false; selected.value = new Set(); }
+watch(() => chat.session, (id) => { if (id) markActivitySeen(id); });
 watch([() => history.query, () => history.archived, () => history.drill, () => history.worker, serverUrl, token], exitSelect, { flush: 'sync' });
 function selectAllLoaded() {
   const ids = history.rows.map(s => String(s.id));
@@ -478,6 +481,33 @@ onMounted(() => {
         >
           <Search :size="16" />
         </button>
+        <Popover>
+          <PopoverTrigger as-child>
+            <button id="activity-bell" class="icon-button relative" :aria-label="activity.items.length ? `Activity, ${activity.items.length} new` : 'Activity'" title="Activity across all projects">
+              <Bell :size="16" />
+              <span v-if="activity.items.length" class="absolute top-0.5 right-0.5 size-2 rounded-full bg-primary" aria-hidden="true"></span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" class="w-72 p-1">
+            <div class="flex items-center px-2 py-1 text-xs font-semibold text-muted-foreground">
+              <span class="mr-auto">Activity</span>
+              <button v-if="activity.items.length" class="hover:text-foreground" @click="markAllActivitySeen">Mark all read</button>
+            </div>
+            <p v-if="!activity.items.length" class="px-2 py-3 text-xs text-muted-foreground">Nothing new.</p>
+            <button
+              v-for="s in activity.items"
+              :key="s.id"
+              class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-secondary"
+              @click="markActivitySeen(s.id); setDrawer(false); openSession(s.id)"
+            >
+              <span class="session-state size-2 shrink-0 rounded-full bg-current" :data-status="sessionState(s)" aria-hidden="true"></span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate">{{ sessionTitle(s) }}</span>
+                <span class="block truncate text-xs text-muted-foreground">{{ sessionStatusLabel(s) }}<template v-if="projectName(s.project)"> · {{ projectName(s.project) }}</template></span>
+              </span>
+            </button>
+          </PopoverContent>
+        </Popover>
         <button
           id="history-view"
           class="icon-button"
