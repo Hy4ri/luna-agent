@@ -34,7 +34,7 @@ test("a worker advertises PTY support", () => {
 test("a terminal on a worker runs a shell there and relays input, output and exit", async () => {
   const info = await registry.create({ session: 1, worker: worker.id, cwd: dir, cols: 100, rows: 30 });
   assert.equal(info.worker, worker.id);
-  assert.equal(info.shell, "sh");
+  assert.equal(info.shell, (process.env.SHELL ?? "/bin/sh").split("/").pop()); // the worker picks its own shell
   let out = "";
   let exit: number | null | undefined;
   const a = registry.attach(info.id, { data: d => { out += d.toString(); }, exit: i => { exit = i.exitCode; }, closed: () => {} });
