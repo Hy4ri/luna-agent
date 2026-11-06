@@ -13,9 +13,12 @@ export interface PtySpawnOptions {
 
 export interface PtyProcess {
   readonly pid: number | undefined;
+  /** Shell name when the host machine chose it (a worker does). Otherwise the registry names it. */
+  readonly shell?: string;
   /** Raw bytes from the terminal. Not decoded, so multi-byte sequences are never split by the host. */
   onData(listener: (data: Buffer) => void): void;
-  onExit(listener: (exit: { exitCode: number; signal: number | undefined }) => void): void;
+  /** `exitCode` is null when the shell's fate is unknown, such as a lost worker link; `reason` then says why. */
+  onExit(listener: (exit: { exitCode: number | null; signal?: number; reason?: string }) => void): void;
   write(data: string | Buffer): void;
   resize(cols: number, rows: number): void;
   kill(): void;
@@ -41,7 +44,7 @@ export function spawnNodePty(options: PtySpawnOptions): PtyProcess {
 /** Environment for an interactive shell. The daemon's own credentials never reach a user shell. */
 export function shellEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(base)) if (v !== undefined && k !== "LUNA_TOKEN") env[k] = v;
+  for (const [k, v] of Object.entries(base)) if (v !== undefined && k !== "LUNA_TOKEN" && k !== "LUNA_WORKER_TOKEN") env[k] = v;
   env.TERM = "xterm-256color";
   env.COLORTERM = "truecolor";
   return env;

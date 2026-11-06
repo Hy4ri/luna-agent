@@ -63,6 +63,8 @@ export interface Capabilities {
   path?: string;
   generatedFiles?: boolean;
   uploadFiles?: boolean;
+  /** The worker can host interactive terminals (node-pty loaded). Optional, so older workers still connect. */
+  pty?: boolean;
 }
 
 export type MainMessage =
@@ -72,11 +74,22 @@ export type MainMessage =
   | { t: "browser"; id: number; method: BrowserMethod; args: unknown[] }
   | { t: "mcpList"; id: number }
   | { t: "mcpCall"; id: number; server: string; tool: string; args: Record<string, unknown> }
-  | { t: "abort"; id: number };
+  | { t: "abort"; id: number }
+  | { t: "pty.open"; id: number; cwd: string; cols: number; rows: number }
+  | { t: "pty.input"; id: number; data: string }
+  | { t: "pty.resize"; id: number; cols: number; rows: number }
+  | { t: "pty.kill"; id: number };
 export type WorkerMessage =
   | { t: "hello"; protocol: number; capabilities: Capabilities }
   | { t: "output"; id: number; text: string; info: unknown }
-  | { t: "result"; id: number; result: unknown };
+  | { t: "result"; id: number; result: unknown }
+  | PtyFrame;
+/** Terminal frames from a worker. `id` names a terminal opened by `pty.open`; PTY bytes travel as base64. */
+export type PtyFrame =
+  | { t: "pty.opened"; id: number; shell: string }
+  | { t: "pty.error"; id: number; message: string }
+  | { t: "pty.output"; id: number; data: string }
+  | { t: "pty.exit"; id: number; exitCode: number | null; signal?: number; reason?: string };
 
 // Binary payloads (file contents, positional reads) travel as base64.
 export function encode(value: unknown): unknown {
