@@ -2,7 +2,7 @@
 import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { ArrowLeft, Menu, ScanEye, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
+import { ArrowLeft, Menu, ScanEye, SquareTerminal, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
@@ -17,12 +17,14 @@ import CommandPalette from '@/components/CommandPalette.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ImageViewer from '@/components/ui/ImageViewer.vue';
 import SnapTool from '@/components/SnapTool.vue';
+import TerminalDock from '@/components/terminal/TerminalDock.vue';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
 import { recoveryOpen } from '@/lib/connections';
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate } from '@/stores/app';
+import { terminal, loadTerminals, toggleTerminal } from '@/stores/terminal';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
@@ -47,6 +49,8 @@ let railObserver: ResizeObserver | undefined;
 const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
 watch(() => chat.session, () => { selectedReview.value = null; });
+// The dock follows the loaded session; the server keeps each session's shells alive.
+watch(() => chat.session, id => { void loadTerminals(id || ''); }, { immediate: true });
 const railContent = computed(() => !!chat.session || reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
 const docked = computed(() => railRoom.value && railContent.value);
 // The native chat remains mounted when its tile is removed. Surviving iframe
@@ -319,6 +323,11 @@ function keyboard(e: KeyboardEvent) {
     setPalette(!ui.palette);
     return;
   }
+  if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === 'Backquote' && !ui.login && !sessionPane && chat.session && ui.view === 'chat' && !managedOverlay && !nativePopover) {
+    e.preventDefault();
+    void toggleTerminal();
+    return;
+  }
   // Reka handles Escape on window, after this document listener.
   if (ui.palette || managedOverlay) return;
   if (nativePopover) {
@@ -407,6 +416,7 @@ onUnmounted(() => {
             <StatusBar v-if="!mobile && !docked" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
+            <button v-if="!sessionPane && chat.session" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Terminal" title="Terminal (Ctrl+`)" @click="toggleTerminal"><SquareTerminal :size="18" /></button>
             <button v-if="!mobile && !sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
             <button v-if="!mobile && (chat.session || (chat.draftOpen && tileIds.length))" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
             <Popover v-if="mobile" v-model:open="mobileMenuOpen">
@@ -438,6 +448,7 @@ onUnmounted(() => {
               <Extras docked />
             </aside>
           </div>
+          <TerminalDock v-if="terminal.open && chat.session && !sessionPane" />
         </main>
         <template v-if="!ui.login">
           <iframe v-for="id in tileIds" :key="id" :src="paneUrl(id)" :data-tile-session="id" data-session-tile :title="sessionTitle(history.list.find(s => String(s.id) === id) || { id })" class="session-pane" :class="focusClass(id)" :style="tileStyle(id)" />
