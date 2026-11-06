@@ -24,6 +24,8 @@ export interface SessionsQueryOptions {
   cursor?: string | null;
   ids?: number[];
   running?: boolean;
+  /** Comma-joined server-side status filter. */
+  status?: SessionStatus[];
 }
 
 export interface SessionsPage {
@@ -181,6 +183,7 @@ let notificationController: AbortController | undefined;
 
 /** Bounded background poll for active notifications without draining full history. */
 async function trackActiveNotifications() {
+  void refreshActivity();
   const origin = serverUrl.value, credential = token.value;
   const gen = ++notificationGeneration;
 
@@ -249,6 +252,55 @@ async function trackActiveNotifications() {
   }
 }
 
+// Activity bell: sessions across all projects that finished or need the user. Read state is kept per browser.
+const ACTIVITY_STATUSES: SessionStatus[] = ["finished", "review_finished", "needs_input", "needs_approval", "failed", "limit_reached"];
+const BLOCKING = new Set<SessionStatus>(["needs_input", "needs_approval"]);
+const ACTIVITY_KEY = "luna.activitySeen";
+const loadSeen = (): { before: number; ids: Record<string, number> } => {
+  try { return { before: 0, ids: {}, ...JSON.parse(localStorage.getItem(ACTIVITY_KEY) || "{}") }; } catch { return { before: 0, ids: {} }; }
+};
+const seen = loadSeen();
+const saveSeen = () => {
+  const ids = Object.fromEntries(Object.entries(seen.ids).slice(-300));
+  seen.ids = ids;
+  try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(seen)); } catch { /* storage full or blocked */ }
+};
+export const activity = reactive({ items: [] as SessionMeta[] });
+let activityBusy = false;
+
+const stamp = (s: SessionMeta) => Number(s.lastActivity ?? s.createdAt ?? 0);
+const isUnread = (s: SessionMeta) => {
+  const st = sessionState(s);
+  if (!ACTIVITY_STATUSES.includes(st)) return false;
+  if (BLOCKING.has(st)) return true; // Still waiting on the user.
+  return stamp(s) > Math.max(seen.before, seen.ids[String(s.id)] ?? 0);
+};
+
+export async function refreshActivity() {
+  if (activityBusy) return;
+  activityBusy = true;
+  const origin = serverUrl.value, credential = token.value;
+  try {
+    const page = await querySessions({ archived: "0", status: ACTIVITY_STATUSES, limit: 50 });
+    if (origin !== serverUrl.value || credential !== token.value) return;
+    activity.items = page.sessions.filter(isUnread).sort((a, b) => stamp(b) - stamp(a));
+  } catch { /* the bell keeps its last known state */ } finally { activityBusy = false; }
+}
+
+/** Record that the user has seen this session in its current state. */
+export function markActivitySeen(id: string | number) {
+  seen.ids[String(id)] = Date.now();
+  saveSeen();
+  activity.items = activity.items.filter(s => String(s.id) !== String(id) || BLOCKING.has(sessionState(s)));
+}
+
+export function markAllActivitySeen() {
+  seen.before = Date.now();
+  seen.ids = {};
+  saveSeen();
+  activity.items = activity.items.filter(s => BLOCKING.has(sessionState(s)));
+}
+
 /** Standalone query function for independent consumers and sidebar window fetching.
  *  Always sets default limit: 50 so it never accidentally hits the legacy unbounded route. */
 export async function querySessions(options: SessionsQueryOptions = {}, signal?: AbortSignal): Promise<SessionsPage> {
@@ -262,6 +314,7 @@ export async function querySessions(options: SessionsQueryOptions = {}, signal?:
   if (options.cursor) params.set("cursor", options.cursor);
   if (options.ids && options.ids.length > 0) params.set("ids", options.ids.slice(0, 100).join(","));
   if (options.running) params.set("running", "1");
+  if (options.status?.length) params.set("status", options.status.join(","));
 
   const qs = params.toString();
   const path = qs ? `/v1/sessions?${qs}` : "/v1/sessions";
