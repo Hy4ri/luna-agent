@@ -9,9 +9,14 @@ import { isAbsolute, resolve } from "node:path";
 
 /** A project's working directory on one execution worker. `cwd` on the project itself is the directory on the main host. */
 export type WorkerDir = { worker: number; cwd: string };
-export type Project = ProjectAppearance & { id: number; name: string; cwd: string; general?: boolean; favorite?: boolean; workerDirs?: WorkerDir[] };
+export type Project = ProjectAppearance & { id: number; name: string; cwd: string; general?: boolean; favorite?: boolean; workerDirs?: WorkerDir[]; autoWorktree?: boolean; worktreeSetup?: string };
 // ID zero is reserved; persisted project IDs start at one. No migration or session rewrites are needed.
 export const GENERAL_PROJECT: Readonly<Project> = Object.freeze({ id: 0, name: "General", cwd: "", general: true });
+
+type ProjectRow = Omit<Project, "general" | "workerDirs" | "favorite" | "autoWorktree" | "worktreeSetup"> & { favorite: number; auto_worktree: number; worktree_setup: string | null };
+function shape({ favorite, auto_worktree, worktree_setup, ...rest }: ProjectRow): Project {
+  return { ...rest, favorite: !!favorite, autoWorktree: !!auto_worktree, ...(worktree_setup ? { worktreeSetup: worktree_setup } : {}) };
+}
 
 export class ProjectError extends Error {
   constructor(readonly status: 400 | 404 | 409, message: string) { super(message); }
@@ -38,6 +43,8 @@ export class ProjectStore {
     for (const column of ["color", "icon"]) {
       if (!columns.has(column)) db.exec(`ALTER TABLE luna_projects ADD COLUMN ${column} TEXT`);
     }
+    if (!columns.has("auto_worktree")) db.exec("ALTER TABLE luna_projects ADD COLUMN auto_worktree INTEGER NOT NULL DEFAULT 0");
+    if (!columns.has("worktree_setup")) db.exec("ALTER TABLE luna_projects ADD COLUMN worktree_setup TEXT");
   }
   /** One board serves every machine of a project, so linking machines only records a directory per worker. */
   private dirs(): Map<number, WorkerDir[]> {
@@ -53,16 +60,16 @@ export class ProjectStore {
     const dirs = this.dirs();
     const app = this.generalAppearance();
     const general: Project = { ...GENERAL_PROJECT, ...(app ? { color: app.color, icon: app.icon } : {}) };
-    const rows = this.db.prepare("SELECT id, name, cwd, favorite, color, icon FROM luna_projects ORDER BY name COLLATE NOCASE").all() as (Omit<Project, "general" | "workerDirs" | "favorite"> & { favorite: number })[];
-    return [general, ...rows.map(r => ({ ...r, favorite: !!r.favorite, workerDirs: dirs.get(r.id) ?? [] }))];
+    const rows = this.db.prepare("SELECT id, name, cwd, favorite, color, icon, auto_worktree, worktree_setup FROM luna_projects ORDER BY name COLLATE NOCASE").all() as ProjectRow[];
+    return [general, ...rows.map(r => ({ ...shape(r), workerDirs: dirs.get(r.id) ?? [] }))];
   }
   get(id: number): Project | undefined {
     if (id === GENERAL_PROJECT.id) {
       const app = this.generalAppearance();
       return { ...GENERAL_PROJECT, ...(app ? { color: app.color, icon: app.icon } : {}) };
     }
-    const r = this.db.prepare("SELECT id, name, cwd, favorite, color, icon FROM luna_projects WHERE id=?").get(id) as (Omit<Project, "workerDirs" | "favorite"> & { favorite: number }) | undefined;
-    return r && { ...r, favorite: !!r.favorite, workerDirs: this.dirs().get(id) ?? [] };
+    const r = this.db.prepare("SELECT id, name, cwd, favorite, color, icon, auto_worktree, worktree_setup FROM luna_projects WHERE id=?").get(id) as ProjectRow | undefined;
+    return r && { ...shape(r), workerDirs: this.dirs().get(id) ?? [] };
   }
   /** Directory for a new session on a machine: `null` is the main host. */
   dirFor(id: number, worker: number | null): string | undefined {
@@ -141,9 +148,9 @@ export class ProjectStore {
     const r = this.db.prepare("INSERT INTO luna_projects(name, cwd) VALUES (?,?)").run(v.name, v.cwd);
     return this.get(Number(r.lastInsertRowid))!;
   }
-  update(id: number, changes: { name?: unknown; cwd?: unknown; favorite?: unknown; color?: unknown; icon?: unknown }): Project {
+  update(id: number, changes: { name?: unknown; cwd?: unknown; favorite?: unknown; color?: unknown; icon?: unknown; autoWorktree?: unknown; worktreeSetup?: unknown }): Project {
     if (id === GENERAL_PROJECT.id) {
-      if (changes.name !== undefined || changes.cwd !== undefined || changes.favorite !== undefined) {
+      if (changes.name !== undefined || changes.cwd !== undefined || changes.favorite !== undefined || changes.autoWorktree !== undefined || changes.worktreeSetup !== undefined) {
         throw new ProjectError(409, "The General project cannot be changed");
       }
       if (changes.color !== undefined && changes.color !== null && (typeof changes.color !== "string" || !/^#[0-9a-f]{6}$/i.test(changes.color)))
@@ -165,6 +172,14 @@ export class ProjectStore {
       throw new ProjectError(400, "icon must be a supported project icon or a single visible character, or null");
     const color = changes.color === undefined ? cur.color ?? null : (changes.color as string | null)?.toLowerCase() ?? null;
     const icon = changes.icon === undefined ? cur.icon ?? null : changes.icon as string | null;
+    if (changes.autoWorktree !== undefined && typeof changes.autoWorktree !== "boolean") throw new ProjectError(400, "autoWorktree must be a boolean");
+    if (changes.worktreeSetup !== undefined && changes.worktreeSetup !== null && (typeof changes.worktreeSetup !== "string" || changes.worktreeSetup.length > 1000 || changes.worktreeSetup.includes("\0")))
+      throw new ProjectError(400, "worktreeSetup must be a command of at most 1000 characters, or null");
+    // Applied on its own: the settings never depend on the directory still existing.
+    if (changes.autoWorktree !== undefined || changes.worktreeSetup !== undefined) {
+      const setup = changes.worktreeSetup === undefined ? cur.worktreeSetup ?? null : (changes.worktreeSetup as string | null)?.trim() || null;
+      this.db.prepare("UPDATE luna_projects SET auto_worktree=?, worktree_setup=? WHERE id=?").run((changes.autoWorktree ?? cur.autoWorktree ?? false) ? 1 : 0, setup, id);
+    }
     // Metadata-only changes work even when the directory is gone.
     if (changes.name === undefined && changes.cwd === undefined) {
       this.db.prepare("UPDATE luna_projects SET favorite=?, color=?, icon=? WHERE id=?").run(favorite ? 1 : 0, color, icon, id);

@@ -110,6 +110,20 @@ const unlinkMachine = (worker: number | "main") => run(async () => {
   syncMachineDirs(); notice.value = "Removed";
 });
 
+/** Auto-worktree: the switch saves at once; the setup command saves with its own button. */
+const worktreeSetup = ref("");
+watch(current, p => { worktreeSetup.value = p?.worktreeSetup ?? ""; }, { immediate: true });
+const setAutoWorktree = (on: boolean) => run(async () => {
+  const p = current.value; if (!p) return;
+  await post(`/v1/projects/${p.id}`, { autoWorktree: on }, "PATCH");
+  await refresh(); notice.value = "Saved";
+});
+const saveWorktreeSetup = () => run(async () => {
+  const p = current.value; if (!p) return;
+  await post(`/v1/projects/${p.id}`, { worktreeSetup: worktreeSetup.value.trim() || null }, "PATCH");
+  await refresh(); notice.value = "Saved";
+});
+
 /** Per-project skill overrides. `override` null means the skill follows the global setting. */
 type ProjectSkill = { name: string; description: string; global: boolean; override: boolean | null; effective: boolean };
 const skills = ref<ProjectSkill[]>([]);
@@ -306,6 +320,21 @@ onMounted(async () => {
             <input v-model="machineDirs[w.id]" class="pw-mono" :aria-label="'Directory on ' + w.name" placeholder="/absolute/path on this machine" autocomplete="off" spellcheck="false" />
             <button type="submit" class="pw-btn" :disabled="busy || !(machineDirs[w.id] ?? '').trim() || (machineDirs[w.id] ?? '').trim() === linkedDir(w.id)">{{ linkedDir(w.id) ? 'Save' : 'Link' }}</button>
             <button v-if="linkedDir(w.id)" type="button" class="pw-btn" :disabled="busy || machineCount < 2" :title="machineCount < 2 ? 'Last machine. Delete the project instead.' : 'Remove from this machine. Other machines keep the board.'" @click="unlinkMachine(w.id)">Remove</button>
+          </form>
+        </div>
+
+        <div v-if="current && !current.general" class="pw-sec" id="project-worktrees">
+          <h4>Worktrees</h4>
+          <div class="pw-skill">
+            <div class="pw-skill-text">
+              <span class="pw-skill-name">Own worktree per session</span>
+              <span class="pw-muted pw-small pw-skill-desc">A session gets its own branch at its first edit. Questions never create one. Removed after the branch merges.</span>
+            </div>
+            <button type="button" role="switch" class="pw-switch" :aria-checked="!!current.autoWorktree" aria-label="Own worktree per session" :disabled="busy" @click="setAutoWorktree(!current.autoWorktree)"><span class="pw-thumb" /></button>
+          </div>
+          <form class="pw-row" @submit.prevent="saveWorktreeSetup">
+            <input v-model="worktreeSetup" class="pw-mono" aria-label="Worktree setup command" placeholder="Setup command, e.g. pnpm install --offline --frozen-lockfile" autocomplete="off" spellcheck="false" />
+            <button type="submit" class="pw-btn" :disabled="busy || worktreeSetup.trim() === (current.worktreeSetup ?? '')">Save</button>
           </form>
         </div>
 

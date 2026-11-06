@@ -30,6 +30,7 @@ import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-searc
 import { SettingsStore } from "./settings.js";
 import { BUILTIN_EXTENSIONS, BUILTIN_REGISTRY_NAMES, type LunaConfig } from "./config.js";
 import { createToggleExtension } from "./toggles.js";
+import { createSessionWorktreeExtension } from "./session-worktree.js";
 import { createAskExtension } from "./ask.js";
 import { createCronExtension, deliverRun } from "./cron-tools.js";
 import { createDelegateExtension } from "./delegate.js";
@@ -238,6 +239,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const board = createBoardExtension(() => conversationsRef);
   extensions.push(board);
   projectExtensions = [board];
+  extensions.push(createSessionWorktreeExtension({ projects: () => conversationsRef?.projects, title: id => conversationsRef?.get(id).title }));
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
   const notifyUrl = () => live().cron.notifyUrl;
   const ask = on("ask-user") ? createAskExtension({

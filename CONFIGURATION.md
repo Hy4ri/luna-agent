@@ -898,6 +898,12 @@ When a user message contains `@file:<path>`, the prompt gets a **Referenced file
 
 With `coding` enabled, `session_workspace { path: "/absolute/directory" }` explicitly activates an existing directory on the session's current machine. Use it when moving work into a new worktree. Creating a worktree, inspecting a file, or passing a shell command an explicit directory does not activate it.
 
+### Auto-worktree
+
+A named project can set `autoWorktree: true` (`PATCH /v1/projects/:id`, or the Worktrees section of the project panel; default `false`). The session's first `edit` or `write` inside the project's main checkout is then refused with a pointer to `session_worktree`. That tool fetches `origin`, cuts `luna/s<id>-<title-slug>` from origin's default branch into `<repo parent>/.luna-worktrees/<repo>-s<id>`, runs the project's optional `worktreeSetup` command there, and switches the session into it. It runs through the session's own environment, so it works on workers. Afterwards absolute `edit`/`write` paths into the main checkout map to the worktree. Sessions that only read or answer never allocate one, and writes outside the checkout (for example generated files) are not refused. A fork starts without a worktree and allocates its own.
+
+`session_worktree { "action": "finish" }` removes the worktree and branch and returns the session to the main checkout. It refuses while the tree has uncommitted changes or the branch tip is neither in origin's default branch nor the head of a merged GitHub PR (`gh`). Nothing detects the merge by itself: the model runs `finish` after the merge. On host sessions, a `bash` call that changes the main checkout before a worktree exists adds a warning to its result; worker sessions have no such guard.
+
 The workspace uses the session's persisted agent `cwd`; there is no second workspace setting. Subsequent default file and shell paths, file completion, the Git status widget, and session-scoped Source Control operations use it. The UI receives the existing `agent_changed` event and refreshes without a reload. Call the switch separately before other work. Already-running commands keep their original directories. The tool does not change the project, execution machine, or any other session. Invalid or unavailable directories fail without changing the workspace. Recovered calls do not reapply an earlier switch.
 
 The existing `PUT /v1/sessions/:id/machine` route remains the user-facing way to set a directory or move an idle session to another machine.
