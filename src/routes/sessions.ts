@@ -7,7 +7,8 @@ import {
 } from "@earendil-works/pi-durable";
 import { GENERAL_PROJECT } from "../projects.js";
 import { isRunning, readSessionStatus, markSessionRead } from "../session-status.js";
-import { Children, readChildReport, type ChildRow } from "../delegate-state.js";
+import { Children, DELEGATE_CHILD, readChildReport, type ChildRow } from "../delegate-state.js";
+import { crewLead } from "../crew-state.js";
 import { readDelegationUsage } from "../delegate-usage.js";
 import { GoalDoc } from "../goal-doc.js";
 import { context, ProcessOwner } from "../luna.js";
@@ -633,14 +634,25 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       harness.snapshot(AskDoc, conv.id, context).catch(() => undefined),
       harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined),
     ]);
-    const { running, ...sessionStatus } = await harness.commit(async (tx) => {
+    const { running, parentSessionId, ...sessionStatus } = await harness.commit(async (tx) => {
       const running = await isRunning(tx, conv.id);
       const status = await readSessionStatus(tx, conv.id, running);
+      const record = await tx.conversation(conv.id);
+      // Fork ancestry alone is not delegation. Read only this session’s own creation entries.
+      const head = await tx.scanEntries({ conversationId: conv.id, order: "ascending",
+        ...(record?.parent ? { minEntryId: (Number(record.parent.at) + 1) as EntryId } : {}),
+      }, 30);
+      const marker = head.items.find(e => e.kind === DELEGATE_CHILD && e.conversationId === conv.id);
+      const parent = (marker?.data as { parent?: number } | undefined)?.parent;
+      const delegateParent = typeof parent === "number" && Number.isSafeInteger(parent) && parent > 0 && parent !== Number(conv.id)
+        && await tx.conversation(parent as ConversationId) ? parent : null;
+      const parentSessionId = delegateParent ?? (Number(await crewLead(tx, conv.id)) || null);
       // Mark read in the same commit. readSessionStatus reads the doc before the mark,
       // so this GET returns the completion status; subsequent reads see "ready".
       if (!running && ["finished", "review_finished"].includes(status.status)) await markSessionRead(tx, conv.id);
       return {
         running,
+        parentSessionId,
         ...status,
         resumeAt: await resumeAt(tx, conv.id, running),
         recovery: running ? null : ((await opts.limitContinuer?.recovery(tx, conv.id)) ?? null),
@@ -655,6 +667,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
 
     return c.json({
       id: conv.id,
+      parentSessionId,
       project: opts.conversations?.projects.projectOf(Number(conv.id)) ?? null,
       running,
       status: sessionStatus.status,
