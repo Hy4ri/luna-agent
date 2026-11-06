@@ -53,6 +53,7 @@ export const chat = reactive({
   draftOpen: false,
   title: "New conversation",
   project: null as number | null,
+  parentSessionId: null as number | null,
   machine: null as Machine | null,
   cwd: null as string | null,
   draftWorker: null as number | null,
@@ -283,6 +284,7 @@ function detachView() {
   if (liveFrame !== null) cancelAnimationFrame(liveFrame); liveFrame = null;
   chat.connected = false; chat.runActive = chat.generationActive = false; chat.queuedCount = 0;
   liveMessage = null; chat.liveText = ""; chat.liveThinking = ""; entries = new Map(); chat.rev++;
+  chat.parentSessionId = null;
   chat.project = null; chat.machine = null; chat.cwd = null; chat.draftWorker = null; chat.draftCwd = "";
   chat.toolLive = {}; chat.toolStarts = {}; chat.toolResults = {}; chat.activeTools = new Set();
   chat.notices = []; chat.extras = null;
@@ -460,6 +462,7 @@ export async function openSession(id: string | number, reattach = false) {
       hydrated = true; chat.rev++;
       chat.project = s.project ?? history.list.find(row => String(row.id) === sid)?.project ?? null;
       chat.machine = s.machine ?? null;
+      chat.parentSessionId = s.parentSessionId ?? null;
       applyAgent(s.agent); chat.usage = s.usage ? markRaw(s.usage) : null; showContext(s.contextUsage); setExtras(s);
       chat.followTick++;
     },

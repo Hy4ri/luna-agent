@@ -1826,6 +1826,7 @@ All ordinary endpoints below require the main API token when authentication is e
 
 `POST /v1/sessions` accepts optional `worker` (numeric worker id or null) and `cwd`.
 `GET /v1/sessions/:id` includes `machine` (`{ id, name, online }` or null).
+It also includes `parentSessionId`: the existing parent of a delegated child or the verified lead of a crew member, otherwise `null`. Ordinary fork ancestry does not count as delegation. The web chat header shows **Back to main agent** when this field is set; it opens that parent session through the normal navigation, including split tiles.
 Forks, delegated children, and background-task sessions keep their parent's execution machine.
 Native background processes use that environment and retain their output centrally.
 Files named by an assistant `MEDIA:` directive are fetched on demand from the source worker.
