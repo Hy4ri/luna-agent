@@ -22,6 +22,7 @@ export class ConversationStore {
   readonly board: BoardStore;
   readonly projectSkills: ProjectSkills;
   private readonly boardListeners = new Set<() => void>();
+  private readonly deletionListeners = new Set<(ids: number[]) => void>();
   constructor(private readonly harness: Harness, private readonly recall?: RecallIndex, uploads?: UploadStore) {
     this.db = conversationStorage(harness).db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_conversations (
@@ -37,6 +38,11 @@ export class ConversationStore {
   subscribeChanges(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => { this.listeners.delete(cb); };
+  }
+  /** Called with the ids of sessions that were just deleted, by `delete` and by `prune`. */
+  subscribeDeleted(cb: (ids: number[]) => void): () => void {
+    this.deletionListeners.add(cb);
+    return () => { this.deletionListeners.delete(cb); };
   }
   subscribeBoard(cb: () => void): () => void {
     this.boardListeners.add(cb);
@@ -223,6 +229,7 @@ export class ConversationStore {
       });
 
       this.recall?.forget(ids);
+      for (const cb of [...this.deletionListeners]) { try { cb(ids); } catch {} }
       this.notify();
       return ids;
     });

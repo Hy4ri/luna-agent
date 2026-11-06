@@ -57,6 +57,9 @@ import { LimitContinuer } from "./limit-continue.js";
 import { DeviceStore, FcmSender, loadServiceAccount, PushNotifier } from "./push.js";
 import { SubagentNotifier } from "./subagent-notify.js";
 import { CrewNotifier, createSessionCrewExtension } from "./session-crew.js";
+import { TerminalRegistry } from "./terminal/registry.js";
+import { localLauncher } from "./terminal/pty-host.js";
+import { TerminalService } from "./terminal/service.js";
 import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./workers.js";
 import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 
@@ -128,6 +131,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let harnessRef: Awaited<ReturnType<typeof openLuna>> | undefined;
   const extensions: Extension[] = [];
   // Workers hub early so browser tools can proxy to the session's worker.
+  const terminals = new TerminalService({
+    registry: new TerminalRegistry({ launcher: localLauncher }),
+    enabled: () => (settings?.resolved() ?? cfg).terminal.user,
+  });
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
   extensions.push(createMachineFilesExtension({ hub: () => workers }));
@@ -307,6 +314,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   uploads.bind(conversationStorage(harness).db);
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
+  conversations.subscribeDeleted(ids => { for (const id of ids) terminals.registry.closeSession(id); });
   harnessRef = harness;
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
   const subagentNotifier = new SubagentNotifier({ harness, log, skip: id => conversations.get(id).archived });
@@ -422,6 +430,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     scheduler,
     mcp,
     workers,
+    terminals,
     async close() {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
@@ -435,6 +444,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       await scheduler?.stop();
       await codemodeSandbox?.close();
       await harness.close(context).catch(() => {});
+      terminals.close();
       workers.close();
       workers.store.close();
       await mcp.close();

@@ -35,6 +35,7 @@ import { registerPush } from "./routes/push.js";
 import { registerProjects } from "./routes/projects.js";
 import { registerWorkers } from "./routes/workers.js";
 import { registerGit } from "./routes/git.js";
+import { registerTerminals } from "./routes/terminals.js";
 import { registerGithub } from "./routes/github.js";
 import { registerMessages } from "./routes/messages.js";
 import { registerSubsystems } from "./routes/subsystems.js";
@@ -74,6 +75,8 @@ export interface ServerOptions {
   mcp?: McpManager;
   /** Execution workers. Absent: sessions run on this host only. */
   workers?: WorkerHub;
+  /** Interactive user terminals. Absent: the terminal endpoints do not exist. */
+  terminals?: import("./terminal/service.js").TerminalService;
   /** Persistent incoming files. Only paths and metadata enter durable conversation storage. */
   uploads?: UploadStore;
   /** Default working directory on this host, for `@file:` completion before a session exists. */
@@ -147,6 +150,7 @@ export function createApp(opts: ServerOptions) {
   registerProjects(app, ctx);
   registerWorkers(app, ctx);
   registerGit(app, ctx);
+  registerTerminals(app, ctx);
   registerGithub(app, ctx);
   registerSessionConfig(app, ctx);
   registerSessionOps(app, ctx);
