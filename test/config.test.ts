@@ -111,3 +111,10 @@ test("compaction defaults, partial overrides, and threshold ordering", () => {
   rejects({ compaction: { subagents: { keepRecentTokens: 80000 } } }, /keepRecentTokens/);
   rejects({ compaction: { sessions: { typo: 1 } } }, /compaction/);
 });
+
+test("terminal access is off by default and rejects unknown fields", () => {
+  assert.equal(parse({}).terminal.user, false);
+  assert.equal(parse({ terminal: { user: true } }).terminal.user, true);
+  rejects({ terminal: { agent: true } }, /terminal/);
+  rejects({ terminal: { user: "yes" } }, /terminal/);
+});

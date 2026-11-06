@@ -5,6 +5,8 @@ import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRo
 import { Check, Search } from '@lucide/vue';
 import { ui, setPalette, navigate, openPanel, toggleCollapsed, settingsDirty, settingsChanged } from '@/stores/app';
 import { chat, openSession, scheduleContext } from '@/stores/chat';
+import { terminal, toggleTerminal } from '@/stores/terminal';
+import { sessionPane } from '@/lib/pane';
 import { history, sessionTitle, projectName, querySessions } from '@/stores/sessions';
 import type { SessionMeta } from '@/lib/types';
 import { models, modelKey, selectedKey, chooseModel, LEVELS, levelLabel, setThinking } from '@/stores/models';
@@ -142,6 +144,7 @@ const items = computed<Item[]>(() => {
   for (const s of sections) add({ id: 'settings:' + s.id, group: 'Go to', label: 'Settings: ' + s.title, hint: s.description, current: ui.view === 'settings' && ui.settingsTab === s.id, run: () => navigate('settings', s.id) });
   for (const [id, panel] of Object.entries(PANELS)) add({ id: 'panel:' + id, group: 'Open', label: panel.title, hint: panel.desc, current: ui.panel === id, run: () => openPanel(id) });
 
+  if (chat.session && !sessionPane) add({ id: 'layout:terminal', group: 'Layout', label: terminal.open ? 'Hide terminal' : 'Show terminal', hint: 'Ctrl+`', keep: false, run: () => toggleTerminal() });
   if (!mobile.value) add({ id: 'layout:sidebar', group: 'Layout', label: ui.collapsed ? 'Expand sidebar' : 'Collapse sidebar', keep: true, run: toggleCollapsed });
 
   add({ id: 'session:new', group: 'Conversations', label: 'New conversation', disabled: props.newSessionDisabled ? 'Not available while disconnected' : undefined, run: () => { navigate('chat'); return props.newSession(); } });
