@@ -40,7 +40,7 @@ export function sortProcesses<T extends { running: boolean }>(list: T[]): T[] {
   return list.slice().sort((a, b) => (a.running === b.running ? 0 : a.running ? -1 : 1));
 }
 
-const EXTRA_TOOLS = /^(todo|ask_user_question|create_goal|update_goal|set_goal_tasks|update_goal_task)$/;
+const EXTRA_TOOLS = /^(todo|ask_user_question|goal)$/;
 
 function textBlocks(content: unknown): string {
   if (typeof content === "string") return content;

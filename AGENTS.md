@@ -136,7 +136,7 @@ luna-pi/
 │   ├── recall.ts               # Full-text search index (FTS5) across past conversations
 │   ├── skills.ts               # Skill catalog loader and SKILL.md parser
 │   ├── skill-manage.ts         # Managed skill CRUD, linting, and trash/restore
-│   ├── improve.ts              # Failure lesson extraction and benchmark-gated skill_propose
+│   ├── improve.ts              # Failure lesson extraction and benchmark-gated skill proposals
 │   ├── learn.ts                # Idle session scanning and lesson diagnosis
 │   ├── learn-command.ts        # /learn slash command handler
 │   ├── vision.ts               # vision_analyze tool and native/auxiliary image routing
@@ -145,7 +145,7 @@ luna-pi/
 │   ├── web-tools.ts            # Native web_search and web_extract tools + ddgs-web-provider.ts
 │   ├── browser-tools.ts        # Native browser_* tools + camofox/moli/chromium providers
 │   ├── busy-input.ts           # Interrupt / queue / steer policies for active turns
-│   ├── busy-tools.ts           # Background process tools (process_start, process_manage)
+│   ├── busy-tools.ts           # Background process tools (process tool)
 │   ├── side-commands.ts        # Ephemeral side questions (/btw) without polluting main context
 │   └── limit-continue.ts       # Automatic turn continuation after rate/quota reset
 └── web/

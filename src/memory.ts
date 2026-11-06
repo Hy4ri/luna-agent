@@ -1,5 +1,5 @@
 // Durable long-term memory: SQLite store of facts (keyed, upserted) and notes (free-form),
-// a compacted system-prompt section, and remember/recall/forget tools.
+// a compacted system-prompt section, and one memory tool (save/search/forget).
 import { DatabaseSync } from "node:sqlite";
 import { chmodSync } from "node:fs";
 import { Type } from "typebox";
@@ -252,7 +252,7 @@ export class MemoryStore {
       }
     }
     const hidden = notes.length - shown + droppedFacts;
-    if (hidden > 0) add(`(${hidden} more entries not shown; use the recall tool)`);
+    if (hidden > 0) add(`(${hidden} more entries not shown; use the memory tool action=search)`);
     return out.join("\n");
   }
 }
@@ -269,50 +269,46 @@ function fmt(r: MemoryRow): string {
 
 const text = (t: string) => ({ output: [{ type: "text" as const, text: t }] });
 
-/** Extension: `remember`, `recall`, `forget` tools plus a `memory` prompt section backed by `store`. */
+/** Extension: one `memory` tool (save, search, forget) plus a `memory` prompt section backed by `store`. */
 export function createMemoryExtension(store: MemoryStore) {
-  const remember = defineTool({
-    name: "remember",
+  const memory = defineTool({
+    name: "memory",
     description:
-      "Save durable knowledge across sessions. With `key`, stores a fact (same key overwrites, e.g. 'user.timezone'). Without `key`, appends a free-form note.",
+      "Durable knowledge across sessions. save: with `key`, stores a fact (same key overwrites, e.g. 'user.timezone'); without `key`, appends a free-form note. " +
+      "search: saved facts and notes (all terms must match content, key or tags); empty query lists the most recent; archived also searches notes folded into the digest. " +
+      "forget: delete a fact or note by its #id (from search or the memory section).",
     parameters: Type.Object({
-      content: Type.String({ description: "What to remember" }),
-      key: Type.Optional(Type.String({ description: "Stable dotted key for a fact; reuse it to update the fact" })),
-      tags: Type.Optional(Type.Array(Type.String())),
+      action: Type.Union([Type.Literal("save"), Type.Literal("search"), Type.Literal("forget")]),
+      content: Type.Optional(Type.String({ description: "save: what to remember." })),
+      key: Type.Optional(Type.String({ description: "save: stable dotted key for a fact; reuse it to update the fact." })),
+      tags: Type.Optional(Type.Array(Type.String(), { description: "save: tags." })),
+      query: Type.Optional(Type.String({ description: "search: terms." })),
+      kind: Type.Optional(Type.Union([Type.Literal("fact"), Type.Literal("note")], { description: "search: only this kind." })),
+      limit: Type.Optional(Type.Number({ description: "search: default 10, max 50." })),
+      archived: Type.Optional(Type.Boolean({ description: "search: include archived notes." })),
+      id: Type.Optional(Type.Number({ description: "forget: memory #id." })),
     }),
-    // upsert by key is idempotent; note append is not, so keep default (unsafe) replay semantics
+    // save upserts by key (idempotent) but appends notes (not idempotent), so keep default (unsafe) replay semantics
     async execute(args) {
-      const r = store.remember({ content: args.content, key: args.key, tags: args.tags });
-      return text(`Saved ${r.kind} #${r.id}${r.key ? " (" + r.key + ")" : ""}.`);
-    },
-  });
-  const recall = defineTool({
-    name: "recall",
-    description:
-      "Search saved facts and notes (all terms must match content, key or tags). Empty query lists the most recent. Set archived to also search notes folded into the digest.",
-    parameters: Type.Object({
-      query: Type.Optional(Type.String()),
-      kind: Type.Optional(Type.Union([Type.Literal("fact"), Type.Literal("note")])),
-      limit: Type.Optional(Type.Number({ description: "Default 10, max 50" })),
-      archived: Type.Optional(Type.Boolean()),
-    }),
-    replay: "safe",
-    async execute(args) {
-      const rows = store.recall(args.query ?? "", { kind: args.kind, limit: args.limit, includeArchived: args.archived });
-      return text(rows.length ? rows.map(fmt).join("\n\n") : "No matches.");
-    },
-  });
-  const forget = defineTool({
-    name: "forget",
-    description: "Delete a saved fact or note by its #id (from recall or the memory section).",
-    parameters: Type.Object({ id: Type.Number() }),
-    async execute(args) {
-      return text(store.forget(args.id) ? `Forgot #${args.id}.` : `No memory #${args.id}.`);
+      switch (args.action) {
+        case "save": {
+          if (!args.content) return { ...text("save needs content."), isError: true };
+          const r = store.remember({ content: args.content, key: args.key, tags: args.tags });
+          return text(`Saved ${r.kind} #${r.id}${r.key ? " (" + r.key + ")" : ""}.`);
+        }
+        case "search": {
+          const rows = store.recall(args.query ?? "", { kind: args.kind, limit: args.limit, includeArchived: args.archived });
+          return text(rows.length ? rows.map(fmt).join("\n\n") : "No matches.");
+        }
+        case "forget":
+          if (args.id === undefined) return { ...text("forget needs id."), isError: true };
+          return text(store.forget(args.id) ? `Forgot #${args.id}.` : `No memory #${args.id}.`);
+      }
     },
   });
   return defineExtension({
     name: "memory",
-    tools: [remember, recall, forget],
+    tools: [memory],
     sections: [section("memory", () => store.render())],
   });
 }

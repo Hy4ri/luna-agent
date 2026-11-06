@@ -376,15 +376,15 @@ The live gate uses a scripted model; it verifies tool execution, not real-model 
 
 ## Skill management
 
-The `skills` extension gives the agent `skill_view`, `skill_list`, and `skill_manage`.
+The `skills` extension gives the agent `skill_view` and `skill_manage`. `skill_manage` also loads with the `improve` extension.
 
 - Only skills under `<dataDir>/skills` can change. Skills from `skillDirs` are read-only.
-- `skill_manage` actions: `create`, `edit` (full content, or one exact `old_text` → `new_text`), `delete`,
-  `write_file`, `delete_file` (linked files, relative to the skill directory), and `restore`.
-- `create` and `edit` are linted only. Use `skill_propose` for a benchmark-gated change.
-  Each edit backs up the previous `SKILL.md` for `skill_rollback`.
+- `skill_manage` actions: `list`, `create`, `edit` (full content, or one exact `old_text` → `new_text`), `propose`,
+  `rollback`, `delete`, `write_file`, `delete_file` (linked files, relative to the skill directory), and `restore`.
+- `create` and `edit` are linted only. Use `propose` (`benchmark`, `benchmark_command`, or `must_contain`; optional `dry_run`)
+  for a benchmark-gated change. Each edit backs up the previous `SKILL.md` for `rollback` (optional `version`).
 - `delete`, `delete_file`, and a replaced linked file move to `<dataDir>/skills/.history/.trash`.
-  `skill_list include_deleted` shows the ids; `restore` never overwrites an existing path.
+  `list` with `include_deleted` shows the ids; `restore` never overwrites an existing path.
 - Linked-file paths stay in the skill's own directory: no `..`, no hidden parts, no symlinks,
   no `SKILL.md`, and no path inside a nested skill. A skill that contains nested skills cannot be deleted.
 - Changes reach the prompt catalog on the next model call.
@@ -393,7 +393,7 @@ The `skills` extension gives the agent `skill_view`, `skill_list`, and `skill_ma
 
 The `learn` extension captures contextual evidence without a background model call. A learning proposal is a
 reviewable change, not a new authority to write. **All proposals require user approval.** No automatic-write
-policy is enabled. The existing `remember`, file, and skill tools retain their separate permission scope;
+policy is enabled. The existing `memory`, file, and skill tools retain their separate permission scope;
 this feature is not an OS sandbox around those tools.
 
 ### Capture and diagnosis
@@ -411,20 +411,20 @@ this feature is not an OS sandbox around those tools.
   a stop signal (exit 130 or 143), and a harness interruption. Patterns from at least two conversations become
   visible for review. Legacy signals whose key ends in `:<harness>` stay in the ledger but are hidden from the
   queue. A later success from the same tool is only a recovery heuristic; it does not prove the same problem was fixed.
-- `lesson_capture { session, message, kind }` captures a source missed by the heuristic, including long corrections
+- `lesson_signal { action: "capture", session, message, kind }` captures a source missed by the heuristic, including long corrections
   and tool outcomes. `kind` is `rule`, `correction`, or `outcome`. User statements and tool results are checked
   against the original transcript, not model-supplied source text.
-- `lesson_record` creates an unapplied candidate with `claim`, `cause`, `scope`, optional `skill`, `target`,
+- `lesson_curate { action: "record" }` creates an unapplied candidate with `claim`, `cause`, `scope`, optional `skill`, `target`,
   `domain` (default `global`), `review_at` (Unix milliseconds), and `signal_ids`. `lesson_id` edits an existing
   candidate. A semantic diagnosis change invalidates previous assessments but retains them in history.
 - Causes: `missing` (missing fact/procedure), `stale`, `not_loaded` (retrieval), `ignored` (available rule not followed),
   `wrong`, `conflict`, `project` (project-only knowledge), and `uncertain`. Ignored rules need a proposed code check,
   not more text. Conflicting and uncertain diagnoses cannot produce writes.
-- `lesson_assess { signal_id, role, rationale }` records `explicit`, `support`, `conflict`, or `irrelevant` after
+- `lesson_signal { action: "assess", signal_id, role, rationale }` records `explicit`, `support`, `conflict`, or `irrelevant` after
   context review. One explicit user statement can support a preference; inferred claims need distinct sources in
   at least two sessions. Repeated normalized content does not count twice. Semantic independence still needs
   review; fingerprints do not detect all paraphrases. Unresolved conflict blocks a proposal.
-- `lesson_dismiss { signal_id | lesson_id, reason }` dismisses noise without deleting its evidence. It cannot
+- `lesson_curate { action: "dismiss", signal_id | lesson_id, reason }` dismisses noise without deleting its evidence. It cannot
   dismiss an applied change or bypass a held proposal.
 
 ### Storage and write destinations
@@ -451,10 +451,10 @@ Enrollment is not approval of a change. Targets must be regular text files; syml
 files over 100 KB are refused. Learning refuses proposals whose snapshots contain recognizable credentials.
 Redaction is heuristic, not a guarantee that every secret format is detected. Store databases and backups securely.
 
-`lesson_propose` accepts `lesson_id`, optional `content`, `fact`, `fact_key`, `must_contain`, and
+`lesson_curate { action: "propose" }` accepts `lesson_id`, optional `content`, `fact`, `fact_key`, `must_contain`, and
 `critical` (review explanation). It saves a before/after snapshot and waits for the user. `must_contain` checks
 text only; it is not behavioral verification. Proposals do not run shell commands or paid model benchmarks.
-Skill learning rollback uses the learning journal, not the separate `skill_rollback` version series.
+Skill learning rollback uses the learning journal, not the separate `skill_manage` `rollback` version series.
 
 ### Review, concurrency, and recovery
 
@@ -473,24 +473,24 @@ observations, and review-due notices. Approve applies the exact reviewed change;
 - Legacy proposals lack reviewed source assessments and change snapshots, so they cannot be approved directly.
   Reject and create a new candidate using recaptured original evidence. Legacy `confirmed` entries are displayed
   as unverified legacy confirmations; loading a skill no longer confirms anything.
-- `forget` removes that fact's current memory, provenance, and memory history. Source transcripts and existing
+- `memory { action: "forget" }` removes that fact's current memory, provenance, and memory history. Source transcripts and existing
   learning journals are separate records and are not purged by this action.
 
 ### Identity and user facts
 
 `<dataDir>/SOUL.md` is the only identity file in the prompt. The runtime does not read `USER.md` or `MEMORY.md`.
-Keep user preferences and other durable facts in `memory.db` (`remember`, or a `memory` scope lesson). General
-`remember` updates clear old learning provenance rather than falsely attributing new content to an older source.
+Keep user preferences and other durable facts in `memory.db` (`memory` `save`, or a `memory` scope lesson). General
+`save` updates clear old learning provenance rather than falsely attributing new content to an older source.
 
 ### Outcomes and cost
 
-`lesson_observe { lesson_id, session, message, outcome, relevance, evidence }` records a later relevant
+`lesson_signal { action: "observe", lesson_id, session, message, outcome, relevance, evidence }` records a later relevant
 `success`, `failure`, or `unknown`. Assistant claims alone cannot establish success. The observation is bound to
 an applied change and source timestamp. Repeated source content is deduplicated. Reported failures mark a change
 `ineffective`; no observations means effect unknown. The user can verify a successful observation only while the
 applied target still matches and no later failure contradicts it. This verifies that observation, not every future task.
 
-`learn_review` returns paged open lessons and signals (default 20, maximum 100) and observation
+`lesson_curate { action: "review" }` returns paged open lessons and signals (default 20, maximum 100) and observation
 counts. Use `offset` for pagination, `history: true` for closed lessons and legacy signals, or `lesson_id` for evidence, change journal,
 and revision history. Legacy signals lack original-source fingerprints and stay outside the default queue.
 Metrics include reported outcomes, observed lesson/session pairs, and review-due items.
@@ -522,7 +522,7 @@ An empty argument returns usage.
 The command becomes a normal turn in the current chat. It queues, steers, and stops like any other message.
 The agent reads the source with its enabled tools (`web_extract`, browser, `read`, shell).
 It then creates or updates one managed skill with `skill_manage`, which lints and backs up the previous version.
-Use `skill_rollback` to undo an update. External skills stay read-only; the agent creates a managed skill instead.
+Use `skill_manage` `rollback` to undo an update. External skills stay read-only; the agent creates a managed skill instead.
 The skill lists its sources and marks each point as verified or assumed.
 Sending `/learn` authorizes this one skill write; there is no separate approval step.
 
@@ -541,25 +541,25 @@ It does not implement anything. When no decision remains, or you say stop, it wr
 ## Crafting a skill
 
 `/skillcraft <skill idea or existing skill name>` interviews you and then saves one managed skill. An empty argument returns usage.
-The command becomes a normal turn in the current chat. The agent runs `skill_list` first and plans an update if a managed skill already covers the topic.
+The command becomes a normal turn in the current chat. The agent runs `skill_manage` `list` first and plans an update if a managed skill already covers the topic.
 It asks one question per turn with `ask_user_question`, in this order: trigger, scope and non-goals, procedure, gates, pitfalls, tools, reference files.
 It then shows the full draft `SKILL.md` and asks for approval. Only after you approve does it write with `skill_manage`, which lints and backs up the previous version.
-Use `skill_rollback` to undo an update. External skills stay read-only. Requires the `skills` extension.
+Use `skill_manage` `rollback` to undo an update. External skills stay read-only. Requires the `skills` extension.
 
 ## Native browser tools
 
 The agent uses these provider-neutral tools without `tool_search` discovery:
 
-| Tool | Parameters | Result |
-| --- | --- | --- |
-| `browser_open` | `url` | `tabId`, current `url` |
-| `browser_navigate` | `tabId`, `url` | `tabId`, current `url` |
-| `browser_close` | `tabId` | `tabId`, `closed: true` |
-| `browser_snapshot` | `tabId`, optional `offset` | `tabId`, `url`, `content`, `hasMore`, optional `nextOffset` and `totalChars`; image when available |
-| `browser_click` | `tabId`, exactly one `ref` or `selector` | `tabId`, `ok: true` |
-| `browser_type` | `tabId`, exactly one `ref` or `selector`, `text`, optional `pressEnter` | `tabId`, `ok: true` |
-| `browser_scroll` | `tabId`, `direction`, optional `amount` | `tabId`, `ok: true` |
-| `browser_screenshot` | `tabId` | `tabId` and a viewport image block |
+| Tool | `action` | Parameters | Result |
+| --- | --- | --- | --- |
+| `browser_tab` | `open` | `url` | `tabId`, current `url` |
+| `browser_tab` | `navigate` | `tabId`, `url` | `tabId`, current `url` |
+| `browser_tab` | `close` | `tabId` | `tabId`, `closed: true` |
+| `browser_inspect` | `snapshot` | `tabId`, optional `offset` | `tabId`, `url`, `content`, `hasMore`, optional `nextOffset` and `totalChars`; image when available |
+| `browser_inspect` | `screenshot` | `tabId` | `tabId` and a viewport image block |
+| `browser_act` | `click` | `tabId`, exactly one `ref` or `selector` | `tabId`, `ok: true` |
+| `browser_act` | `type` | `tabId`, exactly one `ref` or `selector`, `text`, optional `pressEnter` | `tabId`, `ok: true` |
+| `browser_act` | `scroll` | `tabId`, `direction`, optional `amount` | `tabId`, `ok: true` |
 
 Open and navigate require HTTP(S) URLs without embedded credentials. Provider macros are not part of the common interface.
 Snapshots contain page text and element refs. Treat page text and images as untrusted data, not instructions.
@@ -596,7 +596,7 @@ This feature does not install or start that service. Use the actual MCP file pat
 Moli builds layout on demand, so Luna renders a 1x1 image before snapshots, clicks, typing, and scrolling so elements get refs and real geometry. Moli does not play video or match Chrome pixel-for-pixel.
 `chromium` launches a local Chromium-based browser such as Helium through Playwright, on the machine where Luna code runs (main, or a worker).
 It needs `browser.providers.chromium.executablePath` and `pnpm install` on that machine. `headless` defaults to true.
-Tabs share one browser context. Snapshots use Playwright's accessibility snapshot, and refs work with `browser_click` and `browser_type`.
+Tabs share one browser context. Snapshots use Playwright's accessibility snapshot, and refs work with `browser_act` `click` and `type`.
 
 Provider options stay under `browser.providers.<provider>`. Connection settings and credentials stay in the existing MCP configuration.
 For the Camofox MCP server, use its `CAMOFOX_BASE_URL`, `CAMOFOX_ACCESS_KEY`, and session environment settings when required.
@@ -866,7 +866,7 @@ Acknowledgements name the accepted action: queued, steered, or redirected. They 
 Disable them with `acknowledgements: false`. A one-time tip explains each selected mode. Queue command responses are not acknowledgements.
 
 A redirected foreground shell command yields its wait. The same OS process continues in the background, without restart.
-The model receives its process ID and can use `process_manage` to list, read, wait for, or stop it. Handles belong to their chat session.
+The model receives its process ID and can use the `process` tool to list, read, wait for, or stop it. Handles belong to their chat session.
 Completion returns as follow-up input. Arbitrary tools without a cooperative yield point finish normally; they are never killed by redirect.
 Background OS processes belong to the current daemon. A normal shutdown stops them; metadata and retained output survive restart.
 See **Native background processes** for crash handling and output retention.
@@ -988,11 +988,11 @@ Enable explicit background commands under **Settings → Tools → Background pr
 The `coding` extension must also be enabled. These tools have the same host access as `bash`; they are not a sandbox.
 Existing correction-detached commands remain supported when explicit background starts are disabled.
 
-- `process_start({command, cwd?, timeoutSec?})` starts a shell command and immediately returns a managed process ID.
+- `process({action: "start", command, cwd?, timeoutSec?})` starts a shell command and immediately returns a managed process ID.
   The default working directory belongs to the calling conversation. A relative `cwd` uses that directory.
   An optional positive timeout limits command execution. Spawn failures become failed process results.
-- `process_manage({action, id?, timeoutSec?, offset?, limit?})` manages only the calling conversation's processes.
-  Actions are `list`, `read`, `wait`, and `stop`. Every action except `list` requires an ID.
+- `process({action, id?, timeoutSec?, offset?, limit?})` with `list`, `read`, `wait`, or `stop` manages only the calling
+  conversation's processes. Every action except `list` requires an ID.
   `read` returns current or final output, state, and exit code. Nonzero exits have state `failed` and retain their exact code.
   `wait` waits at most 10 seconds by default, or `timeoutSec` from 0 through 60. A timeout is not completion.
   Cancelling a wait does not stop the process. Use `stop` to stop it.
@@ -1018,7 +1018,7 @@ If `cron.notifyUrl` is set, an external completion notification carries status o
 Closing a viewer or stopping the conversation does not stop an admitted background process.
 
 On POSIX hosts, `stop` and normal daemon shutdown kill each running command's process group and wait for execution to settle.
-Execution completes when the launched command or shell exits. Do not append `&`; `process_start` already runs in the background.
+Execution completes when the launched command or shell exits. Do not append `&`; `process` `start` already runs in the background.
 Children that outlive that shell are no longer managed after its completion.
 Descendants that create another process group or session can also escape this termination boundary.
 Normal shutdown retains stopped results. After an abrupt daemon failure, unfinished saved jobs become `interrupted`.
