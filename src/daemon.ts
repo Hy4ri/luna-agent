@@ -23,7 +23,7 @@ const app = createApp({
   harness: rt.harness, sideCommands: rt.sideCommands, titler: rt.titler, limitContinuer: rt.limitContinuer, push: rt.push, token, agent: { model: rt.model },
   settings: rt.settings, busyInput: rt.busyInput, sessionTalk: rt.sessionTalk, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
-  workers: rt.workers, terminals: rt.terminals, uploads: rt.uploads, cwd: cfg.cwd,
+  workers: rt.workers, terminals: rt.terminals, uploads: rt.uploads, webhooks: rt.webhooks, cwd: cfg.cwd,
   ...(rt.learn ? { learn: { store: rt.learn, improver: rt.improver!, scan: rt.learnScan } } : {}),
 });
 const desktopOrigins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];

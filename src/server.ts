@@ -30,7 +30,8 @@ import { registerAnalytics } from "./routes/analytics.js";
 import { registerSessions } from "./routes/sessions.js";
 import { registerSessionConfig } from "./routes/session-config.js";
 import { registerSessionOps } from "./routes/session-ops.js";
-import { registerWebhooks } from "./routes/webhooks.js";
+import { registerHookReceiver, registerWebhooks } from "./routes/webhooks.js";
+import { WebhookError, type Webhooks } from "./webhooks.js";
 import { registerPush } from "./routes/push.js";
 import { registerProjects } from "./routes/projects.js";
 import { registerWorkers } from "./routes/workers.js";
@@ -81,6 +82,8 @@ export interface ServerOptions {
   uploads?: UploadStore;
   /** Default working directory on this host, for `@file:` completion before a session exists. */
   cwd?: string;
+  /** Webhooks in (POST /hooks/<slug>) and out (subscriptions). Absent: their endpoints answer 404. */
+  webhooks?: Webhooks;
   /** Session learning ledger and the improver that applies approved proposals. */
   learn?: { store: LearnStore; improver: SkillImprover; scan?: () => Promise<unknown> | undefined };
 }
@@ -106,7 +109,7 @@ export function createApp(opts: ServerOptions) {
 
   app.onError((e, c) => {
     if (e instanceof BusyCommandError) return err(c, e.status, e.message);
-    if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError || e instanceof UploadError) return err(c, e.status, e.message);
+    if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError || e instanceof UploadError || e instanceof WebhookError) return err(c, e.status, e.message);
     const name = (e as Error).name;
     if (name === "ConversationBusy") return err(c, 409, "conversation busy");
     return err(c, 500, (e as Error).message ?? String(e));
@@ -129,6 +132,9 @@ export function createApp(opts: ServerOptions) {
     const inspection = await harness.inspect(context);
     return c.json({ ok: true, auth: false, daemonId: opts.connection?.id, uptimeMs: Date.now() - started, live: inspection as unknown });
   });
+
+  // ---- inbound webhooks (unauthenticated by the daemon token; every hook checks its own secret) ----
+  registerHookReceiver(app, opts.webhooks);
 
   // ---- auth ----
   app.use("/v1/*", async (c, next) => {

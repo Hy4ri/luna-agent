@@ -217,7 +217,10 @@ export const managers: Record<string, RelatedDestination[]> = {
     { id: 'skills', title: 'Skill library', description: 'Browse skills and read their instructions.' },
     { id: 'lessons', title: 'Review lessons', description: 'Review proposed changes and their evidence.' },
   ],
-  automation: [{ id: 'cron', title: 'Cron jobs & reports', description: 'Manage scheduled work and read reports.' }],
+  automation: [
+    { id: 'cron', title: 'Cron jobs & reports', description: 'Manage scheduled work and read reports.' },
+    { id: 'webhooks', title: 'Webhooks', description: 'Receive events from other services and send Luna events out.' },
+  ],
 }
 export const searchKeywords: Record<string, string> = {
   instructions: 'prompt system instructions default chat', autoContinue: 'rate limit quota retry recovery resume',

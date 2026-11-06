@@ -56,6 +56,9 @@ import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
 import { LimitContinuer } from "./limit-continue.js";
 import { DeviceStore, FcmSender, loadServiceAccount, PushNotifier } from "./push.js";
+import { WebhookStore, Webhooks, type WebhookTargets } from "./webhooks.js";
+import { createWebhookExtension } from "./webhook-tools.js";
+import { createPlannedSession, linkProject, planSession } from "./session-create.js";
 import { SubagentNotifier } from "./subagent-notify.js";
 import { CrewNotifier, createSessionCrewExtension } from "./session-crew.js";
 import { TerminalRegistry } from "./terminal/registry.js";
@@ -221,6 +224,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     setTitle: (id, title) => conversationsRef!.update(id, { title }),
   }));
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler));
+  // Webhooks: the store and receiver always run; the extension name only controls the agent tools.
+  let webhookTargets: WebhookTargets | undefined;
+  const webhooks = new Webhooks(new WebhookStore(join(cfg.dataDir, "webhooks.db")), { targets: () => webhookTargets, fetch: o.fetch, log });
+  if (on("webhooks")) extensions.push(createWebhookExtension(() => webhooks));
   const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
     : undefined;
@@ -337,6 +344,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       push = { devices, notifier };
     } catch (e) { log(`push disabled: ${(e as Error).message}`); }
   }
+  // Outbound webhooks: the same status transitions as push, as session.<status> events.
+  const webhookNotifier = new PushNotifier({ harness, log,
+    send: async m => { webhooks.emit(`session.${m.status}`, { title: m.title, text: m.body, sessionId: Number(m.sessionId), status: m.status }); },
+    title: id => conversations.get(id).title, skip: id => conversations.get(id).archived,
+    isCron: id => !!store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1").get(String(id)) });
+  webhookNotifier.start();
   // Continue after a usage limit resets. Cron runs have their own timeout and run log, so they never wait.
   const isCronConversation = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
   const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
@@ -350,13 +363,53 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     scheduler = new Scheduler({
       harness, store: store!, defaultModel: () => providers.defaultModel(), log,
       runTimeoutMs: () => { const m = live().cron.runTimeoutMinutes; return m ? m * 60_000 : 30 * 60_000; },
-      onFinish: (job, run) => { const url = notifyUrl(); return url ? deliverRun(url, job, run, o.fetch) : undefined; },
+      onFinish: (job, run) => {
+        if (run.status === "ok" || run.status === "error") {
+          const ok = run.status === "ok", name = job?.name ?? `job ${run.jobId}`;
+          webhooks.emit(ok ? "cron.run.ok" : "cron.run.failed", {
+            title: `Cron ${name} ${ok ? "ok" : "failed"}`, text: ((ok ? run.output : run.error) ?? "").slice(0, 4000),
+            jobId: run.jobId, runId: run.id, jobName: name, status: run.status, reason: run.reason,
+            sessionId: run.conversationId ? Number(run.conversationId) : null,
+          }, `evt_cron_run_${run.id}`);
+        }
+        const url = notifyUrl(); return url ? deliverRun(url, job, run, o.fetch) : undefined;
+      },
       exclude: [board, ...(ask ? [ask] : [])],
     });
     syncImproveJob(cfg, store!);
     disableLegacyLearnJob(store!);
     await scheduler.start();
   }
+
+  webhookTargets = {
+    async toSession(id, content, requestId) {
+      const conv = await harness.conversation(id as never, context);
+      if (!conv) return false;
+      await limitContinuer.cancel(id, "New input replaced automatic recovery.");
+      await conv.submit({ type: "input", content, requestId }, context);
+      return true;
+    },
+    async newSession(project, title, content, requestId) {
+      const plan = planSession({ base: newSessionAgent, models: built.models, projects: conversations.projects, workers: workers.store, projectExtensions },
+        { project: project || null });
+      const id = Number(await harness.commit(tx => createPlannedSession(tx, plan), context));
+      linkProject(conversations.projects, id, plan);
+      conversations.update(id, { title });
+      const conv = await harness.conversation(id as never, context);
+      await conv!.submit({ type: "input", content, requestId }, context);
+      return id;
+    },
+    async runCron(id) {
+      if (!scheduler) throw new Error("cron is disabled");
+      return scheduler.runNow(id).id;
+    },
+    async exists(t) {
+      if (t.kind === "session") return !!await harness.conversation(t.id as never, context);
+      if (t.kind === "project") return t.id === 0 || !!conversations.projects.get(t.id);
+      return !!store?.getJob(t.id);
+    },
+  };
+  webhooks.start();
 
   // Session learning runs after a conversation goes idle, never inside a live turn.
   let learnTimer: ReturnType<typeof setInterval> | undefined;
@@ -435,11 +488,15 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     mcp,
     workers,
     terminals,
+    webhooks,
     async close() {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
       await limitContinuer.close();
       await push?.notifier.close();
+      await webhookNotifier.close();
+      await webhooks.close();
+      webhooks.store.close();
       await subagentNotifier.close();
       await crewNotifier.close();
       await titler.close();
