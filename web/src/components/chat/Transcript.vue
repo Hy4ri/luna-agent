@@ -82,6 +82,7 @@ function handleScroll() {
   if (distance(log) < BOTTOM_PX) pinned = true;
   else if (dragging || Date.now() < intentUntil) pinned = false;
   if (dragging || Date.now() < intentUntil) showJumps();
+  scheduleActive();
 }
 // Follow every layout change while pinned: DOM changes, log resizes (composer, extras),
 // image loads, and disclosure toggles. None of these reliably emit a scroll event.
@@ -164,6 +165,54 @@ watch(() => chat.epoch, () => { resetRows(); scheduleRows(); });
 watch(() => timeline.value.length, scheduleRows, { immediate: true });
 onBeforeUnmount(resetRows);
 const shownTimeline = computed(() => allRows.value || timeline.value.length <= FIRST_ROWS ? timeline.value : timeline.value.slice(-FIRST_ROWS));
+// Rail of thin ticks, one per user message. A click scrolls the log to that message.
+const userTicks = computed(() => {
+  const ticks: { id: number; label: string }[] = [];
+  for (const row of shownTimeline.value) {
+    const entry = row.entry;
+    if (!entry) continue;
+    for (const m of entry.model || []) {
+      if (m.role !== 'user' || backgroundReport(entry, m)) continue;
+      const text = messageText(m.content).replace(/\s+/g, ' ').trim();
+      ticks.push({ id: entry.id, label: text.length > 80 ? text.slice(0, 80) + '…' : text || 'Message' });
+      break;
+    }
+  }
+  return ticks;
+});
+const activeTick = ref<number | null>(null);
+let railRaf: number | undefined;
+function userEl(id: number) {
+  return logRef.value?.querySelector<HTMLElement>(`.msg.user[data-entry="${CSS.escape(String(id))}"]`) ?? null;
+}
+function updateActive() {
+  railRaf = undefined;
+  const log = logRef.value;
+  if (!log || !userTicks.value.length) { activeTick.value = null; return; }
+  const line = log.getBoundingClientRect().top + log.clientHeight * 0.35;
+  let current = userTicks.value[0]!.id;
+  for (const t of userTicks.value) {
+    const el = userEl(t.id);
+    if (el && el.getBoundingClientRect().top <= line) current = t.id;
+  }
+  activeTick.value = current;
+}
+function scheduleActive() { if (railRaf === undefined) railRaf = requestAnimationFrame(updateActive); }
+watch(userTicks, scheduleActive, { flush: "post" });
+onBeforeUnmount(() => { if (railRaf !== undefined) cancelAnimationFrame(railRaf); });
+function jumpToUser(id: number) {
+  const log = logRef.value, el = userEl(id);
+  if (!log || !el) return;
+  pinned = false;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const top = log.scrollTop + el.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
+  log.scrollTo({ top, behavior: reduce ? "auto" : "smooth" });
+  activeTick.value = id;
+  el.classList.remove("rail-flash");
+  void el.offsetWidth;
+  el.classList.add("rail-flash");
+  setTimeout(() => el.classList.remove("rail-flash"), 1400);
+}
 const results = computed(() => {
   const map = new Map<string, any>(Object.entries(chat.toolResults));
   for (const entry of entryList.value) for (const message of entry.model || []) {
@@ -306,12 +355,60 @@ function backgroundReport(entry: any, message: any): boolean {
   <div v-if="queued.length" class="queued-dock" role="region" aria-label="Queued messages">
     <PendingMessage v-for="message in queued" :key="message.requestId" :message="message" />
   </div>
+  <nav v-if="userTicks.length > 1" class="user-rail" aria-label="User messages">
+    <button
+      v-for="t in userTicks"
+      :key="t.id"
+      type="button"
+      class="user-tick"
+      :class="{ active: t.id === activeTick }"
+      :aria-label="'Go to message: ' + t.label"
+      :aria-current="t.id === activeTick ? 'true' : undefined"
+      @click="jumpToUser(t.id)"
+    ><span class="tick-bar" /><span class="tick-tip" dir="auto">{{ t.label }}</span></button>
+  </nav>
   <div class="transcript-jumps">
     <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="jumpToBottom"><ArrowDown :size="18" aria-hidden="true" /></button>
   </div>
 </template>
 
 <style scoped>
+.user-rail {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); z-index: 5;
+  display: flex; flex-direction: column; gap: 3px; width: 16px; height: min(50%, 320px);
+  align-items: stretch; animation: rail-in 0.35s ease-out both;
+}
+.user-tick {
+  position: relative; flex: 1 1 0; min-height: 3px; max-height: 14px; padding: 0; border: 0; background: none;
+  display: flex; align-items: center; justify-content: flex-end; cursor: pointer;
+}
+.tick-bar {
+  display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--muted-foreground); opacity: 0.45;
+  transition: width 0.2s cubic-bezier(.3,1.4,.5,1), opacity 0.2s, background-color 0.2s, height 0.2s;
+}
+.user-tick:hover .tick-bar, .user-tick:focus-visible .tick-bar { width: 16px; opacity: 1; }
+.user-tick.active .tick-bar { width: 14px; height: 3px; opacity: 1; background: var(--primary); }
+.user-tick:focus-visible { outline: none; }
+.tick-tip {
+  position: absolute; right: 24px; top: 50%; transform: translate(6px, -50%); max-width: 260px; width: max-content;
+  padding: 4px 8px; border-radius: var(--radius); font-size: 12px; line-height: 1.3; color: var(--foreground);
+  background: var(--secondary); border: 1px solid var(--border); box-shadow: var(--shadow);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; opacity: 0;
+  transition: opacity 0.15s, transform 0.2s;
+}
+.user-tick:hover .tick-tip, .user-tick:focus-visible .tick-tip { opacity: 1; transform: translate(0, -50%); }
+@keyframes rail-in { from { opacity: 0; transform: translate(8px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+.rail-flash { animation: rail-flash 1.4s ease-out; }
+@keyframes rail-flash {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 70%, transparent); }
+  30% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 35%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .user-rail, .rail-flash { animation: none; }
+  .tick-bar, .tick-tip { transition: none; }
+}
+@media (max-width: 640px) { .user-rail { display: none; } }
 .load-older-bar { display: flex; justify-content: center; padding: 10px 0 4px; }
 .load-older-btn {
   display: inline-flex;
