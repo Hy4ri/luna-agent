@@ -165,6 +165,12 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - Render in the main content area when `ui.view !== 'chat'`.
   - **Settings (`SettingsPage.vue`):** 6 vertical/horizontal navigation tabs (`General`, `Models`, `Context`, `Tools`, `Automation`, `Workspace`) sharing one unsaved draft with dirty-navigation protection, inline status summaries (`groupStatus`), and collapsible manager disclosures (`details.card > summary` + `.manager-body`).
   - **Analytics (`AnalyticsPage.vue`):** Responsive usage layouts with explicit empty, loading, and error states.
+- **Terminal dock (`TerminalDock.vue`, `TermView.vue`):**
+  - A bottom dock inside `<main>`, shown when `terminal.open` and a session is active. Opened by the `#toggle-terminal` header button (`aria-pressed`), **Ctrl+\`**, or the command palette.
+  - Tabs use an ARIA tablist with arrow-key navigation. The resize handle works by drag and by keyboard. Height persists under `luna.terminal.height`.
+  - Only `web/src/lib/term-adapter.ts` imports ghostty-web. The theme comes from CSS variables, with `--mono` as the font. When `terminal.user` is off the dock shows an "off" state that links to Settings > Tools. No emojis, no floating buttons.
+  - Mobile key chips (Esc, Tab, Ctrl, Alt, arrows) are not built yet; see the board.
+
 - **Panels & Floating Windows (`PanelHost.vue`):**
   - Slide-over drawer panels (`max-w-xl`, right-aligned: `session`, `agents`, `memory`, `skills`, `providers`, `mcp`, `lessons`) use `#pbody` with shared `.card`, `.row`, `.grid`, and `.field-label` layout rules.
   - **Centered Floating Windows (`WINDOWS` in `PanelHost.vue`):**
