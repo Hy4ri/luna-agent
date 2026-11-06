@@ -35,6 +35,8 @@ export const ui = reactive({
   cronUnread: 0,
   /** Board edit form open: list-feed refreshes must not clobber it. */
   boardEditing: false,
+  /** Project the Projects panel should select when it opens. */
+  projectsTarget: null as number | null,
   boardTarget: null as { projectId: number; cardId: number } | null,
   /** Command palette open. */
   palette: false,

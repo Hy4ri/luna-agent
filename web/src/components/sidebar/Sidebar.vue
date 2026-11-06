@@ -52,6 +52,10 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 
 const ProjectAppearanceDialog = defineAsyncComponent(() => import("@/components/ProjectAppearanceDialog.vue"));
 const appearanceProject = ref<number | null>(null);
+function openProjectSettings(id: number) {
+  ui.projectsTarget = id;
+  openPanel("projects");
+}
 const pruneOpen = ref(false), pruneResult = ref("");
 
 // Multi-select mode: checkboxes on rows and a bulk action bar.
@@ -537,6 +541,7 @@ onMounted(() => {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem @select="appearanceProject = openFolder.project ?? 0"><Palette :size="14" />Appearance</DropdownMenuItem>
+              <DropdownMenuItem v-if="openFolder.project !== null" @select="openProjectSettings(openFolder.project!)"><SettingsIcon :size="14" />Project settings</DropdownMenuItem>
               <DropdownMenuItem v-if="openFolder.project !== null" @select="toggleFavorite(openFolder.project!)"><Star :size="14" />{{ openFolder.favorite ? 'Unfavourite' : 'Favourite' }}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

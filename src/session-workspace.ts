@@ -1,5 +1,6 @@
 import { posix } from "node:path";
-import { configure, defineDoc, defineExtension, defineTool } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord/context";
+import { configure, defineDoc, defineExtension, defineTool, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { ExecTarget } from "./workers.js";
 
@@ -9,6 +10,19 @@ const WorkspaceSwitch = defineDoc({
   checkpointWhen: () => false,
   initial: () => ({ cwd: null as string | null }),
 });
+
+/** Point the session's file and shell tools at `absolute`. Idempotent per task, so a recovered call does not undo a later switch. */
+export async function switchWorkspace(api: Pick<ToolExecutionApi, "taskId" | "conversationId" | "commit">, absolute: string, context: Context): Promise<string> {
+  return api.commit(async tx => {
+    const applied = await tx.doc(WorkspaceSwitch, api.taskId);
+    if (applied.cwd) return applied.cwd;
+    await configure(tx, api.conversationId, { cwd: absolute });
+    const worker = (await tx.doc(ExecTarget, api.conversationId)).worker;
+    await tx.appendEntry(api.conversationId, { kind: "luna.execution", data: { worker, cwd: absolute } });
+    applied.cwd = absolute;
+    return applied.cwd;
+  }, context);
+}
 
 export const SessionWorkspaceExtension = defineExtension({
   name: "session-workspace",
@@ -30,16 +44,7 @@ export const SessionWorkspaceExtension = defineExtension({
       const directory = await api.env.openDirReader(absolute.value, context);
       if (!directory.ok) throw new Error(`Cannot activate workspace: ${directory.error.message}`);
       await directory.value.close(context);
-      const cwd = await api.commit(async tx => {
-        const applied = await tx.doc(WorkspaceSwitch, api.taskId);
-        if (applied.cwd) return applied.cwd;
-        await configure(tx, api.conversationId, { cwd: absolute.value });
-        const worker = (await tx.doc(ExecTarget, api.conversationId)).worker;
-        await tx.appendEntry(api.conversationId, { kind: "luna.execution", data: { worker, cwd: absolute.value } });
-        applied.cwd = absolute.value;
-        return applied.cwd;
-      }, context);
-      return text(cwd);
+      return text(await switchWorkspace(api, absolute.value, context));
     },
   })],
 });

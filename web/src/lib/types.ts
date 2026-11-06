@@ -49,6 +49,10 @@ export interface Project extends ProjectAppearance {
   cwd: string;
   /** Working directories on execution workers. One project, one board, a directory per machine. */
   workerDirs?: { worker: number; cwd: string }[];
+  /** Sessions isolate their first write in their own git worktree. */
+  autoWorktree?: boolean;
+  /** Command run in a new worktree, such as a dependency install. */
+  worktreeSetup?: string;
 }
 
 export interface ModelInfo {

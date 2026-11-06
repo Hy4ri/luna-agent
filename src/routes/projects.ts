@@ -46,7 +46,7 @@ export function registerProjects(app: Hono, ctx: RouteCtx): void {
 
   app.patch("/v1/projects/:id", async (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
-    const b = (await c.req.json().catch(() => ({}))) as { name?: unknown; cwd?: unknown; favorite?: unknown; color?: unknown; icon?: unknown };
+    const b = (await c.req.json().catch(() => ({}))) as { name?: unknown; cwd?: unknown; favorite?: unknown; color?: unknown; icon?: unknown; autoWorktree?: unknown; worktreeSetup?: unknown };
     return c.json(opts.conversations.projects.update(projectId(c), b));
   });
 
