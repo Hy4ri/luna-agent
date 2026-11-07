@@ -14,6 +14,7 @@ import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
 import { SessionStatusExtension } from "./session-status.js";
 import { GenUiExtension } from "./genui.js";
+import { MessageTimeExtension } from "./message-time.js";
 import { ExecTarget } from "./workers.js";
 import { SessionWorkspaceExtension } from "./session-workspace.js";
 
@@ -81,6 +82,7 @@ export async function openLuna(opts: LunaOptions) {
   )] }));
   registry.install(SessionStatusExtension);
   registry.install(GenUiExtension);
+  registry.install(MessageTimeExtension);
   for (const e of opts.extensions ?? []) registry.install(e);
   if (opts.skillDirs?.length) registry.install(createSkillsExtension({ dirs: opts.skillDirs, disabled: opts.disabledSkills }));
   if (opts.memory !== false) {
