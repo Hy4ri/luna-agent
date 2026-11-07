@@ -470,8 +470,8 @@ onUnmounted(() => {
               </div>
             </div>
             <aside v-if="docked" id="session-rail" aria-label="Session details">
-              <GitStatus v-if="chat.session" docked />
               <StatusBar docked />
+              <GitStatus v-if="chat.session" docked />
               <Extras docked />
             </aside>
           </div>
