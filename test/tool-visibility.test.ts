@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Message, Tool } from "@earendil-works/pi-ai";
 import { filterHiddenTools } from "../src/tool-visibility.js";
+import { pinToolDeclarations } from "../src/stable-tools.js";
 
 const tool = (name: string): Tool => ({ name, description: name, parameters: { type: "object", properties: {} } as Tool["parameters"] });
 const user: Message = { role: "user", content: "hi", timestamp: 2 };
@@ -26,4 +27,30 @@ test("messages without hidden tools keep their identity", () => {
   const system: Message = { role: "system", content: "base", toolsAdded: [tool("bash")], timestamp: 1 };
   const out = filterHiddenTools([system], new Set(["vision_analyze"]));
   assert.equal(out[0], system);
+});
+
+// Contract: with compat.stableTools, a tool loaded mid-conversation (tool_search) is not declared on the wire, so the
+// provider's cached prefix (Gemini caches the tool list) holds. The model is told to reach it through codemode.
+test("pinToolDeclarations keeps the leading tool list and moves later tools to text", () => {
+  const history: Message[] = [
+    { role: "system", content: "base", toolsAdded: [tool("codemode"), tool("bash")], timestamp: 1 },
+    user,
+    { role: "system", content: "", toolsAdded: [tool("lesson_signal"), tool("bash")], toolsRemoved: [{ name: "bash" }], timestamp: 3 },
+    { role: "system", content: "", toolsRemoved: [{ name: "lesson_signal" }], timestamp: 4 },
+  ];
+  const before = structuredClone(history);
+  const out = pinToolDeclarations(history);
+  assert.deepEqual(out.map(m => m.role === "system" ? [m.toolsAdded?.map(t => t.name), m.toolsRemoved?.map(t => t.name)] : m.role),
+    [[["codemode", "bash"], undefined], "user", [["bash"], ["bash"]], [undefined, undefined]]);
+  const moved = out[2] as Extract<Message, { role: "system" }>;
+  assert.match(typeof moved.content === "string" ? moved.content : "", /inside `codemode`[\s\S]*lesson_signal/);
+  assert.deepEqual(history, before, "stored history is not mutated");
+});
+
+test("pinToolDeclarations changes nothing without codemode in the leading tools", () => {
+  const history: Message[] = [
+    { role: "system", content: "base", toolsAdded: [tool("bash")], timestamp: 1 },
+    { role: "system", content: "", toolsAdded: [tool("lesson_signal")], timestamp: 2 },
+  ];
+  assert.equal(pinToolDeclarations(history), history);
 });

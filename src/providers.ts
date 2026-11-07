@@ -80,7 +80,7 @@ export class FileCredentialStore implements CredentialStore {
 export const CUSTOM_APIS = ["openai-completions", "openai-responses", "anthropic-messages"] as const;
 export type CustomApi = (typeof CUSTOM_APIS)[number];
 export interface CustomModelDef { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean; vision?: boolean }
-export interface CustomProviderCompat { supportsMidConvoSystemMessages?: boolean; sendSessionAffinityHeaders?: boolean }
+export interface CustomProviderCompat { supportsMidConvoSystemMessages?: boolean; sendSessionAffinityHeaders?: boolean; stableTools?: boolean }
 export interface CustomProviderDef { id: string; name: string; api: CustomApi; baseUrl: string; models: CustomModelDef[]; compat?: CustomProviderCompat }
 
 interface ProvidersFile { custom: CustomProviderDef[]; defaultModel?: ModelRef; deviceId?: string }

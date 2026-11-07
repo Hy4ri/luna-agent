@@ -179,6 +179,10 @@ transactional submission API, not a host callback stored in a submission.
   system messages after the first user message; CLIProxyAPI does. `sendSessionAffinityHeaders: true` sends the
   conversation ID as `session_id`, `x-client-request-id`, and `x-session-affinity`, so a multi-account proxy with
   session affinity keeps one conversation on one upstream account. Claude CLI always sends section updates in place.
+  `stableTools: true` keeps the declared tool list fixed for the whole conversation: tools that `tool_search` loads
+  later are described as text, and the model calls them through `codemode`. Use it for endpoints that cache the tool
+  list as part of the prompt prefix, such as Gemini through CLIProxyAPI, together with `supportsMidConvoSystemMessages`.
+  It needs the `codemode` extension; without codemode the request does not change.
 - `subagents`: optional `provider`, `model`, `thinkingLevel`, and `cwd` defaults, plus named `profiles`.
   Set both provider and model, or omit both to inherit the parent model. A selected profile can override provider/model and thinking.
   Profiles apply to new children only. Each profile has an exact `tools` allowlist, optional `instructions`, and `context` (`fresh` by default, or `fork`).
