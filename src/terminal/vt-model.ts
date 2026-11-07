@@ -13,6 +13,11 @@ export interface VtScreen {
   cursor: { row: number; col: number; visible: boolean };
   /** Full-screen programs (vim, htop, less) draw on the alternate screen. */
   alternate: boolean;
+  /**
+   * Per cell, by column: the character ("" for the right half of a wide character) and the effective background as
+   * 0xRRGGBB (inverse video swaps in the foreground). Menus and lists show the selected item this way.
+   */
+  grid?: { ch: string[]; bg: number[] }[];
 }
 
 export interface VtModel {
@@ -52,6 +57,16 @@ async function instance(): Promise<Ghostty> {
 }
 
 type Line = NonNullable<ReturnType<GhosttyTerminal["getLine"]>>;
+const INVERSE = 16;
+function cells(line: Line, grapheme: (col: number) => string): { ch: string[]; bg: number[] } {
+  const ch: string[] = [], bg: number[] = [];
+  for (let x = 0; x < line.length; x++) {
+    const c = line[x]!;
+    ch.push(c.width === 0 ? "" : !c.codepoint ? " " : c.grapheme_len ? grapheme(x) : String.fromCodePoint(c.codepoint));
+    bg.push(c.flags & INVERSE ? (c.fg_r << 16) | (c.fg_g << 8) | c.fg_b : (c.bg_r << 16) | (c.bg_g << 8) | c.bg_b);
+  }
+  return { ch, bg };
+}
 function text(line: Line, grapheme: (col: number) => string): string {
   let s = "";
   for (let x = 0; x < line.length; x++) {
@@ -72,10 +87,16 @@ export async function loadVt(): Promise<VtFactory> {
       write: data => { if (!freed) t.write(data); },
       resize: (c, r) => { if (!freed) t.resize(c, r); },
       screen: () => {
-        const lines: string[] = [];
-        for (let y = 0; y < t.rows; y++) { const l = t.getLine(y); lines.push(l ? text(l, x => t.getGraphemeString(y, x)) : ""); }
+        const lines: string[] = [], grid: { ch: string[]; bg: number[] }[] = [];
+        for (let y = 0; y < t.rows; y++) {
+          const l = t.getLine(y);
+          if (!l) { lines.push(""); grid.push({ ch: [], bg: [] }); continue; }
+          const row = cells(l, x => t.getGraphemeString(y, x));
+          lines.push(row.ch.join("").trimEnd());
+          grid.push(row);
+        }
         const c = t.getCursor();
-        return { cols: t.cols, rows: t.rows, lines, cursor: { row: c.y, col: c.x, visible: !!c.visible }, alternate: t.isAlternateScreen() };
+        return { cols: t.cols, rows: t.rows, lines, cursor: { row: c.y, col: c.x, visible: !!c.visible }, alternate: t.isAlternateScreen(), grid };
       },
       scrollback: count => {
         const total = t.getScrollbackLength(), out: string[] = [];
