@@ -1,6 +1,7 @@
 // The Playwright provider against a real Chromium: richer actions do what they say. Skips without a browser.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,4 +79,50 @@ test("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history
     await p.dispose();
     server.close();
   }
+});
+
+test("chromium provider attached by cdpUrl: shares the browser's logins, closes only its own tabs, leaves the browser running", { skip: !existsSync(executablePath) && "no Chromium", timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-cdp-"));
+  const proc = spawn(executablePath, ["--headless=new", "--no-sandbox", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  const seen: string[] = [];
+  const server = createServer((req, res) => { if (req.url === "/") seen.push(req.headers.cookie ?? ""); res.setHeader("content-type", "text/html"); res.end("<title>in</title>signed in"); });
+  await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const { chromium } = await import("playwright");
+  let owner: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
+  try {
+    const ws = await new Promise<string>((resolve, reject) => {
+      let err = "";
+      proc.stderr!.on("data", (d: Buffer) => { err += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(err); if (m) resolve(m[1]!); });
+      proc.on("exit", () => reject(new Error(`chromium exited: ${err.slice(-500)}`)));
+    });
+    const cdpUrl = `http://${new URL(ws).host}`;
+    // m57's own session: a login cookie and a tab of his.
+    owner = await chromium.connectOverCDP(cdpUrl);
+    const ctx = owner.contexts()[0]!;
+    await ctx.addCookies([{ name: "session", value: "m57", url: base }]);
+    const his = ctx.pages()[0]!;
+
+    const p = createChromiumBrowserProvider(() => ({ cdpUrl, headless: true }));
+    const s = new AbortController().signal;
+    const { tabId } = await p.open({ url: `${base}/` }, s);
+    assert.deepEqual(seen, ["session=m57"], "Luna's tab sends his login");
+    assert.equal(ctx.pages().length, 2);
+
+    await p.dispose();
+    await new Promise(r => setTimeout(r, 300));
+    assert.equal(proc.exitCode, null, "the attached browser keeps running");
+    assert.deepEqual(ctx.pages(), [his], "only Luna's tab closed");
+    await assert.rejects(p.snapshot({ tabId }, s), /No open tab/);
+  } finally {
+    await owner?.close().catch(() => {});
+    server.close();
+    if (proc.exitCode === null) { const gone = new Promise(r => proc.once("exit", r)); proc.kill(); await gone; }
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
+test("chromium provider: an unreachable cdpUrl says how to start the browser", { skip: !existsSync(executablePath) && "no Chromium" }, async () => {
+  const p = createChromiumBrowserProvider(() => ({ cdpUrl: "http://127.0.0.1:1", headless: true }));
+  await assert.rejects(p.open({ url: "https://example.test/" }, new AbortController().signal), /No browser answers at http:\/\/127\.0\.0\.1:1\. Start it with --remote-debugging-port/);
 });

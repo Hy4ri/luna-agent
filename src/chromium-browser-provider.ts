@@ -27,7 +27,9 @@ export function createChromiumBrowserProvider(options: () => ChromiumOptions): B
       const { cdpUrl, executablePath, headless } = options();
       const { chromium } = await import("playwright").catch(() => { throw new Error("Playwright is not installed. Run pnpm install on this machine."); });
       if (cdpUrl) {
-        const browser = await chromium.connectOverCDP(cdpUrl);
+        const browser = await chromium.connectOverCDP(cdpUrl).catch((error: Error) => {
+          throw new Error(`No browser answers at ${cdpUrl}. Start it with --remote-debugging-port and a non-default --user-data-dir. ${error.message.split("\n")[0]}`);
+        });
         const context = browser.contexts()[0] ?? (await browser.newContext());
         return { browser, context };
       }
@@ -235,7 +237,9 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
     return event.kind === "nav" ? { url: p.url() } : undefined;
   };
   return Object.assign(provider, { async dispose() {
-    const b = browser; browser = undefined; context = undefined; tabs.clear();
+    const b = browser, pages = [...tabs.values()]; browser = undefined; context = undefined; tabs.clear();
+    // An attached browser outlives Luna: close only the tabs she opened, then disconnect.
+    await Promise.all(pages.map(p => p.close().catch(() => {})));
     await b?.close().catch(() => {}); await engine.stop?.();
   } });
 }

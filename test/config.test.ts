@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { bindRefusal, parseConfig } from "../src/config.js";
+import { bindRefusal, ConfigSchema, parseConfig } from "../src/config.js";
 import { SettingsStore } from "../src/settings.js";
 
 const base = "/srv/luna";
@@ -119,4 +119,12 @@ test("terminal access is off by default and rejects unknown fields", () => {
   assert.equal(parse({ terminal: { agent: true } }).terminal.agent, true);
   rejects({ terminal: { other: true } }, /terminal/);
   rejects({ terminal: { user: "yes" } }, /terminal/);
+});
+
+test("browser.providers.chromium.cdpUrl takes an HTTP or WebSocket URL only", () => {
+  const parse = (cdpUrl: string) => ConfigSchema.safeParse({ browser: { providers: { chromium: { cdpUrl } } } }).success;
+  assert.equal(parse("http://127.0.0.1:9222"), true);
+  assert.equal(parse("ws://127.0.0.1:9222/devtools/browser/x"), true);
+  assert.equal(parse("file:///tmp/x"), false);
+  assert.equal(parse("9222"), false);
 });
