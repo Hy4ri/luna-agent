@@ -104,12 +104,18 @@ export function textBytes(text: string, bracketedPaste: boolean): string {
   return bracketedPaste ? `\x1b[200~${text.replace(/\r\n?/g, "\n")}\x1b[201~` : text.replace(/\r\n?|\n/g, "\r");
 }
 
-/** Where a pattern matches on the screen, as a comparable key: "" for no match. A scroll or a new match changes it. */
-function matches(pattern: RegExp, lines: string[]): string {
-  const keys: string[] = [];
-  lines.forEach((line, row) => { if (pattern.test(line)) keys.push(`${row}:${line}`); });
-  if (!keys.length && pattern.test(lines.join("\n"))) keys.push(lines.join("\n")); // a pattern across rows
-  return keys.join("\n");
+/** The lines a pattern matches, counted by text. A whole-screen key stands in for a pattern that spans rows. */
+function matches(pattern: RegExp, lines: string[]): Map<string, number> {
+  const found = new Map<string, number>();
+  for (const line of lines) if (pattern.test(line)) found.set(line, (found.get(line) ?? 0) + 1);
+  if (!found.size && pattern.test(lines.join("\n"))) found.set(`\0${lines.join("\n")}`, 1);
+  return found;
+}
+
+/** A match is new when some matched text shows more often than before the input. Scrolling moves old matches but adds none. */
+function newMatch(pattern: RegExp, lines: string[], before: Map<string, number>): boolean {
+  for (const [text, n] of matches(pattern, lines)) if (n > (before.get(text) ?? 0)) return true;
+  return false;
 }
 
 const HIGHLIGHT_MAX = 6;
@@ -147,6 +153,7 @@ export function highlights(screen: VtScreen): { row: number; col: number; text: 
     for (const sp of spans) {
       const cellText = ch.slice(sp.x, sp.end).join("");
       const text = cellText.trim().replace(/\s{3,}/g, "  ");
+      if (!/[\p{L}\p{N}]/u.test(text)) continue; // borders, shading, and lone symbols carry no item
       found.push({ row: y + 1, col: sp.x + 1 + cellText.length - cellText.trimStart().length, text: text.length > 80 ? text.slice(0, 79) + "…" : text });
     }
   }
@@ -212,7 +219,7 @@ export function createAgentTerminalExtension(o: AgentTerminalOptions) {
    * `after`: the time of Luna's input. Quiet time counts from the later of that input and the last output, and the program
    * gets REACT_MS to answer. Without this, a program that was quiet before the input "settles" at once, before it redraws.
    */
-  async function settle(id: string, opts: { pattern?: RegExp; idleMs: number; maxMs: number; session: number; after?: number; content?: boolean; seen?: string }, context: Context): Promise<"matched" | "ended" | "idle" | "timeout"> {
+  async function settle(id: string, opts: { pattern?: RegExp; idleMs: number; maxMs: number; session: number; after?: number; content?: boolean; seen?: Map<string, number> }, context: Context): Promise<"matched" | "ended" | "idle" | "timeout"> {
     const end = Date.now() + opts.maxMs;
     for (;;) {
       context.abortSignal?.throwIfAborted();
@@ -221,7 +228,7 @@ export function createAgentTerminalExtension(o: AgentTerminalOptions) {
       const answered = view.idleMs < sinceInput;
       // After input, the screen from before it does not count: match once the program answered or had time to.
       const fresh = answered || sinceInput >= REACT_MS;
-      if (opts.pattern && fresh && matches(opts.pattern, view.screen.lines) !== (opts.seen ?? "")) return "matched";
+      if (opts.pattern && fresh && newMatch(opts.pattern, view.screen.lines, opts.seen ?? new Map())) return "matched";
       if (view.info.status !== "running") return "ended";
       const quiet = Math.min(view.idleMs, sinceInput);
       const need = answered || sinceInput >= REACT_MS ? opts.idleMs : REACT_MS;

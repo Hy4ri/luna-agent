@@ -49,7 +49,8 @@ test("screens name the highlighted item and fold long blank runs", async () => {
   const vt = await (await loadVt())(30, 12);
   try {
     // A menu: the selected row in inverse video, a button on a coloured background, and a key-hint bar.
-    vt.write(Buffer.from("  Apple\r\n\x1b[7m  Banana \x1b[0m\r\n  Cherry\r\n\r\n\r\n\r\n\r\n\r\n \x1b[44m< OK >\x1b[0m  <Cancel>\r\n\r\n" +
+    // The inverse "▀▀▀" after Apple is decoration: a span of drawing glyphs names no item.
+    vt.write(Buffer.from("  Apple\x1b[20G\x1b[7m▀▀▀\x1b[0m\r\n\x1b[7m  Banana \x1b[0m\r\n  Cherry\r\n\r\n\r\n\r\n\r\n\r\n \x1b[44m< OK >\x1b[0m  <Cancel>\r\n\r\n" +
       "\x1b[7mF1\x1b[0m a \x1b[7mF2\x1b[0m b \x1b[7mF3\x1b[0m c \x1b[7mF4\x1b[0m d \x1b[7mF5\x1b[0m e"));
     const s = vt.screen();
     assert.deepEqual(highlights(s), [{ row: 2, col: 3, text: "Banana" }, { row: 9, col: 2, text: "< OK >" }]);
@@ -257,10 +258,11 @@ test("start waits for a slow program's first screen, and send with a pattern wai
   const script = join(dir, "slow.sh");
   // Draws nothing for 1.2 s (past the start settle), then answers each line 2 s later (past the send settle).
   // It echoes input, so the echo answers at once while the old "reply-" stays on the screen.
-  writeFileSync(script, "sleep 1.2\nprintf 'menu ready\\n'\nwhile read x; do sleep 2; printf 'reply-%s\\n' \"$x\"; done\n");
+  // Before each reply it prints filler that scrolls the old reply up a 6-row screen, as a chat TUI does while it streams.
+  writeFileSync(script, "sleep 1.2\nprintf 'menu ready\\n'\nwhile read x; do printf 'w\\nw\\n'; sleep 2; printf 'reply-%s\\n' \"$x\"; done\n");
   const { results } = await runTool(dir, true, [
     () => ["tool_search", { query: "terminal interactive TTY program" }],
-    () => ["terminal", { action: "start", command: `sh ${script}` }],
+    () => ["terminal", { action: "start", command: `sh ${script}`, rows: 6 }],
     prev => ["terminal", { action: "send", id: terminalId(prev), text: "one", enter: true, pattern: "reply-one", timeoutSec: 8 }],
     prev => ["terminal", { action: "send", id: terminalId(prev), text: "two", enter: true, pattern: "reply-", timeoutSec: 8 }],
     prev => ["terminal", { action: "stop", id: terminalId(prev) }],
