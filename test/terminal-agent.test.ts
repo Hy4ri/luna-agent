@@ -30,6 +30,7 @@ async function until(fn: () => boolean, what: string, ms = 8000) {
 test("the screen model renders overwrites, wide text, the alternate screen, and answers queries", async () => {
   const vt = await (await loadVt())(20, 4);
   try {
+    vt.write(Buffer.alloc(0)); // a terminal shared before its first output replays nothing
     vt.write(Buffer.from("hello\r\nprog 10%\rprog 99%\r\n\x1b[6nمرحبا 你好"));
     const s = vt.screen();
     assert.deepEqual(s.lines, ["hello", "prog 99%", "مرحبا 你好", ""]);

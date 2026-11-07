@@ -84,7 +84,8 @@ export async function loadVt(): Promise<VtFactory> {
     const t = (await instance()).createTerminal(cols, rows, { scrollbackLimit: SCROLLBACK_LINES });
     let freed = false;
     return {
-      write: data => { if (!freed) t.write(data); },
+      // ghostty-web 0.4.0 throws on an empty write; sharing a terminal before its first output replays an empty ring.
+      write: data => { if (!freed && data.length) t.write(data); },
       resize: (c, r) => { if (!freed) t.resize(c, r); },
       screen: () => {
         const lines: string[] = [], grid: { ch: string[]; bg: number[] }[] = [];
