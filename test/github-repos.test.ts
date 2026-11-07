@@ -1,0 +1,94 @@
+// Regression: Source Control board linking failed for projects that exist only on an execution machine.
+// Repository discovery read only the main-host directory, so worker-linked projects never matched their repository.
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
+import { createRemoteOrigin, projectRepos, type RemoteReader } from "../src/github.js";
+import { startWorker } from "../src/worker.js";
+import { WorkerHub, WorkerStore } from "../src/workers.js";
+
+test("project discovery reaches a repository through an execution-machine directory", async () => {
+  const calls: [number | null, string][] = [];
+  const resolveRemote: RemoteReader = async (machine, cwd) => {
+    calls.push([machine, cwd]);
+    return machine === 1 && cwd === "/machines/hermes-mobile" ? "Hy4ri/hermes-mobile" : null;
+  };
+
+  const repos = await projectRepos(
+    [{ id: 102, name: "hermes-mobile", cwd: "", workerDirs: [{ worker: 1, cwd: "/machines/hermes-mobile" }] }],
+    { resolveRemote, key: "worker-only" },
+  );
+
+  assert.deepEqual(repos, [{ repo: "Hy4ri/hermes-mobile", projects: [{ id: 102, name: "hermes-mobile" }] }]);
+  assert.deepEqual(calls, [[1, "/machines/hermes-mobile"]]);
+});
+
+test("project discovery falls through to a machine and groups projects that share a repository", async () => {
+  const seen: string[] = [];
+  const resolveRemote: RemoteReader = async (machine, cwd) => {
+    seen.push(`${machine ?? "main"}:${cwd}`);
+    if (cwd === "/main/no-remote" || cwd === "/machines/offline") return null;
+    return cwd === "/machines/project" || cwd === "/main/other-clone" ? "Hy4ri/worker-project" : null;
+  };
+
+  const repos = await projectRepos(
+    [
+      // Main host has a directory but no usable origin; the machine clone answers instead.
+      { id: 103, name: "worker-project", cwd: "/main/no-remote", workerDirs: [{ worker: 2, cwd: "/machines/project" }] },
+      { id: 104, name: "clone-project", cwd: "/main/other-clone" },
+      // Machine offline: no remote, so the project stays out of the list.
+      { id: 105, name: "unreachable", cwd: "", workerDirs: [{ worker: 3, cwd: "/machines/offline" }] },
+    ],
+    { resolveRemote, key: "fallthrough" },
+  );
+
+  assert.deepEqual(repos, [{
+    repo: "Hy4ri/worker-project",
+    projects: [{ id: 103, name: "worker-project" }, { id: 104, name: "clone-project" }],
+  }]);
+  assert.ok(seen.includes("main:/main/no-remote"));
+  assert.ok(seen.includes("2:/machines/project"));
+  assert.ok(seen.includes("3:/machines/offline"));
+});
+
+// The production resolver over the real worker transport: the daemon reads a machine directory through the worker.
+const dir = mkdtempSync(join(tmpdir(), "luna-github-repos-worker-"));
+const machineRepo = join(dir, "machine-repo");
+mkdirSync(machineRepo);
+execFileSync("git", ["init", "--initial-branch", "main", machineRepo], { stdio: "ignore" });
+execFileSync("git", ["-C", machineRepo, "remote", "add", "origin", "git@github.com:Hy4ri/machine-only.git"], { stdio: "ignore" });
+const hub = new WorkerHub(new WorkerStore(join(dir, "workers.db")), () => {});
+const server = createServer();
+hub.attach(server);
+await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+const { worker, token } = hub.store.create("repos");
+const running = startWorker({ url, token, cwd: dir, log: () => {} });
+await running.ready;
+
+after(async () => {
+  await running.close();
+  hub.close();
+  server.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("repository discovery reads a machine directory through the worker connection", async () => {
+  const repos = await projectRepos(
+    [{ id: 201, name: "machine-only", cwd: "", workerDirs: [{ worker: worker.id, cwd: machineRepo }] }],
+    { resolveRemote: createRemoteOrigin(hub), key: `worker-${worker.id}` },
+  );
+  assert.deepEqual(repos, [{ repo: "Hy4ri/machine-only", projects: [{ id: 201, name: "machine-only" }] }]);
+});
+
+test("repository discovery ignores directories on missing machines", async () => {
+  const repos = await projectRepos(
+    [{ id: 202, name: "gone", cwd: "", workerDirs: [{ worker: worker.id + 100, cwd: machineRepo }] }],
+    { resolveRemote: createRemoteOrigin(hub), key: `missing-${worker.id}` },
+  );
+  assert.deepEqual(repos, []);
+});

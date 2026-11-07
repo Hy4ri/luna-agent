@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 
 const PASS = ['PATH', 'HOME', 'XDG_CONFIG_HOME', 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN'] as const;
 export class GhError extends Error {
@@ -215,10 +217,60 @@ export function parseRemote(url: string | undefined | null): string | null {
 }
 
 type ProjectRepo = { repo: string; projects: { id: number; name: string }[] };
+type DiscoveryProject = { id: number; name: string; cwd: string; workerDirs?: { worker: number; cwd: string }[] };
+/** Reads a project directory's `origin` remote. `null` is the main host; a number is an execution machine. */
+export type RemoteReader = (machine: number | null, cwd: string) => Promise<string | null>;
+
+/** Read `origin` on the main host. */
+export function localOrigin(cwd: string): Promise<string | null> {
+  return new Promise(resolve => {
+    execFile('git', ['-C', cwd, 'remote', 'get-url', 'origin'], { env: env(), timeout: 5000 }, (error, stdout) => resolve(error ? null : parseRemote(stdout.trim())));
+  });
+}
+
+/** The machine side of repository discovery. A real `WorkerHub` satisfies it. */
+export interface OriginMachines {
+  view(id: number): { online: boolean } | undefined;
+  env(id: number, cwd: string | undefined): ExecutionEnv;
+  reviewEnvironment(id: number): Record<string, string>;
+}
+
+/** Read `origin` on the main host or on the execution machine that holds the directory. */
+export function createRemoteOrigin(hub?: OriginMachines): RemoteReader {
+  return async (machine, cwd) => {
+    if (machine === null) return localOrigin(cwd);
+    if (!hub?.view(machine)?.online) return null;
+    let commandEnv: Record<string, string>;
+    try { commandEnv = hub.reviewEnvironment(machine); } catch { return null; }
+    let out = "";
+    const result = await hub.env(machine, cwd).exec(["git", "remote", "get-url", "origin"], {
+      cwd, inheritEnv: false, timeout: 5,
+      env: { ...commandEnv, LC_ALL: "C", GIT_TERMINAL_PROMPT: "0" },
+      onOutput: (text, _c, info) => { if (info.stream === "stdout" && out.length < 4096) out += text.slice(0, 4096 - out.length); },
+    }, BACKGROUND_CONTEXT);
+    return result.ok && result.value.exitCode === 0 ? parseRemote(out.trim()) : null;
+  };
+}
+
 let projectCache: { key: string; until: number; result: Promise<ProjectRepo[]> } | undefined;
-export function projectRepos(projects: { id: number; name: string; cwd: string }[]): Promise<ProjectRepo[]> {
-  const valid = projects.filter(p => p.id > 0 && p.cwd?.trim()).sort((a, b) => a.id - b.id);
-  const key = JSON.stringify(valid);
+/**
+ * Map GitHub repositories to the projects that use them. A project is found through its main-host directory and through
+ * every machine directory, so a project linked only to an execution machine still reaches its repository.
+ * `key` must describe anything outside the project list that changes the answer, such as which machines are online.
+ */
+export function projectRepos(
+  projects: DiscoveryProject[],
+  options: { resolveRemote?: RemoteReader; key?: string } = {},
+): Promise<ProjectRepo[]> {
+  const resolveRemote = options.resolveRemote ?? ((_machine, cwd) => localOrigin(cwd));
+  const valid = projects.map(p => ({
+    project: p,
+    dirs: [
+      ...(p.cwd?.trim() ? [{ machine: null as number | null, cwd: p.cwd }] : []),
+      ...(p.workerDirs ?? []).flatMap(d => d.cwd?.trim() ? [{ machine: d.worker as number | null, cwd: d.cwd }] : []),
+    ],
+  })).filter(e => e.dirs.length).sort((a, b) => a.project.id - b.project.id);
+  const key = `${options.key ?? ''}|${JSON.stringify(valid)}`;
   if (projectCache?.key === key && projectCache.until > Date.now()) return projectCache.result;
   const entry = { key, until: Infinity, result: Promise.resolve<ProjectRepo[]>([]) };
   entry.result = (async () => {
@@ -226,15 +278,16 @@ export function projectRepos(projects: { id: number; name: string; cwd: string }
     let next = 0;
     await Promise.all(Array.from({ length: Math.min(4, valid.length) }, async () => {
       while (next < valid.length) {
-        const i = next++, p = valid[i]!;
-        remotes[i] = await new Promise<string | null>(resolve => {
-          execFile('git', ['-C', p.cwd, 'remote', 'get-url', 'origin'], { env: env(), timeout: 5000 }, (error, stdout) => resolve(error ? null : parseRemote(stdout.trim())));
-        });
+        const i = next++, dirs = valid[i]!.dirs;
+        for (const d of dirs) {
+          const repo = await resolveRemote(d.machine, d.cwd).catch(() => null);
+          if (repo) { remotes[i] = repo; break; }
+        }
       }
     }));
     const grouped = new Map<string, ProjectRepo>();
     for (let i = 0; i < valid.length; i++) {
-      const repo = remotes[i], p = valid[i]!;
+      const repo = remotes[i], p = valid[i]!.project;
       if (!repo) continue;
       const group = grouped.get(repo.toLowerCase()) ?? { repo, projects: [] };
       if (!group.projects.some(project => project.id === p.id)) group.projects.push({ id: p.id, name: p.name });

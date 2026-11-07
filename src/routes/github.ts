@@ -1,5 +1,5 @@
 import type { Hono, Context as HonoContext } from "hono";
-import { GhError, REPO_PART, ghStatus, projectRepos, pullFiles } from "../github.js";
+import { GhError, REPO_PART, createRemoteOrigin, ghStatus, projectRepos, pullFiles } from "../github.js";
 import { repoInfo, listItems } from "../github-list.js";
 import { detail, commentsPage } from "../github-detail.js";
 import { createGithubCache } from "../github-cache.js";
@@ -14,6 +14,14 @@ export function registerGithub(app: Hono, ctx: RouteCtx): void {
 
   const githubCache = createGithubCache();
   const freshGithub = (c: HonoContext) => c.req.query("fresh") === "1";
+
+  /** Resolve a project directory's `origin` remote on the main host or on the execution machine that holds it. */
+  const remoteOrigin = createRemoteOrigin(opts.workers);
+  // A machine going offline or online changes discovery, so it is part of the cache key.
+  const discoverRepos = () => projectRepos(opts.conversations?.projects.list() ?? [], {
+    resolveRemote: remoteOrigin,
+    key: (opts.workers?.list() ?? []).filter(w => w.online).map(w => w.id).join(","),
+  });
 
   const readDetail = (repo: string, n: number, fresh = false) => {
     const [owner, name] = repo.split("/");
@@ -43,7 +51,7 @@ export function registerGithub(app: Hono, ctx: RouteCtx): void {
 
   app.get("/v1/github/repos", async (c) => {
     try {
-      return c.json({ repos: await projectRepos(opts.conversations?.projects.list() ?? []) });
+      return c.json({ repos: await discoverRepos() });
     } catch (e) {
       return ghFail(c, e);
     }
@@ -222,7 +230,7 @@ export function registerGithub(app: Hono, ctx: RouteCtx): void {
 
   const ghProjects = async (repo: string) => {
     if (!opts.conversations) throw new GhError("projects disabled", 404);
-    const repos = await projectRepos(opts.conversations.projects.list());
+    const repos = await discoverRepos();
     return repos.find((r) => r.repo.toLowerCase() === repo.toLowerCase())?.projects ?? [];
   };
 
