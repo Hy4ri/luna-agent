@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Bot, ChevronDown, Plus, X } from "@lucide/vue";
+import { Bot, Plus, X } from "@lucide/vue";
+import WorkDock from "@/components/dock/WorkDock.vue";
+import DockControls from "@/components/dock/DockControls.vue";
 import TermView from "./TermView.vue";
-import { clampHeight, closeTerminal, controlTerminal, newTerminal, setHeight, tabLabel, terminal } from "@/stores/terminal";
+import { closeTerminal, controlTerminal, newTerminal, tabLabel, terminal } from "@/stores/terminal";
 import { navigate } from "@/stores/app";
 
 const views = ref<Record<string, InstanceType<typeof TermView> | null>>({});
@@ -21,29 +23,10 @@ function tabKey(event: KeyboardEvent, index: number) {
   terminal.active = terminal.tabs[next]!.id;
   (document.getElementById(`term-tab-${terminal.active}`) as HTMLElement | null)?.focus();
 }
-
-// The handle sits on the dock's top edge: dragging up makes the dock taller.
-function startResize(event: PointerEvent) {
-  const handle = event.currentTarget as HTMLElement;
-  const startY = event.clientY, startHeight = terminal.height;
-  handle.setPointerCapture(event.pointerId);
-  const move = (e: PointerEvent) => setHeight(startHeight + (startY - e.clientY));
-  const stop = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", stop); handle.removeEventListener("pointercancel", stop); };
-  handle.addEventListener("pointermove", move);
-  handle.addEventListener("pointerup", stop);
-  handle.addEventListener("pointercancel", stop);
-}
-function resizeKey(event: KeyboardEvent) {
-  if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
-  const step = event.shiftKey ? 80 : 24;
-  if (event.key === "ArrowUp") { event.preventDefault(); setHeight(terminal.height + step); }
-  else if (event.key === "ArrowDown") { event.preventDefault(); setHeight(terminal.height - step); }
-}
 </script>
 
 <template>
-  <section class="terminal-dock" aria-label="Terminal" :style="{ height: clampHeight(terminal.height) + 'px' }">
-    <div class="dock-resize" role="separator" aria-orientation="horizontal" aria-label="Resize terminal" :aria-valuenow="terminal.height" tabindex="0" @pointerdown.prevent="startResize" @keydown="resizeKey" />
+  <WorkDock label="Terminal">
     <header class="dock-bar">
       <div class="dock-tabs" role="tablist" aria-label="Terminals">
         <div v-for="(t, i) in terminal.tabs" :key="t.id" class="dock-tab" :class="{ active: t.id === terminal.active, ended: t.status === 'ended' }">
@@ -63,7 +46,7 @@ function resizeKey(event: KeyboardEvent) {
         </template>
       </template>
       <button type="button" class="icon-button" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled" @click="newTerminal()"><Plus :size="14" /></button>
-      <button type="button" class="icon-button" aria-label="Hide terminal" title="Hide terminal (the shells keep running)" @click="terminal.open = false"><ChevronDown :size="14" /></button>
+      <DockControls />
     </header>
     <p v-if="terminal.error" class="dock-message" role="alert">{{ terminal.error }}</p>
     <div v-if="!usable" class="dock-empty">
@@ -78,13 +61,10 @@ function resizeKey(event: KeyboardEvent) {
       <TermView v-for="t in terminal.tabs" :key="t.id" :ref="el => (views[t.id] = el as InstanceType<typeof TermView> | null)" :session="terminal.session" :id="t.id" :active="t.id === terminal.active" />
     </div>
     <span class="sr-only" aria-live="polite">{{ live }} running terminals</span>
-  </section>
+  </WorkDock>
 </template>
 
 <style scoped>
-.terminal-dock { position: relative; display: flex; flex-direction: column; flex: none; min-height: 0; border-top: 1px solid var(--border); background: var(--background); }
-.dock-resize { position: absolute; inset: -3px 0 auto; height: 6px; cursor: ns-resize; z-index: 2; touch-action: none; }
-.dock-resize:hover, .dock-resize:focus-visible { background: var(--ring); opacity: .5; outline: none; }
 .dock-bar { display: flex; align-items: center; gap: 2px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--card); }
 .dock-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; }
 .dock-tab { display: flex; align-items: center; border-bottom: 2px solid transparent; font: 12px var(--mono); color: var(--muted-foreground); }

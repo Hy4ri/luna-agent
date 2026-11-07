@@ -1,6 +1,7 @@
 // Terminal dock state. The server owns the terminals; this store lists them per session and remembers which tab is open.
 import { reactive } from "vue";
 import { json, post, serverUrl } from "@/lib/api";
+import { MIN_HEIGHT, clampHeight } from "@/stores/dock";
 
 export interface TerminalInfo {
   id: string;
@@ -20,7 +21,6 @@ export interface TerminalInfo {
 }
 
 const HEIGHT_KEY = "luna.terminal.height";
-const MIN_HEIGHT = 120;
 const savedHeight = () => { const n = Number(localStorage.getItem(HEIGHT_KEY)); return Number.isFinite(n) && n >= MIN_HEIGHT ? n : 280; };
 
 export const terminal = reactive({
@@ -39,8 +39,7 @@ export const terminal = reactive({
   active: "",
 });
 
-export const clampHeight = (px: number, available = window.innerHeight) =>
-  Math.round(Math.min(Math.max(px, MIN_HEIGHT), Math.max(MIN_HEIGHT, available * 0.8)));
+export { clampHeight };
 export function setHeight(px: number) { terminal.height = clampHeight(px); localStorage.setItem(HEIGHT_KEY, String(terminal.height)); }
 
 let epoch = 0;

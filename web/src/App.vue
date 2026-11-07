@@ -26,6 +26,7 @@ import { recoveryOpen } from '@/lib/connections';
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate } from '@/stores/app';
 import { terminal, loadTerminals, toggleTerminal } from '@/stores/terminal';
+import { dock, effectivePosition } from '@/stores/dock';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
@@ -65,6 +66,18 @@ function readTiles(): string[] {
   } catch { return []; }
 }
 watch(tileIds, ids => { if (!sessionPane) sessionStorage.setItem('luna.tiles', JSON.stringify(ids)); }, { deep: true });
+// The dock sits beside the chat only when the chat area is wide enough; dock.area is the width of the whole work area.
+const workAreaRef = ref<HTMLElement | null>(null);
+const dockSide = computed(() => !!terminal.open && !!chat.session && !sessionPane && effectivePosition(dock.position, dock.area) === 'right');
+let areaObserver: ResizeObserver | undefined;
+watch(workAreaRef, el => {
+  areaObserver?.disconnect();
+  if (!el) return;
+  dock.area = el.clientWidth;
+  areaObserver = new ResizeObserver(() => { dock.area = el.clientWidth; });
+  areaObserver.observe(el);
+}, { flush: 'post' });
+onUnmounted(() => areaObserver?.disconnect());
 const showPrimary = computed(() => sessionPane || !!chat.session || chat.draftOpen || tileIds.value.length === 0);
 const tileCount = computed(() => (chat.session || chat.draftOpen ? 1 : 0) + tileIds.value.length);
 const tiled = computed(() => !sessionPane && tileCount.value > 1);
@@ -443,6 +456,7 @@ onUnmounted(() => {
             </Popover>
           </header>
           <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
+          <div class="work-area" ref="workAreaRef" :class="dockSide ? 'dock-side' : 'dock-bottom'">
           <div class="chat-body">
             <div class="chat-column">
               <Transcript />
@@ -459,6 +473,7 @@ onUnmounted(() => {
             </aside>
           </div>
           <TerminalDock v-if="terminal.open && chat.session && !sessionPane" />
+          </div>
         </main>
         <template v-if="!ui.login">
           <iframe v-for="id in tileIds" :key="id" :src="paneUrl(id)" :data-tile-session="id" data-session-tile :title="sessionTitle(history.list.find(s => String(s.id) === id) || { id })" class="session-pane" :class="focusClass(id)" :style="tileStyle(id)" />
@@ -534,6 +549,8 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
 }
+.work-area { display: flex; flex: 1; min-height: 0; min-width: 0; flex-direction: column; }
+.work-area.dock-side { flex-direction: row; }
 .chat-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .chat-column { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 #session-rail {
