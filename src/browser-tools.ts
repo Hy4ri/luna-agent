@@ -38,6 +38,8 @@ export interface BrowserTabHooks {
   opened(tab: { session: number; worker: number | null; tabId: string; url: string; provider: BrowserProvider }): void;
   navigated(tab: BrowserTab): void;
   closed(tabId: string): void;
+  /** The session's open tabs, whoever opened them. */
+  list(session: number): { tabId: string; url: string; owner: "user" | "agent"; controller: "user" | "agent"; input: boolean }[];
   /** Throws while m57 holds the tab. */
   assertAgent(tabId: string): void;
 }
@@ -126,14 +128,22 @@ export function createBrowserToolsExtension(config: () => { provider: string }, 
   return defineExtension({ name: "browser-tools", tools: [
     defineTool({
       name: "browser_tab", executionMode: "sequential",
-      description: "Manage browser tabs. open: a new tab at an HTTP(S) URL; returns its handle and current URL; close tabs when finished. " +
+      description: "Manage browser tabs. list: this session's open tabs, including the ones m57 opens from the panel, with who opened and who drives each. " +
+        "open: a new tab at an HTTP(S) URL; returns its handle and current URL; close tabs when finished. " +
         "navigate: an existing tab to an HTTP(S) URL; read a new snapshot before using element refs. close: a tab by its handle.",
       parameters: Type.Object({
-        action: Type.Union([Type.Literal("open"), Type.Literal("navigate"), Type.Literal("close")]),
+        action: Type.Union([Type.Literal("list"), Type.Literal("open"), Type.Literal("navigate"), Type.Literal("close")]),
         url: Type.Optional(Type.String({ minLength: 1, description: "open, navigate: HTTP(S) URL." })),
         tabId: Type.Optional(Type.String({ ...tabIdDoc, description: "navigate, close: tab handle returned by open." })),
       }, options),
       async execute(args, api, context) {
+        if (args.action === "list") {
+          // The panel is the only record of tabs; without it the tools keep none.
+          if (!hooks) throw new Error("The tab list needs the browser panel. Turn on browser.panel in Settings.");
+          const session = sessionOf(api as { conversationId?: unknown });
+          const tabs = session ? hooks.list(session).map(({ tabId, url, owner, controller, input }) => ({ tabId, url, openedBy: owner === "user" ? "m57" : "Luna", driving: controller === "user" ? "m57" : "Luna", ...(input ? {} : { viewOnly: true }) })) : [];
+          return { output: json({ tabs }) };
+        }
         if (args.action === "open") {
           const url = need(args.url, "URL"); validateWebUrl(url);
           const session = sessionOf(api as { conversationId?: unknown }), worker = workerOf(api);

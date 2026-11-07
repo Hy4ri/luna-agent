@@ -264,3 +264,26 @@ test("a closed tab tells the socket and ends the feed", async () => {
     await until(() => c.got.json.some(m => m.type === "closed"), "closed message");
   } finally { await s.cleanup(); }
 });
+
+test("browser_tab list shows the session's tabs, including the ones m57 opens and closes", async () => {
+  const { provider } = fakeProvider();
+  const panel = new BrowserPanel({ enabled: () => true, resolve: async () => provider });
+  const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
+  const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
+  const run = async (args: Record<string, unknown>, conversationId = "7") =>
+    JSON.parse(((await (tools.get("browser_tab")!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text: string }[] }>)(args, { conversationId }, {})).output[0]!.text));
+  await run({ action: "open", url: "https://x.test/" });
+  const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
+  await panel.open(8, null, "https://other.test/", new AbortController().signal);
+  assert.deepEqual((await run({ action: "list" })).tabs.map((t: { tabId: string; url: string; openedBy: string; driving: string }) => [t.tabId, t.url, t.openedBy, t.driving]),
+    [["t1", "https://x.test/", "Luna", "Luna"], [mine.tabId, "https://m57.test/", "m57", "m57"]]);
+  await panel.close(7, mine.tabId);
+  assert.deepEqual((await run({ action: "list" })).tabs.map((t: { tabId: string }) => t.tabId), ["t1"]);
+});
+
+test("browser_tab list without the panel says how to turn it on", async () => {
+  const { provider } = fakeProvider();
+  const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]));
+  const tab = (ext.tools ?? []).find(t => t.name === "browser_tab")!;
+  await assert.rejects((tab.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)({ action: "list" }, { conversationId: "7" }, {}), /browser\.panel/);
+});
