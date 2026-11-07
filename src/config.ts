@@ -155,6 +155,8 @@ export const ConfigSchema = z
     }).prefault({}),
     browser: z.strictObject({
       provider: z.enum(["disabled", "camofox", "moli", "chromium"]).default("disabled"),
+      /** m57's live view of the browser Luna drives, in the web UI. Off by default: the browser may hold logins. */
+      panel: z.boolean().default(false),
       providers: z.strictObject({
         camofox: z.strictObject({ mcpServer: name.default("camofox") }).prefault({}),
         moli: z.strictObject({ executablePath: z.string().min(1).optional(), profileDir: z.string().min(1).optional() }).prefault({}),

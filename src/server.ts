@@ -37,6 +37,7 @@ import { registerProjects } from "./routes/projects.js";
 import { registerWorkers } from "./routes/workers.js";
 import { registerGit } from "./routes/git.js";
 import { registerTerminals } from "./routes/terminals.js";
+import { registerBrowser } from "./routes/browser.js";
 import { registerGithub } from "./routes/github.js";
 import { registerMessages } from "./routes/messages.js";
 import { registerSubsystems } from "./routes/subsystems.js";
@@ -78,6 +79,8 @@ export interface ServerOptions {
   workers?: WorkerHub;
   /** Interactive user terminals. Absent: the terminal endpoints do not exist. */
   terminals?: import("./terminal/service.js").TerminalService;
+  /** Live browser panel. Absent: the browser panel endpoints do not exist. */
+  browserPanel?: import("./browser/panel.js").BrowserPanel;
   /** Persistent incoming files. Only paths and metadata enter durable conversation storage. */
   uploads?: UploadStore;
   /** Default working directory on this host, for `@file:` completion before a session exists. */
@@ -157,6 +160,7 @@ export function createApp(opts: ServerOptions) {
   registerWorkers(app, ctx);
   registerGit(app, ctx);
   registerTerminals(app, ctx);
+  registerBrowser(app, ctx);
   registerGithub(app, ctx);
   registerSessionConfig(app, ctx);
   registerSessionOps(app, ctx);

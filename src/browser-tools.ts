@@ -21,6 +21,25 @@ export interface BrowserProvider {
   type(request: BrowserTarget & { text: string; pressEnter?: boolean }, signal: AbortSignal): Promise<void>;
   scroll(request: { tabId: string; direction: "up" | "down" | "left" | "right"; amount: number }, signal: AbortSignal): Promise<void>;
   screenshot(request: { tabId: string }, signal: AbortSignal): Promise<BrowserImage>;
+  /** Push live frames until the signal aborts or the tab closes. Absent: the panel polls screenshot(). */
+  watch?(request: { tabId: string; maxWidth: number; maxHeight: number }, onFrame: (frame: BrowserFrame) => void, signal: AbortSignal): Promise<void>;
+  /** m57's pointer, keyboard and navigation from the browser panel. Absent: the tab is view only. Returns the page URL after navigation. */
+  input?(request: { tabId: string; event: BrowserInput }): Promise<{ url?: string } | void>;
+}
+export interface BrowserFrame { data: Buffer; width: number; height: number; url?: string }
+export type BrowserInput =
+  | { kind: "mouse"; type: "move" | "down" | "up"; x: number; y: number; button?: "left" | "middle" | "right"; clickCount?: number }
+  | { kind: "wheel"; x: number; y: number; deltaX: number; deltaY: number }
+  | { kind: "key"; type: "down" | "up"; key: string }
+  | { kind: "nav"; action: "goto" | "back" | "forward" | "reload"; url?: string };
+
+/** What the browser panel needs to know about tabs the tools open, and the lock that keeps Luna out while m57 drives. */
+export interface BrowserTabHooks {
+  opened(tab: { session: number; worker: number | null; tabId: string; url: string; provider: BrowserProvider }): void;
+  navigated(tab: BrowserTab): void;
+  closed(tabId: string): void;
+  /** Throws while m57 holds the tab. */
+  assertAgent(tabId: string): void;
 }
 
 type Output = ({ type: "text"; text: string } | ({ type: "image" } & BrowserImage))[];
@@ -57,31 +76,41 @@ class RemoteBrowserProvider implements BrowserProvider {
   screenshot(req: { tabId: string }, s: AbortSignal) { return this.call<BrowserImage>("screenshot", req, s); }
 }
 
-export function createBrowserToolsExtension(config: () => { provider: string }, providers: ReadonlyMap<string, BrowserProvider>, opts?: { hub?: () => WorkerHub | undefined }) {
-  async function resolveProvider(api: { env?: { id: string } }, signal: AbortSignal): Promise<BrowserProvider> {
-    if (api.env && isWorkerEnv(api.env) && opts?.hub) {
-      const hub = opts.hub();
-      if (hub) {
-        const raw = api.env.id.slice(WORKER_ENV_PREFIX.length);
-        const workerId = Number(raw);
-        if (Number.isSafeInteger(workerId)) {
-          if (!hub.connection(workerId)) {
-            // Maintain offline semantics: never fall back to main. Error message contains "Nothing ran" for verification.
-            const view = hub.store.get(workerId);
-            throw new Error(view ? `Execution machine "${view.name}" is offline. Nothing ran. Start its worker, or move this session to another machine.` : `Execution machine ${workerId} no longer exists. Nothing ran. Move this session to another machine.`);
-          }
-          const browser = hub.connection(workerId)?.capabilities.browser;
-          if (browser && !browser.configured) throw new Error(`Worker browser unavailable: ${browser.reason ?? "Browser is not configured."} Nothing ran. Configure and restart the worker. Do not retry until configuration changes.`);
-          return new RemoteBrowserProvider(hub, workerId);
-        }
+export type BrowserResolver = (worker: number | null, signal: AbortSignal) => Promise<BrowserProvider>;
+
+/** Pick the provider for a machine: a worker's own browser, or the configured one on the main host. */
+export function createBrowserResolver(config: () => { provider: string }, providers: ReadonlyMap<string, BrowserProvider>, opts?: { hub?: () => WorkerHub | undefined }): BrowserResolver {
+  return async (workerId, signal) => {
+    const hub = workerId !== null ? opts?.hub?.() : undefined;
+    if (workerId !== null && hub) {
+      if (!hub.connection(workerId)) {
+        // Maintain offline semantics: never fall back to main. Error message contains "Nothing ran" for verification.
+        const view = hub.store.get(workerId);
+        throw new Error(view ? `Execution machine "${view.name}" is offline. Nothing ran. Start its worker, or move this session to another machine.` : `Execution machine ${workerId} no longer exists. Nothing ran. Move this session to another machine.`);
       }
+      const browser = hub.connection(workerId)?.capabilities.browser;
+      if (browser && !browser.configured) throw new Error(`Worker browser unavailable: ${browser.reason ?? "Browser is not configured."} Nothing ran. Configure and restart the worker. Do not retry until configuration changes.`);
+      return new RemoteBrowserProvider(hub, workerId);
     }
     if (config().provider === "disabled") throw new Error("Browser tools are disabled. Select a provider in Settings > Tools.");
     const provider = providers.get(config().provider);
     if (!provider) throw new Error(`Browser provider "${config().provider}" is unavailable.`);
     signal.throwIfAborted();
     return provider;
+  };
+}
+
+export function createBrowserToolsExtension(config: () => { provider: string }, providers: ReadonlyMap<string, BrowserProvider>, opts?: { hub?: () => WorkerHub | undefined; panel?: BrowserTabHooks }) {
+  const resolve = createBrowserResolver(config, providers, opts);
+  const hooks = opts?.panel;
+  /** The worker that runs this session's tools, or null for the main host. */
+  function workerOf(api: { env?: { id: string } }): number | null {
+    if (!(api.env && isWorkerEnv(api.env) && opts?.hub?.())) return null;
+    const workerId = Number(api.env.id.slice(WORKER_ENV_PREFIX.length));
+    return Number.isSafeInteger(workerId) ? workerId : null;
   }
+  const sessionOf = (api: { conversationId?: unknown }) => { const n = Number(api.conversationId); return Number.isSafeInteger(n) && n > 0 ? n : undefined; };
+  async function resolveProvider(api: { env?: { id: string } }, signal: AbortSignal): Promise<BrowserProvider> { return resolve(workerOf(api), signal); }
   async function run<T>(api: { env?: { id: string } }, context: { abortSignal?: AbortSignal }, action: (provider: BrowserProvider, signal: AbortSignal) => Promise<T>, render: (value: T) => Output = json) {
     const signal = context.abortSignal ?? new AbortController().signal;
     signal.throwIfAborted();
@@ -105,10 +134,15 @@ export function createBrowserToolsExtension(config: () => { provider: string }, 
         tabId: Type.Optional(Type.String({ ...tabIdDoc, description: "navigate, close: tab handle returned by open." })),
       }, options),
       async execute(args, api, context) {
-        if (args.action === "open") { const url = need(args.url, "URL"); validateWebUrl(url); return run(api, context, (p, s) => p.open({ url }, s)); }
+        if (args.action === "open") {
+          const url = need(args.url, "URL"); validateWebUrl(url);
+          const session = sessionOf(api as { conversationId?: unknown }), worker = workerOf(api);
+          return run(api, context, async (p, s) => { const opened = await p.open({ url }, s); if (hooks && session) hooks.opened({ session, worker, ...opened, provider: p }); return opened; });
+        }
         const tab = need(args.tabId, "Tab ID");
-        if (args.action === "navigate") { const url = need(args.url, "URL"); validateWebUrl(url); return run(api, context, (p, s) => p.navigate({ tabId: tab, url }, s)); }
-        return run(api, context, async (p, s) => { await p.close({ tabId: tab }, s); return { tabId: tab, closed: true }; });
+        hooks?.assertAgent(tab);
+        if (args.action === "navigate") { const url = need(args.url, "URL"); validateWebUrl(url); return run(api, context, async (p, s) => { const moved = await p.navigate({ tabId: tab, url }, s); hooks?.navigated(moved); return moved; }); }
+        return run(api, context, async (p, s) => { await p.close({ tabId: tab }, s); hooks?.closed(tab); return { tabId: tab, closed: true }; });
       },
     }),
     defineTool({
@@ -146,6 +180,7 @@ export function createBrowserToolsExtension(config: () => { provider: string }, 
       }, options),
       async execute(args, api, context) {
         const tab = args.tabId;
+        if (tab) hooks?.assertAgent(tab);
         if (args.action === "scroll") {
           nonempty(tab, "Tab ID");
           const direction = args.direction;

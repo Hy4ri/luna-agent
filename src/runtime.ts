@@ -47,7 +47,8 @@ import { createLearnExtension, LEARN_JOB, LearnStore, scanIdle } from "./learn.j
 import { LearnFiles } from "./learn-files.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
-import { createBrowserToolsExtension } from "./browser-tools.js";
+import { createBrowserResolver, createBrowserToolsExtension } from "./browser-tools.js";
+import { BrowserPanel } from "./browser/panel.js";
 import { createCamofoxBrowserProvider } from "./camofox-browser-provider.js";
 import { createMoliBrowserProvider } from "./moli-browser-provider.js";
 import { createChromiumBrowserProvider } from "./chromium-browser-provider.js";
@@ -200,11 +201,16 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     ["searxng", createSearxngWebProvider(() => live().web.providers.searxng, o.fetch)],
     ["freeserp", createFreeserpWebProvider(() => live().web.providers.freeserp, o.fetch)],
   ])));
-  extensions.push(createBrowserToolsExtension(() => live().browser, new Map([
+  const browserProviders = new Map([
     ["camofox", createCamofoxBrowserProvider(() => live().browser.providers.camofox, mcp)],
     ["moli", createMoliBrowserProvider(() => live().browser.providers.moli)],
     ["chromium", createChromiumBrowserProvider(() => live().browser.providers.chromium)],
-  ]), { hub: () => workers }));
+  ]);
+  const browserPanel = new BrowserPanel({
+    enabled: () => live().browser.panel && live().browser.provider !== "disabled",
+    resolve: createBrowserResolver(() => live().browser, browserProviders, { hub: () => workers }),
+  });
+  extensions.push(createBrowserToolsExtension(() => live().browser, browserProviders, { hub: () => workers, panel: browserPanel }));
   // Identity belongs to top-level and cron sessions. Delegated children remove this extension.
   extensions.push(defineExtension({ name: "identity", sections: [section("identity", () => {
     // SOUL.md is the only identity file. User facts and memories live in memory.db (memory section).
@@ -336,7 +342,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   uploads.bind(conversationStorage(harness).db);
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
-  conversations.subscribeDeleted(ids => { for (const id of ids) terminals.registry.closeSession(id); });
+  conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });
   harnessRef = harness;
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
   const subagentNotifier = new SubagentNotifier({ harness, log, skip: id => conversations.get(id).archived });
@@ -499,6 +505,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     mcp,
     workers,
     terminals,
+    browserPanel,
     webhooks,
     async close() {
       if (learnTimer) clearInterval(learnTimer);
@@ -517,6 +524,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       await codemodeSandbox?.close();
       await harness.close(context).catch(() => {});
       terminals.close();
+      browserPanel.closeAll();
       workers.close();
       workers.store.close();
       await mcp.close();

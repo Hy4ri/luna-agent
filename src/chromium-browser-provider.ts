@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { validateWebUrl } from "./web-tools.js";
-import type { BrowserImage, BrowserProvider, BrowserTab, BrowserTarget } from "./browser-tools.js";
+import type { BrowserImage, BrowserInput, BrowserProvider, BrowserTab, BrowserTarget } from "./browser-tools.js";
 
 export interface ChromiumOptions { executablePath?: string; headless: boolean }
 /** How a Playwright-driven engine is started and stopped. `prepare` runs before snapshots and pointer, keyboard and scroll actions. */
@@ -93,6 +93,46 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
       signal.throwIfAborted();
       return { data: (await page(tabId).screenshot({ type: "png" })).toString("base64"), mimeType: "image/png" };
     },
+  };
+  // Live frames come from CDP screencast, so only Chromium-family engines get them. Others throw and the panel polls screenshots.
+  provider.watch = async ({ tabId, maxWidth, maxHeight }, onFrame, signal) => {
+    const p = page(tabId);
+    const cdp = await p.context().newCDPSession(p);
+    const done = new Promise<void>(resolve => {
+      if (signal.aborted) return resolve();
+      signal.addEventListener("abort", () => resolve(), { once: true });
+      p.once("close", () => resolve());
+    });
+    cdp.on("Page.screencastFrame", frame => {
+      onFrame({ data: Buffer.from(frame.data, "base64"), width: frame.metadata.deviceWidth, height: frame.metadata.deviceHeight, url: p.url() });
+      void cdp.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => {});
+    });
+    try {
+      await cdp.send("Page.startScreencast", { format: "jpeg", quality: 60, maxWidth, maxHeight, everyNthFrame: 1 });
+      await done;
+    } finally {
+      await cdp.send("Page.stopScreencast").catch(() => {});
+      await cdp.detach().catch(() => {});
+    }
+  };
+  provider.input = async ({ tabId, event }: { tabId: string; event: BrowserInput }) => {
+    const p = page(tabId);
+    if (event.kind === "mouse") {
+      await p.mouse.move(event.x, event.y);
+      if (event.type === "down") await p.mouse.down({ button: event.button ?? "left", clickCount: event.clickCount ?? 1 });
+      else if (event.type === "up") await p.mouse.up({ button: event.button ?? "left", clickCount: event.clickCount ?? 1 });
+    } else if (event.kind === "wheel") {
+      await p.mouse.move(event.x, event.y);
+      await p.mouse.wheel(event.deltaX, event.deltaY);
+    } else if (event.kind === "key") {
+      await (event.type === "down" ? p.keyboard.down(event.key) : p.keyboard.up(event.key));
+    } else if (event.action === "goto") {
+      const url = validateWebUrl(event.url ?? "");
+      await p.goto(url, { waitUntil: "domcontentloaded", timeout: TIMEOUT_MS });
+    } else if (event.action === "back") await p.goBack({ timeout: TIMEOUT_MS });
+    else if (event.action === "forward") await p.goForward({ timeout: TIMEOUT_MS });
+    else await p.reload({ timeout: TIMEOUT_MS });
+    return event.kind === "nav" ? { url: p.url() } : undefined;
   };
   return Object.assign(provider, { async dispose() {
     const b = browser; browser = undefined; context = undefined; tabs.clear();

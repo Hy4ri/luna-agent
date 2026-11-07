@@ -23,11 +23,14 @@ const app = createApp({
   harness: rt.harness, sideCommands: rt.sideCommands, titler: rt.titler, limitContinuer: rt.limitContinuer, push: rt.push, token, agent: { model: rt.model },
   settings: rt.settings, busyInput: rt.busyInput, sessionTalk: rt.sessionTalk, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
-  workers: rt.workers, terminals: rt.terminals, uploads: rt.uploads, webhooks: rt.webhooks, cwd: cfg.cwd,
+  workers: rt.workers, terminals: rt.terminals, browserPanel: rt.browserPanel, uploads: rt.uploads, webhooks: rt.webhooks, cwd: cfg.cwd,
   ...(rt.learn ? { learn: { store: rt.learn, improver: rt.improver!, scan: rt.learnScan } } : {}),
 });
 const desktopOrigins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
 rt.terminals.setOriginPolicy((origin, requestHost) => {
+  try { return new URL(origin).host === requestHost || desktopOrigins.includes(origin) || appConnection.allowsOrigin(origin); } catch { return false; }
+});
+rt.browserPanel.setOriginPolicy((origin, requestHost) => {
   try { return new URL(origin).host === requestHost || desktopOrigins.includes(origin) || appConnection.allowsOrigin(origin); } catch { return false; }
 });
 const server = serve({ fetch: app.fetch, hostname: host, port }, (i) =>
@@ -37,6 +40,7 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (i) =>
 rt.workers.attach(server as import("node:http").Server);
 // Terminal sockets authenticate with a single-use ticket from an authenticated HTTP call.
 rt.terminals.attach(server as import("node:http").Server);
+rt.browserPanel.attach(server as import("node:http").Server);
 
 let stopping = false;
 const stop = async () => {
