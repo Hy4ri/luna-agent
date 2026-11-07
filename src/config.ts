@@ -39,6 +39,8 @@ export const CustomProviderSchema = z.strictObject({
   compat: z.strictObject({
     supportsMidConvoSystemMessages: z.boolean().optional(),
     sendSessionAffinityHeaders: z.boolean().optional(),
+    /** Luna-only: keep the declared tool list fixed; tools loaded later are called through codemode. */
+    stableTools: z.boolean().optional(),
   }).optional(),
 });
 const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);

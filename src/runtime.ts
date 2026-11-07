@@ -32,6 +32,7 @@ import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-searc
 import { SettingsStore } from "./settings.js";
 import { BUILTIN_EXTENSIONS, BUILTIN_REGISTRY_NAMES, type LunaConfig } from "./config.js";
 import { createToggleExtension } from "./toggles.js";
+import { createStableToolsExtension } from "./stable-tools.js";
 import { createSessionWorktreeExtension } from "./session-worktree.js";
 import { createAskExtension } from "./ask.js";
 import { createCronExtension, createCronHistoryExtension, deliverRun } from "./cron-tools.js";
@@ -289,6 +290,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     inlineBudget: cfg.codemode.inlineBudget,
     models: false,
   }, cfg.codemode.timeoutMs, cfg.codemode.pinned));
+  // After the toggle filter, so a disabled codemode is already gone from the request it checks.
+  if (codemodeSandbox) extensions.push(createStableToolsExtension({ models: built.models, defaultModel: () => providers.defaultModel() }));
 
   const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
   const harness = await openLuna({

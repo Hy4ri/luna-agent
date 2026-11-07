@@ -12,7 +12,7 @@ const ROUTING = [
 
 type CatalogTool = Pick<ToolRegistration, "name" | "description" | "parameters" | "structuredOutputSchema" | "deferred">;
 
-function renderTool(tool: CatalogTool) {
+export function renderCodemodeTool(tool: CatalogTool) {
   const id = toCodemodeIdentifier(tool.name);
   const heading = id === tool.name ? `### \`${id}\`` : `### \`${id}\` (\`${tool.name}\`)`;
   const sample = renderToolSample({
@@ -31,7 +31,7 @@ export function codemodeCatalog(tools: readonly CatalogTool[], pinned: readonly 
   const visible = tools.filter(t => !t.name.startsWith("pi.codemode.") && t.deferred !== true);
   if (visible.length === 0) return undefined;
   const order = new Map(pinned.map((name, i) => [name, i]));
-  const entries = visible.map(tool => { const text = renderTool(tool); return { name: tool.name, text, cost: Math.ceil(text.length / 4) }; });
+  const entries = visible.map(tool => { const text = renderCodemodeTool(tool); return { name: tool.name, text, cost: Math.ceil(text.length / 4) }; });
   const first = entries.filter(e => order.has(e.name)).sort((a, b) => order.get(a.name)! - order.get(b.name)!);
   const rest = entries.filter(e => !order.has(e.name)).sort((a, b) => a.cost - b.cost);
   let remaining = budget - first.reduce((sum, e) => sum + e.cost, 0);
