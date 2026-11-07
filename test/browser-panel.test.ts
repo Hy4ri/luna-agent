@@ -230,7 +230,7 @@ test("with watch, pushed frames reach every socket and the feed stops after the 
 });
 
 test("input reaches the provider only while m57 drives", async () => {
-  const events: BrowserInput[] = [];
+  const events = [] as BrowserInput[];
   const s = await setup({ input: async ({ event }) => { events.push(event); return event.kind === "nav" ? { url: "https://x.test/next" } : undefined; } });
   try {
     const sid = await s.session();
@@ -247,7 +247,7 @@ test("input reaches the provider only while m57 drives", async () => {
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "https://x.test/next" } }));
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "javascript:alert(1)" } }));
     await until(() => events.length === 2, "two events");
-    assert.deepEqual(events.map(e => e.kind), ["mouse", "nav"]);
+    assert.deepEqual((events as BrowserInput[]).map(e => e.kind), ["mouse", "nav"]);
     await until(() => c.got.json.some(m => m.type === "meta" && m.url === "https://x.test/next"), "url update");
     c.ws.close();
   } finally { await s.cleanup(); }
