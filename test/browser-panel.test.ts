@@ -287,3 +287,22 @@ test("browser_tab list without the panel says how to turn it on", async () => {
   const tab = (ext.tools ?? []).find(t => t.name === "browser_tab")!;
   await assert.rejects((tab.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)({ action: "list" }, { conversationId: "7" }, {}), /browser\.panel/);
 });
+
+test("what m57 does in the panel reaches Luna once, on her next browser call", async () => {
+  const { provider } = fakeProvider({ input: async () => undefined });
+  const panel = new BrowserPanel({ enabled: () => true, resolve: async () => provider });
+  const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
+  const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
+  const run = async (name: string, args: Record<string, unknown>) =>
+    (await (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text?: string }[] }>)(args, { conversationId: "7" }, {})).output.map(o => o.text ?? "").join("\n");
+  await run("browser_tab", { action: "open", url: "https://x.test/" });
+  const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
+  panel.control(7, "t1", "take");
+  panel.control(7, "t1", "give");
+  await panel.close(7, mine.tabId);
+  await panel.open(8, null, "https://other.test/", new AbortController().signal);
+  const first = await run("browser_inspect", { action: "snapshot", tabId: "t1" });
+  assert.match(first, new RegExp(`m57 opened ${mine.tabId} at https://m57.test/; m57 took over t1; m57 gave t1 back to you; m57 closed ${mine.tabId}`));
+  assert.doesNotMatch(first, /other\.test/);
+  assert.doesNotMatch(await run("browser_inspect", { action: "snapshot", tabId: "t1" }), /in the panel/);
+});

@@ -9,7 +9,7 @@ import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/conte
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError } from "@earendil-works/pi-durable/env";
 import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, PROTOCOL_VERSION, decode, encodeResult,
-  type BrowserMethod, type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
+  type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 import { WorkerServices } from "./worker-services.js";
 import { ensureGeneratedDirectories, saveGeneratedImage, workerGeneratedRoot } from "./generated-files.js";
 import { MAX_UPLOAD_BYTES, UploadStore, workerUploadRoot } from "./uploads.js";
@@ -147,11 +147,9 @@ export function startWorker(o: WorkerOptions) {
           const provider = await services.browser();
           const req = (decode(m.args) as unknown[])[0] as never;
           const signal = controller.signal;
-          const value = await ({
-            open: () => provider.open(req, signal), navigate: () => provider.navigate(req, signal), close: () => provider.close(req, signal),
-            snapshot: () => provider.snapshot(req, signal), click: () => provider.click(req, signal), type: () => provider.type(req, signal),
-            scroll: () => provider.scroll(req, signal), screenshot: () => provider.screenshot(req, signal),
-          } satisfies Record<BrowserMethod, () => Promise<unknown>>)[m.method]();
+          const fn = (provider as unknown as Record<string, ((r: never, s: AbortSignal) => Promise<unknown>) | undefined>)[m.method];
+          if (typeof fn !== "function") throw new Error(`This browser provider cannot ${m.method}. Nothing ran. The chromium and moli providers can.`);
+          const value = await fn.call(provider, req, signal);
           result = { ok: true, value };
         } else if (m.t === "mcpList") {
           result = { ok: true, value: await services.mcpList() };

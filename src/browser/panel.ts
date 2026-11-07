@@ -36,6 +36,7 @@ const TICKETS_PER_MINUTE = 60;
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const MAX_INPUT_FRAME = 4096;
 const POLL_MS = 1000;
+const MAX_NOTICES = 20;
 const ATTACH_PATH = /^\/v1\/browser\/([A-Za-z0-9_-]+)\/attach$/;
 export const LOCK_MESSAGE = "m57 is using this tab. Nothing ran. Wait, or ask him to give it back.";
 
@@ -65,6 +66,8 @@ export class BrowserPanel implements BrowserTabHooks {
   private streams = new Map<string, Stream>();
   private tickets = new Map<string, { tab: string; expires: number }>();
   private issued: number[] = [];
+  /** m57's panel activity per session, until Luna's next browser call. */
+  private notices = new Map<number, string[]>();
   private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_INPUT_FRAME });
   private readonly now: () => number;
 
@@ -89,10 +92,19 @@ export class BrowserPanel implements BrowserTabHooks {
   assertAgent(tabId: string) { if (this.tabs.get(tabId)?.controller === "user") throw new Error(LOCK_MESSAGE); }
   /** Drop every tab of a deleted session and close its pages. */
   closeSession(session: number) {
+    this.notices.delete(session);
     for (const e of [...this.tabs.values()].filter(t => t.session === session)) {
       void e.provider.close({ tabId: e.tabId }, new AbortController().signal).catch(() => {});
       this.closed(e.tabId);
     }
+  }
+
+  drain(session: number): string[] { const n = this.notices.get(session) ?? []; this.notices.delete(session); return n; }
+  private note(session: number, text: string) {
+    const n = this.notices.get(session) ?? [];
+    n.push(text);
+    if (n.length > MAX_NOTICES) n.splice(0, n.length - MAX_NOTICES);
+    this.notices.set(session, n);
   }
 
   list(session: number): PanelTab[] { return [...this.tabs.values()].filter(t => t.session === session).map(({ provider: _p, ...tab }) => tab); }
@@ -111,6 +123,7 @@ export class BrowserPanel implements BrowserTabHooks {
     this.opened({ session, worker, ...tab, provider }, "user");
     const e = this.tabs.get(tab.tabId)!;
     e.controller = "user"; // m57 opened it from the panel, so he holds it
+    this.note(session, `m57 opened ${tab.tabId} at ${tab.url}`);
     return this.get(tab.tabId)!;
   }
   private async resolveOrThrow(worker: number | null, signal: AbortSignal) {
@@ -120,10 +133,12 @@ export class BrowserPanel implements BrowserTabHooks {
     const e = this.owned(session, tabId);
     await e.provider.close({ tabId }, new AbortController().signal).catch(() => {});
     this.closed(tabId);
+    this.note(session, `m57 closed ${tabId}`);
   }
   control(session: number, tabId: string, action: "take" | "give"): PanelTab {
     const e = this.owned(session, tabId);
     if (action === "take" && !e.input) throw new BrowserPanelError("View only on this browser. Luna keeps the tab.", 409);
+    if ((action === "take") !== (e.controller === "user")) this.note(session, action === "take" ? `m57 took over ${tabId}` : `m57 gave ${tabId} back to you`);
     e.controller = action === "take" ? "user" : "agent";
     this.pushMeta(e);
     return this.get(tabId)!;
@@ -196,7 +211,7 @@ export class BrowserPanel implements BrowserTabHooks {
       const event = parseInput(msg.event);
       if (!event) return;
       e.provider.input({ tabId: id, event }).then(result => {
-        if (result?.url && result.url !== e.url) { e.url = result.url; this.pushMeta(e); }
+        if (result?.url && result.url !== e.url) { e.url = result.url; this.pushMeta(e); this.note(e.session, `m57 went to ${result.url} in ${id}`); }
       }).catch(error => this.json(ws, { type: "error", message: (error as Error).message }));
     });
     ws.on("error", () => { /* the close handler cleans up */ });

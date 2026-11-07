@@ -9,7 +9,8 @@ export const isWorkerEnv = (env: { id: string } | undefined): boolean => !!env &
 
 export const PROTOCOL_VERSION = 1;
 
-export const BROWSER_METHODS = ["open", "navigate", "close", "snapshot", "click", "type", "scroll", "screenshot"] as const;
+export const BROWSER_METHODS = ["open", "navigate", "close", "snapshot", "click", "type", "scroll", "screenshot",
+  "history", "press", "pointer", "hover", "select", "check", "upload", "dialog", "wait", "logs", "dialogs", "evaluate"] as const;
 export type BrowserMethod = typeof BROWSER_METHODS[number];
 
 /** Worker-only operation: open once, check the policy on the opened file, read from it. Not an ExecutionEnv method. */

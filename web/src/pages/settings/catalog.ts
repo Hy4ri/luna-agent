@@ -81,6 +81,8 @@ export function labelFor(path: (string | number)[]): string {
   if (full === 'auxiliary.vision') return 'Auxiliary image analysis'
   if (full === 'web.providers' || full === 'browser.providers') return 'Provider options'
   if (full === 'browser.provider') return 'Browser provider'
+  if (full === 'browser.panel') return 'Live browser panel'
+  if (full === 'browser.evaluate') return 'Page scripts'
   if (full === 'image_gen.provider') return 'Image generation provider ID'
   if (full === 'processes.enabled') return 'Enable background command starts'
   if (full === 'terminal.user') return 'Allow an interactive terminal in the chat view'
@@ -140,6 +142,8 @@ const fieldHelp: Record<string, string> = {
   'web.providers.searxng.timeoutMs': 'Time limit for one search request.',
   'web.providers.freeserp.url': 'Base URL of the FreeSerp API. No key is needed.',
   'web.providers.freeserp.timeoutMs': 'Time limit for one search request.',
+  'browser.panel': 'Show the browser Luna drives in the dock, where you can take over. The browser may hold logins.',
+  'browser.evaluate': 'Let Luna run JavaScript in pages. Pages may hold logins, so this is off by default.',
   'browser.providers.chromium.executablePath': 'Path to a Chromium-based browser, such as Helium, on the machine that runs the browser.',
   'browser.providers.chromium.headless': 'Run the browser without a visible window.',
   'browser.providers.moli.executablePath': 'Path to the Moli binary. Luna starts it on a private loopback port.',
