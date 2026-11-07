@@ -162,7 +162,7 @@ export const ConfigSchema = z
       providers: z.strictObject({
         camofox: z.strictObject({ mcpServer: name.default("camofox") }).prefault({}),
         moli: z.strictObject({ executablePath: z.string().min(1).optional(), profileDir: z.string().min(1).optional() }).prefault({}),
-        chromium: z.strictObject({ executablePath: z.string().min(1).optional(), headless: z.boolean().default(true) }).prefault({}),
+        chromium: z.strictObject({ cdpUrl: z.string().min(1).optional(), executablePath: z.string().min(1).optional(), headless: z.boolean().default(true) }).prefault({}),
       }).prefault({}),
     }).prefault({}),
     processes: z.strictObject({

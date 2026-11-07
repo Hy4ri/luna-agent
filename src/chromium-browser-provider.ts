@@ -6,7 +6,7 @@ import type { Browser, BrowserContext, Dialog, Page } from "playwright";
 import { validateWebUrl } from "./web-tools.js";
 import type { BrowserDialog, BrowserImage, BrowserInput, BrowserLogs, BrowserProvider, BrowserTab, BrowserTarget } from "./browser-tools.js";
 
-export interface ChromiumOptions { executablePath?: string; headless: boolean }
+export interface ChromiumOptions { cdpUrl?: string; executablePath?: string; headless: boolean }
 /** How a Playwright-driven engine is started and stopped. `prepare` runs before snapshots and pointer, keyboard and scroll actions. */
 export interface PlaywrightEngine {
   start(): Promise<{ browser: Browser; context: BrowserContext }>;
@@ -24,9 +24,14 @@ const keep = <T>(list: T[], item: T) => { list.push(item); if (list.length > MAX
 export function createChromiumBrowserProvider(options: () => ChromiumOptions): BrowserProvider & { dispose(): Promise<void> } {
   return createPlaywrightBrowserProvider({
     async start() {
-      const { executablePath, headless } = options();
-      if (!executablePath) throw new Error("Set browser.providers.chromium.executablePath to a Chromium-based browser such as Helium.");
+      const { cdpUrl, executablePath, headless } = options();
       const { chromium } = await import("playwright").catch(() => { throw new Error("Playwright is not installed. Run pnpm install on this machine."); });
+      if (cdpUrl) {
+        const browser = await chromium.connectOverCDP(cdpUrl);
+        const context = browser.contexts()[0] ?? (await browser.newContext());
+        return { browser, context };
+      }
+      if (!executablePath) throw new Error("Set browser.providers.chromium.cdpUrl or executablePath to a Chromium-based browser such as Helium or Vivaldi.");
       const browser = await chromium.launch({ executablePath, headless });
       return { browser, context: await browser.newContext() };
     },

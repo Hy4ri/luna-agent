@@ -34,6 +34,7 @@ export class WorkerServices {
     const provider = browser.provider;
     if (provider === "disabled") return { provider, configured: false, reason: "Browser tools are disabled in the worker configuration." };
     if (provider === "chromium" || provider === "moli") {
+      if (provider === "chromium" && browser.providers.chromium.cdpUrl) return { provider, configured: true };
       const path = provider === "chromium" ? browser.providers.chromium.executablePath : browser.providers.moli.executablePath;
       if (!path) return { provider, configured: false, reason: `Set browser.providers.${provider}.executablePath to the worker's browser executable.` };
       try { accessSync(path, constants.X_OK); }
