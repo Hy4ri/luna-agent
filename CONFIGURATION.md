@@ -1310,11 +1310,22 @@ Routes (Bearer token; a terminal that belongs to another session returns 404):
 
 | Route | Purpose |
 |---|---|
-| `GET /v1/sessions/:sid/terminals` | `{ enabled, terminals }` |
+| `GET /v1/sessions/:sid/terminals` | `{ enabled, agentEnabled, terminals }`. Each terminal has `owner`, `controller` (`user` or `agent`), `shared`, and `command` for Luna's |
 | `POST /v1/sessions/:sid/terminals` | Start one. Body `{ cols?, rows? }`. 403 when off, 503 when the machine is unavailable, 409 at the limit |
 | `POST /v1/sessions/:sid/terminals/:id/ticket` | Single-use attach ticket, valid 30 seconds |
+| `POST /v1/sessions/:sid/terminals/:id/control` | Body `{ action }`: `take`, `give`, `share`, or `unshare`. `give` and `share` need `terminal.agent`; `give` needs a shared terminal (409) |
 | `DELETE /v1/sessions/:sid/terminals/:id` | Close a terminal |
-| `GET /v1/terminals/:id/attach?ticket=` (WebSocket) | Raw input and output. The Bearer token never goes in a URL |
+| `GET /v1/terminals/:id/attach?ticket=` (WebSocket) | Raw input and output, plus `control` text frames. The Bearer token never goes in a URL |
+
+## Luna's terminal tool
+
+- `terminal.agent` (boolean, default `false`): give Luna the `terminal` tool. Settings > Tools > Terminal. Read live. While it is off the tool is not offered, `tool_search` does not find it, and calls are refused.
+- The tool is a last resort for programs that need a real TTY: full-screen apps (vim, htop, less), REPLs driven over several turns, and prompts that refuse piped input. It is deferred, so Luna loads it with `tool_search`; plain commands stay with `bash` and `process`. `start` refuses a bare shell.
+- Each terminal runs one program as `$SHELL -lc <command>` in the session's working directory and machine, and ends when the program exits. Workers need the `ptyCommand` capability; older workers say to update and restart.
+- The daemon parses the output with the same ghostty VT engine as the browser (`ghostty-vt.wasm`, one instance per terminal) and gives Luna the screen as text: `start`, `send` (keys, text, Enter), `read` (with scrollback), `wait` (regex, exit, or idle; at most 60 s), `resize`, `list`, `stop`.
+- Luna's terminals appear in the dock, with only `terminal.agent` on too, and m57 watches them live. One side types at a time: **Take over** moves the keyboard to m57 and Luna's input is refused until he presses **Give to Luna**. While Luna types, m57's keys and sizes are dropped.
+- m57 can **Share with Luna** one of his own shells. She can read it; she can type only after he gives it to her. **Stop sharing** hides it again.
+- Terminals do not survive a daemon restart.
 
 ## Web frontend development
 

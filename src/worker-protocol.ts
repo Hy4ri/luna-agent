@@ -65,6 +65,8 @@ export interface Capabilities {
   uploadFiles?: boolean;
   /** The worker can host interactive terminals (node-pty loaded). Optional, so older workers still connect. */
   pty?: boolean;
+  /** `pty.open` honors `command`. Older workers would open a shell instead, so the main host checks this first. */
+  ptyCommand?: boolean;
 }
 
 export type MainMessage =
@@ -75,7 +77,7 @@ export type MainMessage =
   | { t: "mcpList"; id: number }
   | { t: "mcpCall"; id: number; server: string; tool: string; args: Record<string, unknown> }
   | { t: "abort"; id: number }
-  | { t: "pty.open"; id: number; cwd: string; cols: number; rows: number }
+  | { t: "pty.open"; id: number; cwd: string; cols: number; rows: number; command?: string }
   | { t: "pty.input"; id: number; data: string }
   | { t: "pty.resize"; id: number; cols: number; rows: number }
   | { t: "pty.kill"; id: number };

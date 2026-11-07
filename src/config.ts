@@ -164,9 +164,12 @@ export const ConfigSchema = z
       retentionHours: z.number().positive().default(168),
       maxOutputBytes: z.number().int().min(1024).max(16777216).default(1048576),
     }).prefault({}),
-    /** Interactive shells in the web UI. Off by default: an open terminal has the same host access as bash. */
+    /** Interactive terminals. Off by default: a terminal has the same host access as bash. */
     terminal: z.strictObject({
+      /** m57's shells in the web UI. */
       user: z.boolean().default(false),
+      /** Luna's `terminal` tool for interactive programs, and terminals m57 shares with her. */
+      agent: z.boolean().default(false),
     }).prefault({}),
     codemode: z.strictObject({
       timeoutMs: z.number().int().positive().max(2_147_483_647).default(300_000),

@@ -13,6 +13,7 @@ import { createApp } from "../src/server.js";
 import { localLauncher } from "../src/terminal/pty-host.js";
 import { TerminalRegistry } from "../src/terminal/registry.js";
 import { TerminalService } from "../src/terminal/service.js";
+import { loadVt } from "../src/terminal/vt-model.js";
 
 const TOKEN = "test-token";
 
@@ -24,10 +25,11 @@ async function setup() {
   const model = faux.getModel();
   const harness = await openLuna({ dbPath: join(dir, "luna.db"), models, memory: false, coding: false });
   const conversations = new ConversationStore(harness);
-  const state = { enabled: true, now: 1_000_000 };
+  const state = { enabled: true, agent: false, now: 1_000_000 };
   const terminals = new TerminalService({
-    registry: new TerminalRegistry({ launcher: localLauncher, env: { SHELL: "/bin/sh", PATH: process.env.PATH ?? "" } }),
+    registry: new TerminalRegistry({ launcher: localLauncher, env: { SHELL: "/bin/sh", PATH: process.env.PATH ?? "" }, vt: loadVt }),
     enabled: () => state.enabled,
+    agentEnabled: () => state.agent,
     now: () => state.now,
     allowOrigin: (origin) => origin === "http://allowed.test",
   });
@@ -196,5 +198,57 @@ test("an exited shell is reported on the socket and deleting the session closes 
     assert.equal((await t.call(`/v1/sessions/${sid}`, { method: "DELETE" })).status, 200);
     assert.equal(t.terminals.registry.get(other.id), undefined);
     assert.deepEqual(t.terminals.registry.list(sid), []);
+  } finally { await t.cleanup(); }
+});
+
+test("control: m57 shares, gives, and takes back a terminal; the socket reports each change", async () => {
+  const t = await setup();
+  try {
+    const sid = await t.session();
+    const { id } = await create(t, sid);
+    const control = (action: string) => t.call(`/v1/sessions/${sid}/terminals/${id}/control`, { method: "POST", body: JSON.stringify({ action }) });
+    assert.equal((await control("share")).status, 403, "sharing needs terminal.agent");
+    t.state.agent = true;
+    assert.equal((await control("nope")).status, 400);
+    assert.equal((await control("give")).status, 409, "give needs a shared terminal");
+    const a = open(t.port, id, await ticket(t, sid, id));
+    await a.opened;
+    await until(() => a.frames.json.some(f => f.type === "replay-end"), "replay");
+    assert.deepEqual(a.frames.json.find(f => f.type === "replay-start")?.controller, "user");
+    const shared = await control("share");
+    assert.equal(shared.status, 200);
+    assert.deepEqual(((await shared.json()) as { shared: boolean }).shared, true);
+    assert.equal((await control("give")).status, 200);
+    await until(() => a.frames.json.some(f => f.type === "control" && f.controller === "agent"), "control frame");
+    a.ws.send(Buffer.from("echo dropped-input\n"));
+    t.terminals.registry.agentWrite(id, sid, "echo luna-$((40+2))\n");
+    await until(() => a.frames.text.includes("luna-42"), "Luna's command");
+    assert.ok(!a.frames.text.includes("dropped-input"), "m57's keys are dropped while Luna types");
+    assert.equal((await control("take")).status, 200);
+    await until(() => a.frames.json.some(f => f.type === "control" && f.controller === "user"), "take frame");
+    assert.throws(() => t.terminals.registry.agentWrite(id, sid, "x"), /m57 has control/);
+    assert.equal((await control("unshare")).status, 200);
+    a.ws.close();
+  } finally { await t.cleanup(); }
+});
+
+test("with only terminal.agent on, m57 can watch Luna's terminals but cannot open shells", async () => {
+  const t = await setup();
+  try {
+    const sid = await t.session();
+    t.state.enabled = false;
+    t.state.agent = true;
+    const mine = await t.terminals.registry.create({ session: sid, owner: "agent", worker: null, cwd: "/tmp", command: "cat" });
+    const list = (await (await t.call(`/v1/sessions/${sid}/terminals`)).json()) as { enabled: boolean; agentEnabled: boolean; terminals: { id: string }[] };
+    assert.equal(list.enabled, false);
+    assert.equal(list.agentEnabled, true);
+    assert.deepEqual(list.terminals.map(x => x.id), [mine.id]);
+    assert.equal((await t.call(`/v1/sessions/${sid}/terminals`, { method: "POST", body: "{}" })).status, 403);
+    const w = open(t.port, mine.id, await ticket(t, sid, mine.id));
+    await w.opened;
+    await until(() => w.frames.json.some(f => f.type === "replay-end"), "replay");
+    w.ws.close();
+    t.state.agent = false;
+    assert.equal((await t.call(`/v1/sessions/${sid}/terminals/${mine.id}/ticket`, { method: "POST" })).status, 403);
   } finally { await t.cleanup(); }
 });

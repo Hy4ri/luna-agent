@@ -115,6 +115,8 @@ test("compaction defaults, partial overrides, and threshold ordering", () => {
 test("terminal access is off by default and rejects unknown fields", () => {
   assert.equal(parse({}).terminal.user, false);
   assert.equal(parse({ terminal: { user: true } }).terminal.user, true);
-  rejects({ terminal: { agent: true } }, /terminal/);
+  assert.equal(parse({}).terminal.agent, false);
+  assert.equal(parse({ terminal: { agent: true } }).terminal.agent, true);
+  rejects({ terminal: { other: true } }, /terminal/);
   rejects({ terminal: { user: "yes" } }, /terminal/);
 });

@@ -4,7 +4,7 @@
 import { homedir, hostname, userInfo } from "node:os";
 import { pathToFileURL } from "node:url";
 import WebSocket from "ws";
-import { defaultShell, shellEnvironment, spawnNodePty, type PtyProcess } from "./terminal/pty-host.js";
+import { defaultShell, programInvocation, shellEnvironment, spawnNodePty, type PtyProcess } from "./terminal/pty-host.js";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError } from "@earendil-works/pi-durable/env";
@@ -73,7 +73,7 @@ export function startWorker(o: WorkerOptions) {
   const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
     user: userInfo().username, home: workerHome, cwd, path: process.env.PATH, browser: services.browserCapability(),
     generatedFiles: generatedRootPath !== undefined,
-    uploadFiles: uploadStore !== undefined, pty: true };
+    uploadFiles: uploadStore !== undefined, pty: true, ptyCommand: true };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
   let socket: WebSocket | undefined, stopped = false, delay = 1000, retry: ReturnType<typeof setTimeout> | undefined;
   let connected: (() => void) | undefined;
@@ -123,7 +123,8 @@ export function startWorker(o: WorkerOptions) {
       if (m.t === "abort") { calls.get(m.id)?.abort(); return; }
       if (m.t === "pty.open") {
         try {
-          const { file, args } = defaultShell(process.env);
+          const shell = defaultShell(process.env);
+          const { file, args } = typeof m.command === "string" && m.command ? programInvocation(shell.file, m.command) : shell;
           const p = spawnNodePty({ file, args, cwd: m.cwd || cwd, env: shellEnvironment(process.env), cols: m.cols, rows: m.rows });
           ptys.set(m.id, p);
           p.onData(d => send({ t: "pty.output", id: m.id, data: d.toString("base64") }));
