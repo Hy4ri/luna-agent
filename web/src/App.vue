@@ -19,6 +19,8 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ImageViewer from '@/components/ui/ImageViewer.vue';
 import SnapTool from '@/components/SnapTool.vue';
 import TerminalDock from '@/components/terminal/TerminalDock.vue';
+import BrowserPane from '@/components/browser/BrowserPane.vue';
+import { browser, loadBrowser } from '@/stores/browser';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
@@ -52,7 +54,7 @@ const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
 watch(() => chat.session, () => { selectedReview.value = null; });
 // The dock follows the loaded session; the server keeps each session's shells alive.
-watch(() => chat.session, id => { void loadTerminals(id || ''); }, { immediate: true });
+watch(() => chat.session, id => { void loadTerminals(id || ''); void loadBrowser(id || ''); }, { immediate: true });
 const railContent = computed(() => !!chat.session || reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
 const docked = computed(() => railRoom.value && railContent.value);
 // The native chat remains mounted when its tile is removed. Surviving iframe
@@ -472,7 +474,8 @@ onUnmounted(() => {
               <Extras docked />
             </aside>
           </div>
-          <TerminalDock v-if="terminal.open && chat.session && !sessionPane" />
+          <BrowserPane v-if="terminal.open && chat.session && !sessionPane && browser.enabled && dock.pane === 'browser'" />
+          <TerminalDock v-else-if="terminal.open && chat.session && !sessionPane" />
           </div>
         </main>
         <template v-if="!ui.login">

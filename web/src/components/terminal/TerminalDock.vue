@@ -6,6 +6,8 @@ import DockControls from "@/components/dock/DockControls.vue";
 import TermView from "./TermView.vue";
 import { closeTerminal, controlTerminal, newTerminal, tabLabel, terminal } from "@/stores/terminal";
 import { navigate } from "@/stores/app";
+import { browser } from "@/stores/browser";
+import { dock } from "@/stores/dock";
 
 const views = ref<Record<string, InstanceType<typeof TermView> | null>>({});
 const live = computed(() => terminal.tabs.filter(t => t.status === "running").length);
@@ -46,7 +48,7 @@ function tabKey(event: KeyboardEvent, index: number) {
         </template>
       </template>
       <button type="button" class="icon-button" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled" @click="newTerminal()"><Plus :size="14" /></button>
-      <DockControls />
+      <DockControls :panes="browser.enabled ? ['terminal', 'browser'] : undefined" @pane="dock.pane = $event" />
     </header>
     <p v-if="terminal.error" class="dock-message" role="alert">{{ terminal.error }}</p>
     <div v-if="!usable" class="dock-empty">

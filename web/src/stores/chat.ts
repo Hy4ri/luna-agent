@@ -9,6 +9,7 @@ import { watchFeed, type Feed } from "@/lib/sync";
 import { savedSession, rememberSession, routeSession, sessionPane, notifySessionPanes } from "@/lib/pane";
 import { boardChanged, focusInput, leavePages } from "./app";
 import { agentTerminalActivity } from "./terminal";
+import { agentBrowserActivity } from "./browser";
 import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, retirePendingEntries, refreshPending } from "./composer";
 import { models, setSelectedModel } from "./models";
 import { history, loadSessions, loadFocusedSession, resetHistoryView } from "./sessions";
@@ -406,6 +407,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     chat.activeTools.delete(e.toolCallId);
     const started = chat.toolStarts[e.toolCallId];
     if (started?.name === "terminal" && !sessionPane) void agentTerminalActivity(chat.session ?? "", (started.args as { action?: unknown } | undefined)?.action === "start");
+    if ((started?.name === "browser_tab" || started?.name === "browser_act") && !sessionPane) void agentBrowserActivity(chat.session ?? "", (started.args as { action?: unknown } | undefined)?.action === "open");
     if (e.entry) putEntry(e.entry);
     if (e.result) {
       const output = e.result.structuredOutput;
