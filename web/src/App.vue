@@ -56,7 +56,8 @@ watch(() => chat.session, () => { selectedReview.value = null; });
 // The dock follows the loaded session; the server keeps each session's shells alive.
 watch(() => chat.session, id => { void loadTerminals(id || ''); void loadBrowser(id || ''); }, { immediate: true });
 const railContent = computed(() => !!chat.session || reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
-const docked = computed(() => railRoom.value && railContent.value);
+// A side dock takes the rail's place, so the rail folds into the header while the dock is on the right.
+const docked = computed(() => railRoom.value && railContent.value && !dockSide.value);
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
 const tileIds = ref<string[]>(readTiles());
