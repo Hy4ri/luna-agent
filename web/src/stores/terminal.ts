@@ -7,6 +7,13 @@ export interface TerminalInfo {
   session: number;
   cwd: string;
   shell: string;
+  /** "agent": Luna started it to run `command`. */
+  owner?: "user" | "agent";
+  command?: string;
+  /** Who types. The other side watches. */
+  controller?: "user" | "agent";
+  /** Luna can see it. Always true for her own terminals. */
+  shared?: boolean;
   status: "running" | "ended";
   exitCode: number | null;
   endReason?: string;
@@ -22,8 +29,10 @@ export const terminal = reactive({
   height: savedHeight(),
   /** The loaded session. Tabs below belong to it. */
   session: "",
-  /** false: the owner has not turned on Settings > Tools > Terminal. */
+  /** false: the owner has not turned on Settings > Tools > Terminal (terminal.user). */
   enabled: true,
+  /** terminal.agent: Luna has her terminal tool and can be given shared terminals. */
+  agentEnabled: false,
   loading: false,
   error: "",
   tabs: [] as TerminalInfo[],
@@ -46,9 +55,10 @@ export async function loadTerminals(session: string) {
   if (!session) return;
   terminal.loading = true;
   try {
-    const r = await json<{ enabled: boolean; terminals: TerminalInfo[] }>(`/v1/sessions/${session}/terminals`);
+    const r = await json<{ enabled: boolean; agentEnabled?: boolean; terminals: TerminalInfo[] }>(`/v1/sessions/${session}/terminals`);
     if (mine !== epoch) return;
     terminal.enabled = r.enabled;
+    terminal.agentEnabled = !!r.agentEnabled;
     terminal.tabs = r.terminals;
     if (!r.terminals.some(t => t.id === terminal.active)) terminal.active = r.terminals[0]?.id ?? "";
   } catch (e) {
@@ -99,6 +109,35 @@ export function dropTab(id: string) {
   terminal.tabs.splice(index, 1);
   if (terminal.active === id) terminal.active = (terminal.tabs[index] ?? terminal.tabs[index - 1])?.id ?? "";
 }
+
+/** Luna used her terminal tool. A new terminal opens the dock on it, so m57 watches it live. */
+export async function agentTerminalActivity(session: string, started: boolean) {
+  if (!session || terminal.session !== session) return;
+  const known = new Set(terminal.tabs.map(t => t.id));
+  await loadTerminals(session);
+  if (!started || terminal.session !== session) return;
+  const fresh = terminal.tabs.filter(t => !known.has(t.id) && t.owner === "agent").at(-1);
+  if (fresh) { terminal.active = fresh.id; terminal.open = true; }
+}
+
+export type ControlAction = "take" | "give" | "share" | "unshare";
+/** Move the keyboard between m57 and Luna, or show or hide one of his terminals from her. */
+export async function controlTerminal(id: string, action: ControlAction) {
+  const session = terminal.session;
+  terminal.error = "";
+  try {
+    const t = await post<TerminalInfo>(`/v1/sessions/${session}/terminals/${id}/control`, { action });
+    setControl(id, t.controller ?? "user", !!t.shared);
+  } catch (e) { terminal.error = message(e); }
+}
+
+/** The socket reported a control change. */
+export function setControl(id: string, controller: "user" | "agent", shared: boolean) {
+  const t = terminal.tabs.find(x => x.id === id);
+  if (t) { t.controller = controller; t.shared = shared; }
+}
+
+export const tabLabel = (t: TerminalInfo) => t.command ? t.command.split(/\s+/)[0]!.split("/").pop()! : t.shell;
 
 export async function toggleTerminal() {
   terminal.open = !terminal.open;

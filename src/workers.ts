@@ -216,10 +216,11 @@ export class WorkerHub {
     return link.call("handle", id => ({ t: "handle", id, handle, op, args: encode(args) as unknown[] }), context);
   }
   /** Open an interactive shell on a worker. The worker picks the shell and environment; main only relays bytes. */
-  openPty(workerId: number, options: { cwd: string; cols: number; rows: number }): Promise<PtyProcess> {
+  openPty(workerId: number, options: { cwd: string; cols: number; rows: number; command?: string }): Promise<PtyProcess> {
     const link = this.links.get(workerId);
     if (!link) return Promise.reject(new Error(this.offline(workerId)));
     if (!link.capabilities.pty) return Promise.reject(new Error("This machine's worker cannot host terminals. Update and restart it."));
+    if (options.command && !link.capabilities.ptyCommand) return Promise.reject(new Error("This machine's worker cannot run a program in a terminal. Update and restart it."));
     const id = link.nextId();
     let dataFn: ((d: Buffer) => void) | undefined, exitFn: Parameters<PtyProcess["onExit"]>[0] | undefined;
     const early: Buffer[] = [];
@@ -250,7 +251,7 @@ export class WorkerHub {
           if (exitFn) exitFn(e); else { exited = e; reject(new Error(e.reason ?? "The terminal exited before it started.")); }
         }
       });
-      link.send({ t: "pty.open", id, cwd: options.cwd, cols: options.cols, rows: options.rows });
+      link.send({ t: "pty.open", id, cwd: options.cwd, cols: options.cols, rows: options.rows, ...(options.command ? { command: options.command } : {}) });
     });
   }
   browserCall(workerId: number, method: BrowserMethod, args: unknown[], context: Context): Promise<Result<unknown, Error>> {

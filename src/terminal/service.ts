@@ -3,7 +3,9 @@
 // Wire protocol on /v1/terminals/:id/attach
 //   binary frames, both ways : raw terminal bytes (input from the client, output from the shell)
 //   text frames, client → server : {"type":"resize","cols":n,"rows":n}
-//   text frames, server → client : {"type":"replay-start"|"replay-end"} | {"type":"exit","exitCode":n|null,"reason"?:s} | {"type":"closed"}
+//   text frames, server → client : {"type":"replay-start",cols,rows,controller,shared} | {"type":"replay-end"}
+//                                  | {"type":"control","controller":"user"|"agent","shared":b} | {"type":"exit","exitCode":n|null,"reason"?:s} | {"type":"closed"}
+// While Luna has control the server drops the client's keys and resizes, so the client shows the terminal read-only.
 // The browser never puts the Bearer token in a URL: it asks for a ticket over authenticated HTTP, then opens the socket with the ticket.
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
@@ -24,6 +26,8 @@ export interface TerminalServiceOptions {
   registry: TerminalRegistry;
   /** Reads the live `terminal.user` setting. */
   enabled: () => boolean;
+  /** Reads the live `terminal.agent` setting. Luna's own terminals stay viewable with it alone. Default off. */
+  agentEnabled?: () => boolean;
   /** Decide whether a browser Origin may open a terminal socket. Requests without an Origin (non-browser clients) are allowed. */
   allowOrigin?: OriginPolicy;
   now?: () => number;
@@ -42,6 +46,9 @@ export class TerminalService {
   }
 
   enabled() { return this.options.enabled(); }
+  agentEnabled() { return this.options.agentEnabled?.() ?? false; }
+  /** m57 may open and watch this terminal: any terminal with `terminal.user`, Luna's own with `terminal.agent`. */
+  viewable(info: TerminalInfo | undefined) { return !!info && (this.enabled() || (info.owner === "agent" && this.agentEnabled())); }
   /** Replace the browser Origin policy. The daemon sets it once it knows which origins it serves. */
   setOriginPolicy(policy: OriginPolicy) { this.options.allowOrigin = policy; }
 
@@ -75,11 +82,12 @@ export class TerminalService {
     const reject = (code: number, text: string) => socket.end(`HTTP/1.1 ${code} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     const origin = req.headers.origin;
     if (origin && this.options.allowOrigin && !this.options.allowOrigin(origin, req.headers.host)) return reject(403, "Forbidden");
-    if (!this.enabled()) return reject(403, "Forbidden");
     const id = m[1]!;
     // The ticket is spent even when the terminal is gone, so a leaked URL cannot be retried.
     if (!this.redeem(url.searchParams.get("ticket"), id)) return reject(401, "Unauthorized");
-    if (!this.registry.get(id)) return reject(404, "Not Found");
+    const info = this.registry.get(id);
+    if (!info) return reject(404, "Not Found");
+    if (!this.viewable(info)) return reject(403, "Forbidden");
     this.wss.handleUpgrade(req, socket, head, ws => this.serve(id, ws));
   }
 
@@ -98,8 +106,9 @@ export class TerminalService {
       data: chunk => { if (live) send(chunk); else queued.push(chunk); },
       exit: exitMessage,
       closed: () => { json({ type: "closed" }); ws.close(1000, "terminal closed"); },
+      control: info => json({ type: "control", controller: info.controller, shared: info.shared }),
     });
-    json({ type: "replay-start", cols: attached.info.cols, rows: attached.info.rows });
+    json({ type: "replay-start", cols: attached.info.cols, rows: attached.info.rows, controller: attached.info.controller, shared: attached.info.shared });
     if (attached.replay.length) send(attached.replay);
     json({ type: "replay-end" });
     live = true;

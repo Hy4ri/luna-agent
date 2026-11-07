@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ChevronDown, Plus, X } from "@lucide/vue";
+import { Bot, ChevronDown, Plus, X } from "@lucide/vue";
 import TermView from "./TermView.vue";
-import { clampHeight, closeTerminal, newTerminal, setHeight, terminal } from "@/stores/terminal";
+import { clampHeight, closeTerminal, controlTerminal, newTerminal, setHeight, tabLabel, terminal } from "@/stores/terminal";
 import { navigate } from "@/stores/app";
 
 const views = ref<Record<string, InstanceType<typeof TermView> | null>>({});
 const live = computed(() => terminal.tabs.filter(t => t.status === "running").length);
+const current = computed(() => terminal.tabs.find(t => t.id === terminal.active));
+// Luna's own terminals stay viewable with only terminal.agent on.
+const usable = computed(() => terminal.enabled || terminal.tabs.length > 0);
 
 function tabKey(event: KeyboardEvent, index: number) {
   if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
@@ -45,16 +48,25 @@ function resizeKey(event: KeyboardEvent) {
       <div class="dock-tabs" role="tablist" aria-label="Terminals">
         <div v-for="(t, i) in terminal.tabs" :key="t.id" class="dock-tab" :class="{ active: t.id === terminal.active, ended: t.status === 'ended' }">
           <button :id="`term-tab-${t.id}`" type="button" role="tab" :aria-selected="t.id === terminal.active" :tabindex="t.id === terminal.active ? 0 : -1" :title="t.cwd" @click="terminal.active = t.id" @keydown="tabKey($event, i)">
-            {{ t.shell }} {{ i + 1 }}<span v-if="t.status === 'ended'" class="dock-ended"> (ended)</span>
+            <Bot v-if="t.owner === 'agent'" :size="12" class="dock-luna" aria-label="Luna's terminal" />{{ tabLabel(t) }} {{ i + 1 }}<span v-if="t.status === 'ended'" class="dock-ended"> (ended)</span>
           </button>
           <button type="button" class="dock-close" :aria-label="`Close terminal ${i + 1}`" title="Close terminal" @click="closeTerminal(t.id)"><X :size="12" /></button>
         </div>
       </div>
+      <template v-if="current && current.status === 'running'">
+        <span v-if="current.controller === 'agent'" class="dock-state">Luna is typing</span>
+        <span v-else-if="current.shared && current.owner !== 'agent'" class="dock-state">Luna can see this</span>
+        <button v-if="current.controller === 'agent'" type="button" class="dock-action" title="Type in this terminal yourself. Luna waits until you give it back." @click="controlTerminal(current.id, 'take')">Take over</button>
+        <template v-else-if="terminal.agentEnabled">
+          <button v-if="current.shared" type="button" class="dock-action" title="Let Luna type in this terminal. You watch, and can take it back." @click="controlTerminal(current.id, 'give')">Give to Luna</button>
+          <button v-if="current.owner !== 'agent'" type="button" class="dock-action" :title="current.shared ? 'Luna can no longer see this terminal.' : 'Luna can see this terminal. You keep typing.'" @click="controlTerminal(current.id, current.shared ? 'unshare' : 'share')">{{ current.shared ? "Stop sharing" : "Share with Luna" }}</button>
+        </template>
+      </template>
       <button type="button" class="icon-button" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled" @click="newTerminal()"><Plus :size="14" /></button>
       <button type="button" class="icon-button" aria-label="Hide terminal" title="Hide terminal (the shells keep running)" @click="terminal.open = false"><ChevronDown :size="14" /></button>
     </header>
     <p v-if="terminal.error" class="dock-message" role="alert">{{ terminal.error }}</p>
-    <div v-if="!terminal.enabled" class="dock-empty">
+    <div v-if="!usable" class="dock-empty">
       <p>Terminals are off.</p>
       <button type="button" class="dock-link" @click="navigate('settings', 'tools')">Open Settings > Tools > Terminal</button>
     </div>
@@ -79,6 +91,10 @@ function resizeKey(event: KeyboardEvent) {
 .dock-tab.active { border-bottom-color: var(--primary-text); color: var(--foreground); }
 .dock-tab > button[role="tab"] { padding: 6px 4px 6px 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
 .dock-ended { opacity: .7; }
+.dock-luna { margin-right: 4px; vertical-align: -2px; }
+.dock-state { padding: 0 6px; color: var(--muted-foreground); font: 12px var(--mono); white-space: nowrap; }
+.dock-action { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
+.dock-action:hover { background: var(--secondary); }
 .dock-close { display: grid; place-items: center; width: 20px; height: 20px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; }
 .dock-close:hover { background: var(--secondary); }
 .dock-body { display: flex; flex: 1; min-height: 0; }

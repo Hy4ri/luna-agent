@@ -84,6 +84,7 @@ export function labelFor(path: (string | number)[]): string {
   if (full === 'image_gen.provider') return 'Image generation provider ID'
   if (full === 'processes.enabled') return 'Enable background command starts'
   if (full === 'terminal.user') return 'Allow an interactive terminal in the chat view'
+  if (full === 'terminal.agent') return 'Allow Luna to use a terminal for interactive programs'
   if (full === 'autoContinue.enabled') return 'Continue automatically when a usage limit resets'
   if (full === 'sessionTalk.enabled') return 'Allow sessions to message each other'
   if (full.startsWith('vision.profiles.') && path.length === 3) return String(key)
@@ -144,6 +145,7 @@ const fieldHelp: Record<string, string> = {
   'browser.providers.moli.executablePath': 'Path to the Moli binary. Luna starts it on a private loopback port.',
   'browser.providers.moli.profileDir': 'Optional directory where Moli keeps cookies and storage between runs.',
   'browser.providers.camofox.mcpServer': 'Name of the MCP connection that provides Camofox browser tools.',
+  'terminal.agent': 'Gives Luna a terminal tool for programs that need a real TTY, such as vim, REPLs, and prompts. She keeps bash for ordinary commands. You watch her terminals live and can take control. You can also share your own terminal with her.',
   'terminal.user': 'A terminal is a real shell with the same host access as bash, on the machine of the session. Anyone with your access token can open one, so keep this off unless you need it.',
   'processes.enabled': 'Background commands have the same host access as bash. Completion resumes the owning chat. Normal shutdown stops commands.',
   'processes.retentionHours': 'How long completed command output remains available.',

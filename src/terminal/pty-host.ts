@@ -9,6 +9,8 @@ export interface PtySpawnOptions {
   env: Record<string, string>;
   cols: number;
   rows: number;
+  /** The program line when the terminal runs one program, for launchers that pick the shell themselves. */
+  command?: string;
 }
 
 export interface PtyProcess {
@@ -54,6 +56,11 @@ export function shellEnvironment(base: NodeJS.ProcessEnv = process.env): Record<
 export function defaultShell(base: NodeJS.ProcessEnv = process.env): { file: string; args: string[] } {
   const shell = base.SHELL;
   return { file: shell && existsSync(shell) ? shell : "/bin/sh", args: ["-l"] };
+}
+
+/** Run one command line through the login shell, so PATH and aliases match an interactive shell. */
+export function programInvocation(shell: string, command: string): { file: string; args: string[] } {
+  return { file: shell, args: ["-lc", command] };
 }
 
 /** Launcher for the main host. Worker machines are handled by a relay launcher. */

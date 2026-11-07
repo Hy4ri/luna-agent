@@ -26,6 +26,8 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type Mutabl
 import { createRegistry, defineExtension, section, type Extension } from "@earendil-works/pi-durable";
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 import { createLunaCodemodeExtension } from "./codemode.js";
+import { createAgentTerminalExtension } from "./terminal/agent-tools.js";
+import { loadVt } from "./terminal/vt-model.js";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
 import { SettingsStore } from "./settings.js";
 import { BUILTIN_EXTENSIONS, BUILTIN_REGISTRY_NAMES, type LunaConfig } from "./config.js";
@@ -137,9 +139,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // Workers hub early so browser tools can proxy to the session's worker.
   const terminals = new TerminalService({
     registry: new TerminalRegistry({
-      launcher: (worker, options) => worker === null ? localLauncher(null, options) : workers.openPty(worker, { cwd: options.cwd, cols: options.cols, rows: options.rows }),
+      launcher: (worker, options) => worker === null ? localLauncher(null, options)
+        : workers.openPty(worker, { cwd: options.cwd, cols: options.cols, rows: options.rows, ...(options.command ? { command: options.command } : {}) }),
+      vt: loadVt,
     }),
     enabled: () => (settings?.resolved() ?? cfg).terminal.user,
+    agentEnabled: () => (settings?.resolved() ?? cfg).terminal.agent,
   });
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
@@ -169,6 +174,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       models: built.models, outputDir: generatedDirectories(outputRoot).images, fetch: o.fetch })],
   ]) });
   extensions.push(createToggleExtension(() => live().disabledTools));
+  extensions.push(createAgentTerminalExtension({ registry: terminals.registry, enabled: () => live().terminal.agent, cwd: cfg.cwd, wrapSearch: on("tool-search") }));
   extensions.push(createImageGenExtension(imageGen, cfg.cwd, env => {
     if (!isWorkerEnv(env)) return generatedDirectories(outputRoot).images;
     const output = workerOutput(Number(env!.id.slice(WORKER_ENV_PREFIX.length)));

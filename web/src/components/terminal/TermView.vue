@@ -2,7 +2,7 @@
 // One terminal: the emulator canvas plus its WebSocket. The server keeps the shell alive, so this view can come and go.
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { createTerm, type TermHandle } from "@/lib/term-adapter";
-import { attachUrl, dropTab, markEnded } from "@/stores/terminal";
+import { attachUrl, dropTab, markEnded, setControl, terminal } from "@/stores/terminal";
 
 const props = defineProps<{
   session: string;
@@ -29,7 +29,11 @@ const encoder = new TextEncoder();
 
 function setNote(text: string) { note.value = text; emit("status", text); }
 
+/** While Luna types, the server drops m57's keys and sizes. The view stays read-only and does not reflow her screen. */
+const lunaTypes = () => terminal.tabs.find(t => t.id === props.id)?.controller === "agent";
+
 function sendResize() {
+  if (lunaTypes()) return;
   if (term && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
 }
 
@@ -53,14 +57,18 @@ async function connect() {
   socket.onopen = () => { retry = 0; setNote(""); };
   socket.onmessage = event => {
     if (typeof event.data !== "string") { term?.write(new Uint8Array(event.data as ArrayBuffer)); return; }
-    let msg: { type?: string; exitCode?: number | null; reason?: string };
+    let msg: { type?: string; exitCode?: number | null; reason?: string; controller?: "user" | "agent"; shared?: boolean };
     try { msg = JSON.parse(event.data); } catch { return; }
+    if ((msg.type === "replay-start" || msg.type === "control") && msg.controller) {
+      setControl(props.id, msg.controller, !!msg.shared);
+      if (msg.type === "control" && msg.controller === "user") sendResize();
+    }
     if (msg.type === "replay-start") term?.reset();
     else if (msg.type === "replay-end") { live = true; sendResize(); }
     else if (msg.type === "exit") {
       finished = true;
       markEnded(props.id, msg.exitCode ?? null, msg.reason);
-      setNote(msg.reason ?? (msg.exitCode === null || msg.exitCode === undefined ? "The shell ended." : `The shell exited with code ${msg.exitCode}.`));
+      setNote(msg.reason ?? (msg.exitCode === null || msg.exitCode === undefined ? "The program ended." : `The program exited with code ${msg.exitCode}.`));
     } else if (msg.type === "closed") { finished = true; dropTab(props.id); }
   };
   socket.onclose = () => {
@@ -78,6 +86,7 @@ function schedule() {
 }
 
 function send(data: string) {
+  if (lunaTypes()) return;
   if (ws?.readyState === WebSocket.OPEN && live) ws.send(encoder.encode(data));
 }
 /** Input from outside the canvas, such as the mobile key chips. Goes through the same path as typing. */
