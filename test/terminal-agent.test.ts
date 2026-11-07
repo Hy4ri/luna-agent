@@ -44,6 +44,19 @@ test("the screen model renders overwrites, wide text, the alternate screen, and 
     vt.write(Buffer.from("\x1b[?1049l"));
     assert.equal(vt.screen().lines[0], "hello");
   } finally { vt.dispose(); }
+  // A second terminal created in the same WASM instance after freeing the first stays clean and supports scrollback.
+  const f = await loadVt();
+  const vt2 = await f(10, 2);
+  const vt3 = await f(16, 3);
+  try {
+    vt2.write(Buffer.from("0123456789ABCDEF\r\nsecond\r\nthird"));
+    vt3.write(Buffer.from("\x1b[?2004hisolated"));
+    assert.deepEqual(vt2.scrollback(10), ["0123456789", "ABCDEF"]);
+    assert.deepEqual(vt2.screen().lines, ["second", "third"]);
+    assert.equal(vt2.mode(2004), false);
+    assert.equal(vt3.mode(2004), true);
+    assert.deepEqual(vt3.screen().lines, ["isolated", "", ""]);
+  } finally { vt2.dispose(); vt3.dispose(); }
 });
 
 test("screens name the highlighted item and fold long blank runs", async () => {
