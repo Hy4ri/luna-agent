@@ -1,6 +1,6 @@
 // Luna's terminal: the headless screen, shared control, and the deferred `terminal` tool end to end.
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -198,5 +198,24 @@ test("with terminal.agent off the tool is hidden from tool_search and refused", 
   try {
     assert.doesNotMatch(results[0]!.text, /"terminal"|\bterminal\b.*TTY/);
     assert.equal(results[1]!.error, true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("send waits for a quiet program to answer instead of returning the screen from before the input", { timeout: 30_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-agent-terminal-"));
+  const script = join(dir, "slow.sh");
+  // No echo, then silence before the input and a late answer: the shape of a TUI that redraws only after it processes a key.
+  writeFileSync(script, "stty -echo\nprintf 'ready\\n'\nread x\nsleep 0.6\nprintf 'got-%s\\n' \"$x\"\nsleep 30\n");
+  const { results } = await runTool(dir, true, [
+    () => ["tool_search", { query: "terminal interactive TTY program" }],
+    () => ["terminal", { action: "start", command: `sh ${script}` }],
+    prev => ["terminal", { action: "wait", id: terminalId(prev), idleMs: 800 }],
+    prev => ["terminal", { action: "send", id: terminalId(prev), text: "abc", enter: true }],
+    prev => ["terminal", { action: "stop", id: terminalId(prev) }],
+  ]);
+  try {
+    const send = results[3]!;
+    assert.equal(send.error, false, send.text);
+    assert.match(send.text, /got-abc/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

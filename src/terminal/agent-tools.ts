@@ -15,6 +15,8 @@ const MAX_WAIT_MS = 60_000;
 /** After input, wait this long without output before the screen counts as settled. */
 const SETTLE_MS = 300;
 const SETTLE_MAX_MS = 3_000;
+/** After input, wait this long for the program's first output. A program that never answers settles after this window. */
+const REACT_MS = 1_500;
 
 const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "ash", "busybox", "nu", "elvish", "xonsh", "pwsh"]);
 /** A bare shell is just bash with extra steps and worse output. Refuse it, so the tool is not used in place of bash. */
@@ -92,18 +94,26 @@ const DESCRIPTION =
 export function createAgentTerminalExtension(o: AgentTerminalOptions) {
   const { registry } = o;
 
-  async function settle(id: string, opts: { pattern?: RegExp; idleMs: number; maxMs: number; session: number }, context: Context): Promise<"matched" | "ended" | "idle" | "timeout"> {
+  /**
+   * `after`: the time of Luna's input. Quiet time counts from the later of that input and the last output, and the program
+   * gets REACT_MS to answer. Without this, a program that was quiet before the input "settles" at once, before it redraws.
+   */
+  async function settle(id: string, opts: { pattern?: RegExp; idleMs: number; maxMs: number; session: number; after?: number }, context: Context): Promise<"matched" | "ended" | "idle" | "timeout"> {
     const end = Date.now() + opts.maxMs;
     for (;;) {
       context.abortSignal?.throwIfAborted();
       const view = registry.agentScreen(id, opts.session);
       if (opts.pattern && opts.pattern.test(view.screen.lines.join("\n"))) return "matched";
       if (view.info.status !== "running") return "ended";
-      if (!opts.pattern && view.idleMs >= opts.idleMs) return "idle";
+      const sinceInput = opts.after === undefined ? Infinity : Date.now() - opts.after;
+      const answered = view.idleMs < sinceInput;
+      const quiet = Math.min(view.idleMs, sinceInput);
+      const need = answered || sinceInput >= REACT_MS ? opts.idleMs : REACT_MS;
+      if (!opts.pattern && quiet >= need) return "idle";
       const left = end - Date.now();
       if (left <= 0) return "timeout";
       // Recheck when output arrives, when the idle window would close, or at the deadline.
-      const idleLeft = opts.idleMs - view.idleMs;
+      const idleLeft = need - quiet;
       await registry.changed(id, Math.min(left, opts.pattern ? left : Math.max(20, idleLeft)), context.abortSignal);
       // Output comes in bursts. A short pause gathers one burst before the screen is parsed again.
       if (opts.pattern) await new Promise(r => setTimeout(r, 15));
@@ -157,10 +167,9 @@ export function createAgentTerminalExtension(o: AgentTerminalOptions) {
             if (!args.text && !args.keys?.length && !args.enter) throw new Error("send needs keys, text, or enter.");
             const appCursor = registry.agentMode(id, session, 1);
             const data = (args.keys ?? []).map(k => keyBytes(k, appCursor)).join("") + (args.text ?? "") + (args.enter ? "\r" : "");
+            const after = Date.now();
             registry.agentWrite(id, session, data);
-            // Give the program time to react before reading the screen.
-            await new Promise(r => setTimeout(r, 30));
-            await settle(id, { session, idleMs: SETTLE_MS, maxMs: SETTLE_MAX_MS }, context);
+            await settle(id, { session, idleMs: SETTLE_MS, maxMs: SETTLE_MAX_MS, after }, context);
             return out(screen(id, session));
           }
           case "read": return out(screen(need("id"), session, args.scrollback ?? 0));
@@ -175,8 +184,9 @@ export function createAgentTerminalExtension(o: AgentTerminalOptions) {
           case "resize": {
             const id = need("id");
             const cur = registry.agentScreen(id, session).info;
+            const after = Date.now();
             registry.agentResize(id, session, args.cols ?? cur.cols, args.rows ?? cur.rows);
-            await settle(id, { session, idleMs: SETTLE_MS, maxMs: SETTLE_MAX_MS }, context);
+            await settle(id, { session, idleMs: SETTLE_MS, maxMs: SETTLE_MAX_MS, after }, context);
             return out(screen(id, session));
           }
           case "list": {
