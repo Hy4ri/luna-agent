@@ -295,16 +295,6 @@ async function handleSubmit(e?: Event) {
       @remove="removeAttachment"
     />
 
-    <div
-      id="busyFeedback"
-      class="muted whitespace-pre-line"
-      role="status"
-      aria-live="polite"
-      v-show="chat.busyFeedback"
-    >
-      {{ chat.busyFeedback }}
-    </div>
-
     <!-- Send error banner / Retry send -->
     <div v-if="chat.session && composer.sendErrors.has(chat.session)" class="msg err send-error">
       <p>Send not confirmed: {{ composer.sendErrors.get(chat.session)?.message }}</p>
