@@ -33,6 +33,8 @@ const QUIET_ENV = {
   // Luna owns tools, budgets, retries and compaction. Native's token reminder would also break cached prefixes.
   ENABLE_TOOL_SEARCH: "false", CLAUDE_CODE_MAX_RETRIES: "0", DISABLE_AUTO_COMPACT: "1", DISABLE_COMPACT: "1",
   CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
+  // Luna owns context: native must not read @-mentioned files, CLAUDE.md, or auto-memory into the request.
+  CLAUDE_CODE_DISABLE_FILE_MENTIONS: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
 };
 const INERT_MCP = fileURLToPath(new URL("./inert-mcp.mjs", import.meta.url));
 
