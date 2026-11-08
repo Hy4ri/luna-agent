@@ -271,7 +271,8 @@ export async function submitMessage(sid: string, body: any) {
         if (!old || old.status === "running") putSideJob(result.job);
       }
       const lines = [result.job?.kind === "review" ? undefined : result.notice, ...(result.queue || []).map((row: any) => `${row.number}. ${typeof row.content === "string" ? row.content : JSON.stringify(row.content)}`)].filter(Boolean);
-      if (lines.length) chat.busyFeedback = lines.join("\n");
+      // UI-only feedback: never submit command notices as model-visible messages.
+      if (lines.length) addErr(lines.join("\n"), "muted");
     }
     composer.sendErrors.delete(sid);
     return true;

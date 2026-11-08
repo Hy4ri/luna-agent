@@ -87,7 +87,6 @@ export const chat = reactive({
   /** Resolved authenticated media: blob URL or error text. */
   media: {} as Record<string, { url?: string; size?: number; error?: string }>,
   extras: null as Extras | null,
-  busyFeedback: "",
   /** Bumps when the transcript must scroll to the bottom regardless of position. */
   followTick: 0,
   booting: false,
@@ -278,7 +277,6 @@ let activeFeed: Feed | null = null, listFeed: Feed | null = null;
 let liveMessage: any = null, liveFrame: number | null = null;
 
 function detachView() {
-  chat.busyFeedback = "";
   clearSideJobs();
   chat.epoch++; activeFeed?.stop(); activeFeed = null;
   cancelExtras(); clearTimeout(contextTimer); contextRevision++;
