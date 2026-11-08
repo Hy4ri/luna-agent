@@ -246,7 +246,9 @@ async function prepareRun(request: NativeRequest, options: RunOptions): Promise<
   const lunaNames = new Map([...names].map(([luna, native]) => [native, luna]));
 
   // The queried frame lets the relay keep the cache breakpoint off native's per-request context.
-  const admission = await Admission.open(upstream, timeoutMs, frames.at(-1)!.message.content, nativeReplay);
+  const lunaText = frames.filter(frame => frame.type === "user").flatMap(frame => frame.message.content)
+    .flatMap(block => block.type === "text" && typeof block.text === "string" ? [block.text] : []);
+  const admission = await Admission.open(upstream, timeoutMs, frames.at(-1)!.message.content, nativeReplay, lunaText);
   const root = mkdtempSync(join(tmpdir(), "claude-directsdk-"));
   try {
     writeFileSync(join(root, "tools.json"), JSON.stringify(manifest));
