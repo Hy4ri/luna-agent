@@ -251,13 +251,7 @@ export class MemoryStore {
         // If there are more notes following this one, reserve space so the hidden notice isn't dropped.
         const remaining = notes.length - (shown + 1) + droppedFacts;
         const reserve = remaining > 0 ? `\n(${remaining} more entries not shown; use the memory tool action=search)`.length : 0;
-        if (used + line.length + 1 + reserve > this.budget) {
-          // If we haven't shown anything and even 1 entry with reserve exceeds budget, try adding without reserve if possible
-          if (shown === 0 && add(line)) {
-            shown++;
-          }
-          break;
-        }
+        if (used + line.length + 1 + reserve > this.budget) break;
         if (!add(line)) break;
         shown++;
       }
