@@ -473,7 +473,9 @@ function buildResponse(params: BuildResponseParams): NativeResponse {
         `, native retries denied: ${admission.denied}`;
       if (admission.errorText()) first += ", upstream said: " + admission.errorText().slice(0, 500);
       const status = admission.status !== undefined && admission.status >= 400 ? admission.status : undefined;
-      throw new ClaudeTransportError(`Incomplete upstream response (${first})` + (nativeError ? ": " + nativeError : ""), status, limit(status));
+      // An accepted stream that ended early is transient; this wording is the one pi-ai's retry classifier knows.
+      const cut = admission.status === 200 && !admission.capture.complete ? "the stream was interrupted: " : "";
+      throw new ClaudeTransportError(`Incomplete upstream response (${cut}${first})` + (nativeError ? ": " + nativeError : ""), status, limit(status));
     }
     assistants = [admission.capture.message as Json];
     stopped = true;
