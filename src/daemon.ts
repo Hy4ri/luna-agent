@@ -1,4 +1,4 @@
-// Luna HTTP/SSE daemon: loads LUNA_CONFIG (default ./luna.config.json), starts the full runtime and serves the API.
+// Luna HTTP/SSE daemon: loads LUNA_CONFIG (default ~/.luna/luna.config.json), starts the full runtime and serves the API.
 // Env overrides: LUNA_DATA, LUNA_CWD, LUNA_PROVIDER, LUNA_MODEL, LUNA_HOST, LUNA_PORT. Secret: LUNA_TOKEN.
 import { serve } from "@hono/node-server";
 import { bindRefusal, loadConfig } from "./config.js";

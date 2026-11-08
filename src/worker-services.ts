@@ -1,5 +1,5 @@
-// Browser and MCP services of an execution worker. Both come from the worker's own luna.config.json
-// (LUNA_CONFIG, or ./luna.config.json in the directory the worker starts in): `browser` and `mcpServers`.
+// Browser and MCP services of an execution worker. Both come from the worker's own config
+// (LUNA_CONFIG, or ~/.luna/luna.config.json): `browser` and `mcpServers`.
 // Nothing here fakes a result. A worker without a browser or an MCP server reports that to main.
 import { accessSync, constants } from "node:fs";
 import type { BrowserCapability } from "./worker-protocol.js";
