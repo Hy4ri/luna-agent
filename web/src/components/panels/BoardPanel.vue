@@ -24,7 +24,15 @@ const cards = ref<Card[]>([]), selectedPid = ref(''), archived = ref(false);
 const loading = ref(true), busy = ref(false), error = ref(''), notice = ref('');
 const search = ref(''), priority = ref('');
 const editing = ref(false), editingId = ref<number | null>(null), editingArchived = ref(false);
-const form = reactive({ subject: '', description: '', priority: 'medium' as Priority, status: 'backlog' as Status, owner: '', labels: '', blockedBy: '', project: '' });
+type Draft = { subject: string; description: string; priority: Priority; status: Status; owner: string; labels: string[]; blockedBy: number[]; project: string };
+const form = reactive<Draft>({ subject: '', description: '', priority: 'medium', status: 'backlog', owner: '', labels: [], blockedBy: [], project: '' });
+let initial: Draft = { ...form };
+const fieldErrors = reactive({ subject: '', description: '', labels: '', blockedBy: '' });
+type Field = keyof typeof fieldErrors;
+const ownerTouched = ref(false), discardAsk = ref(false), formBanner = ref(''), subjectFocus = ref(false), pulseLabel = ref('');
+const labelDraft = ref(''), labelOpen = ref(false), labelActive = ref(0);
+const depQuery = ref(''), depOpen = ref(false), depActive = ref(0);
+const editorDialog = ref<HTMLElement>(), labelInput = ref<HTMLInputElement>(), depInput = ref<HTMLInputElement>();
 const answer = ref(''), activity = ref<{ id: number; at: number; by: string; text: string }[]>([]);
 const board = ref<HTMLElement>(), editorTitle = ref<HTMLInputElement>(), fileInput = ref<HTMLInputElement>();
 let generation = 0, disposed = false, controller: AbortController | undefined, refreshQueued = false;
@@ -36,6 +44,32 @@ const visible = computed(() => {
 });
 const cardLists = computed(() => Object.fromEntries(columns.map(([s]) => [s, visible.value.filter(c => c.status === s)])) as Record<Status, Card[]>);
 const editingCard = computed(() => cards.value.find(c => c.id === editingId.value));
+const readOnly = computed(() => busy.value || editingArchived.value);
+const projectName = computed(() => history.projects.find(p => String(p.id) === selectedPid.value)?.name ?? '');
+const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+const dirty = computed(() => form.subject !== initial.subject || form.description !== initial.description || form.priority !== initial.priority || form.status !== initial.status
+  || form.owner.trim() !== initial.owner || !same(form.labels, initial.labels) || !same([...form.blockedBy].sort(), [...initial.blockedBy].sort()) || form.project !== initial.project || !!labelDraft.value.trim());
+const subjectLength = computed(() => form.subject.trim().length);
+// Labels in use on this board, most used first.
+const labelOptions = computed(() => {
+  const counts = new Map<string, number>();
+  for (const c of cards.value) for (const l of c.labels) counts.set(l, (counts.get(l) ?? 0) + 1);
+  const q = labelDraft.value.trim().toLowerCase(), added = new Set(form.labels.map(l => l.toLowerCase()));
+  return [...counts].filter(([l]) => !added.has(l.toLowerCase()) && l.toLowerCase().includes(q)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 8).map(([l]) => l);
+});
+const depOptions = computed(() => {
+  const q = depQuery.value.trim().toLowerCase().replace(/^#/, '');
+  if (!q) return [];
+  return cards.value.filter(c => !form.blockedBy.includes(c.id) && (String(c.id).startsWith(q) || c.subject.toLowerCase().includes(q)))
+    .sort((a, b) => Number(String(b.id) === q) - Number(String(a.id) === q) || a.id - b.id).slice(0, 8);
+});
+const ownerOptions = computed(() => [...new Set(cards.value.map(c => c.owner).filter((o): o is string => !!o))].sort());
+// The server releases the owner on Done or archive unless the same change sets one.
+const ownerHint = computed(() => {
+  if (editingId.value === null || form.status !== 'done' || initial.status === 'done') return '';
+  if (!ownerTouched.value) return initial.owner ? `${initial.owner} is released when you save (Done).` : '';
+  return form.owner.trim() ? `Owner kept: ${form.owner.trim()} (set by hand).` : '';
+});
 const locked = computed(() => busy.value || editing.value || !!drag.value);
 function message(e: unknown) { return e instanceof Error ? e.message : String(e); }
 function rememberProject() { try { localStorage.setItem('luna.project', selectedPid.value); } catch {} }
@@ -145,15 +179,19 @@ function openEditor(c?: Card, status: Status = 'backlog') {
   if (busy.value || loading.value || drag.value) return;
   editorReturn = document.activeElement as HTMLElement | null;
   editingId.value = c?.id ?? null; editingArchived.value = c?.archived ?? false;
-  Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: c?.labels.join(', ') || '', blockedBy: c?.blockedBy.map(id => '#' + id).join(', ') || '', project: String(c?.project ?? selectedPid.value) });
+  Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: [...(c?.labels ?? [])], blockedBy: [...(c?.blockedBy ?? [])], project: String(c?.project ?? selectedPid.value) });
+  initial = { ...form, labels: [...form.labels], blockedBy: [...form.blockedBy] };
+  Object.assign(fieldErrors, { subject: '', description: '', labels: '', blockedBy: '' });
+  ownerTouched.value = false; discardAsk.value = false; formBanner.value = ''; labelDraft.value = ''; depQuery.value = ''; labelOpen.value = false; depOpen.value = false;
   answer.value = ''; activity.value = [];
   if (c) void json<{ activity: typeof activity.value }>(`/v1/projects/${selectedPid.value}/cards/${c.id}/activity`).then(d => { if (editingId.value === c.id) activity.value = d.activity; }).catch(() => {});
   error.value = ''; editing.value = true; ui.boardEditing = true;
   void nextTick(() => editorTitle.value?.focus());
 }
-function closeEditor() {
+function closeEditor(force = false) {
   if (busy.value) return;
-  editing.value = false; ui.boardEditing = false; error.value = '';
+  if (!force && dirty.value && !editingArchived.value) { discardAsk.value = true; void nextTick(() => editorDialog.value?.querySelector<HTMLElement>('.kb-discard .kb-primary')?.focus()); return; }
+  discardAsk.value = false; editing.value = false; ui.boardEditing = false; error.value = '';
   // Refresh disables the trigger. Restore focus only after it becomes usable again.
   void loadBoard().then(() => nextTick(() => {
     if (disposed || editing.value) return;
@@ -177,21 +215,124 @@ async function mutate(action: () => Promise<unknown>, success: string, close = f
   } catch (e) { if (current()) error.value = message(e); }
   finally { if (current()) { busy.value = false; if (refreshQueued && !editing.value) void loadBoard(true, true); } }
 }
-function saveCard() {
-  if (!form.subject.trim()) { error.value = 'Enter a card title.'; return; }
-  const deps = form.blockedBy.split(',').map(s => s.trim()).filter(Boolean);
-  if (deps.some(s => !/^#?[1-9]\d*$/.test(s) || !Number.isSafeInteger(Number(s.replace('#', ''))))) { error.value = 'Dependencies must be positive card IDs, separated by commas.'; return; }
+function validate(field: Field) {
+  const n = subjectLength.value;
+  if (field === 'subject') fieldErrors.subject = !n ? 'Subject is required.' : n > 200 ? `Subject must be 1-200 characters after trimming (currently ${n}).` : '';
+  if (field === 'description') fieldErrors.description = form.description.length > 8000 ? `Description is limited to 8,000 characters (currently ${form.description.length.toLocaleString()}).` : '';
+  return !fieldErrors[field];
+}
+function trimSubject() { form.subject = form.subject.trim(); subjectFocus.value = false; validate('subject'); }
+function focusField(field: Field) {
+  const el = editorDialog.value?.querySelector<HTMLElement>(`[data-field="${field}"]`);
+  el?.focus(); el?.scrollIntoView({ block: 'nearest' });
+}
+function fieldOf(text: string): Field | undefined {
+  return /subject/i.test(text) ? 'subject' : /description/i.test(text) ? 'description' : /label/i.test(text) ? 'labels' : /blockedBy|cycle|dependenc/i.test(text) ? 'blockedBy' : undefined;
+}
+async function saveCard() {
+  if (busy.value || editingArchived.value) return;
+  if (labelDraft.value.trim()) commitLabels(labelDraft.value);
+  form.subject = form.subject.trim();
+  const bad = (['subject', 'description'] as Field[]).filter(f => !validate(f)).concat((['labels', 'blockedBy'] as Field[]).filter(f => fieldErrors[f]));
+  if (bad.length) { formBanner.value = bad.length === 1 ? 'Fix 1 error to continue.' : `Fix ${bad.length} errors to continue.`; focusField(bad[0]!); return; }
+  formBanner.value = '';
   const target = editingId.value !== null && form.project !== selectedPid.value ? Number(form.project) : undefined;
-  if (target !== undefined && !history.projects.some(p => p.id === target)) { error.value = 'Select a project.'; return; }
-  const data: Record<string, unknown> = { subject: form.subject.trim(), description: form.description, status: form.status, priority: form.priority, owner: form.owner.trim() || null, labels: form.labels.split(',').map(s => s.trim()).filter(Boolean), blockedBy: deps.map(s => Number(s.replace('#', ''))) };
-  if (target !== undefined) data.project = target;
+  if (target !== undefined && !history.projects.some(p => p.id === target)) { formBanner.value = 'Select a project.'; return; }
+  let data: Record<string, unknown>;
+  if (editingId.value === null) {
+    data = { subject: form.subject, description: form.description, status: form.status, priority: form.priority, labels: form.labels, blockedBy: form.blockedBy };
+    if (form.owner.trim()) data.owner = form.owner.trim();
+  } else {
+    // Send only what changed. An omitted owner lets the server release it on Done.
+    data = {};
+    for (const k of ['subject', 'description', 'status', 'priority'] as const) if (form[k] !== initial[k]) data[k] = form[k];
+    if (!same(form.labels, initial.labels)) data.labels = form.labels;
+    if (ownerTouched.value) data.owner = form.owner.trim() || null;
+    const add = form.blockedBy.filter(id => !initial.blockedBy.includes(id)), remove = initial.blockedBy.filter(id => !form.blockedBy.includes(id));
+    if (add.length) data.addBlockedBy = add;
+    if (remove.length) data.removeBlockedBy = remove;
+    if (target !== undefined) data.project = target;
+    if (!Object.keys(data).length) { closeEditor(true); notice.value = 'No changes.'; return; }
+  }
   const path = `/v1/projects/${selectedPid.value}/cards${editingId.value === null ? '' : '/' + editingId.value}`;
-  void mutate(() => post(path, data, editingId.value === null ? 'POST' : 'PATCH'), target === undefined ? 'Card saved.' : `Card #${editingId.value} moved to ${history.projects.find(p => p.id === target)?.name ?? 'another project'}.`, true, target === undefined ? undefined : () => { selectedPid.value = String(target); cards.value = []; });
+  const created = editingId.value === null;
+  await mutate(() => post(path, data, created ? 'POST' : 'PATCH'), target === undefined ? (created ? 'Card created.' : `Card #${editingId.value} updated.`) : `Card #${editingId.value} moved to ${history.projects.find(p => p.id === target)?.name ?? 'another project'}.`, true, target === undefined ? undefined : () => { selectedPid.value = String(target); cards.value = []; });
+  // A rejected save keeps the dialog open: put the server message on its field.
+  if (editing.value && error.value) {
+    const field = fieldOf(error.value);
+    formBanner.value = error.value; error.value = '';
+    if (field) { fieldErrors[field] = formBanner.value; void nextTick(() => focusField(field)); }
+  }
+}
+function commitLabels(text: string) {
+  fieldErrors.labels = '';
+  for (const raw of text.split(',')) {
+    const l = raw.trim(); if (!l) continue;
+    const dup = form.labels.find(x => x.toLowerCase() === l.toLowerCase());
+    if (dup) { pulseLabel.value = ''; void nextTick(() => { pulseLabel.value = dup; }); continue; }
+    if (l.length > 40) { fieldErrors.labels = `Labels are limited to 40 characters ("${l.slice(0, 20)}…" has ${l.length}).`; continue; }
+    if (form.labels.length >= 20) { fieldErrors.labels = 'A card can have up to 20 labels.'; break; }
+    form.labels.push(l);
+  }
+  labelDraft.value = ''; labelActive.value = 0;
+}
+function labelKey(event: KeyboardEvent) {
+  const open = labelOpen.value && labelOptions.value.length > 0;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { if (!labelOptions.value.length) return; event.preventDefault(); labelOpen.value = true; labelActive.value = (labelActive.value + (event.key === 'ArrowDown' ? 1 : -1) + labelOptions.value.length) % labelOptions.value.length; }
+  else if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) { event.preventDefault(); commitLabels(open && labelActive.value >= 0 && labelDraft.value.trim() ? labelOptions.value[labelActive.value]! : labelDraft.value); }
+  else if (event.key === ',') { event.preventDefault(); commitLabels(labelDraft.value); }
+  else if (event.key === 'Backspace' && !labelDraft.value && form.labels.length) { form.labels.pop(); fieldErrors.labels = ''; }
+  else if (event.key === 'Escape' && open) { event.preventDefault(); labelOpen.value = false; }
+}
+function labelPaste(event: ClipboardEvent) {
+  const text = event.clipboardData?.getData('text') ?? '';
+  if (!text.includes(',')) return;
+  event.preventDefault(); commitLabels(labelDraft.value + text);
+}
+function removeLabel(l: string) { form.labels = form.labels.filter(x => x !== l); fieldErrors.labels = ''; labelInput.value?.focus(); }
+/** Path that closes a loop if this card starts to wait on `dep`, or null. */
+function cyclePath(dep: number): number[] | null {
+  const self = editingId.value; if (self === null) return null;
+  const edges = new Map(cards.value.map(c => [c.id, c.blockedBy]));
+  const parent = new Map<number, number | null>([[dep, null]]), stack = [dep];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const next of edges.get(id) ?? []) {
+      if (next === self) { const path = [id]; for (let at = parent.get(id); at != null; at = parent.get(at)) path.unshift(at); return [self, ...path, self]; }
+      if (!parent.has(next)) { parent.set(next, id); stack.push(next); }
+    }
+  }
+  return null;
+}
+function addDep(c: Card) {
+  if (c.id === editingId.value) return;
+  const loop = cyclePath(c.id);
+  if (loop) { fieldErrors.blockedBy = `Circular dependency: ${loop.map(id => '#' + id).join(' → ')}. This dependency can't be added.`; return; }
+  fieldErrors.blockedBy = ''; form.blockedBy.push(c.id); depQuery.value = ''; depActive.value = 0; depOpen.value = false;
+}
+function removeDep(id: number) { form.blockedBy = form.blockedBy.filter(d => d !== id); fieldErrors.blockedBy = ''; depInput.value?.focus(); }
+function depKey(event: KeyboardEvent) {
+  const list = depOptions.value;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { if (!list.length) return; event.preventDefault(); depOpen.value = true; depActive.value = (depActive.value + (event.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length; }
+  else if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) { event.preventDefault(); const c = list[depActive.value]; if (depOpen.value && c) addDep(c); }
+  else if (event.key === 'Backspace' && !depQuery.value && form.blockedBy.length) { form.blockedBy.pop(); fieldErrors.blockedBy = ''; }
+  else if (event.key === 'Escape' && depOpen.value) { event.preventDefault(); depOpen.value = false; }
+}
+const revealList = (el: unknown) => { if (el instanceof HTMLElement) el.scrollIntoView({ block: 'nearest' }); };
+const depLabel = (id: number) => cards.value.find(c => c.id === id)?.subject ?? '';
+function trapFocus(event: KeyboardEvent) {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void saveCard(); return; }
+  if (event.key !== 'Tab' || !editorDialog.value) return;
+  const items = [...editorDialog.value.querySelectorAll<HTMLElement>('button, input, textarea, select, [tabindex]:not([tabindex="-1"])')].filter(el => !(el as HTMLButtonElement).disabled && el.offsetParent !== null && !el.hidden);
+  const first = items[0], last = items[items.length - 1];
+  if (!first || !last) return;
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 }
 function moveDraft() {
   if (form.project === selectedPid.value) return;
-  form.blockedBy = '';
-  if (/^session \d+$/.test(form.owner.trim())) form.owner = '';
+  form.blockedBy = []; fieldErrors.blockedBy = '';
+  if (/^session \d+$/.test(form.owner.trim())) { form.owner = ''; ownerTouched.value = true; }
 }
 function sendAnswer() {
   if (editingId.value === null || !answer.value.trim()) return;
@@ -238,8 +379,12 @@ async function removeFile(id: number, a: { id: number; name: string }) {
   catch (e) { if (!disposed) error.value = message(e); }
   finally { busy.value = false; }
 }
-function setArchived() {
+async function setArchived() {
   if (editingId.value === null) return;
+  if (!editingArchived.value) {
+    const owner = initial.owner && !ownerTouched.value ? `${initial.owner} is released and the` : 'The';
+    if (!(await confirmAction({ title: `Archive card #${editingId.value}?`, message: `${owner} card leaves the board.`, confirmLabel: 'Archive' }))) return;
+  }
   const path = `/v1/projects/${selectedPid.value}/cards/${editingId.value}`;
   void mutate(() => post(path, { archived: !editingArchived.value }, 'PATCH'), editingArchived.value ? 'Card restored.' : 'Card archived.', true);
 }
@@ -347,8 +492,8 @@ function newCardKey(event: KeyboardEvent) {
 function escapeEditor(event: KeyboardEvent) {
   if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
   // Nested dialogs, popovers, and native select menus own Escape first.
-  if (document.querySelector('[data-dismissable-layer][data-state="open"], :popover-open') || (event.target as HTMLElement | null)?.closest('select')) return;
-  if (drag.value || editing.value) { event.preventDefault(); event.stopImmediatePropagation(); if (drag.value) cancelDrag(); else closeEditor(); }
+  if (document.querySelector('[data-dismissable-layer][data-state="open"], :popover-open') || (event.target as HTMLElement | null)?.closest('select, [aria-expanded="true"]')) return;
+  if (drag.value || editing.value) { event.preventDefault(); event.stopImmediatePropagation(); if (drag.value) cancelDrag(); else if (discardAsk.value) { discardAsk.value = false; editorTitle.value?.focus(); } else closeEditor(); }
 }
 watch([serverUrl, token], () => {
   generation++; controller?.abort(); boardSnapshots.clear(); boardCacheContext = '';
@@ -361,7 +506,7 @@ watch(() => chat.project, project => {
 });
 watch(() => ui.boardTarget, target => {
   if (!target) return;
-  if (editing.value) closeEditor();
+  if (editing.value) closeEditor(true);
   selectedPid.value = String(target.projectId);
   void loadBoard(false);
 });
@@ -383,7 +528,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 
 <template>
   <section class="kb" :class="{ 'kb-editing': editing }" aria-label="Project Kanban">
-    <div class="kb-toolbar">
+    <div class="kb-toolbar" :inert="editing">
       <label class="kb-project"><span class="kb-sr">Project</span><select v-model="selectedPid" aria-label="Project" :disabled="locked" @change="changeProject"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select></label>
       <div v-if="selectedPid" class="kb-filters">
         <label class="kb-search"><Search :size="15" /><input dir="auto" v-model="search" aria-label="Search cards" placeholder="Search cards…" /></label>
@@ -434,37 +579,99 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
           </section>
         </div>
       </div>
-      <form v-if="editing" class="kb-editor" aria-label="Card editor" @submit.prevent="saveCard">
+      <div v-if="editing" class="kb-layer" @pointerdown.self="closeEditor()">
+      <form ref="editorDialog" class="kb-editor" role="dialog" aria-modal="true" aria-labelledby="kb-editor-title" novalidate @submit.prevent="saveCard" @keydown="trapFocus">
         <div class="kb-editor-head">
-          <h3>{{ editingId === null ? 'New card' : 'Card #' + editingId }}</h3>
+          <h3 id="kb-editor-title">
+            <template v-if="editingId === null"><span v-if="projectName" class="kb-crumb">{{ projectName }} /</span>New card</template>
+            <template v-else><span class="kb-pdot" :data-priority="form.priority" aria-hidden="true"></span>Edit card <span class="kb-card-id">#{{ editingId }}</span></template>
+          </h3>
           <button v-if="editingCard" type="button" class="kb-button kb-attach" :disabled="busy" @click="chooseFiles()"><Paperclip :size="14" />Attach files</button>
-          <button type="button" class="kb-icon" aria-label="Close card editor" :disabled="busy" @click="closeEditor"><X :size="17" /></button>
+          <button type="button" class="kb-icon" aria-label="Close card editor" :disabled="busy" @click="closeEditor()"><X :size="17" /></button>
         </div>
-        <div class="kb-editor-fields">
-          <div v-if="editingCard" class="kb-files">
-            <span class="kb-files-title">Attachments</span>
-            <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><BoardImage v-if="/^image\/(png|jpeg|gif|webp|avif|bmp)$/i.test(a.type)" :path="attachPath(editingCard.id, a.id)" :name="a.name" /><Paperclip v-else :size="13" /><span dir="auto" class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
-            <input ref="fileInput" type="file" multiple hidden aria-label="Attach files" :disabled="busy" @change="attachFiles" />
-            <small>Up to 20 files per card, 10 MB each.</small>
+        <p v-if="editingArchived" class="kb-archived-note"><Archive :size="14" />This card is archived. Restore it to edit.</p>
+        <p v-if="formBanner" class="kb-editor-error" role="alert"><CircleAlert :size="14" />{{ formBanner }}</p>
+        <div class="kb-editor-body">
+          <div class="kb-editor-main">
+            <label class="kb-field"><span>Subject <span class="kb-req" aria-hidden="true">*</span></span>
+              <span class="kb-counted">
+                <input dir="auto" ref="editorTitle" data-field="subject" v-model="form.subject" aria-label="Card title" required :disabled="readOnly" :aria-invalid="!!fieldErrors.subject" :aria-describedby="fieldErrors.subject ? 'kb-err-subject' : undefined" @focus="subjectFocus = true" @blur="trimSubject" @input="fieldErrors.subject && validate('subject')" />
+                <small v-if="subjectFocus || subjectLength > 180" class="kb-counter" :class="{ 'kb-cap': subjectLength === 200, 'kb-over': subjectLength > 200 }" aria-live="polite">{{ subjectLength }}/200</small>
+              </span>
+              <small v-if="fieldErrors.subject" id="kb-err-subject" class="kb-field-error">{{ fieldErrors.subject }}</small>
+            </label>
+            <label class="kb-field">Description
+              <textarea dir="auto" data-field="description" v-model="form.description" aria-label="Description" rows="4" :disabled="readOnly" :aria-invalid="!!fieldErrors.description" :aria-describedby="fieldErrors.description ? 'kb-err-description' : undefined" @blur="validate('description')"></textarea>
+              <small v-if="form.description.length > 7500" class="kb-counter-line" :class="{ 'kb-over': form.description.length > 8000 }">{{ form.description.length.toLocaleString() }}/8,000</small>
+              <small v-if="fieldErrors.description" id="kb-err-description" class="kb-field-error">{{ fieldErrors.description }}</small>
+            </label>
+            <div class="kb-field">
+              <span id="kb-labels-label">Labels</span>
+              <div class="kb-chips" :class="{ 'kb-invalid': fieldErrors.labels }" @click.self="labelInput?.focus()">
+                <span v-for="l in form.labels" :key="l" class="kb-chip" :class="{ 'kb-pulse': pulseLabel === l }" @animationend="pulseLabel = ''"><bdi>{{ l }}</bdi><button type="button" :aria-label="`Remove label ${l}`" :disabled="readOnly" @click="removeLabel(l)"><X :size="12" /></button></span>
+                <input ref="labelInput" dir="auto" data-field="labels" v-model="labelDraft" role="combobox" aria-labelledby="kb-labels-label" aria-autocomplete="list" aria-controls="kb-label-list" :aria-expanded="labelOpen && labelOptions.length > 0" :aria-activedescendant="labelOpen && labelOptions.length ? 'kb-label-' + labelActive : undefined" :aria-invalid="!!fieldErrors.labels" :aria-describedby="fieldErrors.labels ? 'kb-err-labels' : 'kb-help-labels'" :placeholder="form.labels.length ? 'Add label…' : 'web, runtime'" :disabled="readOnly || form.labels.length >= 20" @focus="labelOpen = true" @input="labelOpen = true; labelActive = 0" @blur="labelOpen = false; labelDraft.trim() && commitLabels(labelDraft)" @keydown="labelKey" @paste="labelPaste" />
+                <ul v-if="labelOpen && labelOptions.length" id="kb-label-list" :ref="revealList" class="kb-options" role="listbox" aria-label="Labels in use">
+                  <li v-for="(l, i) in labelOptions" :id="'kb-label-' + i" :key="l" role="option" :aria-selected="i === labelActive" @pointerdown.prevent="commitLabels(l)"><bdi>{{ l }}</bdi></li>
+                </ul>
+              </div>
+              <small v-if="fieldErrors.labels" id="kb-err-labels" class="kb-field-error">{{ fieldErrors.labels }}</small>
+              <small v-else id="kb-help-labels">Enter or comma adds a label. Up to 20 labels, 40 characters each.</small>
+            </div>
+            <div class="kb-field kb-deps">
+              <span id="kb-deps-label">Waits on</span>
+              <div class="kb-chips" :class="{ 'kb-invalid': fieldErrors.blockedBy }" @click.self="depInput?.focus()">
+                <span v-for="id in form.blockedBy" :key="id" class="kb-chip kb-dep-chip"><span class="kb-card-id">#{{ id }}</span><bdi v-if="depLabel(id)">{{ depLabel(id) }}</bdi><button type="button" :aria-label="`Remove dependency #${id}`" :disabled="readOnly" @click="removeDep(id)"><X :size="12" /></button></span>
+                <input ref="depInput" dir="auto" data-field="blockedBy" v-model="depQuery" role="combobox" aria-labelledby="kb-deps-label" aria-autocomplete="list" aria-controls="kb-dep-list" :aria-expanded="depOpen && !!depQuery.trim()" :aria-activedescendant="depOpen && depOptions.length ? 'kb-dep-' + depActive : undefined" :aria-invalid="!!fieldErrors.blockedBy" :aria-describedby="fieldErrors.blockedBy ? 'kb-err-deps' : 'kb-help-deps'" placeholder="Search by #id or subject…" :disabled="readOnly || form.project !== selectedPid" @focus="depOpen = true" @input="depOpen = true; depActive = 0" @blur="depOpen = false" @keydown="depKey" />
+                <ul v-if="depOpen && depQuery.trim()" id="kb-dep-list" :ref="revealList" class="kb-options" role="listbox" aria-label="Cards in this project">
+                  <li v-for="(c, i) in depOptions" :id="'kb-dep-' + i" :key="c.id" role="option" :aria-selected="i === depActive" :aria-disabled="c.id === editingId" @pointerdown.prevent="addDep(c)"><span class="kb-dot" :class="c.status"></span><span class="kb-card-id">#{{ c.id }}</span><bdi>{{ c.subject }}</bdi><small v-if="c.id === editingId"><LockKeyhole :size="11" />this card</small><small v-else>{{ c.status.replace('_', ' ') }}</small></li>
+                  <li v-if="!depOptions.length" class="kb-option-empty" role="option" aria-disabled="true">No cards match "{{ depQuery.trim() }}". Try a card ID (#17).</li>
+                </ul>
+              </div>
+              <small v-if="fieldErrors.blockedBy" id="kb-err-deps" class="kb-field-error">{{ fieldErrors.blockedBy }}</small>
+              <small v-else id="kb-help-deps">{{ form.project !== selectedPid ? 'Dependencies stay in the current project.' : 'Cards in this project that must be done first.' }}</small>
+            </div>
+            <div v-if="editingCard?.blocked" class="kb-answer">
+              <p class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Blocked</strong> · <bdi>{{ editingCard.blocked }}</bdi></span></p>
+              <label>Answer<textarea dir="auto" v-model="answer" aria-label="Answer" rows="3" maxlength="2000" :disabled="readOnly"></textarea><small>{{ editingCard.owner && /^session \d+$/.test(editingCard.owner) ? `Sent to ${editingCard.owner}. The card is unblocked.` : 'This card has no session owner. The card is unblocked, nobody is notified.' }}</small></label>
+              <button type="button" class="kb-button" aria-label="Send answer" :disabled="readOnly || !answer.trim()" @click="sendAnswer">Send answer</button>
+            </div>
+            <div v-if="editingCard" class="kb-files">
+              <span class="kb-files-title">Attachments</span>
+              <ul v-if="editingCard.attachments.length"><li v-for="a in editingCard.attachments" :key="a.id"><BoardImage v-if="/^image\/(png|jpeg|gif|webp|avif|bmp)$/i.test(a.type)" :path="attachPath(editingCard.id, a.id)" :name="a.name" /><Paperclip v-else :size="13" /><span dir="auto" class="kb-file-name">{{ a.name }}</span><small>{{ sizeText(a.size) }}</small><button type="button" class="kb-icon" :aria-label="`Download ${a.name}`" @click="downloadFile(editingCard.id, a)"><Download :size="14" /></button><button type="button" class="kb-icon" :aria-label="`Remove ${a.name}`" :disabled="busy" @click="removeFile(editingCard.id, a)"><X :size="14" /></button></li></ul>
+              <input ref="fileInput" type="file" multiple hidden aria-label="Attach files" :disabled="busy" @change="attachFiles" />
+              <small>Up to 20 files per card, 10 MB each.</small>
+            </div>
+            <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li class="vl vl-sm" v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> <bdi>{{ a.text }}</bdi></li></ul>
           </div>
-          <label>Title<input dir="auto" ref="editorTitle" v-model="form.subject" aria-label="Card title" maxlength="200" required :disabled="busy" /></label>
-          <label>Description<textarea dir="auto" v-model="form.description" aria-label="Description" rows="4" maxlength="8000" :disabled="busy"></textarea></label>
-          <div class="kb-editor-pair"><label>Priority<select v-model="form.priority" aria-label="Priority" :disabled="busy"><option v-for="p in priorities" :key="p" :value="p">{{ p }}</option></select></label><label>Column<select v-model="form.status" aria-label="Column" :disabled="busy"><option v-for="[s, title] in columns" :key="s" :value="s">{{ title }}</option></select></label></div>
-          <label v-if="editingId !== null && history.projects.length > 1">Project<select v-model="form.project" aria-label="Project" :disabled="busy" @change="moveDraft"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select><small>Moving drops this project's dependencies and releases the session owner.</small></label>
-          <label>Owner<input dir="auto" v-model="form.owner" aria-label="Owner" maxlength="100" :disabled="busy" /></label>
-          <label>Labels<input dir="auto" v-model="form.labels" aria-label="Labels" placeholder="web, runtime" :disabled="busy" /><small>Comma separated. Up to 20 labels, 40 characters each.</small></label>
-          <label>Waits on card IDs<input v-model="form.blockedBy" aria-label="Dependencies" placeholder="#12, #18" :disabled="busy" /><small>Comma separated. Dependencies must belong to this project.</small></label>
-          <div v-if="editingCard?.blocked" class="kb-answer">
-            <p class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Blocked</strong> · <bdi>{{ editingCard.blocked }}</bdi></span></p>
-            <label>Answer<textarea dir="auto" v-model="answer" aria-label="Answer" rows="3" maxlength="2000" :disabled="busy"></textarea><small>{{ editingCard.owner && /^session \d+$/.test(editingCard.owner) ? `Sent to ${editingCard.owner}. The card is unblocked.` : 'This card has no session owner. The card is unblocked, nobody is notified.' }}</small></label>
-            <button type="button" class="kb-button" aria-label="Send answer" :disabled="busy || !answer.trim()" @click="sendAnswer">Send answer</button>
+          <div class="kb-editor-meta">
+            <fieldset class="kb-status-group" :disabled="readOnly">
+              <legend>Status</legend>
+              <label v-for="[s, title] in columns" :key="s" class="kb-radio" :class="{ 'kb-checked': form.status === s }"><input type="radio" name="kb-status" :value="s" v-model="form.status" /><span class="kb-dot" :class="s"></span>{{ title }}<small v-if="s === 'done'" class="kb-tag-hint">releases owner</small></label>
+            </fieldset>
+            <fieldset class="kb-priority-group" :disabled="readOnly">
+              <legend>Priority</legend>
+              <label v-for="p in priorities" :key="p" class="kb-priority-chip" :data-priority="p" :class="{ 'kb-checked': form.priority === p }"><input type="radio" name="kb-priority" :value="p" v-model="form.priority" /><ChevronsUp v-if="p === 'urgent'" :size="12" /><ArrowUp v-else-if="p === 'high'" :size="12" /><ArrowDown v-else-if="p === 'low'" :size="12" /><Minus v-else :size="12" />{{ p }}</label>
+            </fieldset>
+            <label class="kb-field">Owner
+              <input dir="auto" v-model="form.owner" list="kb-owner-list" aria-label="Owner" maxlength="100" placeholder="Unassigned" :disabled="readOnly" aria-describedby="kb-owner-hint" @input="ownerTouched = true" />
+              <datalist id="kb-owner-list"><option v-for="o in ownerOptions" :key="o" :value="o" /></datalist>
+              <small id="kb-owner-hint" :class="{ 'kb-hint': ownerHint }" aria-live="polite"><template v-if="ownerHint"><CircleAlert :size="12" />{{ ownerHint }}</template></small>
+            </label>
+            <label v-if="editingId !== null && history.projects.length > 1" class="kb-field">Project<select v-model="form.project" aria-label="Project" :disabled="readOnly" @change="moveDraft"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select><small>Moving drops this project's dependencies and releases the session owner.</small></label>
+            <p v-if="editingCard" class="kb-timestamp"><span class="kb-card-id">#{{ editingCard.id }}</span> · created {{ new Date(editingCard.created).toLocaleString() }}<br />updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
           </div>
-          <p v-if="editingCard" class="kb-timestamp">Updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
-          <ul v-if="activity.length" class="kb-activity" aria-label="Activity"><li class="vl vl-sm" v-for="a in activity" :key="a.id"><time>{{ new Date(a.at).toLocaleString() }}</time> <strong>{{ a.by }}</strong> <bdi>{{ a.text }}</bdi></li></ul>
         </div>
-        <p v-if="error" class="kb-editor-error"><CircleAlert :size="14" />{{ error }}</p>
-        <div class="kb-editor-actions"><button type="submit" class="kb-button kb-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save card' }}</button><button type="button" class="kb-button" :disabled="busy" @click="closeEditor">Cancel</button><span></span><button v-if="editingId !== null" type="button" class="kb-button" :disabled="busy" @click="setArchived">{{ editingArchived ? 'Restore' : 'Archive' }}</button><button v-if="editingId !== null" type="button" class="kb-button kb-danger" :disabled="busy" @click="deleteCard">Delete</button></div>
+        <div v-if="discardAsk" class="kb-editor-actions kb-discard" role="alertdialog" aria-label="Discard changes?">
+          <span>Discard unsaved changes?</span><button type="button" class="kb-button kb-primary" @click="discardAsk = false; editorTitle?.focus()">Keep editing</button><button type="button" class="kb-button kb-danger" @click="closeEditor(true)">Discard</button>
+        </div>
+        <div v-else class="kb-editor-actions">
+          <template v-if="editingId !== null"><button type="button" class="kb-button" :disabled="busy" @click="setArchived">{{ editingArchived ? 'Restore' : 'Archive' }}</button><button type="button" class="kb-button kb-danger" :disabled="busy" @click="deleteCard">Delete</button></template>
+          <span></span>
+          <button type="button" class="kb-button" :disabled="busy" @click="closeEditor()">Cancel</button>
+          <button v-if="!editingArchived" type="submit" class="kb-button kb-primary" :disabled="busy || !form.subject.trim()" :title="form.subject.trim() ? 'Save (Ctrl+Enter)' : 'Add a subject to continue'"><RefreshCw v-if="busy" class="kb-saving-icon" :size="14" />{{ busy ? 'Saving…' : editingId === null ? 'Create card' : 'Save changes' }}</button>
+        </div>
       </form>
+      </div>
     </div>
     <footer class="kb-statusbar" :class="{ 'kb-status-error': error, 'kb-status-success': notice && !error && !busy && !loading && !drag?.moved && !editing }" aria-label="Board status">
       <div class="kb-feedback" :role="error ? 'alert' : 'status'" aria-atomic="true">
@@ -479,7 +686,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 </template>
 
 <style scoped>
-.kb { height:100%; min-height:0; min-width:0; display:flex; flex-direction:column; padding:18px 20px 20px; gap:14px; font-size:14px; color:var(--foreground); background:var(--background); }
+.kb { position:relative; container:kb / inline-size; height:100%; min-height:0; min-width:0; display:flex; flex-direction:column; padding:18px 20px 20px; gap:14px; font-size:14px; color:var(--foreground); background:var(--background); }
 .kb *, .kb-ghost { box-sizing:border-box; }
 .kb button, .kb select { cursor:pointer; }
 .kb button:disabled, .kb select:disabled { cursor:default; opacity:.45; }
@@ -512,7 +719,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-saving-icon { animation:kb-spin 1.5s linear infinite; }
 @keyframes kb-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .kb-saving-icon { animation:none; } }
-.kb-workspace { flex:1; min-height:0; min-width:0; display:flex; gap:16px; position:relative; }
+.kb-workspace { flex:1; min-height:0; min-width:0; display:flex; gap:16px; }
 .kb-content { flex:1; min-width:0; min-height:0; display:flex; }
 .kb-board { flex:1; display:flex; gap:14px; overflow-x:auto; overflow-y:hidden; min-height:0; min-width:0; padding:3px 3px 12px; scrollbar-width:thin; overscroll-behavior:contain; }
 .kb-column { min-width:210px; flex:1 0 210px; display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--border); padding:0 12px 0 0; border-radius: var(--radius); }
@@ -571,19 +778,98 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
 .kb-ghost { position:fixed; z-index:60; width:200px; padding:12px; border:1px solid var(--primary); border-radius: var(--radius); background:var(--card); color:var(--foreground); pointer-events:none; box-shadow:var(--shadow); overflow-wrap:anywhere; }.kb-ghost small { color:var(--muted-foreground); font:11px var(--mono); display:block; margin-bottom:8px; }.kb-ghost strong { font:550 13.5px/1.5 system-ui,sans-serif; }
 .kb-empty { margin:auto; padding:24px; text-align:center; color:var(--muted-foreground); }.kb-empty p { margin-bottom:14px; }
 .kb-archive { flex:1; min-width:0; overflow:auto; }.kb-archive-card { display:flex; gap:16px; align-items:center; text-align:left; width:100%; border:1px solid var(--border); border-radius: var(--radius); background:var(--card); padding:12px; margin-bottom:8px; overflow-wrap:anywhere; }.kb-archive-card strong { flex:1; min-width:0; font-weight:500; }.kb-archive-card>span { color:var(--muted-foreground); font-size:12px; }
-.kb-editor { display:flex; flex-direction:column; flex:0 0 360px; width:360px; min-width:0; min-height:0; border:1px solid var(--border); border-radius: var(--radius); background:var(--card); }
-.kb-editor-head { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--border); flex:none; }.kb-editor-head h3 { margin:0; font-weight:600; flex:1; min-width:0; }
-.kb-editor-fields { overflow:auto; min-height:0; padding:16px; display:grid; gap:14px; scrollbar-width:thin; }.kb-editor label { display:grid; gap:6px; font-size:13px; min-width:0; }.kb-editor input,.kb-editor textarea,.kb-editor select { width:100%; background:var(--background); }.kb-editor textarea { resize:vertical; min-height:80px; font-size:15px; font-weight:450; line-height:1.55; }.kb-editor small { font-size:11px; color:var(--muted-foreground); line-height:1.5; }.kb-editor-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.kb-timestamp { font-size:11px; color:var(--muted-foreground); }
-.kb-editor-actions { display:flex; flex-wrap:wrap; gap:8px; padding:12px; border-top:1px solid var(--border); flex:none; margin-top:auto; }.kb-editor-actions>span { flex:1; }.kb .kb-danger { color:var(--destructive); }
+.kb-layer { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:12px; background:color-mix(in srgb,var(--background) 70%,transparent); }
+.kb-editor { display:flex; flex-direction:column; width:min(720px,100%); max-height:min(100%, 80vh); min-height:0; border:1px solid var(--border); border-radius: var(--radius); background:var(--card); box-shadow:var(--shadow); animation:kb-in 160ms cubic-bezier(.2,0,0,1); }
+@keyframes kb-in { from { opacity:0; transform:scale(.98); } }
+.kb-editor-head { display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--border); flex:none; }
+.kb-editor-head h3 { margin:0; font-weight:600; flex:1; min-width:0; display:flex; align-items:center; gap:8px; overflow-wrap:anywhere; }
+.kb-crumb { color:var(--muted-foreground); font-weight:450; }
+.kb-pdot { width:8px; height:8px; flex:none; border-radius:50%; background:var(--muted-foreground); }
+.kb-pdot[data-priority="urgent"] { background:var(--destructive); }.kb-pdot[data-priority="high"] { background:var(--warning); }.kb-pdot[data-priority="medium"] { background:var(--info); }
+.kb-editor-head .kb-card-id { margin:0; font-weight:450; font-size:13px; }
+.kb-archived-note { display:flex; align-items:center; gap:7px; margin:0; padding:8px 16px; border-bottom:1px solid var(--border); font-size:12px; color:var(--warning); background:color-mix(in srgb,var(--warning) 10%,var(--card)); flex:none; }
+.kb-editor-body { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:minmax(0,1fr) 240px; scrollbar-width:thin; }
+.kb-editor-main { display:grid; align-content:start; gap:16px; padding:16px; min-width:0; }
+.kb-editor-meta { display:grid; align-content:start; gap:20px; padding:16px; border-left:1px solid var(--border); background:color-mix(in srgb,var(--background) 40%,var(--card)); min-width:0; }
+.kb-editor label, .kb-field { display:grid; gap:6px; font-size:13px; min-width:0; }
+.kb-editor input, .kb-editor textarea, .kb-editor select { width:100%; background:var(--background); }
+.kb-editor [data-field="subject"] { font-size:15px; font-weight:600; padding-right:62px; }
+.kb-editor textarea { resize:vertical; min-height:80px; max-height:calc(12lh + 18px); field-sizing:content; font-size:14px; line-height:1.5; }
+.kb-editor small { font-size:11px; color:var(--muted-foreground); line-height:1.5; }
+.kb-editor [aria-invalid="true"], .kb-chips.kb-invalid { border-color:var(--destructive); }
+.kb-editor .kb-field-error { color:var(--destructive); font-size:12px; }
+.kb-req { color:var(--destructive); }
+.kb-counted { position:relative; display:block; }
+.kb-editor .kb-counter { position:absolute; right:10px; top:50%; transform:translateY(-50%); font-variant-numeric:tabular-nums; pointer-events:none; }
+.kb-editor .kb-counter-line { justify-self:end; font-variant-numeric:tabular-nums; }
+.kb-editor .kb-cap { color:var(--warning); }.kb-editor .kb-over { color:var(--destructive); }
+.kb-chips { position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:5px; min-height:38px; border:1px solid var(--input); border-radius: var(--radius); background:var(--background); cursor:text; }
+.kb-chips:focus-within { outline:2px solid var(--ring); outline-offset:1px; }
+.kb-editor .kb-chips input { flex:1; min-width:120px; width:auto; border:0; padding:3px 4px; background:transparent; outline:none; }
+.kb-chip { display:inline-flex; align-items:center; gap:4px; max-width:100%; padding:2px 2px 2px 7px; border:1px solid var(--input); border-radius: var(--radius); background:var(--secondary); font-size:12px; line-height:1.4; overflow-wrap:anywhere; animation:kb-pop 120ms ease-out; }
+.kb-chip button { display:grid; place-items:center; width:20px; height:20px; padding:0; border:0; background:transparent; color:var(--muted-foreground); border-radius: var(--radius); }
+.kb-chip button:hover:not(:disabled) { color:var(--foreground); background:var(--card); }
+.kb-dep-chip .kb-card-id { margin:0; font-size:11px; }
+.kb-dep-chip bdi { max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kb-pulse { animation:kb-pulse 600ms ease-out; }
+@keyframes kb-pop { from { transform:scale(.9); opacity:.4; } }
+@keyframes kb-pulse { 30% { border-color:var(--primary); background:var(--acc-soft); } }
+.kb-options { flex:1 0 100%; margin:2px 0 0; padding:4px; list-style:none; max-height:200px; overflow:auto; border-top:1px solid var(--border); background:var(--background); }
+.kb-options li { display:flex; align-items:center; gap:7px; padding:7px 8px; border-radius: var(--radius); font-size:13px; cursor:pointer; min-width:0; }
+.kb-options li bdi { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kb-options li .kb-card-id { margin:0; flex:none; }
+.kb-options li small { flex:none; display:inline-flex; align-items:center; gap:3px; }
+.kb-options li[aria-selected="true"] { background:var(--secondary); }
+.kb-options li[aria-disabled="true"] { cursor:default; opacity:.55; background:transparent; }
+.kb-editor fieldset { border:0; margin:0; padding:0; min-width:0; }
+.kb-editor legend { font-size:13px; padding:0; margin-bottom:6px; }
+.kb-status-group { display:grid; gap:2px; }
+.kb-editor .kb-radio { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid transparent; border-radius: var(--radius); cursor:pointer; font-size:13px; }
+.kb-editor .kb-radio:hover { background:var(--secondary); }
+.kb-editor .kb-radio.kb-checked { border-color:var(--input); background:var(--background); font-weight:550; }
+.kb-editor .kb-radio input, .kb-editor .kb-priority-chip input { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
+.kb-editor .kb-radio:has(input:focus-visible), .kb-editor .kb-priority-chip:has(input:focus-visible) { outline:2px solid var(--ring); outline-offset:1px; }
+.kb-editor .kb-tag-hint { margin-left:auto; font-size:10.5px; font-weight:400; }
+.kb-priority-group { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.kb-priority-group legend { grid-column:1 / -1; }
+.kb-editor .kb-priority-chip { display:flex; align-items:center; justify-content:center; gap:4px; padding:6px; border:1px solid var(--input); border-radius: var(--radius); font-size:12px; text-transform:capitalize; cursor:pointer; color:var(--sidebar-foreground); background:var(--background); }
+.kb-editor .kb-priority-chip[data-priority="urgent"] { --pc:var(--destructive); }.kb-editor .kb-priority-chip[data-priority="high"] { --pc:var(--warning); }.kb-editor .kb-priority-chip[data-priority="medium"] { --pc:var(--info); }.kb-editor .kb-priority-chip[data-priority="low"] { --pc:var(--muted-foreground); }
+.kb-editor .kb-priority-chip.kb-checked { color:var(--pc); border-color:var(--pc); background:color-mix(in srgb,var(--pc) 14%,var(--card)); font-weight:600; }
+.kb-editor fieldset:disabled label { cursor:default; opacity:.6; }
+.kb-editor .kb-hint { display:flex; align-items:flex-start; gap:5px; color:var(--warning); }
+.kb-editor .kb-hint svg { flex:none; margin-top:2px; }
+.kb-timestamp { font-size:11px; color:var(--muted-foreground); margin:0; line-height:1.6; }
+.kb-timestamp .kb-card-id { margin:0; font-size:11px; }
+.kb-editor-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:12px 16px; border-top:1px solid var(--border); flex:none; }.kb-editor-actions>span { flex:1; }.kb .kb-danger { color:var(--destructive); }
+.kb-discard > span { font-size:13px; }
 .kb-answer { display:grid; gap:8px; }
-.kb-editor-error { display:flex; align-items:flex-start; gap:6px; margin:0; padding:8px 14px; border-top:1px solid var(--border); color:var(--destructive); background:color-mix(in srgb,var(--destructive) 10%,var(--card)); font-size:12px; line-height:1.5; overflow-wrap:anywhere; flex:none; }.kb-editor-error svg { flex:none; margin-top:2px; }
+.kb-editor-error { display:flex; align-items:flex-start; gap:6px; margin:0; padding:8px 16px; border-bottom:1px solid var(--border); color:var(--destructive); background:color-mix(in srgb,var(--destructive) 10%,var(--card)); font-size:12px; line-height:1.5; overflow-wrap:anywhere; flex:none; }.kb-editor-error svg { flex:none; margin-top:2px; }
+@media(prefers-reduced-motion:reduce) { .kb-editor, .kb-chip, .kb-pulse { animation:none; } }
 .kb-files { display:grid; gap:8px; }.kb-files-title { font-size:13px; }.kb-files ul { list-style:none; margin:0; padding:0; display:grid; gap:4px; }.kb-files li { display:flex; align-items:center; gap:6px; font-size:12px; }.kb-file-name { flex:1; min-width:0; overflow-wrap:anywhere; }.kb-files .kb-icon { width:28px; min-height:28px; }.kb-attach { cursor:pointer; justify-self:start; }.kb-attach-off { opacity:.45; pointer-events:none; }
 .kb-asks { margin:0; }
 .kb-activity { list-style:none; margin:0; padding:10px 0 0; border-top:1px solid var(--border); display:grid; gap:6px; font-size:12px; color:var(--muted-foreground); max-height:180px; overflow:auto; }
 .kb-activity time { display:block; font-size:11px; color:var(--faint); }
 .kb-activity strong { color:var(--foreground); font-weight:550; }
 .kb-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-@media(max-width:1000px) { .kb-editor { position:absolute; inset:0 0 0 auto; width:min(420px,100%); z-index:2; box-shadow:var(--shadow); }.kb-content[inert] { opacity:.35; }.kb-project { flex-basis:150px; }.kb-filters { min-width:260px; } }
+@container kb (max-width:1023px) {
+  .kb-editor { width:min(560px,100%); }
+  .kb-editor-body { display:block; }
+  .kb-editor-meta { border-left:0; border-top:1px solid var(--border); grid-template-columns:1fr 1fr; gap:16px; }
+  .kb-editor-meta .kb-status-group, .kb-editor-meta .kb-timestamp { grid-column:1 / -1; }
+  .kb-status-group { display:flex; gap:6px; overflow-x:auto; scrollbar-width:thin; padding-bottom:2px; }
+  .kb-editor .kb-radio { flex:none; border-color:var(--input); white-space:nowrap; }
+}
+@container kb (max-width:639px) {
+  .kb-layer { padding:0; place-items:stretch; }
+  .kb-editor { width:100%; max-height:none; height:100%; border:0; }
+  .kb-editor-meta { grid-template-columns:1fr; }
+  .kb-editor-actions { flex-wrap:nowrap; gap:6px; padding:10px 12px max(10px, env(safe-area-inset-bottom)); }
+  .kb-editor-actions .kb-button { padding-inline:10px; }
+  .kb-editor-actions>span { display:none; }
+  .kb-editor-actions [type="submit"] { margin-left:auto; }
+}
+@media(max-width:1000px) { .kb-project { flex-basis:150px; }.kb-filters { min-width:260px; } }
+
 @media(max-width:760px) {
   .kb-editing .kb-toolbar { display:none; }
   .kb { padding:12px; gap:10px; }
@@ -596,8 +882,6 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
   .kb-toolbar-end { width:100%; margin-left:0; }
   .kb-toolbar-end .kb-primary { margin-left:auto; }
   .kb-column { flex-basis:245px; min-width:245px; }
-  .kb-editor { inset:0; width:100%; }
-  .kb-editor-actions>span { display:none; }
   .kb-archive-card { flex-wrap:wrap; gap:8px; }
   .kb-grip { height:36px; width:28px; }
   .kb-button,.kb-icon,.kb-add { min-height:38px; }
