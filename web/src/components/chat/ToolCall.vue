@@ -158,7 +158,7 @@ const hasBody = computed(() => {
     case 'write': return writeLines.value > 0;
     case 'process': return !!proc.value?.output || (!proc.value && !!body.value);
     case 'todo': return tasks.value.length > 0 || !!body.value;
-    case 'media': return !!media.value;
+    case 'media': return !!media.value || (props.name === 'vision_analyze' && typeof json.value?.analysis === 'string' && !!json.value.analysis);
     case 'skill': return (props.name === 'skill_manage' && typeof a.value.content === 'string') || !!body.value;
     case 'codemode': return !!codemodeCode.value || codemodeCalls.value.length > 0 || !!body.value;
     default: return !!body.value;
@@ -274,7 +274,10 @@ const hasBody = computed(() => {
               <TerminalView :text="body" />
             </template>
           </template>
-          <p v-else-if="view === 'media'" class="tool-line">{{ media }}</p>
+          <template v-else-if="view === 'media'">
+            <Markdown v-if="name === 'vision_analyze' && typeof json?.analysis === 'string'" class="tool-md" :content="json.analysis" />
+            <p v-else class="tool-line">{{ media }}</p>
+          </template>
           <pre v-else>{{ body }}</pre>
         </div>
         <ul v-if="notes.length && state !== 'failed' && view !== 'bash'" class="tool-notes"><li v-for="(n, i) in notes" :key="i">{{ n }}</li></ul>
