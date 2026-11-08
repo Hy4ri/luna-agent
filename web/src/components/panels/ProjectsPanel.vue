@@ -131,6 +131,9 @@ const skillsError = ref("");
 const skillFilter = ref("");
 const skillStatus = ref<"all" | "enabled" | "disabled">("all");
 const skillBusy = reactive<Record<string, boolean>>({});
+/** "Only chosen" mode: only skills switched on here are active, so new skills stay off in this project. */
+const onlyChosen = ref(false);
+const modeBusy = ref(false);
 const shownSkills = computed(() => {
   const q = skillFilter.value.trim().toLowerCase();
   return skills.value.filter(s =>
@@ -141,19 +144,29 @@ const shownSkills = computed(() => {
 async function loadSkills(id: number) {
   skillsError.value = "";
   try {
-    const list = await api(`/v1/projects/${id}/skills`).then(async r => {
+    const get = <T,>(path: string) => api(path).then(async r => {
       if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error || r.statusText);
-      return r.json() as Promise<ProjectSkill[]>;
+      return r.json() as Promise<T>;
     });
-    if (selected.value === id) skills.value = list;
+    const [list, mode] = await Promise.all([get<ProjectSkill[]>(`/v1/projects/${id}/skills`), get<{ onlyChosen: boolean }>(`/v1/projects/${id}/skill-mode`)]);
+    if (selected.value === id) { skills.value = list; onlyChosen.value = mode.onlyChosen; }
   } catch (e) { if (selected.value === id) { skills.value = []; skillsError.value = (e as Error).message; } }
+}
+/** The server keeps the active set unchanged at the switch, so reload to show the new overrides. */
+async function setOnlyChosen(on: boolean) {
+  const p = current.value; if (!p || modeBusy.value) return;
+  modeBusy.value = true; skillsError.value = "";
+  try { await post(`/v1/projects/${p.id}/skill-mode`, { onlyChosen: on }, "PUT"); await loadSkills(p.id); }
+  catch (e) { skillsError.value = (e as Error).message; }
+  finally { modeBusy.value = false; }
 }
 /** `enabled` null resets to global. Optimistic; rolls back on failure. The guard is released on every path. */
 async function setSkill(s: ProjectSkill, enabled: boolean | null) {
   const p = current.value; if (!p || skillBusy[s.name]) return;
   skillBusy[s.name] = true;
   const before = { override: s.override, effective: s.effective };
-  s.override = enabled; s.effective = enabled ?? s.global;
+  if (onlyChosen.value) { s.override = enabled ? true : null; s.effective = !!enabled; }
+  else { s.override = enabled; s.effective = enabled ?? s.global; }
   skillsError.value = "";
   try { await post(`/v1/projects/${p.id}/skills/${encodeURIComponent(s.name)}`, { enabled }, "PUT"); }
   catch (e) { s.override = before.override; s.effective = before.effective; skillsError.value = (e as Error).message; }
@@ -177,7 +190,7 @@ function select(id: number | "new" | null) {
   cwd.value = p?.cwd ?? "";
   if (id === "new") { createOn.value = "host"; newWorker.value = null; newWorkerCwd.value = ""; }
   syncMachineDirs();
-  skills.value = []; skillFilter.value = ""; skillStatus.value = "all"; skillsError.value = "";
+  skills.value = []; onlyChosen.value = false; skillFilter.value = ""; skillStatus.value = "all"; skillsError.value = "";
   if (typeof id === "number" && id !== 0) void loadSkills(id);
   if (id !== null) showDetail.value = true;
   if (id === "new") void nextTick(() => document.getElementById("project-name")?.focus());
@@ -342,7 +355,14 @@ onMounted(async () => {
 
         <div v-if="current && !current.general" class="pw-sec" id="project-skills">
           <h4>Skills</h4>
-          <p class="pw-muted pw-small">Switch a skill on or off for this project's conversations. Skills without a custom marker follow the global setting.</p>
+          <div class="pw-skill">
+            <div class="pw-skill-text">
+              <span class="pw-skill-name">Only chosen skills</span>
+              <span class="pw-muted pw-small pw-skill-desc">Only skills switched on here are active. New skills stay off in this project.</span>
+            </div>
+            <button type="button" role="switch" class="pw-switch" :aria-checked="onlyChosen" aria-label="Only chosen skills" :disabled="modeBusy" @click="setOnlyChosen(!onlyChosen)"><span class="pw-thumb" /></button>
+          </div>
+          <p class="pw-muted pw-small">{{ onlyChosen ? "Switch a skill on or off for this project's conversations. The global setting does not apply." : "Switch a skill on or off for this project's conversations. Skills without a custom marker follow the global setting." }}</p>
           <div class="pw-skill-filters">
             <input v-if="skills.length > 10" v-model="skillFilter" type="search" aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" />
             <select v-model="skillStatus" class="pw-input" aria-label="Filter skills by status">
@@ -354,10 +374,10 @@ onMounted(async () => {
           <p v-if="skillsError" class="pw-err" role="alert">{{ skillsError }}</p>
           <div v-for="s in shownSkills" :key="s.name" class="pw-skill" :data-skill="s.name">
             <div class="pw-skill-text">
-              <span class="pw-skill-name">{{ s.name }}<span v-if="s.override !== null" class="pw-custom">custom</span></span>
+              <span class="pw-skill-name">{{ s.name }}<span v-if="!onlyChosen && s.override !== null" class="pw-custom">custom</span></span>
               <span v-if="s.description" class="pw-muted pw-small pw-skill-desc">{{ s.description }}</span>
             </div>
-            <button v-if="s.override !== null" type="button" class="pw-icon" :disabled="skillBusy[s.name]" aria-label="Reset to global" title="Reset to global" @click="setSkill(s, null)"><RotateCcw :size="14" /></button>
+            <button v-if="!onlyChosen && s.override !== null" type="button" class="pw-icon" :disabled="skillBusy[s.name]" aria-label="Reset to global" title="Reset to global" @click="setSkill(s, null)"><RotateCcw :size="14" /></button>
             <button type="button" role="switch" class="pw-switch" :aria-checked="s.effective" :aria-label="s.name" :disabled="skillBusy[s.name]" @click="setSkill(s, !s.effective)"><span class="pw-thumb" /></button>
           </div>
           <p v-if="skills.length && !shownSkills.length" class="pw-muted">No match.</p>

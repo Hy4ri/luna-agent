@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { BoardError, MAX_ATTACHMENT_BYTES } from "../board.js";
 import { answerEvent, cardEvents, deliverCardEvents, ownerSession, wakeEvents } from "../board-events.js";
 import { ProjectError } from "../projects.js";
+import type { ConversationStore } from "../conversations.js";
 import { scanSkills } from "../skills.js";
 import { context } from "../luna.js";
 import type { RouteCtx } from "./context.js";
@@ -93,17 +94,39 @@ export function registerProjects(app: Hono, ctx: RouteCtx): void {
     return { conv: opts.conversations, id, dirs: opts.skillDirs };
   };
 
+  /** Each skill with its global state, project override, and effective state. */
+  const projectSkillList = (conv: ConversationStore, id: number, dirs: readonly string[]) => {
+    const off = opts.settings?.read().disabledSkills ?? [];
+    const over = id === 0 ? new Map<string, boolean>() : conv.projectSkills.overrides(id);
+    const only = id !== 0 && conv.projectSkills.onlyChosen(id);
+    return scanSkills(dirs).map((s) => {
+      const global = !off.includes(s.name), override = over.get(s.name) ?? null;
+      return { name: s.name, description: s.description, global, override, effective: only ? override === true : override ?? global };
+    });
+  };
+
   app.get("/v1/projects/:id/skills", (c) => {
     const { conv, id, dirs } = skillsOf(c);
-    const off = opts.settings?.read().disabledSkills ?? [];
-    const over = conv.projectSkills.overrides(id);
-    return c.json(
-      scanSkills(dirs).map((s) => {
-        const global = !off.includes(s.name),
-          override = id === 0 ? null : over.get(s.name) ?? null;
-        return { name: s.name, description: s.description, global, override, effective: override ?? global };
-      }),
-    );
+    return c.json(projectSkillList(conv, id, dirs));
+  });
+
+  app.get("/v1/projects/:id/skill-mode", (c) => {
+    const { conv, id } = skillsOf(c);
+    return c.json({ onlyChosen: id !== 0 && conv.projectSkills.onlyChosen(id) });
+  });
+
+  app.put("/v1/projects/:id/skill-mode", async (c) => {
+    const { conv, id, dirs } = skillsOf(c);
+    if (id === 0) throw new ProjectError(409, "The General project uses the global skill settings");
+    const b = (await c.req.json().catch(() => null)) as { onlyChosen?: unknown } | null;
+    if (!b || typeof b.onlyChosen !== "boolean") throw new ProjectError(400, "onlyChosen must be a boolean");
+    if (b.onlyChosen !== conv.projectSkills.onlyChosen(id)) {
+      // Keep the active set unchanged at the switch: only skills added later behave differently.
+      const active = b.onlyChosen ? projectSkillList(conv, id, dirs).filter(s => s.effective).map(s => s.name) : [];
+      conv.projectSkills.setOnlyChosen(id, b.onlyChosen, active);
+      conv.touch();
+    }
+    return c.json({ ok: true });
   });
 
   app.put("/v1/projects/:id/skills/:name", async (c) => {
