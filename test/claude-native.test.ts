@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { test } from "node:test";
-import { Admission, Capture, QueriedTurnMismatch, pinMessageBreakpoint, restoreQueriedTurn,
+import { Admission, Capture, QueriedTurnMismatch, dropNativeContext, pinMessageBreakpoint, restoreQueriedTurn,
   stableRequestContext, upstreamProxy } from "../src/claude-native/admission.js";
 import { CARRIER_TYPE, TOOL_PREFIX, buildBody, conversationSessionId, conversationToolPrefix, deepEqual, nativeModel,
   prepareHistory } from "../src/claude-native/history.js";
@@ -31,6 +31,45 @@ test("cache transforms match the recorded outputs", () => {
       same(got, c.python[name], `${c.name}/${name}`);
     }
   }
+});
+
+// Shapes recorded from Claude Code 2.1.312 through runClaude; the account address is redacted.
+const ACCOUNT_REMINDER = "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# userEmail\n"
+  + "The user's email address is user@example.invalid. Use it only to identify the user.\n</system-reminder>\n";
+const MENTION = "The user @-mentioned /tmp/note.txt. File contents are not attached automatically in this session: "
+  + "if these are files or directories in your working directory, read them with your file tools before responding.\n\n";
+const ENV = "# Environment\nYou have been invoked in the following environment: \n - Platform: linux";
+
+test("native account and file-mention context never reaches upstream", () => {
+  const mark = { type: "ephemeral", ttl: "1h" };
+  const run = (body: unknown, luna: string[]) => {
+    const input = Buffer.from(JSON.stringify(body), "utf8");
+    const out = dropNativeContext(input, luna);
+    return out.equals(input) ? null : JSON.parse(out.toString("utf8"));
+  };
+  // First turn: the reminder follows Luna's text and the mention notice leads the environment message.
+  same(run({ messages: [
+    { role: "user", content: [{ type: "text", text: "first turn @/tmp/note.txt", cache_control: mark }, { type: "text", text: ACCOUNT_REMINDER }] },
+    { role: "system", content: [{ type: "text", text: MENTION + ENV }] },
+  ] }, ["first turn @/tmp/note.txt"]), { messages: [
+    { role: "user", content: [{ type: "text", text: "first turn @/tmp/note.txt", cache_control: mark }] },
+    { role: "system", content: [{ type: "text", text: ENV }] },
+  ] }, "first turn");
+  // Later turn: a mention notice before the date line leaves only the date line, which stableRequestContext folds.
+  same(run({ messages: [
+    { role: "user", content: [{ type: "text", text: "first" }] },
+    { role: "system", content: ENV },
+    { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    { role: "user", content: [{ type: "text", text: "second @/tmp/note.txt", cache_control: mark }] },
+    { role: "system", content: [{ type: "text", text: MENTION + "Today's date is 2026-11-08." }] },
+  ] }, ["first", "second @/tmp/note.txt"]).messages.at(-1), { role: "system", content: [{ type: "text", text: "Today's date is 2026-11-08." }] }, "later turn");
+  // A mark on a dropped block moves to the block before it.
+  same(run({ messages: [{ role: "user", content: [{ type: "text", text: "look" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AA==" } },
+    { type: "text", text: ACCOUNT_REMINDER, cache_control: mark }] }] }, ["look"]).messages[0].content.at(-1),
+  { type: "image", source: { type: "base64", media_type: "image/png", data: "AA==" }, cache_control: mark }, "moved mark");
+  // Luna's own reminder text is never dropped, and a clean payload keeps its bytes.
+  assert.equal(run({ messages: [{ role: "user", content: [{ type: "text", text: ACCOUNT_REMINDER }] }] }, [ACCOUNT_REMINDER]), null);
+  assert.equal(run({ messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }, { role: "system", content: ENV }] }, ["hi"]), null);
 });
 
 test("history frames and session ids match the recorded outputs and do not mutate input", () => {

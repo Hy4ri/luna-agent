@@ -21,8 +21,15 @@ pinned commit `f98c0999c6dd4e59680addc8f3480208018ab5b0`. License: `UPSTREAM_LIC
 Windows support, the upstream client API, and request fields Luna never sends were dropped.
 
 The billing guard and chronological tool-change design also draw on
-[earendil-works/pi-claude-code](https://github.com/earendil-works/pi-claude-code/tree/70abb65186592ca788b29b3db22c3160d629c41f),
-pinned commit `70abb65186592ca788b29b3db22c3160d629c41f`.
+[earendil-works/pi-claude-code](https://github.com/earendil-works/pi-claude-code/tree/d5b5e04c314d3452d357174d16d10dda34daa2d2),
+reviewed through commit `d5b5e04c314d3452d357174d16d10dda34daa2d2` (first port `70abb65`).
+Ported from the later commits: file mentions, CLAUDE.md, and auto-memory disabled (799943e, d5b5e04); native
+reminders kept out of user messages (d5b5e04, adapted as a relay filter); unknown tool calls answered by the
+loop (182da56); interrupted streams classified as transient (f9b034c, e725ec8). Already equivalent in Luna:
+per-message cache breakpoints, cross-provider history, thinking clamp and summarized display, entrypoint.
+Not ported: warm processes (Luna keeps one process per generation), Windows shims, the Bun MCP runner
+(Luna runs Node), and the discovery feature-flag env (fc5d071): Luna's discovered models are an overlay
+on the full static catalog, so locked discovery hides no selectable model.
 Its MIT notice is retained in `PI_CLAUDE_CODE_LICENSE`. The installed pi-ai Anthropic contract determines
 native inline-tool blocks and model reasoning support; the older extension is not the wire-protocol authority.
 
@@ -43,6 +50,8 @@ The session id and native cwd must stay stable for one conversation; both sit in
 - Historical user frames use `shouldQuery: false`; only the newest user/tool-result frame queries.
 - Replay acknowledgments are version-sensitive. A missing zero-turn acknowledgment fails the request.
 - Built-in tools, native compaction, session persistence, and automatic retries are disabled.
+- Native `@path` expansion, CLAUDE.md, and auto-memory are disabled. The relay drops the native account
+  reminder (it carries the account email) and the @-mention notice unless the text is in Luna's own user frames.
 - Inherited API-key/backend overrides fail closed. Normal CLI login and OAuth-token configuration remain available.
 - Abort kills the owned CLI process group before the request rejects.
 - The final response and token usage come from the relay's completed upstream capture.
@@ -55,6 +64,7 @@ The session id and native cwd must stay stable for one conversation; both sit in
 - One fresh CLI process remains the rule. No warm-process reuse or saved native transcript is introduced.
 - There is no input-size guard. The runtime's compaction owns history size.
 
-Run `pnpm run typecheck` from the repository root. Repository policy forbids test files and harnesses;
-compiler checks do not prove live vendor behavior. The historical `verify:claude-cli:*` scripts are not shipped.
+Run `pnpm run typecheck` and `pnpm test` from the repository root. `test/claude-native.test.ts` holds the
+regression tests for the cache transforms and the relay (policy: `AGENTS.md`, "Tests"); neither proves
+live vendor behavior. The historical `verify:claude-cli:*` scripts are not shipped.
 Authenticated inference requires separate approval and is not part of the compiler gate.

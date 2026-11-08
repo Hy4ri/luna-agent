@@ -33,6 +33,8 @@ const QUIET_ENV = {
   // Luna owns tools, budgets, retries and compaction. Native's token reminder would also break cached prefixes.
   ENABLE_TOOL_SEARCH: "false", CLAUDE_CODE_MAX_RETRIES: "0", DISABLE_AUTO_COMPACT: "1", DISABLE_COMPACT: "1",
   CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
+  // Luna owns context: native must not read @-mentioned files, CLAUDE.md, or auto-memory into the request.
+  CLAUDE_CODE_DISABLE_FILE_MENTIONS: "1", CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
 };
 const INERT_MCP = fileURLToPath(new URL("./inert-mcp.mjs", import.meta.url));
 
@@ -244,7 +246,9 @@ async function prepareRun(request: NativeRequest, options: RunOptions): Promise<
   const lunaNames = new Map([...names].map(([luna, native]) => [native, luna]));
 
   // The queried frame lets the relay keep the cache breakpoint off native's per-request context.
-  const admission = await Admission.open(upstream, timeoutMs, frames.at(-1)!.message.content, nativeReplay);
+  const lunaText = frames.filter(frame => frame.type === "user").flatMap(frame => frame.message.content)
+    .flatMap(block => block.type === "text" && typeof block.text === "string" ? [block.text] : []);
+  const admission = await Admission.open(upstream, timeoutMs, frames.at(-1)!.message.content, nativeReplay, lunaText);
   const root = mkdtempSync(join(tmpdir(), "claude-directsdk-"));
   try {
     writeFileSync(join(root, "tools.json"), JSON.stringify(manifest));
@@ -469,7 +473,9 @@ function buildResponse(params: BuildResponseParams): NativeResponse {
         `, native retries denied: ${admission.denied}`;
       if (admission.errorText()) first += ", upstream said: " + admission.errorText().slice(0, 500);
       const status = admission.status !== undefined && admission.status >= 400 ? admission.status : undefined;
-      throw new ClaudeTransportError(`Incomplete upstream response (${first})` + (nativeError ? ": " + nativeError : ""), status, limit(status));
+      // An accepted stream that ended early is transient; this wording is the one pi-ai's retry classifier knows.
+      const cut = admission.status === 200 && !admission.capture.complete ? "the stream was interrupted: " : "";
+      throw new ClaudeTransportError(`Incomplete upstream response (${cut}${first})` + (nativeError ? ": " + nativeError : ""), status, limit(status));
     }
     assistants = [admission.capture.message as Json];
     stopped = true;

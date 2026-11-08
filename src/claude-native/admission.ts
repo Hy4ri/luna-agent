@@ -161,6 +161,59 @@ function _frame_first(messages: WireMessage[], queried: Block[] | undefined): bo
 }
 
 const _DATE_LINE = /^Today's date is \d{4}-\d{2}-\d{2}\.$/;
+const _ACCOUNT_CONTEXT = "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n";
+const _MENTION_NOTICE = /^The user @-mentioned [^\n]*? File contents are not attached automatically in this session: [^\n]*\n\n/;
+
+/**
+ * Drops context Claude Code adds on its own: the account reminder (it carries the account email) in user
+ * messages, and the @-mention notice in its system messages. Luna owns context; a block whose text is in
+ * Luna's user frames is Luna's and stays. A clean payload is forwarded as the identical bytes.
+ */
+export function dropNativeContext(payload: Buffer, luna: string[] | undefined): Buffer {
+  let body: any;
+  try {
+    body = JSON.parse(payload.toString('utf8'));
+  } catch {
+    return payload;
+  }
+  const messages = body?.messages;
+  if (!Array.isArray(messages)) return payload;
+  const own = new Set(luna ?? []);
+  const strip = (text: unknown): string | undefined =>
+    typeof text === 'string' && _MENTION_NOTICE.test(text) && !own.has(text) ? text.replace(_MENTION_NOTICE, '') : undefined;
+  let changed = false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || typeof message !== 'object') continue;
+    const content = message.content;
+    if (message.role === 'user' && Array.isArray(content)) {
+      for (let k = content.length - 1; k >= 0; k--) {
+        const block = content[k];
+        if (!block || block.type !== 'text' || typeof block.text !== 'string') continue;
+        if (!block.text.startsWith(_ACCOUNT_CONTEXT) || own.has(block.text) || content.length === 1) continue;
+        content.splice(k, 1);
+        const before = content[k - 1];
+        if (block.cache_control !== undefined && before && typeof before === 'object' && !('cache_control' in before)
+          && !UNCACHEABLE.includes(before.type)) before.cache_control = block.cache_control;
+        changed = true;
+      }
+    } else if (message.role === 'system') {
+      if (typeof content === 'string') {
+        const rest = strip(content);
+        if (rest === undefined) continue;
+        if (rest) message.content = rest; else messages.splice(i, 1);
+        changed = true;
+      } else if (Array.isArray(content) && content.length > 0) {
+        const first = content[0];
+        const rest = first && first.type === 'text' ? strip(first.text) : undefined;
+        if (rest === undefined) continue;
+        if (rest) first.text = rest; else if (content.length > 1) content.shift(); else messages.splice(i, 1);
+        changed = true;
+      }
+    }
+  }
+  return changed ? (Buffer.from(JSON.stringify(body), 'utf8') as unknown as Buffer) : payload;
+}
 
 function withoutCacheControl(content: unknown): unknown {
   if (Array.isArray(content)) return content.map(withoutCacheControl);
@@ -780,9 +833,12 @@ export class Admission {
   private timeoutMs: number;
   private queried?: Block[];
   private replayMetadata?: NativeReplayMetadata;
+  private lunaText?: string[];
   private proxy: ReturnType<typeof upstreamProxy>;
 
-  private constructor(server: http.Server, url: string, upstream: URL, timeoutMs: number, queried?: Block[], replayMetadata?: NativeReplayMetadata) {
+  private constructor(server: http.Server, url: string, upstream: URL, timeoutMs: number, queried?: Block[],
+    replayMetadata?: NativeReplayMetadata, lunaText?: string[]) {
+    this.lunaText = lunaText;
     this.server = server;
     this.url = url;
     this.upstreamUrl = upstream;
@@ -807,7 +863,9 @@ export class Admission {
     });
   }
 
-  static async open(upstream: string, timeoutMs: number, queried?: Block[], replayMetadata?: NativeReplayMetadata): Promise<Admission> {
+  /** lunaText: the text of every Luna user block, so the relay never drops Luna's own content as native context. */
+  static async open(upstream: string, timeoutMs: number, queried?: Block[], replayMetadata?: NativeReplayMetadata,
+    lunaText?: string[]): Promise<Admission> {
     let u: URL;
     try {
       u = new URL(upstream);
@@ -833,7 +891,7 @@ export class Admission {
     const addr = server.address() as net.AddressInfo | null;
     const url = `http://127.0.0.1:${addr ? addr.port : 0}${prefix}`;
 
-    const admission = new Admission(server, url, u, timeoutMs, queried, replayMetadata);
+    const admission = new Admission(server, url, u, timeoutMs, queried, replayMetadata, lunaText);
     server.on('request', (req, res) => admission.handleRequest(req, res, prefix));
     return admission;
   }
@@ -891,6 +949,7 @@ export class Admission {
       let payload: Buffer = Buffer.concat(chunks);
       try {
         try {
+          payload = dropNativeContext(payload, this.lunaText);
           payload = restoreQueriedTurn(payload, this.queried);
         } catch (err: unknown) {
           this.unrestored = (err as Error).message;
