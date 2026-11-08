@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { Check, X, LoaderCircle, ChevronRight, Circle, CircleDot } from '@lucide/vue';
+import { Check, X, LoaderCircle, ChevronRight, Circle, CircleDot, Globe, SquareTerminal } from '@lucide/vue';
+import { browser, showBrowserTab } from '@/stores/browser';
+import { showTerminal } from '@/stores/terminal';
+import { sessionPane } from '@/lib/pane';
 import { chat, openSession, toolArgsText } from '@/stores/chat';
 import { json as fetchJson } from '@/lib/api';
 import { formatTime, formatDateIso } from '@/lib/message';
-import { toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits, parseCodemodeCalls } from '@/lib/tool-view';
+import { dockTarget, toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits, parseCodemodeCalls } from '@/lib/tool-view';
 import Markdown from './Markdown.vue';
 import SessionImage from './SessionImage.vue';
 import DiffView from './tool/DiffView.vue';
@@ -134,6 +137,18 @@ const media = computed(() => {
   if (props.name === 'vision_analyze') return typeof j.width === 'number' ? `${j.width}×${j.height}` : '';
   return [j.model, j.image].filter((x: unknown) => typeof x === 'string' && x).join(' · ');
 });
+// Browser and terminal calls open their tab in the dock. Split tiles have no dock.
+const dockOpen = computed(() => {
+  if (sessionPane || !chat.session) return undefined;
+  const target = dockTarget(props.name, props.args, body.value);
+  return target?.pane === 'browser' && !browser.enabled ? undefined : target;
+});
+function openInDock() {
+  const target = dockOpen.value;
+  if (!target || !chat.session) return;
+  if (target.pane === 'browser') void showBrowserTab(chat.session, target.id);
+  else void showTerminal(chat.session, target.id);
+}
 const codemodeCalls = computed(() => view.value === 'codemode' ? parseCodemodeCalls(details.value) : []);
 const codemodeCode = computed(() => typeof a.value.code === 'string' ? a.value.code : '');
 const hasBody = computed(() => {
@@ -166,6 +181,9 @@ const hasBody = computed(() => {
         <span v-if="exitCode !== undefined && exitCode !== null && exitCode !== 0" class="tool-exit">exit {{ exitCode }}</span>
         <span v-if="state === 'running' || state === 'pending'" class="tool-state">{{ state === 'running' ? 'Running' : 'No result' }}</span>
         <a v-if="child" href="#" @click.prevent.stop="openSession(child)">Child {{ child }}</a>
+        <button v-if="dockOpen" type="button" class="tool-dock" :title="dockOpen.pane === 'browser' ? 'Show this tab in the browser panel' : 'Show this terminal in the terminal panel'" @click.prevent.stop="openInDock">
+          <Globe v-if="dockOpen.pane === 'browser'" :size="13" aria-hidden="true" /><SquareTerminal v-else :size="13" aria-hidden="true" />{{ dockOpen.pane === 'browser' ? 'Show tab' : 'Show terminal' }}
+        </button>
         <ChevronRight :size="13" class="disclosure-chevron" aria-hidden="true" />
       </summary>
       <!-- Closed tools need only their summary. Build output views only when opened. -->
@@ -289,4 +307,7 @@ const hasBody = computed(() => {
 .tool-truncated-bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px 8px; }
 .tool-truncated-bar .code-more { margin: 0; padding: 0; }
 .tool-truncated-err { font-size: 11px; color: var(--destructive); }
+.tool-dock { display: inline-flex; flex: none; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--muted-foreground); font: 12px/1.4 var(--mono); white-space: nowrap; cursor: pointer; }
+.tool-dock:hover { background: var(--secondary); color: var(--foreground); }
+.tool-dock:focus-visible { outline: 1px solid var(--ring); outline-offset: 1px; }
 </style>

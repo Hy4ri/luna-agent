@@ -1,17 +1,18 @@
 <script setup lang="ts">
 // The Browser pane of the dock: tabs, address bar, drive controls and the live view.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ArrowLeft, ArrowRight, Bot, Plus, RotateCw, X } from "@lucide/vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ArrowLeft, ArrowRight, Bot, Globe, Plus, RotateCw, X } from "@lucide/vue";
 import WorkDock from "@/components/dock/WorkDock.vue";
 import DockControls from "@/components/dock/DockControls.vue";
 import BrowserView from "./BrowserView.vue";
-import { browser, closeBrowserTab, controlBrowserTab, openBrowserTab, watchBrowser } from "@/stores/browser";
+import { browser, closeBrowserTab, controlBrowserTab, openBrowserTab, selectBrowserTab, watchBrowser } from "@/stores/browser";
 import { dock } from "@/stores/dock";
 import { normalizeUrl } from "@/lib/browser-view";
 
-const current = computed(() => browser.tabs.find(t => t.tabId === browser.active));
+const current = computed(() => browser.draft ? undefined : browser.tabs.find(t => t.tabId === browser.active));
 const address = ref("");
 const editing = ref(false);
+const addressInput = ref<HTMLInputElement | null>(null);
 watch(() => [current.value?.tabId, current.value?.url] as const, ([, url]) => { if (!editing.value) address.value = url ?? ""; }, { immediate: true });
 
 const host = (url: string) => { try { return new URL(url).host || url; } catch { return url || "new tab"; } };
@@ -20,8 +21,8 @@ const views = ref<Record<string, InstanceType<typeof BrowserView> | null>>({});
 
 function submitAddress() {
   const url = normalizeUrl(address.value);
-  editing.value = false;
   if (!url) return;
+  editing.value = false;
   if (!current.value) { void openBrowserTab(url); return; }
   void navInput({ kind: "nav", action: "goto", url });
 }
@@ -31,14 +32,31 @@ function navInput(event: Record<string, unknown>) {
   if (t.controller !== "user") { void controlBrowserTab(t.tabId, "take").then(() => views.value[t.tabId]?.sendNav(event)); return; }
   views.value[t.tabId]?.sendNav(event);
 }
-function newTab() { const url = normalizeUrl(address.value); void openBrowserTab(/^https?:\/\//i.test(url) ? url : "https://duckduckgo.com/"); }
+// A new tab starts blank, like a browser's: nothing carries over from the tab on screen. The page opens when m57 enters an address.
+async function newTab() {
+  browser.draft = true;
+  editing.value = false;
+  address.value = "";
+  await nextTick();
+  addressInput.value?.focus();
+}
+function cancelDraft() {
+  browser.draft = false;
+  if (!editing.value) address.value = current.value?.url ?? "";
+}
+function addressKey(event: KeyboardEvent) {
+  if (event.key !== "Escape" || event.isComposing) return;
+  if (browser.draft && browser.tabs.length) { cancelDraft(); return; }
+  address.value = current.value?.url ?? "";
+  addressInput.value?.blur();
+}
 function tabKey(event: KeyboardEvent, index: number) {
   if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
   const last = browser.tabs.length - 1;
   const next = event.key === "ArrowRight" ? (index + 1) % (last + 1) : event.key === "ArrowLeft" ? (index + last) % (last + 1) : event.key === "Home" ? 0 : event.key === "End" ? last : -1;
   if (next < 0) return;
   event.preventDefault();
-  browser.active = browser.tabs[next]!.tabId;
+  selectBrowserTab(browser.tabs[next]!.tabId);
   (document.getElementById(`browser-tab-${browser.active}`) as HTMLElement | null)?.focus();
 }
 onMounted(() => watchBrowser(true));
@@ -47,58 +65,71 @@ onBeforeUnmount(() => watchBrowser(false));
 
 <template>
   <WorkDock label="Browser">
-    <header class="dock-bar">
-      <div class="dock-tabs" role="tablist" aria-label="Browser tabs">
-        <div v-for="(t, i) in browser.tabs" :key="t.tabId" class="dock-tab" :class="{ active: t.tabId === browser.active }">
-          <button :id="`browser-tab-${t.tabId}`" type="button" role="tab" :aria-selected="t.tabId === browser.active" :tabindex="t.tabId === browser.active ? 0 : -1" :title="t.url" @click="browser.active = t.tabId" @keydown="tabKey($event, i)">
-            <Bot v-if="t.owner === 'agent'" :size="12" class="dock-luna" aria-label="Luna's tab" />{{ host(t.url) }}
+    <header class="tab-strip">
+      <div class="tabs" role="tablist" aria-label="Browser tabs">
+        <div v-for="(t, i) in browser.tabs" :key="t.tabId" class="tab" :class="{ active: !browser.draft && t.tabId === browser.active }">
+          <button :id="`browser-tab-${t.tabId}`" type="button" role="tab" class="tab-label" :aria-selected="!browser.draft && t.tabId === browser.active" :tabindex="t.tabId === browser.active ? 0 : -1" :title="t.url" @click="selectBrowserTab(t.tabId)" @keydown="tabKey($event, i)">
+            <Bot v-if="t.owner === 'agent'" :size="12" class="tab-icon" aria-label="Luna's tab" /><Globe v-else :size="12" class="tab-icon" aria-hidden="true" /><span class="tab-text">{{ host(t.url) }}</span>
           </button>
-          <button type="button" class="dock-close" :aria-label="`Close tab ${i + 1}`" title="Close tab" @click="closeBrowserTab(t.tabId)"><X :size="12" /></button>
+          <button type="button" class="tab-close" :aria-label="`Close tab ${i + 1}`" title="Close tab" @click="closeBrowserTab(t.tabId)"><X :size="12" /></button>
+        </div>
+        <div v-if="browser.draft" class="tab active">
+          <button type="button" role="tab" class="tab-label" aria-selected="true" tabindex="0" @click="addressInput?.focus()"><Globe :size="12" class="tab-icon" aria-hidden="true" /><span class="tab-text">New tab</span></button>
+          <button v-if="browser.tabs.length" type="button" class="tab-close" aria-label="Close new tab" title="Close tab" @click="cancelDraft"><X :size="12" /></button>
         </div>
       </div>
-      <template v-if="current">
-        <span v-if="current.controller === 'agent'" class="dock-state">Luna is driving</span>
-        <span v-else class="dock-state">You are driving</span>
-        <span v-if="!current.input" class="dock-state">View only</span>
-        <button v-if="current.controller === 'agent' && current.input" type="button" class="dock-action" title="Click and type in this tab yourself. Luna waits until you give it back." @click="controlBrowserTab(current.tabId, 'take')">Take over</button>
-        <button v-else-if="current.controller === 'user'" type="button" class="dock-action" title="Let Luna use this tab again." @click="controlBrowserTab(current.tabId, 'give')">Give to Luna</button>
-      </template>
-      <button type="button" class="icon-button" aria-label="New tab" title="New tab" @click="newTab"><Plus :size="14" /></button>
-      <DockControls :panes="['terminal', 'browser']" @pane="dock.pane = $event" />
+      <button type="button" class="icon-button tab-new" aria-label="New tab" title="New tab" @click="newTab"><Plus :size="14" /></button>
+      <DockControls class="tab-controls" :panes="['terminal', 'browser']" @pane="dock.pane = $event" />
     </header>
     <form class="address-bar" @submit.prevent="submitAddress">
       <button type="button" class="icon-button" aria-label="Back" title="Back" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'back' })"><ArrowLeft :size="14" /></button>
       <button type="button" class="icon-button" aria-label="Forward" title="Forward" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'forward' })"><ArrowRight :size="14" /></button>
       <button type="button" class="icon-button" aria-label="Reload" title="Reload" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'reload' })"><RotateCw :size="14" /></button>
-      <input v-model="address" class="address-input" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Address" :placeholder="current ? '' : 'Enter an address to open a tab'" :disabled="!!current && !current.input" @focus="editing = true" @blur="editing = false" />
+      <input ref="addressInput" v-model="address" class="address-input" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Address" :placeholder="current ? '' : 'Enter an address to open a tab'" :disabled="!!current && !current.input" @focus="editing = true" @blur="editing = false" @keydown="addressKey" />
+      <template v-if="current">
+        <span class="drive-state" :title="current.input ? undefined : 'You can watch this tab but not click or type in it.'">{{ !current.input ? "View only" : current.controller === "agent" ? "Luna is driving" : "You are driving" }}</span>
+        <button v-if="current.controller === 'agent' && current.input" type="button" class="drive-action" title="Click and type in this tab yourself. Luna waits until you give it back." @click="controlBrowserTab(current.tabId, 'take')">Take over</button>
+        <button v-else-if="current.controller === 'user'" type="button" class="drive-action" title="Let Luna use this tab again." @click="controlBrowserTab(current.tabId, 'give')">Give to Luna</button>
+      </template>
     </form>
     <p v-if="browser.error" class="dock-message" role="alert">{{ browser.error }}</p>
-    <div v-if="!browser.tabs.length" class="dock-empty">
-      <p>{{ browser.loading ? "Loading..." : "No browser tabs in this session. Ask Luna to open a page, or enter an address above." }}</p>
+    <div v-if="!browser.tabs.length || browser.draft" class="dock-empty">
+      <p>{{ browser.loading && !browser.tabs.length ? "Loading..." : browser.draft || browser.tabs.length ? "Enter an address above to open it in this tab." : "No browser tabs in this session. Ask Luna to open a page, or enter an address above." }}</p>
     </div>
-    <div v-else class="dock-body">
-      <BrowserView v-for="t in browser.tabs" :key="t.tabId" :ref="el => (views[t.tabId] = el as InstanceType<typeof BrowserView> | null)" :session="browser.session" :tab-id="t.tabId" :active="t.tabId === browser.active" />
+    <div v-if="browser.tabs.length" class="dock-body" :hidden="browser.draft">
+      <BrowserView v-for="t in browser.tabs" :key="t.tabId" :ref="el => (views[t.tabId] = el as InstanceType<typeof BrowserView> | null)" :session="browser.session" :tab-id="t.tabId" :active="!browser.draft && t.tabId === browser.active" />
     </div>
   </WorkDock>
 </template>
 
 <style scoped>
-.dock-bar { display: flex; align-items: center; gap: 2px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--card); }
-.dock-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; }
-.dock-tab { display: flex; align-items: center; border-bottom: 2px solid transparent; font: 12px var(--mono); color: var(--muted-foreground); }
-.dock-tab.active { border-bottom-color: var(--primary-text); color: var(--foreground); }
-.dock-tab > button[role="tab"] { max-width: 180px; overflow: hidden; text-overflow: ellipsis; padding: 6px 4px 6px 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
-.dock-luna { margin-right: 4px; vertical-align: -2px; }
-.dock-state { padding: 0 6px; color: var(--muted-foreground); font: 12px var(--mono); white-space: nowrap; }
-.dock-action { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
-.dock-action:hover { background: var(--secondary); }
-.dock-close { display: grid; place-items: center; width: 20px; height: 20px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; }
-.dock-close:hover { background: var(--secondary); }
+/* Tab strip: the active tab joins the address bar below it, like a desktop browser. */
+.tab-strip { display: flex; align-items: flex-end; gap: 2px; min-height: 34px; padding: 4px 4px 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
+.tabs { display: flex; flex: 0 1 auto; align-items: flex-end; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.tab { position: relative; display: flex; flex: 0 1 auto; align-items: center; width: 180px; min-width: 96px; height: 30px; margin-bottom: -1px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; color: var(--muted-foreground); font: 12px var(--mono); }
+.tab + .tab::before { content: ""; position: absolute; left: -1px; top: 8px; bottom: 8px; border-left: 1px solid var(--border); }
+.tab.active::before, .tab.active + .tab::before { display: none; }
+.tab:hover:not(.active) { background: color-mix(in srgb, var(--card) 50%, transparent); color: var(--foreground); }
+.tab.active { z-index: 1; height: 31px; border-color: var(--border); background: var(--card); color: var(--foreground); box-shadow: inset 0 2px 0 var(--primary-text); }
+.tab-label { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 2px 0 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.tab-label:focus-visible, .tab-close:focus-visible { outline: 1px solid var(--ring); outline-offset: -2px; }
+.tab-icon { flex: none; color: var(--muted-foreground); }
+.tab-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close { display: grid; flex: none; place-items: center; width: 20px; height: 20px; margin-right: 4px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; opacity: 0; }
+.tab:hover .tab-close, .tab.active .tab-close, .tab-close:focus-visible { opacity: 1; }
+.tab-close:hover { background: var(--secondary); }
+@media (hover: none) { .tab-close { opacity: 1; } }
+.tab-new { flex: none; align-self: center; margin-bottom: 2px; }
+.tab-controls { align-self: center; margin-left: auto; padding-left: 4px; margin-bottom: 2px; }
 .address-bar { display: flex; align-items: center; gap: 2px; padding: 3px 4px; border-bottom: 1px solid var(--border); background: var(--card); }
 .address-input { flex: 1; min-width: 0; padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font: 12px var(--mono); }
 .address-input:focus-visible { outline: 1px solid var(--ring); }
 .address-input:disabled { opacity: .7; }
+.drive-state { padding: 0 4px 0 8px; color: var(--muted-foreground); font: 12px var(--mono); white-space: nowrap; }
+.drive-action { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
+.drive-action:hover { background: var(--secondary); }
 .dock-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.dock-body[hidden] { display: none; }
 .dock-message { margin: 0; padding: 4px 10px; color: var(--destructive); font: 12px var(--mono); border-bottom: 1px solid var(--border); }
 .dock-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 0 16px; text-align: center; color: var(--muted-foreground); font: 13px var(--mono); }
 .dock-empty p { margin: 0; }

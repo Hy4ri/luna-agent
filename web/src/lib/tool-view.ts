@@ -115,6 +115,25 @@ export function parseJson(text: string): any {
   try { return JSON.parse(text); } catch { return undefined; }
 }
 
+export type DockTarget = { pane: "browser" | "terminal"; id?: string };
+const BROWSER_TOOLS = new Set(["browser_tab", "browser_inspect", "browser_act"]);
+
+/** The dock pane a call worked in, and the tab or terminal it used when the arguments or output name one. */
+export function dockTarget(name: string, args: unknown, output: string): DockTarget | undefined {
+  const a = args && typeof args === "object" ? args as Record<string, unknown> : {};
+  if (BROWSER_TOOLS.has(name)) {
+    // browser_tab open returns the new handle; every other call names it.
+    const id = str(a.tabId) || str(parseJson(output)?.tabId);
+    return id ? { pane: "browser", id } : { pane: "browser" };
+  }
+  if (name === "terminal") {
+    // Every screen the tool returns starts with `terminal <id> | ...`.
+    const id = str(a.id) || /^terminal (\S+) \|/.exec(output)?.[1];
+    return id ? { pane: "terminal", id } : { pane: "terminal" };
+  }
+  return undefined;
+}
+
 /** Numbered lines for a code view; a trailing newline adds no line. */
 export function codeLines(text: string, start = 1): { line: number; text: string }[] {
   const lines = text.replace(/\n$/, "").split("\n");
