@@ -5,7 +5,9 @@ import { Crop, X, Send, Loader2 } from "@lucide/vue";
 import { domToCanvas } from "modern-screenshot";
 import { chat, newSession, addErr } from "@/stores/chat";
 import { composer, addAttachment, send } from "@/stores/composer";
+import { history, loadProjects } from "@/stores/sessions";
 import { models, selectedKey, setSelectedModel, LEVELS, levelLabel, loadModels } from "@/stores/models";
+import { SNAP_PROJECT_KEY, resolveSnapProject } from "@/lib/projects";
 import ModelCombobox from "@/components/ModelCombobox.vue";
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -18,15 +20,30 @@ const note = ref("");
 const preview = ref("");
 const model = ref<string | undefined>();
 const thinking = ref("off");
+const project = ref<number | null>(null);
 let shot: { png: Blob; html: string; rect: Rect; target: string } | null = null;
 
 const box = computed(() => rect.value && ({ left: rect.value.x + "px", top: rect.value.y + "px", width: rect.value.w + "px", height: rect.value.h + "px" }));
 const inUi = (el: Element | null) => !!el?.closest("[data-snap-ui]");
 
+function readSavedProject(): string | null {
+  try { return localStorage.getItem(SNAP_PROJECT_KEY); } catch { return null; }
+}
+function saveProject(id: number | null) {
+  try {
+    if (id === null) localStorage.removeItem(SNAP_PROJECT_KEY);
+    else localStorage.setItem(SNAP_PROJECT_KEY, String(id));
+  } catch {}
+}
+
 function begin() {
   mode.value = "select"; rect.value = null; start.value = null; shot = null; note.value = ""; preview.value = "";
   model.value = selectedKey.value || undefined; thinking.value = models.thinking || "off";
+  project.value = resolveSnapProject(history.projects, readSavedProject(), chat.project);
   void loadModels();
+  void loadProjects().then(() => {
+    project.value = resolveSnapProject(history.projects, readSavedProject(), chat.project);
+  }).catch(() => {});
 }
 function cancel() { mode.value = "idle"; rect.value = null; start.value = null; shot = null; busy.value = false; }
 function down(e: PointerEvent) {
@@ -132,7 +149,9 @@ async function submit() {
   busy.value = true;
   const s = shot;
   try {
-    if (!await newSession(chat.project)) throw new Error("Could not start a new session.");
+    const targetProject = project.value ?? resolveSnapProject(history.projects, readSavedProject(), chat.project);
+    saveProject(targetProject);
+    if (!await newSession(targetProject)) throw new Error("Could not start a new session.");
     // newSession resets the draft. Apply the snap choices so createSession uses them.
     const [provider, ...rest] = (model.value || "").split("/");
     const pick = model.value ? { provider, modelId: rest.join("/") } : undefined;
@@ -170,8 +189,11 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
       <img :src="preview" alt="Selected area" />
       <textarea v-model="note" rows="3" placeholder="What is wrong? (optional)" class="snap-note" @keydown.ctrl.enter="submit" @keydown.meta.enter="submit" />
       <div class="snap-options">
+        <select v-if="history.projects.length" v-model="project" class="snap-select snap-project" aria-label="Snap target project" title="Target project" @change="saveProject(project)">
+          <option v-for="p in history.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+        </select>
         <ModelCombobox v-model="model" empty-label="Default model" aria-label="Snap session model" content-class="z-[2147483002]" />
-        <select v-model="thinking" class="snap-think" aria-label="Reasoning level" title="Reasoning level">
+        <select v-model="thinking" class="snap-select snap-think" aria-label="Reasoning level" title="Reasoning level">
           <option v-for="l in LEVELS" :key="l" :value="l">{{ levelLabel(l) }}</option>
         </select>
       </div>
@@ -193,10 +215,12 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 .snap-review { position: fixed; z-index: 2147483001; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 12px 40px #0009; }
 .snap-review img { max-height: 180px; width: 100%; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--background); }
 .snap-note { width: 100%; resize: none; padding: 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); font-size: 13px; }
-.snap-options { display: flex; gap: 8px; min-width: 0; }
-.snap-options :deep(.combobox-trigger) { flex: 1; min-height: 34px; padding: 6px 10px; border-radius: 6px; }
+.snap-options { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.snap-options :deep(.combobox-trigger) { flex: 1 1 140px; min-height: 34px; padding: 6px 10px; border-radius: 6px; }
 .snap-options :deep(.combobox-label) { font-size: 13px; }
-.snap-think { flex: none; min-height: 34px; padding: 0 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 13px; }
+.snap-select { min-height: 34px; padding: 0 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 13px; }
+.snap-project { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.snap-think { flex: none; }
 .snap-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .snap-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
 .snap-primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }

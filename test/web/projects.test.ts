@@ -1,6 +1,7 @@
+// Web modules use bundler resolution, so this folder is excluded from the root tsc project; typecheck:web covers them.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveQuickSessionTarget, sortProjects } from "../../web/src/lib/projects.ts";
+import { resolveQuickSessionTarget, resolveSnapProject, sortProjects } from "../../web/src/lib/projects.ts";
 
 test("sortProjects places favourites first and keeps relative order inside each group", () => {
   const input = [
@@ -58,4 +59,33 @@ test("resolveQuickSessionTarget disables quick-new with a clear reason when no l
     worker: null,
     disabledReason: "unlinked is not linked to a machine",
   });
+});
+
+const snapProjects = [
+  { id: 0, name: "General", general: true, favorite: false },
+  { id: 2, name: "hermes-mobile", favorite: true },
+  { id: 5, name: "luna-pi", favorite: false },
+];
+
+test("resolveSnapProject uses the saved project when it exists in the project list", () => {
+  assert.equal(resolveSnapProject(snapProjects, "2", 5), 2);
+  assert.equal(resolveSnapProject(snapProjects, "0", 5), 0);
+});
+
+test("resolveSnapProject defaults to luna-pi when no valid saved project exists", () => {
+  assert.equal(resolveSnapProject(snapProjects, null, 2), 5);
+  assert.equal(resolveSnapProject(snapProjects, "", 0), 5);
+  assert.equal(resolveSnapProject(snapProjects, "999", 2), 5);
+  assert.equal(resolveSnapProject(snapProjects, "not-a-number", 2), 5);
+});
+
+test("resolveSnapProject falls back to active project or first project when luna-pi is absent", () => {
+  const withoutLunaPi = [
+    { id: 0, name: "General" },
+    { id: 2, name: "hermes-mobile" },
+  ];
+  assert.equal(resolveSnapProject(withoutLunaPi, null, 2), 2);
+  assert.equal(resolveSnapProject(withoutLunaPi, "999", null), 0);
+  assert.equal(resolveSnapProject([], null, 2), 2);
+  assert.equal(resolveSnapProject([], null, null), null);
 });

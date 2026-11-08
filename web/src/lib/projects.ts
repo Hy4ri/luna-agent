@@ -1,6 +1,8 @@
 import type { Project } from "./types";
 import type { WorkerRow } from "@/stores/workers";
 
+export const SNAP_PROJECT_KEY = "luna.snap.project";
+
 /** Favourite projects first. The incoming order is kept inside each group (the sort is stable). */
 export function sortProjects<T extends Pick<Project, "favorite">>(projects: readonly T[]): T[] {
   return [...projects.filter(p => p.favorite), ...projects.filter(p => !p.favorite)];
@@ -32,4 +34,23 @@ export function resolveQuickSessionTarget(
   const first = dirs[0]!;
   const name = workers.find(w => w.id === first.worker)?.name ?? "Worker";
   return { worker: first.worker, disabledReason: `${name} is offline` };
+}
+
+/**
+ * Resolve the project a UI snap session should start in.
+ * Uses the saved snap project when it still exists; otherwise prefers a `luna-pi` project, then `fallback`, then the first project.
+ */
+export function resolveSnapProject(
+  projects: readonly Pick<Project, "id" | "name">[],
+  saved?: string | null,
+  fallback?: number | null,
+): number | null {
+  if (saved !== undefined && saved !== null && saved !== "") {
+    const id = Number(saved);
+    if (Number.isInteger(id) && projects.some(p => p.id === id)) return id;
+  }
+  const lunaPi = projects.find(p => p.name.toLowerCase() === "luna-pi");
+  if (lunaPi) return lunaPi.id;
+  if (fallback !== undefined && fallback !== null && projects.some(p => p.id === fallback)) return fallback;
+  return projects[0]?.id ?? fallback ?? null;
 }
