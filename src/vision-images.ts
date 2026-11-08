@@ -1,7 +1,6 @@
 import { chmod, mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import http from "node:http";
@@ -156,7 +155,7 @@ export async function loadVisionImage(source: string, region: VisionRegion | und
     let bytes = await sourceBytes(source, options.cwd ?? process.cwd(), signal, options.env);
     interrupted(signal);
     if (bytes.length > MAX_BYTES) throw new Error("Image exceeds 32 MiB transport limit.");
-    const sourceKey = createHash("sha256").update(bytes).digest("hex");
+    const sourceKey = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
     await writeFile(join(dir, "source"), bytes, { mode: 0o600 });
     // Reject all SVG external resources before handing XML to the renderer.
     const xml = bytes.toString("utf8");

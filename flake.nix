@@ -44,10 +44,9 @@
           '';
         in {
         default = pkgs.mkShell {
-          # Node 26 for node:sqlite; pnpm self-switches to the packageManager pin.
+          # Bun runtime and package manager (`bun:sqlite`, `Bun.serve`, `Bun.Terminal`, `bun:test`).
           packages = [
-            pkgs.nodejs_26
-            pkgs.pnpm
+            pkgs.bun
             pkgs.sqlite
             # The interactive terminal contract test drives a real Vim session.
             pkgs.vim

@@ -1,6 +1,5 @@
 import { addCostProvenance } from "./usage-cost.js";
 import { ExecTarget } from "./workers.js";
-import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -162,7 +161,7 @@ export class SideCommands {
     const identity = kind === "btw" ? await this.options.harness.snapshot(ProviderDoc, source.id, context) : undefined;
     if (this.closing) throw new Error("side commands are shutting down");
     const now = new Date(), time = [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2, "0")).join("");
-    const job: SideJob = { id: `${kind}_${time}_${randomBytes(3).toString("hex")}`, sessionId: String(source.id),
+    const job: SideJob = { id: `${kind}_${time}_${Buffer.from(crypto.getRandomValues(new Uint8Array(3))).toString("hex")}`, sessionId: String(source.id),
       kind, prompt, status: "running", text: "", createdAt: Date.now() };
     if (!this.observingClose) {
       this.observingClose = true;

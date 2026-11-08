@@ -1,6 +1,6 @@
 // Contract: the UI history view drops provider-only data but keeps everything the transcript displays.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import type { EntryRecord } from "@earendil-works/pi-durable";
 import { projectEntryForUi } from "../src/session-history-view.js";
 

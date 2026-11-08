@@ -1,7 +1,7 @@
 // Contract: MEDIA:<path> directives are found in text order, never inside code, and the server and web UI
 // agree on their index. SVG is never inline media, because it can carry script.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { entryMedia, mediaDirectives, mediaInfo } from "../src/media-directives.js";
 
 test("directives: bare, quoted with spaces, and in text order", () => {

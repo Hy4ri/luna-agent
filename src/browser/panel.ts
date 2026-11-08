@@ -6,10 +6,7 @@
 //   text frames,   client → server : {"type":"input",event:BrowserInput}
 // The server drops input while Luna drives. m57 takes the tab with the control route; Luna's tools then refuse that tab.
 // The browser never puts the Bearer token in a URL: it asks for a ticket over authenticated HTTP, then opens the socket with the ticket.
-import { randomBytes } from "node:crypto";
-import type { IncomingMessage, Server } from "node:http";
-import type { Duplex } from "node:stream";
-import { WebSocket, WebSocketServer } from "ws";
+import type { Server, ServerWebSocket } from "bun";
 import type { BrowserFrame, BrowserInput, BrowserProvider, BrowserResolver, BrowserTab, BrowserTabHooks } from "../browser-tools.js";
 import { validateWebUrl } from "../web-tools.js";
 
@@ -55,8 +52,10 @@ export function pngSize(data: Buffer): { width: number; height: number } {
   return data.length >= 24 && data.readUInt32BE(0) === 0x89504e47 ? { width: data.readUInt32BE(16), height: data.readUInt32BE(20) } : { width: 0, height: 0 };
 }
 
+export type BrowserWsData = { kind: "browser"; id: string };
+
 interface Stream {
-  sockets: Set<WebSocket>;
+  sockets: Set<ServerWebSocket<BrowserWsData>>;
   abort: AbortController;
   last?: BrowserFrame;
 }
@@ -68,7 +67,6 @@ export class BrowserPanel implements BrowserTabHooks {
   private issued: number[] = [];
   /** m57's panel activity per session, until Luna's next browser call. */
   private notices = new Map<number, string[]>();
-  private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_INPUT_FRAME });
   private readonly now: () => number;
 
   constructor(private options: BrowserPanelOptions) { this.now = options.now ?? Date.now; }
@@ -152,7 +150,7 @@ export class BrowserPanel implements BrowserTabHooks {
     if (this.issued.length >= TICKETS_PER_MINUTE) throw new BrowserPanelError("Too many browser connections. Wait a moment.", 409);
     this.issued.push(now);
     for (const [k, v] of this.tickets) if (v.expires <= now) this.tickets.delete(k);
-    const ticket = randomBytes(24).toString("base64url");
+    const ticket = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
     this.tickets.set(ticket, { tab: tabId, expires: now + TICKET_TTL_MS });
     return { ticket, expiresIn: TICKET_TTL_MS };
   }
@@ -164,24 +162,22 @@ export class BrowserPanel implements BrowserTabHooks {
   }
 
   // --- WebSocket ---
-  attach(server: Pick<Server, "on">) { server.on("upgrade", (req, socket, head) => this.upgrade(req, socket, head)); }
-
-  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
-    const url = new URL(req.url ?? "/", "http://x");
+  tryUpgrade(req: Request, server: Server<BrowserWsData>): Response | null | undefined {
+    const url = new URL(req.url);
     const m = ATTACH_PATH.exec(url.pathname);
-    if (!m) return;
-    const reject = (code: number, text: string) => socket.end(`HTTP/1.1 ${code} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-    const origin = req.headers.origin;
-    if (origin && this.options.allowOrigin && !this.options.allowOrigin(origin, req.headers.host)) return reject(403, "Forbidden");
+    if (!m) return undefined;
+    const origin = req.headers.get("origin");
+    if (origin && this.options.allowOrigin && !this.options.allowOrigin(origin, req.headers.get("host") ?? undefined)) return new Response(null, { status: 403 });
     const id = m[1]!;
     // The ticket is spent even when the tab is gone, so a leaked URL cannot be retried.
-    if (!this.redeem(url.searchParams.get("ticket"), id)) return reject(401, "Unauthorized");
-    if (!this.tabs.has(id)) return reject(404, "Not Found");
-    if (!this.enabled()) return reject(403, "Forbidden");
-    this.wss.handleUpgrade(req, socket, head, ws => this.serve(id, ws));
+    if (!this.redeem(url.searchParams.get("ticket"), id)) return new Response(null, { status: 401 });
+    if (!this.tabs.has(id)) return new Response(null, { status: 404 });
+    if (!this.enabled()) return new Response(null, { status: 403 });
+    if (server.upgrade(req, { data: { kind: "browser", id } satisfies BrowserWsData })) return null;
+    return new Response("WebSocket upgrade failed", { status: 400 });
   }
 
-  private json(ws: WebSocket, value: unknown) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(value)); }
+  private json(ws: ServerWebSocket<BrowserWsData>, value: unknown) { if (ws.readyState === 1) ws.sendText(JSON.stringify(value)); }
   private meta(e: Entry, frame?: BrowserFrame) {
     return { type: "meta", width: frame?.width ?? this.streams.get(e.tabId)?.last?.width ?? 0, height: frame?.height ?? this.streams.get(e.tabId)?.last?.height ?? 0, url: e.url, controller: e.controller, input: e.input, live: e.live };
   }
@@ -190,37 +186,41 @@ export class BrowserPanel implements BrowserTabHooks {
     if (stream) for (const ws of stream.sockets) this.json(ws, this.meta(e));
   }
 
-  private serve(id: string, ws: WebSocket) {
+  wsOpen(ws: ServerWebSocket<BrowserWsData>) {
+    const id = ws.data.id;
     const entry = this.tabs.get(id);
     if (!entry) { ws.close(1011, "tab closed"); return; }
     let stream = this.streams.get(id);
     if (!stream) { stream = { sockets: new Set(), abort: new AbortController() }; this.streams.set(id, stream); this.startFeed(entry, stream); }
     stream.sockets.add(ws);
     this.json(ws, this.meta(entry));
-    if (stream.last && ws.readyState === WebSocket.OPEN) ws.send(stream.last.data, { binary: true });
+    if (stream.last && ws.readyState === 1) ws.sendBinary(stream.last.data);
+  }
 
-    ws.on("message", (raw, isBinary) => {
-      if (isBinary) return;
-      const e = this.tabs.get(id);
-      if (!e) return;
-      let msg: { type?: unknown; event?: unknown };
-      try { msg = JSON.parse(String(raw)); } catch { return; }
-      if (msg.type !== "input") return;
-      if (e.controller !== "user") return; // Luna drives: the view is read-only
-      if (!e.provider.input) { this.json(ws, { type: "error", message: "View only on this browser." }); return; }
-      const event = parseInput(msg.event);
-      if (!event) return;
-      e.provider.input({ tabId: id, event }).then(result => {
-        if (result?.url && result.url !== e.url) { e.url = result.url; this.pushMeta(e); this.note(e.session, `m57 went to ${result.url} in ${id}`); }
-      }).catch(error => this.json(ws, { type: "error", message: (error as Error).message }));
-    });
-    ws.on("error", () => { /* the close handler cleans up */ });
-    ws.on("close", () => {
-      const s = this.streams.get(id);
-      if (!s) return;
-      s.sockets.delete(ws);
-      if (!s.sockets.size) { s.abort.abort(); this.streams.delete(id); }
-    });
+  wsMessage(ws: ServerWebSocket<BrowserWsData>, raw: string | Buffer) {
+    if (typeof raw !== "string") return;
+    if (Buffer.byteLength(raw) > MAX_INPUT_FRAME) { ws.close(1009, "frame too large"); return; }
+    const id = ws.data.id;
+    const e = this.tabs.get(id);
+    if (!e) return;
+    let msg: { type?: unknown; event?: unknown };
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.type !== "input") return;
+    if (e.controller !== "user") return; // Luna drives: the view is read-only
+    if (!e.provider.input) { this.json(ws, { type: "error", message: "View only on this browser." }); return; }
+    const event = parseInput(msg.event);
+    if (!event) return;
+    e.provider.input({ tabId: id, event }).then(result => {
+      if (result?.url && result.url !== e.url) { e.url = result.url; this.pushMeta(e); this.note(e.session, `m57 went to ${result.url} in ${id}`); }
+    }).catch(error => this.json(ws, { type: "error", message: (error as Error).message }));
+  }
+
+  wsClose(ws: ServerWebSocket<BrowserWsData>) {
+    const id = ws.data.id;
+    const s = this.streams.get(id);
+    if (!s) return;
+    s.sockets.delete(ws);
+    if (!s.sockets.size) { s.abort.abort(); this.streams.delete(id); }
   }
 
   /** One feed per tab, shared by every socket. CDP push when the provider has it, screenshots otherwise. */
@@ -231,10 +231,10 @@ export class BrowserPanel implements BrowserTabHooks {
       if (frame.url && frame.url !== entry.url) entry.url = frame.url;
       const meta = JSON.stringify(this.meta(entry, frame));
       for (const ws of stream.sockets) {
-        if (ws.readyState !== WebSocket.OPEN) continue;
-        if (ws.bufferedAmount > MAX_BUFFERED_BYTES) continue; // a slow client skips frames; nothing is lost
-        ws.send(meta);
-        ws.send(frame.data, { binary: true });
+        if (ws.readyState !== 1) continue;
+        if (ws.getBufferedAmount() > MAX_BUFFERED_BYTES) continue; // a slow client skips frames; nothing is lost
+        ws.sendText(meta);
+        ws.sendBinary(frame.data);
       }
     };
     const poll = async () => {
@@ -266,9 +266,12 @@ export class BrowserPanel implements BrowserTabHooks {
   }
 
   closeAll() {
-    for (const s of this.streams.values()) s.abort.abort();
-    for (const ws of this.wss.clients) ws.terminate();
-    this.wss.close();
+    for (const s of this.streams.values()) {
+      s.abort.abort();
+      for (const ws of s.sockets) ws.close(1001, "daemon stopping");
+      s.sockets.clear();
+    }
+    this.streams.clear();
   }
 }
 

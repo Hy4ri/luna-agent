@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { bindRefusal, ConfigSchema, parseConfig } from "../src/config.js";
 import { SettingsStore } from "../src/settings.js";
 
@@ -25,7 +25,7 @@ test("config discovery uses home .luna, ignores checkout config, and honors expl
     writeFileSync(join(cwd, "luna.config.json"), JSON.stringify({ model: "checkout" }));
     writeFileSync(join(cwd, "override.json"), JSON.stringify({ model: "override" }));
     // A separate process isolates HOME, cwd, and config overrides from the rest of the suite.
-    const result = spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), "--input-type=module", "--eval", `
+    const result = spawnSync(process.execPath, ["--eval", `
       import assert from "node:assert/strict";
       import { unlinkSync } from "node:fs";
       import { join } from "node:path";

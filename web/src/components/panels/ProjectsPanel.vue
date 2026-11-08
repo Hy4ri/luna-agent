@@ -348,7 +348,7 @@ onMounted(async () => {
             <button type="button" role="switch" class="pw-switch" :aria-checked="!!current.autoWorktree" aria-label="Own worktree per session" :disabled="busy" @click="setAutoWorktree(!current.autoWorktree)"><span class="pw-thumb" /></button>
           </div>
           <form class="pw-row" @submit.prevent="saveWorktreeSetup">
-            <input v-model="worktreeSetup" class="pw-mono" aria-label="Worktree setup command" placeholder="Setup command, e.g. pnpm install --offline --frozen-lockfile" autocomplete="off" spellcheck="false" />
+            <input v-model="worktreeSetup" class="pw-mono" aria-label="Worktree setup command" placeholder="Setup command, e.g. bun install --frozen-lockfile" autocomplete="off" spellcheck="false" />
             <button type="submit" class="pw-btn" :disabled="busy || worktreeSetup.trim() === (current.worktreeSetup ?? '')">Save</button>
           </form>
         </div>

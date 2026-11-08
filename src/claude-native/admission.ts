@@ -3,7 +3,6 @@ import https from 'node:https';
 import type net from 'node:net';
 import tls from 'node:tls';
 import { URL } from 'node:url';
-import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import type { NativeReplayMetadata, NativeSystemInjection } from './types.js';
 export interface Block {
@@ -878,7 +877,7 @@ export class Admission {
       throw new Error('Native upstream must be HTTPS or a loopback HTTP fixture');
     }
 
-    const prefix = '/admit/' + randomBytes(32).toString('base64url');
+    const prefix = '/admit/' + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
     const server = http.createServer();
 
     await new Promise<void>((resolve, reject) => {

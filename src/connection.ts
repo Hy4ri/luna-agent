@@ -1,5 +1,4 @@
 // One persistent identity per daemon data directory; network addresses are not identities.
-import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
@@ -7,7 +6,7 @@ import { join } from "node:path";
 export function daemonConnection(dataDir: string, host: string, port: number, publicUrls: string[] = []) {
   mkdirSync(dataDir, { recursive: true });
   const file = join(dataDir, "connection-id");
-  try { writeFileSync(file, randomUUID(), { flag: "wx", mode: 0o600 }); }
+  try { writeFileSync(file, crypto.randomUUID(), { flag: "wx", mode: 0o600 }); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   const id = readFileSync(file, "utf8").trim();
   if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error("Invalid daemon connection-id");

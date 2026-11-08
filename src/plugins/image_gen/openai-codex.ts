@@ -1,6 +1,5 @@
 // Codex's native image endpoints, authenticated with ChatGPT subscription OAuth.
 // Protocol: openai/codex codex-rs/{ext/image-generation,api/src/endpoint/images}.
-import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -37,7 +36,7 @@ export function createOpenAICodexImageProvider(options: {
         const auth = await options.auth.resolve(signal);
         signal.throwIfAborted();
         const headers = new Headers({ authorization: `Bearer ${auth.accessToken}`, "content-type": "application/json",
-          "User-Agent": "LunaPi/1.0.0", originator: "luna-pi", "x-codex-image-turn-id": randomUUID() });
+          "User-Agent": "LunaPi/1.0.0", originator: "luna-pi", "x-codex-image-turn-id": crypto.randomUUID() });
         if (auth.accountId) headers.set("ChatGPT-Account-ID", auth.accountId);
         if (auth.residency) headers.set("x-openai-internal-codex-residency", auth.residency);
         const response = await (options.fetch ?? fetch)(`https://chatgpt.com/backend-api/codex/images/${sources.length ? "edits" : "generations"}`, {
@@ -66,7 +65,7 @@ export function createOpenAICodexImageProvider(options: {
         await sharp(bytes, { limitInputPixels: 40_000_000, failOn: "warning" }).stats();
         signal.throwIfAborted();
         await mkdir(options.outputDir, { recursive: true, mode: 0o700 });
-        const image = join(options.outputDir, `${randomUUID()}.png`);
+        const image = join(options.outputDir, `${crypto.randomUUID()}.png`);
         await writeFile(image, bytes, { flag: "wx", mode: 0o600 });
         // The backend can ignore size/quality. Report measured and reported values, not just the request.
         return { success: true, image, model, prompt, aspect_ratio, modality, provider: "openai-codex", upscaled: false,

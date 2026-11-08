@@ -1,5 +1,4 @@
 // Headless terminal screen for terminals Luna reads, built on the signed libghostty-vt 1.0.0 C ABI WASM.
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 export interface VtScreen {
@@ -120,7 +119,7 @@ let runtime: Promise<Runtime> | undefined;
 function getRuntime(): Promise<Runtime> {
   return runtime ??= (async () => {
     const raw = readFileSync(WASM_URL);
-    const digest = createHash("sha256").update(raw).digest("hex");
+    const digest = new Bun.CryptoHasher("sha256").update(raw).digest("hex");
     if (digest !== WASM_SHA256)
       throw new Error(`ghostty-vt WASM SHA256 mismatch: expected ${WASM_SHA256}, got ${digest}`);
     const [vtMod, trampMod] = await Promise.all([wasm().compile(raw), wasm().compile(WRITE_PTY_TRAMPOLINE)]);

@@ -1,5 +1,4 @@
 // Session-owned terminals. A terminal outlives any browser connection: clients attach, get the recent output replayed, and detach again.
-import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { defaultShell, programInvocation, shellEnvironment, type PtyLauncher, type PtyProcess } from "./pty-host.js";
 import type { VtFactory, VtModel, VtScreen } from "./vt-model.js";
@@ -116,7 +115,7 @@ export class TerminalRegistry {
     }
     const entry: Entry = {
       info: {
-        id: randomUUID(), session: input.session, owner, worker: input.worker, cwd: input.cwd, shell: proc.shell ?? basename(file),
+        id: crypto.randomUUID(), session: input.session, owner, worker: input.worker, cwd: input.cwd, shell: proc.shell ?? basename(file),
         ...(input.command ? { command: input.command } : {}), controller: owner === "agent" ? "agent" : "user", shared: owner === "agent",
         cols, rows, status: "running", exitCode: null, createdAt: Date.now(),
       },

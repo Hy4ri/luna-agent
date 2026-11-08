@@ -2,7 +2,7 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { stripTypeScriptTypes } from "node:module";
+const stripTs = (code: string): string => new Bun.Transpiler({ loader: "ts" }).transformSync(code);
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import { registerTS } from "vue/compiler-sfc";
@@ -16,7 +16,7 @@ function serviceWorker(): Plugin {
   return {
     name: "luna-service-worker",
     generateBundle() {
-      this.emitFile({ type: "asset", fileName: "sw.js", source: stripTypeScriptTypes(readFileSync(new URL("./sw.ts", import.meta.url), "utf8")) });
+      this.emitFile({ type: "asset", fileName: "sw.js", source: stripTs(readFileSync(new URL("./sw.ts", import.meta.url), "utf8")) });
     },
   };
 }

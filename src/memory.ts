@@ -1,6 +1,6 @@
 // Durable long-term memory: SQLite store of facts (keyed, upserted) and notes (free-form),
 // a compacted system-prompt section, and one memory tool (save/search/forget).
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
@@ -25,12 +25,12 @@ export interface MemoryOptions {
 }
 
 export class MemoryStore {
-  readonly db: DatabaseSync;
+  readonly db: Database;
   readonly budget: number;
   readonly maxNotes: number;
 
   constructor(path: string, opts: MemoryOptions = {}) {
-    this.db = new DatabaseSync(path);
+    this.db = new Database(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
     this.budget = opts.budget ?? 8000;
     this.maxNotes = opts.maxNotes ?? 40;
@@ -143,7 +143,7 @@ export class MemoryStore {
   }
 
   get(id: number): MemoryRow | undefined {
-    return this.db.prepare("SELECT * FROM memory WHERE id=?").get(id) as MemoryRow | undefined;
+    return (this.db.prepare("SELECT * FROM memory WHERE id=?").get(id) as MemoryRow | null) ?? undefined;
   }
 
   forget(id: number): boolean {

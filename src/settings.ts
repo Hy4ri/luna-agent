@@ -1,7 +1,6 @@
 // Shared user settings. Credentials and generated OAuth device state are not user configuration.
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, chmodSync, unlinkSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
 import { ConfigSchema, parseConfig, type LunaConfig } from "./config.js";
 
 export type Settings = ReturnType<typeof ConfigSchema.parse>;
@@ -67,7 +66,7 @@ export class SettingsStore {
   }
   private write(value: Settings) {
     mkdirSync(dirname(this.path), { recursive: true });
-    const tmp = this.path + "." + randomUUID() + ".tmp";
+    const tmp = this.path + "." + crypto.randomUUID() + ".tmp";
     try {
       writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
       chmodSync(tmp, 0o600);
@@ -88,7 +87,7 @@ export class SettingsStore {
     const next = this.read(); fn(next);
     this.write(ConfigSchema.parse(next));
   }
-  revision() { return createHash("sha256").update(readFileSync(this.path)).digest("hex"); }
+  revision() { return new Bun.CryptoHasher("sha256").update(readFileSync(this.path)).digest("hex"); }
   view() {
     const config = this.read();
     for (const s of config.mcpServers) {

@@ -409,7 +409,7 @@ this feature is not an OS sandbox around those tools.
 - Compaction entries, background notices, peer messages, delegated conversations, and scheduled prompts are
   not independent user statements. Quoted blocks are excluded from rule matching. Message length is not a filter.
 - Tool errors stay signals, not automatic lessons. A signal key is the tool, the program (for `bash`, the last
-  command of the line, plus the subcommand for `git`, `gh`, `pm2`, `pnpm`, `npm`, `cargo`, `systemctl`), and the
+  command of the line, plus the subcommand for `git`, `gh`, `pm2`, `bun`, `pnpm`, `npm`, `cargo`, `systemctl`), and the
   normalized message. A bare exit code is its own cause, so `grep` exit 1 and `node` exit 1 never share a key.
   The failed call's arguments are stored in the signal context. Three kinds of failure create no signal: an
   expected result exit (exit 1 from `grep`, `rg`, `diff`, `cmp`, `test`, `git grep`, `pgrep`, or `git diff --quiet`),
@@ -533,7 +533,7 @@ Sending `/learn` authorizes this one skill write; there is no separate approval 
 
 Source content is untrusted data. The instruction tells the agent to ignore any instructions in it.
 This is a prompt rule, not a sandbox: the agent keeps its normal tool permissions during the turn.
-Requires the `skills` extension. `pnpm run verify:learn-command` checks it with a scripted model only.
+Requires the `skills` extension. `bun test` checks it with a scripted model only.
 
 ## Planning interview
 
@@ -600,7 +600,7 @@ This feature does not install or start that service. Use the actual MCP file pat
 `moli` starts the [Moli](https://github.com/lexmount/moli) binary on a private loopback port (layout and images on, child gets only `PATH`, `HOME`, `LANG`), drives it over CDP with Playwright, and stops it when the provider closes. Options: `browser.providers.moli.executablePath` (required) and `profileDir` (optional, keeps cookies and storage).
 Moli builds layout on demand, so Luna renders a 1x1 image before snapshots, clicks, typing, and scrolling so elements get refs and real geometry. Moli does not play video or match Chrome pixel-for-pixel.
 `chromium` launches a local Chromium-based browser such as Helium through Playwright, on the machine where Luna code runs (main, or a worker).
-It needs `browser.providers.chromium.executablePath` and `pnpm install` on that machine. `headless` defaults to true.
+It needs `browser.providers.chromium.executablePath` and `bun install` on that machine. `headless` defaults to true.
 Tabs share one browser context. Snapshots use Playwright's accessibility snapshot, and refs work with `browser_act` `click` and `type`.
 
 Provider options stay under `browser.providers.<provider>`. Connection settings and credentials stay in the existing MCP configuration.
@@ -708,7 +708,7 @@ Each completed generation records Claude Code's `total_cost_usd` estimate in the
 
 ### Verification
 
-Run `pnpm run typecheck` for backend changes. This repository does not include the historical
+Run `bun run typecheck` for backend changes. This repository does not include the historical
 `verify:claude-cli:*` scripts. Compiler success does not prove live vendor behavior or cache savings.
 Authenticated model generations consume account quota and require separate approval.
 
@@ -740,7 +740,7 @@ They are not user configuration.
 Run `verify:settings-ui` with an installed Playwright and Chromium. For example:
 
 ```sh
-LUNA_PLAYWRIGHT_PATH=/path/to/playwright pnpm run verify:settings-ui
+LUNA_PLAYWRIGHT_PATH=/path/to/playwright bun run verify:settings-ui
 ```
 
 Also run `verify:settings-page-ui` to check full-page navigation, tabs, drafts, deep links, mobile layout, and error recovery.
@@ -813,7 +813,7 @@ Compaction needs an eligible older prefix; if none exists, it cannot shrink the 
 The smaller model-capacity safety thresholds still take precedence: reserve 16384 tokens for the answer,
 and start background compaction 32768 tokens before that safety limit. The summary retains approximately
 `keepRecentTokens` of recent history verbatim, plus a summary of older history. Emergency context-overflow recovery remains enabled.
-The local `pi-durable` pnpm patch adds absolute thresholds and live host policy resolution; the dependency still owns
+The local `pi-durable` patch adds absolute thresholds and live host policy resolution; the dependency still owns
 summary generation, placement, recovery, cancellation, and persistence. Compaction does not reset cumulative token usage.
 
 ## Messages sent during a turn
@@ -1031,7 +1031,7 @@ The daemon does not reattach to or restart those commands. Surviving OS processe
 An interrupted result does not prove that the old command stopped. Inspect the host before repeating destructive commands.
 Saved output and completed exit codes remain available after restart until retention expires.
 
-Run `pnpm run verify:process-tools` for real shell execution through the native runtime tools.
+Run `bun test` for real shell execution through the native runtime tools.
 The test uses a scripted model; it does not prove real-model tool choice.
 
 ## Webhooks
@@ -1303,7 +1303,7 @@ The session's own model is never used, so a large session model does not change 
 
 ## User terminal
 
-An interactive shell in a bottom dock of the web UI, drawn by ghostty-web and backed by node-pty. It is off by default.
+An interactive shell in a bottom dock of the web UI, drawn by ghostty-web and backed by `Bun.Terminal`. It is off by default.
 
 - `terminal.user` (boolean, default `false`): allow user terminals. Settings > Tools > Terminal. It is read live and enforced at the WebSocket upgrade, so turning it off stops new attaches without a restart.
 - Open the dock with the header button, **Ctrl+\`**, or "Show terminal" in the command palette. A session can run up to 8 terminals at once.
@@ -1338,7 +1338,7 @@ Routes (Bearer token; a terminal that belongs to another session returns 404):
 ## Web frontend development
 
 The web frontend uses Vue 3, Vite, TypeScript, Tailwind CSS, and shadcn-vue.
-Run `pnpm run build:web` before starting the server. The server serves the build from `dist/web`, including the service worker.
+Run `bun run build:web` before starting the server. The server serves the build from `dist/web`, including the service worker.
 The server does not need the frontend source files at runtime. Rebuilds update the served page and asset list without a server restart.
 The build includes `.vite/manifest.json`. The service worker installs only the page, icons, manifest, and static entry dependencies.
 After the page loads and the browser becomes idle, the worker caches remaining assets sequentially with low network priority.
@@ -1349,8 +1349,8 @@ Offline session panes preserve same-origin framing; ordinary shell pages still d
 Activation retains the current and one previous `luna-vue-` shell, so open pages can still use cached lazy chunks after an update.
 Older Luna shell caches are removed. Other applications' caches are not changed.
 During a rebuild, requests can fail while Vite replaces the output files. Reload after the build completes.
-Run `pnpm run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
-Use `pnpm run typecheck:web` to check Vue components. `pnpm run test` includes frontend type checking and the production build.
+Run `bun run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
+Use `bun run typecheck:web` to check Vue components. `bun test` runs the backend and runtime unit test suite.
 
 ## Image analysis
 
@@ -1616,8 +1616,8 @@ Unknown selected providers get one registry refresh attempt, then `provider_not_
 Other providers, FAL, managed Nous/Krea/Portal gateways, and remote file synchronization remain unimplemented.
 Unsupported gateway and nonlocal execution routes fail explicitly.
 
-Offline checks: `pnpm run verify:image-gen` and `pnpm run verify:image-gen-ui`.
-The opt-in live check is `pnpm run verify:image-gen:live --live`.
+Offline checks: `bun test test/image-gen.test.ts`.
+The opt-in live check is `bun run verify:image-gen:live --live`.
 It uses an isolated runtime, submits exactly one real subscription generation, verifies chat preview delivery,
 and retains the generated image under the configured data directory. It never changes live configuration.
 The live check is excluded from the default suite and requires explicit permission to consume subscription quota.
@@ -1684,7 +1684,7 @@ AVI and MKV intentionally map to `video/mp4`. Other suffixes return `Unsupported
 Files larger than 20 MiB add a slow/rejection warning. Base64 payloads larger than 50 MiB fail with `compress or trim`.
 No compression is performed automatically.
 
-Run `pnpm run verify:video` for deterministic source, transport, auxiliary-request, and real-runtime tool tests.
+Run `bun test test/video.test.ts` for deterministic source, transport, auxiliary-request, and real-runtime tool tests.
 These tests use controlled provider responses. They do not establish real-provider video understanding.
 A live video-capable provider call requires explicit permission and is not part of the default test chain.
 
@@ -1692,7 +1692,7 @@ After approval, run a real clip with an expected answer pattern:
 
 ```sh
 LUNA_VIDEO_LIVE_APPROVED=1 LUNA_CONFIG=/absolute/path/luna.config.json \
-  pnpm run verify:video:live /absolute/path/clip.mp4 "Describe the motion and colors." "red|blue"
+  bun run verify:video:live /absolute/path/clip.mp4 "Describe the motion and colors." "red|blue"
 ```
 
 Review the returned description against the actual clip. A regex match alone does not prove complete video understanding.
@@ -1855,15 +1855,15 @@ Copy its token immediately. Luna shows it once and stores only its hash in `<dat
 The token grants execution-worker access, not access to the shared HTTP API.
 Removing a machine revokes its token and closes its connection.
 
-Use the same package checkout and `pnpm install --frozen-lockfile` on the worker machine.
-The worker needs Node.js compatible with this package. It does not need provider keys or a session database.
+Use the same package checkout and `bun install --frozen-lockfile` on the worker machine.
+The worker runs on Bun: install Bun 1.4.4 or newer and start it with `bun run worker`. Node-only workers stop working after they update to this version. It does not need provider keys or a session database.
 Set these environment variables through your shell or service configuration:
 
 ```sh
 export LUNA_URL=https://your-main-luna
 export LUNA_WORKER_TOKEN=lw_your_worker_token
 export LUNA_WORKER_CWD=/home/you/Projects  # optional; default: home directory
-pnpm run worker
+bun run worker
 ```
 
 Workers dial main over WebSocket on the main HTTP port. They need no inbound port.
@@ -1888,8 +1888,8 @@ The existing terminal client also has a shared-session mode:
 export LUNA_URL=https://your-main-luna
 export LUNA_TOKEN=your_main_api_token
 # Optional: also set LUNA_WORKER_TOKEN to run the local worker in this same process.
-pnpm run connect
-# Equivalent: pnpm run chat connect
+bun run connect
+# Equivalent: bun run chat connect
 ```
 
 Commands:
@@ -1905,7 +1905,7 @@ Commands:
 - `/quit`: leave the client. An embedded worker also stops; a separate worker can stay online.
 
 Normal input sends an instruction. The prompt remains available while the agent runs.
-The old `pnpm run chat --session ID message` interface remains available.
+The old `bun run chat --session ID message` interface remains available.
 
 ### HTTP API
 
@@ -2117,11 +2117,9 @@ New agent turns require main to be reachable. There is no independent desktop ag
 Verification:
 
 ```sh
-pnpm run verify:workers       # isolated main + worker process; real tools, scripted model
-pnpm run verify:workers-cli   # real CLI, HTTP, SSE, explicit execution targeting
-pnpm run verify:workers-ui    # real browser; draft target and explicit transfer
+bun test test/worker-exec.test.ts test/workers-cli.test.ts
 # Opt-in real desktop test. Copies a temporary bundled worker; installs no desktop service.
-LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 pnpm run verify:workers:desktop
+LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 bun run verify:workers:desktop
 ```
 
 ## Manual session pruning

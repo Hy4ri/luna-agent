@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 
 const ROUTES = ["/api/session", "/api/session/{sessionID}/prompt", "/api/session/{sessionID}/interrupt",
   "/api/experimental/mcp/{server}", "/api/experimental/mcp/{server}/connect", "/api/event", "/api/model",
@@ -53,7 +53,7 @@ async function until<T>(read: () => T | undefined, what: string): Promise<T> {
   }
 }
 
-test("a background summary with the same session ID does not hang the live generation", async (t) => {
+test("a background summary with the same session ID does not hang the live generation", async () => {
   const fake = fakeOpencode();
   await new Promise<void>(resolve => fake.server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(fake.server.address() as { port: number }).port}`;
@@ -65,7 +65,7 @@ test("a background summary with the same session ID does not hang the live gener
   chmodSync(executable, 0o755);
   process.env.XDG_CONFIG_HOME = home;
   process.env.LUNA_OPENCODE_EXECUTABLE = executable;
-  t.after(() => { fake.server.closeAllConnections(); fake.server.close(); });
+  try {
 
   const { opencodeCliProvider } = await import("../src/opencode-cli.js");
   const provider = opencodeCliProvider();
@@ -108,4 +108,5 @@ test("a background summary with the same session ID does not hang the live gener
   ]);
   assert.equal(answered.stopReason, "stop", answered.errorMessage);
   assert.equal(answered.content.find((c: any) => c.type === "text")?.text, "done");
+  } finally { fake.server.closeAllConnections(); fake.server.close(); }
 });

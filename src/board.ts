@@ -1,7 +1,7 @@
 // Project board: a kanban board per project, shared by the user and by every session in the project.
 // Cards live in SQLite next to the projects, so they outlive any one session. The `todo` tool stays the model's
 // per-session step list; a session links its steps to a card with todo metadata {cardId}.
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "bun:sqlite";
 import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { detectCycle } from "./todo.js";
@@ -43,7 +43,7 @@ const ids = (v: unknown, what: string): number[] => {
 };
 
 export class BoardStore {
-  constructor(private readonly db: DatabaseSync, private readonly uploads?: UploadStore) {
+  constructor(private readonly db: Database, private readonly uploads?: UploadStore) {
     db.exec(`CREATE TABLE IF NOT EXISTS luna_board_cards (
         id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, subject TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
         priority TEXT NOT NULL DEFAULT 'medium', status TEXT NOT NULL DEFAULT 'backlog', blocked_by TEXT NOT NULL DEFAULT '[]',
@@ -71,7 +71,7 @@ export class BoardStore {
   }
   get(project: number, id: number): Card | undefined {
     const r = this.db.prepare("SELECT * FROM luna_board_cards WHERE project_id=? AND id=?").get(project, id) as Row | undefined;
-    return r && { ...toCard(r), attachments: this.attachments(r.id) };
+    return r ? { ...toCard(r), attachments: this.attachments(r.id) } : undefined;
   }
   private files(project: number): Map<number, Attachment[]> {
     const rows = this.db.prepare("SELECT a.id,a.card_id,a.name,a.type,a.size,a.created FROM luna_board_attachments a JOIN luna_board_cards c ON c.id=a.card_id WHERE c.project_id=? ORDER BY a.id").all(project) as AttachmentRow[];

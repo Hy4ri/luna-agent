@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { normalizeUrl, toPagePoint } from "../../web/src/lib/browser-view.ts";
 
 const box = { left: 100, top: 50, width: 400, height: 400 };

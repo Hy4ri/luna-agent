@@ -1,6 +1,6 @@
 // Web modules use bundler resolution, so this folder is excluded from the root tsc project; typecheck:web covers them.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 (globalThis as { window?: unknown }).window ??= { innerWidth: 1600, innerHeight: 900 };
 (globalThis as { localStorage?: unknown }).localStorage ??= { getItem: () => null, setItem: () => {} };
 const { clampWidth, clampHeight, effectivePosition, loadPosition, loadWidth } = await import("../../web/src/stores/dock.ts");

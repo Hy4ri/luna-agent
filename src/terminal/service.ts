@@ -7,10 +7,7 @@
 //                                  | {"type":"control","controller":"user"|"agent","shared":b} | {"type":"exit","exitCode":n|null,"reason"?:s} | {"type":"closed"}
 // While Luna has control the server drops the client's keys and resizes, so the client shows the terminal read-only.
 // The browser never puts the Bearer token in a URL: it asks for a ticket over authenticated HTTP, then opens the socket with the ticket.
-import { randomBytes } from "node:crypto";
-import type { IncomingMessage, Server } from "node:http";
-import type { Duplex } from "node:stream";
-import { WebSocket, WebSocketServer } from "ws";
+import type { Server, ServerWebSocket } from "bun";
 import { TerminalError, type TerminalInfo, type TerminalRegistry } from "./registry.js";
 
 const ATTACH_PATH = /^\/v1\/terminals\/([0-9a-f-]{36})\/attach$/;
@@ -21,6 +18,8 @@ const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 const MAX_INPUT_FRAME = 1024 * 1024;
 
 export type OriginPolicy = (origin: string, host: string | undefined) => boolean;
+
+export type TerminalWsData = { kind: "terminal"; id: string; detach?: () => void };
 
 export interface TerminalServiceOptions {
   registry: TerminalRegistry;
@@ -37,7 +36,7 @@ export class TerminalService {
   readonly registry: TerminalRegistry;
   private tickets = new Map<string, { terminal: string; expires: number }>();
   private issued: number[] = [];
-  private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_INPUT_FRAME });
+  private sockets = new Set<ServerWebSocket<TerminalWsData>>();
   private readonly now: () => number;
 
   constructor(private options: TerminalServiceOptions) {
@@ -60,7 +59,7 @@ export class TerminalService {
     if (this.issued.length >= TICKETS_PER_MINUTE) throw new TerminalError("Too many terminal connections. Wait a moment.", 409);
     this.issued.push(now);
     for (const [k, v] of this.tickets) if (v.expires <= now) this.tickets.delete(k);
-    const ticket = randomBytes(24).toString("base64url");
+    const ticket = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
     this.tickets.set(ticket, { terminal, expires: now + TICKET_TTL_MS });
     return { ticket, expiresIn: TICKET_TTL_MS };
   }
@@ -73,69 +72,83 @@ export class TerminalService {
   }
 
   /** Handle terminal upgrades on the daemon's HTTP server. Other upgrades are left to their own handlers. */
-  attach(server: Pick<Server, "on">) { server.on("upgrade", (req, socket, head) => this.upgrade(req, socket, head)); }
-
-  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
-    const url = new URL(req.url ?? "/", "http://x");
+  tryUpgrade(req: Request, server: Server<TerminalWsData>): Response | null | undefined {
+    const url = new URL(req.url);
     const m = ATTACH_PATH.exec(url.pathname);
-    if (!m) return;
-    const reject = (code: number, text: string) => socket.end(`HTTP/1.1 ${code} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-    const origin = req.headers.origin;
-    if (origin && this.options.allowOrigin && !this.options.allowOrigin(origin, req.headers.host)) return reject(403, "Forbidden");
+    if (!m) return undefined;
+    const origin = req.headers.get("origin");
+    if (origin && this.options.allowOrigin && !this.options.allowOrigin(origin, req.headers.get("host") ?? undefined)) return new Response(null, { status: 403 });
     const id = m[1]!;
     // The ticket is spent even when the terminal is gone, so a leaked URL cannot be retried.
-    if (!this.redeem(url.searchParams.get("ticket"), id)) return reject(401, "Unauthorized");
+    if (!this.redeem(url.searchParams.get("ticket"), id)) return new Response(null, { status: 401 });
     const info = this.registry.get(id);
-    if (!info) return reject(404, "Not Found");
-    if (!this.viewable(info)) return reject(403, "Forbidden");
-    this.wss.handleUpgrade(req, socket, head, ws => this.serve(id, ws));
+    if (!info) return new Response(null, { status: 404 });
+    if (!this.viewable(info)) return new Response(null, { status: 403 });
+    if (server.upgrade(req, { data: { kind: "terminal", id } satisfies TerminalWsData })) return null;
+    return new Response("WebSocket upgrade failed", { status: 400 });
   }
 
-  private serve(id: string, ws: WebSocket) {
-    const json = (value: unknown) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(value)); };
+  wsOpen(ws: ServerWebSocket<TerminalWsData>) {
+    const id = ws.data.id;
+    this.sockets.add(ws);
+    const json = (value: unknown) => { if (ws.readyState === 1) ws.sendText(JSON.stringify(value)); };
     const exitMessage = (info: TerminalInfo) => json({ type: "exit", exitCode: info.exitCode, ...(info.endReason ? { reason: info.endReason } : {}) });
     let live = false;
     const queued: Buffer[] = [];
     const send = (chunk: Buffer) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      if (ws.bufferedAmount > MAX_BUFFERED_BYTES) { ws.close(1013, "client too slow"); return; }
-      ws.send(chunk, { binary: true });
+      if (ws.readyState !== 1) return;
+      if (ws. getBufferedAmount() > MAX_BUFFERED_BYTES) { ws.close(1013, "client too slow"); return; }
+      ws.sendBinary(chunk);
     };
     // attach() registers the listener and snapshots the ring in the same tick, so nothing is missed or sent twice.
-    const attached = this.registry.attach(id, {
-      data: chunk => { if (live) send(chunk); else queued.push(chunk); },
-      exit: exitMessage,
-      closed: () => { json({ type: "closed" }); ws.close(1000, "terminal closed"); },
-      control: info => json({ type: "control", controller: info.controller, shared: info.shared }),
-    });
+    let attached: ReturnType<TerminalRegistry["attach"]>;
+    try {
+      attached = this.registry.attach(id, {
+        data: chunk => { if (live) send(chunk); else queued.push(chunk); },
+        exit: exitMessage,
+        closed: () => { json({ type: "closed" }); ws.close(1000, "terminal closed"); },
+        control: info => json({ type: "control", controller: info.controller, shared: info.shared }),
+      });
+    } catch {
+      ws.close(1011, "terminal vanished");
+      return;
+    }
+    ws.data.detach = () => attached.detach();
     json({ type: "replay-start", cols: attached.info.cols, rows: attached.info.rows, controller: attached.info.controller, shared: attached.info.shared });
     if (attached.replay.length) send(attached.replay);
     json({ type: "replay-end" });
     live = true;
     for (const chunk of queued.splice(0)) send(chunk);
     if (attached.info.status === "ended") exitMessage(attached.info);
+  }
 
-    ws.on("message", (raw, isBinary) => {
-      try {
-        if (isBinary) {
-          this.registry.write(id, Buffer.isBuffer(raw) ? raw : Buffer.concat(raw as Buffer[]));
-          return;
-        }
-        const msg = JSON.parse(String(raw)) as { type?: unknown; cols?: unknown; rows?: unknown };
-        if (msg.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") this.registry.resize(id, msg.cols, msg.rows);
-      } catch (e) {
-        if (e instanceof TerminalError) ws.close(1011, e.message); // terminal vanished
-        // malformed JSON from a client is ignored
+  wsMessage(ws: ServerWebSocket<TerminalWsData>, raw: string | Buffer) {
+    const id = ws.data.id;
+    try {
+      if (typeof raw !== "string") {
+        if (raw.byteLength > MAX_INPUT_FRAME) { ws.close(1009, "frame too large"); return; }
+        this.registry.write(id, Buffer.isBuffer(raw) ? raw : Buffer.from(raw));
+        return;
       }
-    });
-    ws.on("error", () => { /* the close handler cleans up */ });
-    ws.on("close", () => attached.detach());
+      if (Buffer.byteLength(raw) > MAX_INPUT_FRAME) { ws.close(1009, "frame too large"); return; }
+      const msg = JSON.parse(raw) as { type?: unknown; cols?: unknown; rows?: unknown };
+      if (msg.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") this.registry.resize(id, msg.cols, msg.rows);
+    } catch (e) {
+      if (e instanceof TerminalError) ws.close(1011, e.message); // terminal vanished
+      // malformed JSON from a client is ignored
+    }
+  }
+
+  wsClose(ws: ServerWebSocket<TerminalWsData>) {
+    this.sockets.delete(ws);
+    ws.data.detach?.();
+    ws.data.detach = undefined;
   }
 
   /** Close every terminal and socket. The daemon calls this on shutdown. */
   close() {
     this.registry.closeAll();
-    for (const ws of this.wss.clients) ws.terminate();
-    this.wss.close();
+    for (const ws of this.sockets) ws.close(1001, "daemon stopping");
+    this.sockets.clear();
   }
 }

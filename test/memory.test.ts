@@ -1,7 +1,7 @@
 // Contract: the memory prompt section is sent with every model call. It must stay within its budget, keep a stable
 // order (a reordered section breaks the prompt cache), show facts before notes, and say when entries are hidden.
 import assert from "node:assert/strict";
-import { after, test } from "node:test";
+import { afterAll as after, test } from "bun:test";
 import { MemoryStore } from "../src/memory.js";
 
 const stores: MemoryStore[] = [];
@@ -48,7 +48,7 @@ test("render stays within the budget and drops the oldest notes first", () => {
 });
 
 // The marker uses the same budget check as the entries, so it is dropped when the notes fill the budget.
-test("render reports hidden entries even when the notes fill the budget", { todo: "bug: hidden-entries marker does not reserve its space" }, () => {
+test.todo("render reports hidden entries even when the notes fill the budget", () => {
   const text = fill();
   assert.match(text, /more entries not shown; use the recall tool/);
   assert.ok(text.length <= 500, `${text.length} chars`);

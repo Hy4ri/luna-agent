@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { DatabaseSync } from "node:sqlite";
-import { test } from "node:test";
+import { Database } from "bun:sqlite";
+import { test } from "bun:test";
 import { ProjectSkills } from "../src/project-skills.js";
 
 // Contract: a project in "only chosen" mode keeps its active set at the switch, and a skill added later stays off there.
 // Regression it catches: disabled() falling back to the global list, which turns every new skill on in every project.
 test("only-chosen mode keeps the active set and keeps new skills off", () => {
-  const store = new ProjectSkills(new DatabaseSync(":memory:"));
+  const store = new ProjectSkills(new Database(":memory:"));
   const global = ["c"]; // a, b on globally; c off
   store.set(1, "b", false);
   store.set(1, "c", true);

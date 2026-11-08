@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 import type { EntryRecord } from "@earendil-works/pi-durable";
 import { getImageBlockAt, isValidBase64, projectEntryImages } from "../src/session-images.js";

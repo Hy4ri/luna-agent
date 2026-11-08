@@ -1,11 +1,9 @@
 // Execution workers: other machines that run a session's file and shell tools.
 // The main daemon keeps the agent loop, store, and every other tool. A worker dials in over WebSocket with its own token.
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import type { IncomingMessage, Server } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
-import type { Duplex } from "node:stream";
-import { DatabaseSync } from "node:sqlite";
-import { WebSocketServer, type WebSocket } from "ws";
+import type { Server, ServerWebSocket } from "bun";
+import { Database } from "bun:sqlite";
 import type { Context } from "@earendil-works/chord";
 import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
@@ -24,13 +22,13 @@ export const ExecTarget = defineDoc<{ worker: number | null }>({
 export interface WorkerRow { id: number; name: string; createdAt: number; lastSeenAt: number | null; capabilities: Capabilities | null }
 export class WorkerError extends Error { constructor(public status: 400 | 404 | 409, message: string) { super(message); } }
 
-const hash = (token: string) => createHash("sha256").update(token).digest();
+const hash = (token: string) => Buffer.from(new Bun.CryptoHasher("sha256").update(token).digest());
 
 /** Registered workers. Tokens are stored only as SHA-256 hashes; the plain token is shown once at creation. */
 export class WorkerStore {
-  readonly db: DatabaseSync;
+  readonly db: Database;
   constructor(path: string) {
-    this.db = new DatabaseSync(path);
+    this.db = new Database(path);
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_workers (
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, token_hash BLOB NOT NULL,
       created_at INTEGER NOT NULL, last_seen_at INTEGER, capabilities TEXT)`);
@@ -40,12 +38,12 @@ export class WorkerStore {
       capabilities: typeof r.capabilities === "string" ? JSON.parse(r.capabilities) as Capabilities : null };
   }
   list(): WorkerRow[] { return (this.db.prepare("SELECT * FROM luna_workers ORDER BY name COLLATE NOCASE").all() as Record<string, unknown>[]).map(r => this.row(r)); }
-  get(id: number): WorkerRow | undefined { const r = this.db.prepare("SELECT * FROM luna_workers WHERE id=?").get(id) as Record<string, unknown> | undefined; return r && this.row(r); }
+  get(id: number): WorkerRow | undefined { const r = this.db.prepare("SELECT * FROM luna_workers WHERE id=?").get(id) as Record<string, unknown> | null; return r ? this.row(r) : undefined; }
   create(name: unknown): { worker: WorkerRow; token: string } {
     if (typeof name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(name.trim())) throw new WorkerError(400, "name must be 1-40 letters, digits, space, dot, dash or underscore");
     if (name.trim().toLowerCase() === "main") throw new WorkerError(400, "\"main\" is reserved for this host");
     if (this.db.prepare("SELECT 1 FROM luna_workers WHERE name=? COLLATE NOCASE").get(name.trim())) throw new WorkerError(409, "a worker with this name exists");
-    const token = `lw_${randomBytes(32).toString("base64url")}`;
+    const token = `lw_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")}`;
     const r = this.db.prepare("INSERT INTO luna_workers(name, token_hash, created_at) VALUES (?,?,?)").run(name.trim(), hash(token), Date.now());
     return { worker: this.get(Number(r.lastInsertRowid))!, token };
   }
@@ -75,34 +73,34 @@ class Link {
   private beat: ReturnType<typeof setInterval>;
   private alive = true;
   readonly connectedAt = Date.now();
-  constructor(readonly worker: WorkerRow, readonly ws: WebSocket, readonly capabilities: Capabilities, private log: (m: string) => void) {
-    ws.on("pong", () => { this.alive = true; });
+  constructor(readonly worker: WorkerRow, readonly ws: ServerWebSocket<unknown>, readonly capabilities: Capabilities, private log: (m: string) => void) {
     this.beat = setInterval(() => {
-      if (!this.alive) { ws.terminate(); return; }
+      if (!this.alive) { ws.close(1001, "heartbeat timeout"); return; }
       this.alive = false; ws.ping();
     }, 15_000);
     this.beat.unref();
-    ws.on("message", raw => {
-      let m: WorkerMessage;
-      try { m = JSON.parse(String(raw)) as WorkerMessage; } catch { return; }
-      if (!m || typeof m !== "object") return;
-      if (typeof m.t === "string" && m.t.startsWith("pty.")) { this.ptys.get((m as PtyFrame).id)?.(m as PtyFrame); return; }
-      const p = "id" in m ? this.pending.get(m.id) : undefined;
-      if (!p || !("id" in m)) return;
-      try {
-        if (m.t === "output") {
-          if (typeof m.text !== "string" || !m.info || !["stdout", "stderr"].includes((m.info as { stream: string }).stream)) throw new Error("invalid output frame");
-          p.onOutput?.(m.text, p.context, m.info as never);
-        } else if (m.t === "result") {
-          const result = decodeResult(m.result);
-          this.pending.delete(m.id); p.resolve(result);
-        }
-      } catch {
-        this.pending.delete(m.id);
-        p.resolve(failure(p.method, "unknown", "Invalid worker response. The operation was not retried."));
-        this.ws.close(4000, "invalid response");
+  }
+  onPong() { this.alive = true; }
+  onMessage(raw: string | Buffer | Uint8Array) {
+    let m: WorkerMessage;
+    try { m = JSON.parse(typeof raw === "string" ? raw : Buffer.from(raw).toString("utf8")) as WorkerMessage; } catch { return; }
+    if (!m || typeof m !== "object") return;
+    if (typeof m.t === "string" && m.t.startsWith("pty.")) { this.ptys.get((m as PtyFrame).id)?.(m as PtyFrame); return; }
+    const p = "id" in m ? this.pending.get(m.id) : undefined;
+    if (!p || !("id" in m)) return;
+    try {
+      if (m.t === "output") {
+        if (typeof m.text !== "string" || !m.info || !["stdout", "stderr"].includes((m.info as { stream: string }).stream)) throw new Error("invalid output frame");
+        p.onOutput?.(m.text, p.context, m.info as never);
+      } else if (m.t === "result") {
+        const result = decodeResult(m.result);
+        this.pending.delete(m.id); p.resolve(result);
       }
-    });
+    } catch {
+      this.pending.delete(m.id);
+      p.resolve(failure(p.method, "unknown", "Invalid worker response. The operation was not retried."));
+      this.ws.close(4000, "invalid response");
+    }
   }
   call(method: EnvMethod | "handle" | "browser" | "mcp", message: (id: number) => MainMessage, context: Context, onOutput?: ShellExecOptions["onOutput"]): Promise<Result<unknown, Error>> {
     const signal = context.abortSignal;
@@ -135,58 +133,77 @@ class Link {
 
 export interface WorkerView extends WorkerRow { online: boolean; connectedAt: number | null }
 
+export type WorkerWsData = { kind: "worker"; worker: WorkerRow; timer?: ReturnType<typeof setTimeout>; link?: Link };
+
 /** Accepts worker links and builds remote execution environments for sessions. */
 export class WorkerHub {
   private links = new Map<number, Link>();
-  private wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 * 1024 });
+  private pendingSockets = new Set<ServerWebSocket<WorkerWsData>>();
   private connectListeners = new Set<(id: number) => void>();
   private removeListeners = new Set<(id: number) => void>();
   constructor(readonly store: WorkerStore, private log: (m: string) => void = m => console.error(m)) {}
   onRemove(fn: (id: number) => void) { this.removeListeners.add(fn); return () => this.removeListeners.delete(fn); }
   onConnect(fn: (id: number) => void) { this.connectListeners.add(fn); return () => this.connectListeners.delete(fn); }
 
-  /** Handle `GET /v1/workers/connect` upgrades on the daemon's HTTP server. Other upgrades are left alone. */
-  attach(server: Pick<Server, "on">) { server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(req, socket, head)); }
-  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
-    if (new URL(req.url ?? "/", "http://x").pathname !== CONNECT_PATH) return;
-    const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? "");
+  /** Handle `GET /v1/workers/connect` upgrades on the daemon's HTTP server. Returns undefined when the path does not match. */
+  tryUpgrade(req: Request, server: Server<WorkerWsData>): Response | null | undefined {
+    if (new URL(req.url).pathname !== CONNECT_PATH) return undefined;
+    const m = /^Bearer (.+)$/.exec(req.headers.get("authorization") ?? "");
     const worker = m ? this.store.authenticate(m[1]!) : undefined;
-    if (!worker) { socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); return; }
-    this.wss.handleUpgrade(req, socket, head, ws => this.accept(worker, ws));
+    if (!worker) return new Response(null, { status: 401 });
+    if (server.upgrade(req, { data: { kind: "worker", worker } satisfies WorkerWsData })) return null;
+    return new Response("WebSocket upgrade failed", { status: 400 });
   }
-  private accept(worker: WorkerRow, ws: WebSocket) {
-    ws.on("error", error => this.log(`worker ${worker.name}: socket error: ${error.message}`));
-    const timer = setTimeout(() => ws.close(4000, "hello timeout"), 10_000);
-    ws.once("close", () => clearTimeout(timer));
-    ws.once("message", raw => {
-      clearTimeout(timer);
-      let hello: WorkerMessage;
-      try { hello = JSON.parse(String(raw)) as WorkerMessage; } catch { ws.close(4000, "bad hello"); return; }
-      if (!hello || hello.t !== "hello" || hello.protocol !== PROTOCOL_VERSION) { ws.close(4000, `protocol ${PROTOCOL_VERSION} required`); return; }
-      if (!hello.capabilities || ["hostname", "platform", "arch", "node", "user", "home", "cwd"].some(k =>
-        typeof (hello.capabilities as unknown as Record<string, unknown>)[k] !== "string")) {
-        ws.close(4000, "invalid capabilities"); return;
-      }
-      const browser = hello.capabilities.browser;
-      if (browser !== undefined && (!browser || typeof browser !== "object" ||
-        !["disabled", "chromium", "camofox", "moli"].includes(browser.provider) || typeof browser.configured !== "boolean" ||
-        (browser.reason !== undefined && typeof browser.reason !== "string"))) {
-        ws.close(4000, "invalid browser capability"); return;
-      }
-      if (!this.store.get(worker.id)) { ws.close(4001, "worker removed"); return; }
-      // Never let a second process take over a live execution machine. Heartbeats remove a stale link first.
-      if (this.links.has(worker.id)) { ws.close(4009, "worker already connected"); return; }
-      const link = new Link(worker, ws, hello.capabilities, this.log);
-      this.links.set(worker.id, link);
-      this.store.seen(worker.id, hello.capabilities);
-      link.send({ t: "welcome", protocol: PROTOCOL_VERSION, workerId: worker.id, name: worker.name });
-      this.log(`worker ${worker.name}: connected from ${hello.capabilities.hostname} (${hello.capabilities.platform}/${hello.capabilities.arch})`);
-      for (const fn of this.connectListeners) try { fn(worker.id); } catch {}
-      ws.on("close", () => {
-        if (this.links.get(worker.id) === link) { this.links.delete(worker.id); this.store.seen(worker.id); }
-        link.drop(`Worker "${worker.name}" disconnected.`);
-      });
-    });
+  wsOpen(ws: ServerWebSocket<WorkerWsData>) {
+    this.pendingSockets.add(ws);
+    ws.data.timer = setTimeout(() => ws.close(4000, "hello timeout"), 10_000);
+  }
+  wsMessage(ws: ServerWebSocket<WorkerWsData>, raw: string | Buffer) {
+    if (ws.data.link) {
+      ws.data.link.onMessage(raw);
+      return;
+    }
+    this.pendingSockets.delete(ws);
+    if (ws.data.timer) { clearTimeout(ws.data.timer); ws.data.timer = undefined; }
+    const worker = ws.data.worker;
+    let hello: WorkerMessage;
+    try { hello = JSON.parse(typeof raw === "string" ? raw : Buffer.from(raw).toString("utf8")) as WorkerMessage; } catch { ws.close(4000, "bad hello"); return; }
+    if (!hello || hello.t !== "hello" || hello.protocol !== PROTOCOL_VERSION) { ws.close(4000, `protocol ${PROTOCOL_VERSION} required`); return; }
+    if (!hello.capabilities || ["hostname", "platform", "arch", "node", "user", "home", "cwd"].some(k =>
+      typeof (hello.capabilities as unknown as Record<string, unknown>)[k] !== "string")) {
+      ws.close(4000, "invalid capabilities"); return;
+    }
+    const browser = hello.capabilities.browser;
+    if (browser !== undefined && (!browser || typeof browser !== "object" ||
+      !["disabled", "chromium", "camofox", "moli"].includes(browser.provider) || typeof browser.configured !== "boolean" ||
+      (browser.reason !== undefined && typeof browser.reason !== "string"))) {
+      ws.close(4000, "invalid browser capability"); return;
+    }
+    if (!this.store.get(worker.id)) { ws.close(4001, "worker removed"); return; }
+    // Never let a second process take over a live execution machine. Heartbeats remove a stale link first.
+    if (this.links.has(worker.id)) { ws.close(4009, "worker already connected"); return; }
+    const link = new Link(worker, ws, hello.capabilities, this.log);
+    ws.data.link = link;
+    this.links.set(worker.id, link);
+    this.store.seen(worker.id, hello.capabilities);
+    link.send({ t: "welcome", protocol: PROTOCOL_VERSION, workerId: worker.id, name: worker.name });
+    this.log(`worker ${worker.name}: connected from ${hello.capabilities.hostname} (${hello.capabilities.platform}/${hello.capabilities.arch})`);
+    for (const fn of this.connectListeners) try { fn(worker.id); } catch {}
+  }
+  wsPong(ws: ServerWebSocket<WorkerWsData>) {
+    ws.data.link?.onPong();
+  }
+  wsClose(ws: ServerWebSocket<WorkerWsData>) {
+    this.pendingSockets.delete(ws);
+    if (ws.data.timer) { clearTimeout(ws.data.timer); ws.data.timer = undefined; }
+    const link = ws.data.link;
+    if (!link) return;
+    const worker = ws.data.worker;
+    if (this.links.get(worker.id) === link) {
+      this.links.delete(worker.id);
+      this.store.seen(worker.id);
+      link.drop(`Worker "${worker.name}" disconnected.`);
+    }
   }
   list(): WorkerView[] {
     return this.store.list().map(w => { const l = this.links.get(w.id); return { ...w, online: !!l, connectedAt: l?.connectedAt ?? null }; });
@@ -286,9 +303,13 @@ export class WorkerHub {
       : `Execution machine ${workerId} no longer exists. Nothing ran. Move this session to another machine.`;
   }
   close() {
+    for (const ws of this.pendingSockets) {
+      if (ws.data.timer) clearTimeout(ws.data.timer);
+      ws.close(1001, "main stopping");
+    }
+    this.pendingSockets.clear();
     for (const l of this.links.values()) { l.drop("Main daemon is stopping."); l.ws.close(1001, "main stopping"); }
     this.links.clear();
-    this.wss.close();
   }
 }
 

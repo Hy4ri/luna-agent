@@ -1,6 +1,6 @@
 // The three merged browser tools must route every action to the matching provider method and validate arguments.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { createBrowserToolsExtension, type BrowserProvider } from "../src/browser-tools.js";
 
 function setup() {

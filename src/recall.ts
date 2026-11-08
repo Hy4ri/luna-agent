@@ -3,7 +3,7 @@
 // with discovery, scroll and read modes. Source is Luna's durable store instead of Pi's JSONL files; the index is a
 // separate file (<dataDir>/recall.db) synced incrementally from new entries on each call. The pattern-miner mode is
 // Pi-specific and not ported.
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "bun:sqlite";
 import { Type } from "typebox";
 import { defineExtension, defineTool, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
 import { isRunning, readSessionStatus, type SessionState, type SessionStatus } from "./session-status.js";
@@ -29,9 +29,9 @@ export function messageText(m: Msg): string {
 }
 
 export class RecallIndex {
-  readonly db: DatabaseSync;
+  readonly db: Database;
   constructor(path: string) {
-    this.db = new DatabaseSync(path);
+    this.db = new Database(path);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS convs (id INTEGER PRIMARY KEY, title TEXT, started INTEGER, last_entry INTEGER NOT NULL DEFAULT 0);

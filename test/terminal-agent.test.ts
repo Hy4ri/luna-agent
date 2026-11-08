@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, test } from "node:test";
+import { afterEach, test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type Context as AiContext } from "@earendil-works/pi-ai";
 import { parseConfig } from "../src/config.js";
@@ -198,7 +198,7 @@ async function runTool(dir: string, agentOn: boolean, script: ((previous: string
   }
 }
 
-test("the terminal tool is deferred: tool_search loads it, then it drives a REPL and vim", { timeout: 60_000 }, async () => {
+test("the terminal tool is deferred: tool_search loads it, then it drives a REPL and vim", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-agent-terminal-"));
   const file = join(dir, "note.txt");
   const { offered, results } = await runTool(dir, true, [
@@ -234,9 +234,9 @@ test("the terminal tool is deferred: tool_search loads it, then it drives a REPL
     assert.equal(readFileSync(file, "utf8"), "hello from luna\n");
     assert.match(list!.text, /"status":"ended"/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 60_000);
 
-test("with terminal.agent off the tool is hidden from tool_search and refused", { timeout: 30_000 }, async () => {
+test("with terminal.agent off the tool is hidden from tool_search and refused", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-agent-terminal-"));
   const { results } = await runTool(dir, false, [
     () => ["tool_search", { query: "terminal interactive TTY program" }],
@@ -246,9 +246,9 @@ test("with terminal.agent off the tool is hidden from tool_search and refused", 
     assert.doesNotMatch(results[0]!.text, /"terminal"|\bterminal\b.*TTY/);
     assert.equal(results[1]!.error, true);
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 30_000);
 
-test("send waits for a quiet program to answer instead of returning the screen from before the input", { timeout: 30_000 }, async () => {
+test("send waits for a quiet program to answer instead of returning the screen from before the input", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-agent-terminal-"));
   const script = join(dir, "slow.sh");
   // No echo, then silence before the input and a late answer: the shape of a TUI that redraws only after it processes a key.
@@ -265,9 +265,9 @@ test("send waits for a quiet program to answer instead of returning the screen f
     assert.equal(send.error, false, send.text);
     assert.match(send.text, /got-abc/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 30_000);
 
-test("start waits for a slow program's first screen, and send with a pattern waits for its answer", { timeout: 40_000 }, async () => {
+test("start waits for a slow program's first screen, and send with a pattern waits for its answer", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-agent-terminal-"));
   const script = join(dir, "slow.sh");
   // Draws nothing for 1.2 s (past the start settle), then answers each line 2 s later (past the send settle).
@@ -288,4 +288,4 @@ test("start waits for a slow program's first screen, and send with a pattern wai
     // "reply-" is already on the screen; it counts only once the program answered the new line.
     assert.match(two!.text, /reply-two/, two!.text);
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 40_000);

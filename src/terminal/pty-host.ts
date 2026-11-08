@@ -1,6 +1,6 @@
-// PTY backend seam. The registry only sees these types, so node-pty can be replaced (or relayed to a worker) without touching it.
+// PTY backend seam. The registry only sees these types, so Bun.Terminal can be relayed to a worker without touching it.
+import { constants as osConstants } from "node:os";
 import { existsSync } from "node:fs";
-import pty from "node-pty";
 
 export interface PtySpawnOptions {
   file: string;
@@ -29,19 +29,53 @@ export interface PtyProcess {
 /** Starts a PTY on the machine a terminal belongs to. `worker` is null for the main host. */
 export type PtyLauncher = (worker: number | null, options: PtySpawnOptions) => Promise<PtyProcess>;
 
-export function spawnNodePty(options: PtySpawnOptions): PtyProcess {
-  const p = pty.spawn(options.file, options.args, {
-    name: "xterm-256color", cols: options.cols, rows: options.rows, cwd: options.cwd, env: options.env, encoding: null,
+export function spawnBunPty(options: PtySpawnOptions): PtyProcess {
+  const dataListeners: ((data: Buffer) => void)[] = [];
+  const exitListeners: ((exit: { exitCode: number | null; signal?: number; reason?: string }) => void)[] = [];
+  const earlyData: Buffer[] = [];
+  let exitResult: { exitCode: number | null; signal?: number; reason?: string } | undefined;
+
+  const proc = Bun.spawn([options.file, ...options.args], {
+    cwd: options.cwd,
+    env: options.env,
+    terminal: {
+      cols: options.cols,
+      rows: options.rows,
+      name: "xterm-256color",
+      data(_term, chunk) {
+        const buf = Buffer.from(chunk);
+        if (dataListeners.length === 0) earlyData.push(buf);
+        else for (const fn of dataListeners) fn(buf);
+      },
+    },
   });
+
+  void proc.exited.then((code) => {
+    try { proc.terminal?.close(); } catch { /* already closed */ }
+    const sig = proc.signalCode ? osConstants.signals[proc.signalCode as keyof typeof osConstants.signals] : undefined;
+    exitResult = { exitCode: code ?? null, ...(sig !== undefined ? { signal: sig } : {}) };
+    for (const fn of exitListeners) fn(exitResult);
+  });
+
   return {
-    get pid() { return p.pid; },
-    onData: listener => { p.onData(d => listener(typeof d === "string" ? Buffer.from(d) : Buffer.from(d))); },
-    onExit: listener => { p.onExit(e => listener({ exitCode: e.exitCode, signal: e.signal })); },
-    write: data => p.write(data),
-    resize: (cols, rows) => p.resize(cols, rows),
-    kill: () => p.kill(),
+    get pid() { return proc.pid; },
+    onData: listener => {
+      dataListeners.push(listener);
+      for (const buf of earlyData.splice(0)) listener(buf);
+    },
+    onExit: listener => {
+      exitListeners.push(listener);
+      if (exitResult) listener(exitResult);
+    },
+    write: data => { try { proc.terminal?.write(data); } catch { /* closed */ } },
+    resize: (cols, rows) => { try { proc.terminal?.resize(cols, rows); } catch { /* closed */ } },
+    kill: () => {
+      try { proc.kill(); } catch { /* exited */ }
+      try { proc.terminal?.close(); } catch { /* closed */ }
+    },
   };
 }
+
 
 /** Environment for an interactive shell. The daemon's own credentials never reach a user shell. */
 export function shellEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
@@ -66,5 +100,5 @@ export function programInvocation(shell: string, command: string): { file: strin
 /** Launcher for the main host. Worker machines are handled by a relay launcher. */
 export const localLauncher: PtyLauncher = async (worker, options) => {
   if (worker !== null) throw new Error("Local launcher cannot start a terminal on a worker.");
-  return spawnNodePty(options);
+  return spawnBunPty(options);
 };

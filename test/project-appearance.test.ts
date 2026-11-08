@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { test } from "node:test";
+import { Database } from "bun:sqlite";
+import { test } from "bun:test";
 import { ProjectError, ProjectStore } from "../src/projects.js";
 
 // The store owns migration, partial-update preservation, validation, and persistence.
@@ -11,7 +11,7 @@ import { ProjectError, ProjectStore } from "../src/projects.js";
 test("project appearance migrates, survives reopen, validates atomically, and resets without changing project routing", () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-project-appearance-"));
   const path = join(dir, "projects.db");
-  let db = new DatabaseSync(path);
+  let db = new Database(path);
   try {
     // Legacy schema: preserve existing IDs and links while adding nullable appearance.
     db.exec(`CREATE TABLE luna_projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, cwd TEXT NOT NULL) STRICT;
@@ -31,7 +31,7 @@ test("project appearance migrates, survives reopen, validates atomically, and re
     assert.deepEqual(changed.workerDirs, [{ worker: 2, cwd: "/worker/project" }]);
     assert.equal(store.projectOf(42), 7);
 
-    db.close(); db = new DatabaseSync(path); store = new ProjectStore(db);
+    db.close(); db = new Database(path); store = new ProjectStore(db);
     assert.deepEqual(store.get(7), changed);
     assert.deepEqual(store.list().find(p => p.id === 7), changed);
     assert.equal(store.update(7, { favorite: false }).color, "#aa44ff");
@@ -40,7 +40,7 @@ test("project appearance migrates, survives reopen, validates atomically, and re
     // Custom symbols are one visible grapheme, not one UTF-16 code unit.
     for (const icon of ["󱄅", "\ue0b0", "π", "A", "👩‍💻", "🇯🇴", "e\u0301", "👍🏽"]) {
       assert.equal(store.update(7, { icon }).icon, icon);
-      db.close(); db = new DatabaseSync(path); store = new ProjectStore(db);
+      db.close(); db = new Database(path); store = new ProjectStore(db);
       assert.equal(store.get(7)!.icon, icon);
     }
     const before = store.get(7);
@@ -70,7 +70,7 @@ test("project appearance migrates, survives reopen, validates atomically, and re
 test("General appearance persists while its routing and protected fields stay unchanged", () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-chat-appearance-"));
   const path = join(dir, "projects.db");
-  let db = new DatabaseSync(path);
+  let db = new Database(path);
   try {
     let store = new ProjectStore(db);
     const original = store.get(0)!;
@@ -83,7 +83,7 @@ test("General appearance persists while its routing and protected fields stay un
     assert.equal(store.dirFor(0, null), undefined);
     assert.equal(store.dirFor(0, 2), undefined);
     assert.equal(store.projectOf(123), 0);
-    db.close(); db = new DatabaseSync(path); store = new ProjectStore(db);
+    db.close(); db = new Database(path); store = new ProjectStore(db);
     assert.deepEqual(store.get(0), custom);
     assert.deepEqual(store.list().filter(p => p.id === 0), [custom]);
     assert.equal(store.update(0, { color: null }).icon, "π");

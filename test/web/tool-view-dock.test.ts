@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { dockTarget } from "../../web/src/lib/tool-view.ts";
 
 test("browser calls target the tab named in the arguments", () => {

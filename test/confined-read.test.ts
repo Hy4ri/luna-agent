@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, test } from "node:test";
+import { afterAll as after, test } from "bun:test";
 import { ConfinedReadError, confinedRead, credentialPath, within } from "../src/confined-read.js";
 
 const base = mkdtempSync(join(tmpdir(), "luna-confined-"));

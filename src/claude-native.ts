@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   getCurrentTools, getInitialSystemMessage, getSystemMessageText, renderSystemMessageUpdate,
   type ImageContent, type TextContent, type ThinkingLevel, type TranscriptContext,
@@ -68,7 +67,7 @@ function claudeToolIds(messages: TranscriptContext["messages"]): Map<string, str
   for (const id of ids) {
     if (map.has(id)) continue;
     if (CLAUDE_TOOL_ID.test(id)) { map.set(id, id); continue; }
-    const digest = createHash("sha256").update(id).digest("hex").slice(0, 40);
+    const digest = new Bun.CryptoHasher("sha256").update(id).digest("hex").slice(0, 40);
     let safe = `toolu_${digest}`;
     for (let n = 2; taken.has(safe); n++) safe = `toolu_${digest}_${n}`;
     taken.add(safe);

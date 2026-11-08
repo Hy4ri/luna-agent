@@ -5,7 +5,6 @@
 // Everything is plain files rescanned on every use, so changes reach the catalog on the next model call.
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { randomBytes } from "node:crypto";
 import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { proposeBenchmark, type ProposalResult, type ProposeOptions, type SkillImprover } from "./improve.js";
@@ -157,7 +156,7 @@ export class SkillManager {
   }
 
   private toTrash(e: Omit<TrashEntry, "id" | "deletedAt">): TrashEntry {
-    const entry: TrashEntry = { ...e, id: `${Date.now()}-${randomBytes(3).toString("hex")}-${e.skill}`, deletedAt: Date.now() };
+    const entry: TrashEntry = { ...e, id: `${Date.now()}-${Buffer.from(crypto.getRandomValues(new Uint8Array(3))).toString("hex")}-${e.skill}`, deletedAt: Date.now() };
     const d = join(this.trashDir, entry.id);
     mkdirSync(d, { recursive: true });
     writeFileSync(join(d, "meta.json"), JSON.stringify(entry, null, 2));

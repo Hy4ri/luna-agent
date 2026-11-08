@@ -1,7 +1,7 @@
 // Contract: a cron expression parses or fails loudly, and nextRun returns the first matching minute strictly after `after`.
 // A wrong answer here silently skips or repeats scheduled jobs.
 import assert from "node:assert/strict";
-import { after, before, test } from "node:test";
+import { afterAll as after, beforeAll as before, test } from "bun:test";
 import { nextRun, parseCron } from "../src/cron-expr.js";
 
 // Schedules use local time. Pin a zone without DST so the expected values are fixed.
@@ -67,14 +67,14 @@ test("schedules use the process local zone", () => {
 });
 
 // Known DST bugs (Europe/Berlin). m57 runs in Asia/Amman, which has no DST, so these do not fire there today.
-test("DST spring forward: a job in the skipped hour still runs that day", { todo: "bug: nextRun skips the day" }, () => {
+test.todo("DST spring forward: a job in the skipped hour still runs that day", () => {
   process.env.TZ = "Europe/Berlin"; // 2026-03-29 02:00 CET -> 03:00 CEST; 02:30 does not exist.
   try {
     assert.equal(new Date(nextRun("30 2 * * *", Date.parse("2026-03-29T00:00:00Z"))).toISOString().slice(0, 10), "2026-03-29");
   } finally { process.env.TZ = "UTC"; }
 });
 
-test("DST fall back: */15 does not skip the repeated hour", { todo: "bug: nextRun jumps from 02:45 CEST to 03:00 CET" }, () => {
+test.todo("DST fall back: */15 does not skip the repeated hour", () => {
   process.env.TZ = "Europe/Berlin"; // 2026-10-25 03:00 CEST -> 02:00 CET.
   try {
     assert.equal(new Date(nextRun("*/15 * * * *", Date.parse("2026-10-25T00:45:00Z"))).toISOString(), "2026-10-25T01:00:00.000Z");

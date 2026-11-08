@@ -1,10 +1,9 @@
 // Self-improvement engine: inspect past run logs -> extract lessons -> draft/update skills -> verify with a
 // benchmark before applying. Unverified or regressing drafts are never installed; every applied change keeps a
 // backup so it can be rolled back. Skills are plain SKILL.md files, so the skills extension picks edits up live.
-import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "bun:sqlite";
 import { parseFrontmatter, scanSkills } from "./skills.js";
 
 export interface RunRecord { id: number; source: string; label: string; status: "ok" | "error" | "running"; startedAt: number; text: string }
@@ -17,7 +16,7 @@ export function cronRunSource(path: string): RunLogSource {
     name: "cron",
     recent(limit) {
       if (!existsSync(path)) return [];
-      const db = new DatabaseSync(path, { readOnly: true });
+      const db = new Database(path, { readonly: true });
       try {
         const rows = db.prepare(
           "SELECT r.id, r.status, r.started_at, r.output, r.error, j.name AS job FROM runs r JOIN jobs j ON j.id = r.job_id ORDER BY r.id DESC LIMIT ?",
@@ -69,9 +68,18 @@ export function lintSkill(content: string, expectedName: string): string[] {
 /** Benchmark from a shell command: exit 0 = score 1, otherwise 0. SKILL_PATH points at the candidate. */
 export function commandBenchmark(command: string, timeoutMs = 60_000): Benchmark {
   return (_c, path) => {
-    const r = spawnSync("sh", ["-c", command], { env: { ...process.env, SKILL_PATH: path }, encoding: "utf8", timeout: timeoutMs });
-    const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim().slice(-500);
-    return { score: r.status === 0 ? 1 : 0, detail: `exit ${r.status ?? r.signal}${out ? `: ${out}` : ""}` };
+    const r = Bun.spawnSync(["sh", "-c", command], {
+      env: { ...process.env, SKILL_PATH: path },
+      timeout: timeoutMs,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = r.stdout ? Buffer.from(r.stdout).toString("utf8") : "";
+    const stderr = r.stderr ? Buffer.from(r.stderr).toString("utf8") : "";
+    const out = `${stdout}${stderr}`.trim().slice(-500);
+    const status = r.exitCode;
+    const signal = r.signalCode;
+    return { score: status === 0 ? 1 : 0, detail: `exit ${status ?? signal}${out ? `: ${out}` : ""}` };
   };
 }
 

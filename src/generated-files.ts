@@ -1,5 +1,4 @@
 // Persistent outputs that do not belong to a project. Never change the session cwd to this directory.
-import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
@@ -31,7 +30,7 @@ export function ensureGeneratedDirectories(root: string): void {
 export async function saveGeneratedImage(root: string, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
   ensureGeneratedDirectories(root);
-  const path = join(generatedDirectories(root).images, `${randomUUID()}.png`);
+  const path = join(generatedDirectories(root).images, `${crypto.randomUUID()}.png`);
   await writeFile(path, bytes, { flag: "wx", mode: 0o600, signal });
   return path;
 }

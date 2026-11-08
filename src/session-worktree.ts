@@ -2,10 +2,7 @@
 // Questions never allocate one. The beforeTool hook refuses the first edit/write inside the main checkout and points the
 // model at `session_worktree`; that tool creates the worktree through the session's own environment (host or worker),
 // switches the session directory into it, and later removes it once its branch has merged.
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { promisify } from "node:util";
 import type { Context } from "@earendil-works/chord/context";
 import { AgentDoc, ToolTask, defineDoc, defineExtension, defineTool, hook, type ConversationId, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
@@ -66,7 +63,6 @@ type Deps = { projects: () => ProjectStore | undefined; title: (id: number) => s
 export function createSessionWorktreeExtension(deps: Deps) {
   // Host sessions only: the dirty-state guard reads the main checkout directly. The last seen state keeps one warning per change.
   const seen = new Map<number, string>();
-  const exec = promisify(execFile);
 
   /** The project's main checkout for this session, when auto-worktree applies. */
   async function scope(api: { snapshot: ToolExecutionApi["snapshot"] }, id: ConversationId, context: Context) {
@@ -87,8 +83,17 @@ export function createSessionWorktreeExtension(deps: Deps) {
     if (!sc || sc.worker !== null || !within(sc.cwd, sc.root)) return undefined;
     if ((await api.snapshot(SessionWorktree, api.conversationId, context))?.active) return undefined;
     let porcelain = "";
-    try { porcelain = (await exec("git", ["-C", sc.root, "--no-optional-locks", "status", "--porcelain"], { timeout: 10_000 })).stdout; } catch { return undefined; }
-    const digest = createHash("sha1").update(porcelain).digest("hex"), id = Number(api.conversationId), before = seen.get(id);
+    try {
+      const res = Bun.spawnSync(["git", "-C", sc.root, "--no-optional-locks", "status", "--porcelain"], {
+        timeout: 10_000,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      if (res.exitCode === 0 && res.stdout) {
+        porcelain = Buffer.from(res.stdout).toString("utf8");
+      }
+    } catch { return undefined; }
+    const digest = new Bun.CryptoHasher("sha1").update(porcelain).digest("hex"), id = Number(api.conversationId), before = seen.get(id);
     seen.set(id, digest);
     return { sc, porcelain, digest, before };
   }

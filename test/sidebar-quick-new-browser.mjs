@@ -1,11 +1,9 @@
 // Real-browser verification for Level 1 sidebar project-row quick new session (Option A).
-// Build web first (`pnpm run build:web`), then run: `node --import tsx test/sidebar-quick-new-browser.mjs`
+// Build web first (`bun run build:web`), then run: `bun test/sidebar-quick-new-browser.mjs`
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { once } from "node:events";
-import { serve } from "@hono/node-server";
 import { createRequire } from "node:module";
 import { createModels, fauxProvider, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { openLuna, context } from "../src/luna.ts";
@@ -68,9 +66,8 @@ try {
     cwd: dir,
     agent: { model, thinkingLevel: "off", instructions: "DEFAULT_ONLY" },
   });
-  server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
-  await once(server, "listening");
-  const port = server.address().port;
+  server = Bun.serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0, idleTimeout: 0 });
+  const port = server.port;
   const base = `http://127.0.0.1:${port}`;
 
   async function request(path, body, method = "POST") {
@@ -215,8 +212,7 @@ try {
 } finally {
   await browser?.close();
   if (server) {
-    server.closeAllConnections();
-    await new Promise(resolve => server.close(resolve));
+    await server.stop(true);
   }
   await harness?.close(context);
   workers.close();

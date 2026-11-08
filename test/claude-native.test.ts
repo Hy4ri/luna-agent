@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { Admission, Capture, QueriedTurnMismatch, dropNativeContext, pinMessageBreakpoint, restoreQueriedTurn,
   stableRequestContext, upstreamProxy } from "../src/claude-native/admission.js";
 import { CARRIER_TYPE, TOOL_PREFIX, buildBody, conversationSessionId, conversationToolPrefix, deepEqual, nativeModel,

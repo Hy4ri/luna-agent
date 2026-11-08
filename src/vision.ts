@@ -1,5 +1,4 @@
 // Auxiliary results are text only. Native pixels stay small because later calls resend them.
-import { createHash } from "node:crypto";
 import type { Model, Models, Message, Usage } from "@earendil-works/pi-ai";
 import { AgentDoc, GenerationTask, defineDoc, defineExtension, defineTool, hook } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord/context";
@@ -16,7 +15,7 @@ export const VisionState = defineDoc<{ turn: string; counts: Record<string, numb
 });
 type Config = Pick<LunaConfig, "vision" | "auxiliary">;
 type Ref = { provider: string; modelId: string };
-const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+const hash = (bytes: Uint8Array) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
 const text = (value: unknown, isError = false) => ({ output: [{ type: "text" as const, text: JSON.stringify(value) }], isError });
 const IMAGE_APIS = new Set(["anthropic-messages", "openai-completions", "openai-responses", "azure-openai-responses",
   "openai-codex-responses", "google-generative-ai", "google-gemini-cli", "google-vertex", "bedrock-converse-stream", "mistral-conversations"]);

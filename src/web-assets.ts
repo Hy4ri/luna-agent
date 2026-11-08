@@ -1,7 +1,6 @@
 import { HTML_PREVIEW_CSP, HTML_PREVIEW_SHELL } from "./html-preview.js";
 import { Hono } from "hono";
 import { readFileSync, readdirSync } from "node:fs";
-import { createHash } from "node:crypto";
 
 export function createWebApp(root: URL): Hono {
   const app = new Hono();
@@ -43,7 +42,7 @@ export function createWebApp(root: URL): Hono {
       for (const [key, chunk] of Object.entries(manifest)) if (chunk.isEntry) visit(key);
       if (!visited.size) throw new Error("Missing shell entry");
       const worker = readFileSync(new URL("sw.js", root), "utf8");
-      const version = "luna-vue-" + createHash("sha256").update(page).update(worker).update(JSON.stringify(files)).digest("hex").slice(0, 16);
+      const version = "luna-vue-" + new Bun.CryptoHasher("sha256").update(page).update(worker).update(JSON.stringify(files)).digest("hex").slice(0, 16);
       const swCode = worker
         .replace("__SHELL_VERSION__", version)
         .replace("__SHELL_FILES__", JSON.stringify(files))
@@ -56,7 +55,7 @@ export function createWebApp(root: URL): Hono {
 
   app.get("/", (c) => {
     const build = loadBuild();
-    if (!build) return c.text("Web UI is not built. Run pnpm run build:web.", 503);
+    if (!build) return c.text("Web UI is not built. Run bun run build:web.", 503);
     // Only the internal session pane can be framed, and only by this origin.
     const pane = c.req.query("pane") === "session";
     return c.html(build.page, 200, { "cache-control": "no-cache", "x-frame-options": pane ? "SAMEORIGIN" : "DENY", "content-security-policy": `frame-ancestors ${pane ? "'self'" : "'none'"}`, "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" });

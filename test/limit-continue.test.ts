@@ -1,7 +1,7 @@
 // Contract: after a usage limit resets, recovery resumes the stored run with Pi's native continue. It adds no
 // synthetic user message, uses a stable request ID, and a repeated delivery cannot admit a second run.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import type { ConversationId } from "@earendil-works/pi-durable";
