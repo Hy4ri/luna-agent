@@ -379,13 +379,23 @@ aside#side.collapsed #history-rail {
   color: var(--muted-foreground);
   font-size: 0.76rem;
 }
+.folder-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  min-height: 44px;
+}
+.folder-row:hover {
+  background: var(--sidebar-accent);
+}
 .folder-open {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 44px;
-  padding: 4px 8px;
+  padding: 4px 2px 4px 8px;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
@@ -393,8 +403,52 @@ aside#side.collapsed #history-rail {
   text-align: left;
   cursor: pointer;
 }
-.folder-open:hover { background: var(--sidebar-accent); }
 .folder-icon, .folder-chevron { flex-shrink: 0; color: var(--muted-foreground); }
+.folder-trailing {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin-inline-end: 2px;
+}
+.folder-quick-new {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.folder-row:hover .folder-quick-new,
+.folder-row:focus-within .folder-quick-new {
+  opacity: 1;
+  pointer-events: auto;
+}
+.folder-row:hover .folder-chevron,
+.folder-row:focus-within .folder-chevron {
+  opacity: 0;
+}
+.folder-quick-new:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 8%, var(--sidebar-accent));
+  color: var(--foreground);
+}
+@media (hover: none), (pointer: coarse) {
+  .folder-quick-new {
+    position: static;
+    width: 36px;
+    height: 36px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .folder-trailing {
+    width: 36px;
+    height: 36px;
+  }
+  .folder-chevron {
+    display: none;
+  }
+}
 .folder-title-row { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; font-size: 0.9rem; line-height: 20px; }
 .folder-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-meta { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0; }

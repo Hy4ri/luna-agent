@@ -39,7 +39,7 @@ import { useVirtualList } from "@vueuse/core";
 import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSourceControl } from "@/stores/app";
 import { chat, openSession, newSession } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
-import { sortProjects } from "@/lib/projects";
+import { sortProjects, resolveQuickSessionTarget } from "@/lib/projects";
 import ProjectIcon from "@/components/ProjectIcon.vue";
 import type { ProjectAppearance } from "../../../../src/project-appearance";
 import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, projectName, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, activity, markActivitySeen, dismissActivity, markAllActivitySeen, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
@@ -209,6 +209,9 @@ const folderStatuses = (f: Folder) => {
   return list;
 };
 const machineCount = (f: Folder, m: Machine) => f.machines[m.key] ?? 0;
+
+/** Default machine for starting a quick session in a project folder: main host if linked, else its first online worker. */
+const folderQuickSessionTarget = (f: Folder) => resolveQuickSessionTarget(f.project, f.name, history.projects, workers.list);
 
 /** Text after the title of a session row: project while searching, machine when several are shown together. */
 function sessionMeta(s: any) {
@@ -618,29 +621,47 @@ onMounted(() => {
 
         <!-- Level 1: project folders -->
         <template v-if="!openFolder && !searching">
-          <button
+          <div
             v-for="f in folders"
             :key="f.key"
-            class="folder-open"
+            class="folder-row"
             :data-project="f.key"
-            :aria-label="f.name + ', ' + f.count + ' conversations'"
-            @click="drill(f.key)"
           >
-            <span class="folder-title-row">
-              <ProjectIcon :icon="f.icon" :color="f.color" :size="20" :align-label="f.name" class="folder-icon" />
-              <span dir="auto" class="folder-title">{{ f.name }}</span>
-              <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
-              <span class="folder-meta">
-                <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
-                <span v-for="state in folderStatuses(f)" :key="state.status" class="folder-status session-state" :data-status="state.status" :title="`${state.count} ${state.label}`" :aria-label="`${state.count} ${state.label}`" role="img">
-                  <LoaderCircle v-if="['running', 'reviewing'].includes(state.status)" :size="12" class="motion-safe:animate-spin" aria-hidden="true" />
-                  <span v-else class="session-state-dot" aria-hidden="true"></span>
-                  <span aria-hidden="true">{{ state.count }}</span>
+            <button
+              type="button"
+              class="folder-open"
+              :data-project="f.key"
+              :aria-label="f.name + ', ' + f.count + ' conversations'"
+              @click="drill(f.key)"
+            >
+              <span class="folder-title-row">
+                <ProjectIcon :icon="f.icon" :color="f.color" :size="20" :align-label="f.name" class="folder-icon" />
+                <span dir="auto" class="folder-title">{{ f.name }}</span>
+                <Star v-if="f.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
+                <span class="folder-meta">
+                  <span v-if="folderTime(f)" class="folder-time">{{ ago(folderTime(f)) }}</span>
+                  <span v-for="state in folderStatuses(f)" :key="state.status" class="folder-status session-state" :data-status="state.status" :title="`${state.count} ${state.label}`" :aria-label="`${state.count} ${state.label}`" role="img">
+                    <LoaderCircle v-if="['running', 'reviewing'].includes(state.status)" :size="12" class="motion-safe:animate-spin" aria-hidden="true" />
+                    <span v-else class="session-state-dot" aria-hidden="true" />
+                    <span aria-hidden="true">{{ state.count }}</span>
+                  </span>
                 </span>
               </span>
+            </button>
+            <span class="folder-trailing">
+              <ChevronRight :size="14" class="folder-chevron" aria-hidden="true" />
+              <button
+                type="button"
+                class="folder-quick-new group-new"
+                :aria-label="'New session in ' + f.name"
+                :title="folderQuickSessionTarget(f).disabledReason ?? ('New session in ' + f.name)"
+                :disabled="!!folderQuickSessionTarget(f).disabledReason"
+                @click="handleNewChat(f.project, folderQuickSessionTarget(f).worker)"
+              >
+                <Plus :size="14" />
+              </button>
             </span>
-            <ChevronRight :size="14" class="folder-chevron" aria-hidden="true" />
-          </button>
+          </div>
         </template>
 
         <!-- Level 2: sessions of the open folder, or search results across all folders -->
