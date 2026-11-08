@@ -230,25 +230,49 @@ export class MemoryStore {
       used += line.length + 1;
       return true;
     };
+    const totalEntries = facts.length + notes.length;
+    // Maximum possible overflow notice length for reserve calculations
+    const maxReserve = `\n(${totalEntries} more entries not shown; use the memory tool action=search)`.length;
+
     let droppedFacts = 0;
     if (facts.length) {
       add("Facts:");
       for (const f of facts) {
         const p = this.db.prepare("SELECT metadata FROM memory_provenance WHERE key=?").get(f.key!) as { metadata: string } | undefined;
         const due = p ? JSON.parse(p.metadata).reviewAt : null;
-        if (!add(`- ${f.key}${due && due <= Date.now() ? " [review due; verify before use]" : ""}: ${oneLine(f.content, 300)}`)) droppedFacts++;
+        const line = `- ${f.key}${due && due <= Date.now() ? " [review due; verify before use]" : ""}: ${oneLine(f.content, 300)}`;
+        // If there are more facts or notes remaining after this one, reserve space so the hidden notice is never squeezed out
+        const hasMore = (facts.length - (out.length - 1)) > 0 || notes.length > 0;
+        if (hasMore && used + line.length + 1 + maxReserve > this.budget) {
+          droppedFacts++;
+        } else if (!add(line)) {
+          droppedFacts++;
+        }
       }
     }
     if (digest) {
       add("Older notes (digest):");
-      for (const l of digest.content.split("\n")) if (!add(l)) break;
+      for (const l of digest.content.split("\n")) {
+        const hasMore = notes.length > 0 || droppedFacts > 0;
+        if (hasMore && used + l.length + 1 + maxReserve > this.budget) break;
+        if (!add(l)) break;
+      }
     }
     let shown = 0;
     if (notes.length) {
-      add("Recent notes:");
-      for (const n of notes) {
-        if (!add(`- [#${n.id}] ${oneLine(n.content, 200)}`)) break;
-        shown++;
+      const header = "Recent notes:";
+      const hasMoreAfterHeader = notes.length > 0 || droppedFacts > 0;
+      if (!hasMoreAfterHeader || used + header.length + 1 + maxReserve <= this.budget) {
+        if (add(header)) {
+          for (const n of notes) {
+            const line = `- [#${n.id}] ${oneLine(n.content, 200)}`;
+            const remaining = notes.length - (shown + 1) + droppedFacts;
+            const reserve = remaining > 0 ? maxReserve : 0;
+            if (used + line.length + 1 + reserve > this.budget) break;
+            if (!add(line)) break;
+            shown++;
+          }
+        }
       }
     }
     const hidden = notes.length - shown + droppedFacts;
