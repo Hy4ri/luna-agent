@@ -3,7 +3,7 @@
 // A named project's directory is copied into the session at creation,
 // so editing or deleting a project never changes sessions that already exist.
 import { isValidProjectIcon, type ProjectAppearance } from "./project-appearance.js";
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "bun:sqlite";
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
@@ -23,7 +23,7 @@ export class ProjectError extends Error {
 }
 
 export class ProjectStore {
-  constructor(private readonly db: DatabaseSync, private readonly onDelete?: (id: number) => void) {
+  constructor(private readonly db: Database, private readonly onDelete?: (id: number) => void) {
     db.exec(`CREATE TABLE IF NOT EXISTS luna_projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, cwd TEXT NOT NULL
       ) STRICT;
@@ -54,7 +54,7 @@ export class ProjectStore {
     return out;
   }
   private generalAppearance(): { color: string | null; icon: string | null } | undefined {
-    return this.db.prepare("SELECT color, icon FROM luna_general_appearance WHERE id=0").get() as { color: string | null; icon: string | null } | undefined;
+    return (this.db.prepare("SELECT color, icon FROM luna_general_appearance WHERE id=0").get() as { color: string | null; icon: string | null } | null) ?? undefined;
   }
   list(): Project[] {
     const dirs = this.dirs();
@@ -68,8 +68,8 @@ export class ProjectStore {
       const app = this.generalAppearance();
       return { ...GENERAL_PROJECT, ...(app ? { color: app.color, icon: app.icon } : {}) };
     }
-    const r = this.db.prepare("SELECT id, name, cwd, favorite, color, icon, auto_worktree, worktree_setup FROM luna_projects WHERE id=?").get(id) as ProjectRow | undefined;
-    return r && { ...shape(r), workerDirs: this.dirs().get(id) ?? [] };
+    const r = this.db.prepare("SELECT id, name, cwd, favorite, color, icon, auto_worktree, worktree_setup FROM luna_projects WHERE id=?").get(id) as ProjectRow | null;
+    return r ? { ...shape(r), workerDirs: this.dirs().get(id) ?? [] } : undefined;
   }
   /** Directory for a new session on a machine: `null` is the main host. */
   dirFor(id: number, worker: number | null): string | undefined {

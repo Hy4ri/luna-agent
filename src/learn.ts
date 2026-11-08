@@ -1,14 +1,13 @@
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 import { Type } from "typebox";
 import { defineExtension, defineTool, section, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
 import { signature, lintSkill, type SkillImprover } from "./improve.js";
 import { messageText } from "./recall.js";
 import type { MemoryStore } from "./memory.js";
-import { createHash } from "node:crypto";
 import type { LearnFiles, ChangeRow } from "./learn-files.js";
 
-const fingerprint = (s: string) => createHash("sha256").update(s.replace(/\s+/g, " ").trim().toLowerCase()).digest("hex");
+const fingerprint = (s: string) => new Bun.CryptoHasher("sha256").update(s.replace(/\s+/g, " ").trim().toLowerCase()).digest("hex");
 
 export type SignalKind = "correction" | "rule" | "recovery" | "tool_error" | "outcome";
 export type Cause = "missing" | "not_loaded" | "ignored" | "wrong" | "stale" | "conflict" | "project" | "uncertain";
@@ -58,14 +57,14 @@ export function originalUserText(m: ScanMessage): string {
 /** The model-visible tool error without the harness wrapper lines. */
 const errorBody = (t: string) => t.replace(/<\/?harness>/g, "").replace(/^\s*\[error\]\s*/m, "").trim();
 
-/** Primary program of the last command in a shell line (`a && b | c` -> c), with a subcommand for git/gh/pm2/pnpm. */
+/** Primary program of the last command in a shell line (`a && b | c` -> c), with a subcommand for git/gh/pm2/bun/pnpm. */
 export function shellProgram(command: string): string {
   const last = command.split(/&&|\|\||;|\||\n/).map(x => x.trim()).filter(Boolean).at(-1) ?? "";
   const toks = last.split(/\s+/).filter(t => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
   while (["sudo", "nohup", "time", "env", "setsid"].includes(toks[0] ?? "")) toks.shift();
   if (toks[0] === "timeout") toks.splice(0, 2);
   const prog = (toks[0] ?? "").split("/").at(-1) ?? "";
-  return ["git", "gh", "pm2", "pnpm", "npm", "cargo", "systemctl"].includes(prog) && toks[1] && !toks[1].startsWith("-") ? `${prog} ${toks[1]}` : prog;
+  return ["git", "gh", "pm2", "bun", "pnpm", "npm", "cargo", "systemctl"].includes(prog) && toks[1] && !toks[1].startsWith("-") ? `${prog} ${toks[1]}` : prog;
 }
 
 /** Non-zero exits that report a result (no match, differences), signals that stop a process, and harness interruptions are not agent mistakes. */
@@ -172,9 +171,9 @@ const OPEN: LessonStatus[] = ["candidate", "supported", "corroborated", "propose
 export interface LearnOptions { files?: LearnFiles; skip?: (conv: number) => boolean }
 
 export class LearnStore {
-  readonly db: DatabaseSync;
+  readonly db: Database;
   constructor(path: string, readonly options: LearnOptions = {}) {
-    this.db = new DatabaseSync(path);
+    this.db = new Database(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
@@ -249,8 +248,8 @@ export class LearnStore {
     return ids;
   }
 
-  signal(id: number) { return this.db.prepare("SELECT * FROM signals WHERE id=?").get(id) as SignalRow | undefined; }
-  lesson(id: number) { return this.db.prepare("SELECT * FROM lessons WHERE id=?").get(id) as LessonRow | undefined; }
+  signal(id: number) { return (this.db.prepare("SELECT * FROM signals WHERE id=?").get(id) as SignalRow | null) ?? undefined; }
+  lesson(id: number) { return (this.db.prepare("SELECT * FROM lessons WHERE id=?").get(id) as LessonRow | null) ?? undefined; }
   unassigned(limit = 50, offset = 0, includeLegacy = false) {
     return this.db.prepare(`SELECT * FROM signals s WHERE lesson IS NULL AND disposition IS NULL AND (fingerprint IS NOT NULL OR ?=1)
       AND (kind NOT IN ('recovery','tool_error') OR (key NOT LIKE '%:<harness>' AND (SELECT COUNT(DISTINCT conv) FROM signals x WHERE x.key=s.key)>=2))

@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 
@@ -18,13 +17,36 @@ function token(): Promise<string> {
   const supplied = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (supplied) return Promise.resolve(supplied);
   if (!tokenPromise) {
-    const pending = new Promise<string>((resolve, reject) => {
-      execFile('gh', ['auth', 'token', '--hostname', 'github.com'], { env: env(), timeout: 10_000, maxBuffer: 64 << 10 }, (error, stdout) => {
-        if (error) return reject(new GhError((error as NodeJS.ErrnoException).code === 'ENOENT' ? 'gh is not installed' : error.killed ? 'GitHub login check timed out' : 'Not logged in to GitHub; run gh auth login', (error as NodeJS.ErrnoException).code === 'ENOENT' ? 503 : error.killed ? 504 : 502));
-        if (!stdout.trim()) return reject(new GhError('Not logged in to GitHub; run gh auth login', 502));
-        resolve(stdout.trim());
-      });
-    });
+    const pending = (async (): Promise<string> => {
+      let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
+      try {
+        proc = Bun.spawn(['gh', 'auth', 'token', '--hostname', 'github.com'], {
+          env: env(),
+          stdin: 'ignore',
+          stdout: 'pipe',
+          stderr: 'pipe',
+        });
+      } catch (error) {
+        const enoent = (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+        throw new GhError(enoent ? 'gh is not installed' : 'Not logged in to GitHub; run gh auth login', enoent ? 503 : 502);
+      }
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { proc.kill(); } catch {}
+      }, 10_000);
+      try {
+        const [stdout, code] = await Promise.all([
+          new Response(proc.stdout).text(),
+          proc.exited,
+        ]);
+        if (timedOut) throw new GhError('GitHub login check timed out', 504);
+        if (code !== 0 || !stdout.trim()) throw new GhError('Not logged in to GitHub; run gh auth login', 502);
+        return stdout.trim();
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
     tokenPromise = pending;
     void pending.catch(() => { if (tokenPromise === pending) resetToken(); });
   }
@@ -222,10 +244,35 @@ type DiscoveryProject = { id: number; name: string; cwd: string; workerDirs?: { 
 export type RemoteReader = (machine: number | null, cwd: string) => Promise<string | null>;
 
 /** Read `origin` on the main host. */
-export function localOrigin(cwd: string): Promise<string | null> {
-  return new Promise(resolve => {
-    execFile('git', ['-C', cwd, 'remote', 'get-url', 'origin'], { env: env(), timeout: 5000 }, (error, stdout) => resolve(error ? null : parseRemote(stdout.trim())));
-  });
+export async function localOrigin(cwd: string): Promise<string | null> {
+  let proc: Bun.Subprocess<"ignore", "pipe", "ignore">;
+  try {
+    proc = Bun.spawn(['git', '-C', cwd, 'remote', 'get-url', 'origin'], {
+      env: env(),
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+  } catch {
+    return null;
+  }
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    try { proc.kill(); } catch {}
+  }, 5000);
+  try {
+    const [stdout, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    if (timedOut || code !== 0) return null;
+    return parseRemote(stdout.trim());
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** The machine side of repository discovery. A real `WorkerHub` satisfies it. */

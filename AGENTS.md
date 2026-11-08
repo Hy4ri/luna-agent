@@ -10,11 +10,11 @@ This document complements [`CONFIGURATION.md`](CONFIGURATION.md) (user settings,
 
 `luna-pi` is a durable AI agent daemon, CLI, and web UI built on `@earendil-works/pi-durable`, `@earendil-works/pi-ai`, and `@earendil-works/chord`.
 
-- **Runtime & Backend:** Node.js 26 (uses built-in `node:sqlite`), TypeScript 7 (`tsc -p .`), Hono (`@hono/node-server`) for REST and SSE streaming.
+- **Runtime & Backend:** Bun 1.4+ (uses built-in `bun:sqlite`, `Bun.serve`, and `Bun.Terminal`), TypeScript 7 (`tsc -p .`), Hono for REST and SSE streaming.
 - **Schemas & Validation:** Zod v4 (`src/config.ts`) for strict configuration validation; TypeBox (`typebox`) for agent tool parameter schemas.
 - **Protocols & Integrations:** `@modelcontextprotocol/sdk` (stdio, Streamable HTTP, and SSE MCP transports), `@anthropic-ai/claude-agent-sdk` (`claude-cli` / `claude-native`), `sharp` (image processing).
 - **Web Frontend (`web/`):** Vue 3 (`<script setup lang="ts">`), Vite 8, Tailwind CSS v4, Reka UI, Lucide icons. Compiled assets output to `dist/web/`.
-- **Package Manager & Toolchain:** `pnpm@12.11.2` enforced via `devEngines` in `package.json`. A Nix development shell (`flake.nix`) provides Node 26, `pnpm`, and `sqlite`.
+- **Package Manager & Toolchain:** `bun@1.4.4` enforced via `devEngines` in `package.json`. A Nix development shell (`flake.nix`) provides `bun` and `sqlite`.
 
 See [`CONFIGURATION.md`](CONFIGURATION.md) for all configuration fields, built-in extensions, tool contracts, and HTTP endpoints.
 
@@ -24,34 +24,34 @@ See [`CONFIGURATION.md`](CONFIGURATION.md) for all configuration fields, built-i
 
 ### Package Manager Discipline
 
-- **Do NOT use `npx`.** `package.json` enforces `pnpm` via `devEngines.packageManager`.
-- Run scripts with `pnpm run <script>` or execute binaries directly from `./node_modules/.bin/<tool>` (or inside Nix via `nix develop -c pnpm ...`).
+- **Do NOT use `npx` or `pnpm`.** `package.json` enforces `bun` via `devEngines.packageManager`.
+- Run scripts with `bun run <script>` or execute binaries directly from `./node_modules/.bin/<tool>` (or inside Nix via `nix develop -c bun ...`).
 
 ### Build & Typecheck Commands
 
 ```bash
-pnpm run typecheck          # Backend TypeScript check (tsc -p ., TS 7)
-pnpm run typecheck:web      # Frontend Vue SFC + TypeScript check (vue-tsc via TS 5 API)
-pnpm run build:web          # Build web/ frontend into dist/web/
-pnpm run start              # Start the HTTP/SSE daemon (src/daemon.ts)
-pnpm run chat               # Run the interactive CLI client (src/cli.ts)
+bun run typecheck           # Backend TypeScript check (tsc -p ., TS 7)
+bun run typecheck:web       # Frontend Vue SFC + TypeScript check (vue-tsc via TS 5 API)
+bun run build:web           # Build web/ frontend into dist/web/
+bun run start               # Start the HTTP/SSE daemon (src/daemon.ts)
+bun run chat                # Run the interactive CLI client (src/cli.ts)
 ```
 
 ### Verification
 
 ```bash
-pnpm run typecheck          # Backend (tsc -p .), includes test/
-pnpm test                   # Unit tests (node:test via tsx), offline, no keys
-pnpm run typecheck:web      # Frontend, when web/ changed
-pnpm run build:web          # Frontend build, when web/ changed
+bun run typecheck           # Backend (tsc -p .), includes test/
+bun test                    # Unit tests (bun:test), offline, no keys
+bun run typecheck:web       # Frontend, when web/ changed
+bun run build:web           # Frontend build, when web/ changed
 ```
 
-The Nix dev shell includes Vim for the interactive terminal test. Run the suite inside it with `nix develop -c pnpm test`.
-For the optional real-browser contracts, set `LUNA_TEST_CHROMIUM` to an installed Chromium-family executable (for example, `LUNA_TEST_CHROMIUM="$(command -v chromium)" pnpm test`). The browser fixtures use temporary profiles, not the user's browser profile. Without an override they look for `/usr/bin/chromium` and skip if it is absent.
+The Nix dev shell includes Vim for the interactive terminal test. Run the suite inside it with `nix develop -c bun test`.
+For the optional real-browser contracts, set `LUNA_TEST_CHROMIUM` to an installed Chromium-family executable (for example, `LUNA_TEST_CHROMIUM="$(command -v chromium)" bun test`). The browser fixtures use temporary profiles, not the user's browser profile. Without an override they look for `/usr/bin/chromium` and skip if it is absent.
 
 ### Verification Rules for Changes
 
-1. **Before opening a PR:** Run `pnpm run typecheck` and `pnpm test`, plus `pnpm run typecheck:web` and `pnpm run build:web` if `web/` changed.
+1. **Before opening a PR:** Run `bun run typecheck` and `bun test`, plus `bun run typecheck:web` and `bun run build:web` if `web/` changed.
 2. **Exit codes:** Run checks unpiped so nonzero exit codes are preserved. Never report a timed-out or nonzero command as passing.
 
 ---
@@ -85,7 +85,7 @@ A bug fix in these areas must add a regression test that **fails on the code bef
 
 ### Rules
 
-- **Location:** tests live only in `test/*.test.ts` and use `node:test` with `node:assert/strict`. Adding a test dependency needs approval.
+- **Location:** tests live only in `test/*.test.ts` and use `bun:test` with `node:assert/strict`. Adding a test dependency needs approval.
 - **One contract, one owner:** test each behavior once, at the strongest boundary that observes it. Extend an existing table or file before creating a new file.
 - **A test must be able to fail:** do not assert values the code under test produced, do not mock the behavior you assert, and always `await` `assert.rejects`.
 - **Test the real implementation:** call exported functions. Do not copy production logic into a test. Avoid mocks; never patch globals unless no other option exists.
@@ -106,17 +106,17 @@ A bug fix in these areas must add a regression test that **fails on the code bef
 luna-pi/
 ├── CONFIGURATION.md            # Canonical documentation for config, tools, and HTTP routes
 ├── luna.config.example.json    # Example runtime configuration
-├── flake.nix                   # Nix devShell (nodejs_26, pnpm, sqlite)
-├── pnpm-workspace.yaml         # allowBuilds allowlist and patchedDependencies
-├── patches/                    # pnpm patches for @earendil-works/pi-ai and pi-durable
-├── test/                       # node:test unit tests (*.test.ts), recorded fixtures/, helper processes in support/
+├── flake.nix                   # Nix devShell (bun, sqlite)
+├── bunfig.toml                 # Bun package manager settings (minimumReleaseAge)
+├── patches/                    # Bun patches for @earendil-works/pi-ai and pi-durable
+├── test/                       # bun:test unit tests (*.test.ts), recorded fixtures/, helper processes in support/
 ├── src/
 │   ├── daemon.ts               # Process entrypoint: loads config, enforces auth, starts server
 │   ├── runtime.ts              # Central wiring: builds models, MCP, extensions, harness, schedulers
 │   ├── luna.ts                 # openLuna() wrapper around pi-durable harness + coding/memory/skills
 │   ├── server.ts               # Hono HTTP/SSE API routes and static web asset serving
 │   ├── routes/                 # Route handler modules registered by server.ts
-│   ├── terminal/               # Terminals: node-pty host, session-owned registry with shared control, headless VT screen, Luna's terminal tool, attach tickets and WebSocket
+│   ├── terminal/               # Terminals: Bun.Terminal PTY host, session-owned registry with shared control, headless VT screen, Luna's terminal tool, attach tickets and WebSocket
 │   ├── config.ts               # Strict Zod ConfigSchema and path/env resolution
 │   ├── settings.ts             # SettingsStore: live config reading, validation, and atomic writes
 │   ├── cli.ts                  # Interactive terminal client against the daemon HTTP/SSE API
@@ -217,11 +217,11 @@ A capability is complete only when all three layers are verified:
 1. **Never use unconditional `crypto.randomUUID()` in `web/`:**
    Browsers restrict `crypto.randomUUID()` to Secure Contexts (`https://` or `localhost`). When accessing the web UI over plain HTTP on a LAN IP (e.g. `http://192.168.1.x:8787`), `crypto.randomUUID()` throws `TypeError` and breaks interactions. Always provide a fallback using `crypto.getRandomValues()` or timestamp/random hex.
 2. **Rebuild `web/` after changing it:**
-   The daemon serves compiled assets from `dist/web/`. Always run `pnpm run build:web` after modifying files in `web/`.
+   The daemon serves compiled assets from `dist/web/`. Always run `bun run build:web` after modifying files in `web/`.
 3. **Read installed `pi-durable` and `pi-ai` declarations first:**
    Before writing extensions or tools, inspect the exact TypeScript definitions in `node_modules/@earendil-works/pi-durable/dist/` (`types.d.ts`, `harness/types.d.ts`, `harness/events.d.ts`) and `node_modules/@earendil-works/pi-ai/dist/`. Do not invent event shapes or method signatures.
 4. **Updating `patches/*.patch`:**
-   Dependency patches are managed in `patches/` and declared in `pnpm-workspace.yaml`. Never hand-edit hunk headers or line counts in `.patch` files; generate diffs cleanly and verify with `git apply --check --reverse`.
+   Dependency patches are managed in `patches/` and declared in `package.json` under `patchedDependencies`. Never hand-edit hunk headers or line counts in `.patch` files; generate diffs cleanly and verify with `git apply --check --reverse`.
 5. **Single-turn CLI adapters (`src/claude-cli.ts`, `src/claude-native/`):**
    Never serialize unbounded conversation history (`JSON.stringify(history)`) into a one-shot prompt string. Doing so defeats prompt caching and causes massive token write churn. Always use the bounded history/windowing helpers.
 
@@ -236,10 +236,10 @@ Every change must go through a branch and Pull Request targeting `main`. Never p
 git checkout main && git pull origin main
 git checkout -b feat/short-description      # or fix/..., refactor/..., docs/..., test/..., chore/...
 # implement changes and run the checks:
-pnpm run typecheck
-pnpm test
-pnpm run typecheck:web
-pnpm run build:web
+bun run typecheck
+bun test
+bun run typecheck:web
+bun run build:web
 git commit -m "feat(scope): concise summary"
 git push -u origin HEAD
 gh pr create --base main --title "feat(scope): concise summary" --body "..."

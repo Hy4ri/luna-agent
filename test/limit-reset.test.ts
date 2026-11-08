@@ -2,7 +2,7 @@
 // A wrong "wait" retries a dead request forever; a wrong "fatal" stops a session that would have recovered.
 // Inputs are real provider error strings.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { classifyLimit, type LimitClass } from "../src/limit-reset.js";
 
 // 2026-10-20 18:00:00 UTC = 21:00 in Asia/Amman (UTC+3).

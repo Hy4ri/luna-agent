@@ -1,20 +1,32 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, test } from "node:test";
+import { afterAll as after, test } from "bun:test";
 import { TerminalRegistry } from "../src/terminal/registry.js";
 import { localLauncher } from "../src/terminal/pty-host.js";
 import { startWorker } from "../src/worker.js";
-import { WorkerHub, WorkerStore } from "../src/workers.js";
+import { WorkerHub, WorkerStore, type WorkerWsData } from "../src/workers.js";
 
 const dir = mkdtempSync(join(tmpdir(), "luna-term-worker-"));
 const hub = new WorkerHub(new WorkerStore(join(dir, "w.db")), () => {});
-const server = createServer();
-hub.attach(server);
-await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
-const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+const server = Bun.serve<WorkerWsData>({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch(req, srv) {
+    const r = hub.tryUpgrade(req, srv);
+    if (r !== undefined) return r ?? undefined;
+    return new Response("Not Found", { status: 404 });
+  },
+  websocket: {
+    maxPayloadLength: 256 * 1024 * 1024,
+    open(ws) { hub.wsOpen(ws); },
+    message(ws, msg) { hub.wsMessage(ws, msg); },
+    pong(ws) { hub.wsPong(ws); },
+    close(ws) { hub.wsClose(ws); },
+  },
+});
+const url = `http://127.0.0.1:${server.port}`;
 const { worker, token } = hub.store.create("remote");
 const registry = new TerminalRegistry({
   launcher: (w, o) => w === null ? localLauncher(null, o) : hub.openPty(w, o),
@@ -23,7 +35,7 @@ const registry = new TerminalRegistry({
 const w = startWorker({ url, token, cwd: dir, log: () => {} });
 await w.ready;
 
-after(async () => { registry.closeAll(); await w.close(); hub.close(); server.close(); rmSync(dir, { recursive: true, force: true }); });
+after(async () => { registry.closeAll(); await w.close(); hub.close(); await server.stop(true); rmSync(dir, { recursive: true, force: true }); });
 
 const until = async (fn: () => boolean, ms = 8000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error("timeout"); await new Promise(r => setTimeout(r, 25)); } };
 

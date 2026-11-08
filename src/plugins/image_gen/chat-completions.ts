@@ -1,7 +1,6 @@
 // Image generation through a configured model on an OpenAI-compatible /chat/completions endpoint.
 // Works with image-output chat models such as Gemini Flash Image behind a proxy, OpenRouter, or ZenMux.
 // Credentials come from the Luna model catalog; this adapter never reads or stores its own keys.
-import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
@@ -92,7 +91,7 @@ export function createChatCompletionsImageProvider(options: {
         if (!metadata.format || !["png", "jpeg", "webp"].includes(metadata.format)) return error("invalid_response", "The provider returned an unsupported image format.");
         signal.throwIfAborted();
         await mkdir(options.outputDir, { recursive: true, mode: 0o700 });
-        const image = join(options.outputDir, `${randomUUID()}.${metadata.format === "jpeg" ? "jpg" : metadata.format}`);
+        const image = join(options.outputDir, `${crypto.randomUUID()}.${metadata.format === "jpeg" ? "jpg" : metadata.format}`);
         await writeFile(image, bytes, { flag: "wx", mode: 0o600 });
         return { success: true, image, model: model.id, prompt, aspect_ratio, modality, provider: `chat-completions:${model.provider}`,
           upscaled: false, requested_size: RATIO[aspect_ratio], pixel_size: `${metadata.width}x${metadata.height}` };

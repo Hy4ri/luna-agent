@@ -1,6 +1,6 @@
 // Contract: the legacy SSE event stream is rebuilt from Pi 1.5 conversation watches without losing frames.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, MemoryStorage } from "@earendil-works/pi-durable";

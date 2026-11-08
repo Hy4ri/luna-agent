@@ -1,6 +1,5 @@
 // Local browsers driven through Playwright: Chromium-family (Helium, Chromium, Chrome) and any CDP engine such as Moli.
 // Used where the browser runs on the same machine as Luna code: main, or a worker. Playwright is loaded on first use.
-import { randomBytes } from "node:crypto";
 import { stat } from "node:fs/promises";
 import type { Browser, BrowserContext, Dialog, Page } from "playwright";
 import { validateWebUrl } from "./web-tools.js";
@@ -25,7 +24,7 @@ export function createChromiumBrowserProvider(options: () => ChromiumOptions): B
   return createPlaywrightBrowserProvider({
     async start() {
       const { cdpUrl, executablePath, headless } = options();
-      const { chromium } = await import("playwright").catch(() => { throw new Error("Playwright is not installed. Run pnpm install on this machine."); });
+      const { chromium } = await import("playwright").catch(() => { throw new Error("Playwright is not installed. Run bun install on this machine."); });
       if (cdpUrl) {
         const browser = await chromium.connectOverCDP(cdpUrl).catch((error: Error) => {
           throw new Error(`No browser answers at ${cdpUrl}. Start it with --remote-debugging-port and a non-default --user-data-dir. ${error.message.split("\n")[0]}`);
@@ -83,7 +82,7 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
     async open({ url }, signal) {
       validateWebUrl(url); signal.throwIfAborted();
       const p = await (await launch()).newPage();
-      const tabId = `tab_${randomBytes(6).toString("hex")}`;
+      const tabId = `tab_${Buffer.from(crypto.getRandomValues(new Uint8Array(6))).toString("hex")}`;
       tabs.set(tabId, p); track(p);
       try { await p.goto(url, { waitUntil: "domcontentloaded", timeout: TIMEOUT_MS }); return tab(tabId, p); }
       catch (error) { tabs.delete(tabId); await p.close().catch(() => {}); throw error; }

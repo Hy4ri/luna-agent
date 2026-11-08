@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import { ChildResult, Children, readChildReport } from "../src/delegate-state.js";
@@ -26,7 +26,7 @@ for (const scenario of [
   { name: "small-model background safety", tokens: 85000, blocking: false, child: false, capacity: 128000 },
   { name: "small-model blocking safety", tokens: 115000, blocking: true, child: false, capacity: 128000 },
 ]) {
-  test(scenario.name, { timeout: 10000 }, async () => {
+  test(scenario.name, async () => {
     const dir = mkdtempSync(join(tmpdir(), "luna-compaction-"));
     const faux = fauxProvider({ models: [{ id: "large", contextWindow: scenario.capacity }] });
     const models = createModels(); models.setProvider(faux.provider);
@@ -74,10 +74,10 @@ for (const scenario of [
       await rt?.close();
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 10000);
 }
 
-test("external settings changes apply to an existing session on its next preparation", { timeout: 10000 }, async () => {
+test("external settings changes apply to an existing session on its next preparation", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-compaction-settings-"));
   const configPath = join(dir, "luna.config.json");
   const initial = { dataDir: dir, cwd: dir, extensions: [], compaction: { sessions: { backgroundAtTokens: 200000, blockAtTokens: 240000 } } };
@@ -105,9 +105,9 @@ test("external settings changes apply to an existing session on its next prepara
     assert.deepEqual(calls.slice(0, 2), ["summary", "answer"]);
     assert.ok((await conv.entries({}, 100, undefined, context)).items.some(entry => entry.kind === "pi.compaction"));
   } finally { await rt?.close(); rmSync(dir, { recursive: true, force: true }); }
-});
+}, 10000);
 
-test("a real forked delegate compacts inherited history below its parent's threshold", { timeout: 10000 }, async () => {
+test("a real forked delegate compacts inherited history below its parent's threshold", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-compaction-fork-"));
   const faux = fauxProvider({ models: [{ id: "parent", contextWindow: 1000000 }, { id: "child", contextWindow: 1000000 }] });
   const models = createModels(); models.setProvider(faux.provider);
@@ -143,4 +143,4 @@ test("a real forked delegate compacts inherited history below its parent's thres
     const report = await rt.harness.commit(tx => readChildReport(tx, conv.id, child.id), context);
     assert.equal(report.resultStatus, "valid", "compaction must not lose the delegate result contract");
   } finally { await rt?.close(); rmSync(dir, { recursive: true, force: true }); }
-});
+}, 10000);

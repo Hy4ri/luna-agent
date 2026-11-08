@@ -1,7 +1,6 @@
 // /review: a read-only reviewer for the current session. It never gets pi-durable's coding tools. It has four
 // tools implemented here, so the limits are enforced by code and not by instructions: file reads inside the working
 // directory, a grep, an allowlisted git, and lookup of earlier session messages. No tool writes, runs tests or uses a shell.
-import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { Type } from "typebox";
@@ -155,7 +154,7 @@ async function workspace(env: ExecutionEnv, cwd: string, signal?: AbortSignal, c
     const failed = [branch, status, diff, stat].find(result => result.code !== 0);
     if (failed) throw new Error(failed.out || "failed to inspect workspace");
   }
-  const fingerprint = createHash("sha256").update([head.out, status.out, diff.out].join("\0")).digest("hex");
+  const fingerprint = new Bun.CryptoHasher("sha256").update([head.out, status.out, diff.out].join("\0")).digest("hex");
   return { ok, fingerprint, head: head.out.trim(), branch: branch.out.trim(), status: status.out, diff: diff.out, stat: stat.out };
 }
 

@@ -1,18 +1,15 @@
 import assert from "node:assert/strict";
-import type { AddressInfo } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
-import { serve } from "@hono/node-server";
-import { WebSocket } from "ws";
+import { test } from "bun:test";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { context, openLuna } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
 import { createApp } from "../src/server.js";
 import { localLauncher } from "../src/terminal/pty-host.js";
 import { TerminalRegistry } from "../src/terminal/registry.js";
-import { TerminalService } from "../src/terminal/service.js";
+import { TerminalService, type TerminalWsData } from "../src/terminal/service.js";
 import { loadVt } from "../src/terminal/vt-model.js";
 
 const TOKEN = "test-token";
@@ -35,10 +32,23 @@ async function setup() {
   });
   conversations.subscribeDeleted(ids => { for (const id of ids) terminals.registry.closeSession(id); });
   const app = createApp({ harness, conversations, models, terminals, token: TOKEN, cwd: "/tmp", agent: { model: { provider: model.provider, modelId: model.id } } });
-  const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
-  terminals.attach(server as import("node:http").Server);
-  await new Promise(r => server.once("listening", r));
-  const port = (server.address() as AddressInfo).port;
+  const server = Bun.serve<TerminalWsData>({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 0,
+    fetch(req, srv) {
+      const r = terminals.tryUpgrade(req, srv);
+      if (r !== undefined) return r ?? undefined;
+      return app.fetch(req);
+    },
+    websocket: {
+      maxPayloadLength: 16 * 1024 * 1024,
+      open(ws) { terminals.wsOpen(ws); },
+      message(ws, msg) { terminals.wsMessage(ws, msg); },
+      close(ws) { terminals.wsClose(ws); },
+    },
+  });
+  const port = server.port!;
   const call = (path: string, init: RequestInit = {}, auth = true) =>
     fetch(`http://127.0.0.1:${port}${path}`, {
       ...init,
@@ -49,7 +59,7 @@ async function setup() {
     state, terminals, call, session, port, conversations,
     async cleanup() {
       terminals.close();
-      server.close();
+      await server.stop(true);
       await harness.close(context).catch(() => {});
       await rm(dir, { recursive: true, force: true });
     },
@@ -58,13 +68,21 @@ async function setup() {
 
 type Frames = { text: string; json: { type: string; [k: string]: unknown }[] };
 function open(port: number, id: string, ticket: string, headers: Record<string, string> = {}) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/terminals/${id}/attach?ticket=${ticket}`, { headers });
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/terminals/${id}/attach?ticket=${ticket}`, { headers } as unknown as string);
+  ws.binaryType = "arraybuffer";
   const frames: Frames = { text: "", json: [] };
-  ws.on("message", (data, isBinary) => {
-    if (isBinary) frames.text += (data as Buffer).toString("utf8");
-    else frames.json.push(JSON.parse(String(data)));
+  ws.addEventListener("message", event => {
+    if (typeof event.data !== "string") frames.text += Buffer.from(event.data as ArrayBuffer).toString("utf8");
+    else frames.json.push(JSON.parse(event.data));
   });
-  const opened = new Promise<void>((res, rej) => { ws.once("open", () => res()); ws.once("error", rej); ws.once("unexpected-response", (_q, r) => rej(new Error(`HTTP ${r.statusCode}`))); });
+  const opened = new Promise<void>((res, rej) => {
+    ws.addEventListener("open", () => res(), { once: true });
+    ws.addEventListener("error", e => {
+      const msg = (e as ErrorEvent).message || "HTTP error";
+      const m = /status code:\s*(\d+)/.exec(msg);
+      rej(new Error(m ? `HTTP ${m[1]}` : msg));
+    }, { once: true });
+  });
   return { ws, frames, opened };
 }
 async function until(fn: () => boolean, what: string) {
@@ -173,7 +191,7 @@ test("re-attaching replays earlier output exactly once and closing tells the cli
     first.ws.send(Buffer.from("echo marker-$((1+1))\n"));
     await until(() => first.frames.text.includes("marker-2"), "first output");
     first.ws.close();
-    await new Promise(r => first.ws.once("close", r));
+    await new Promise(r => first.ws.addEventListener("close", r, { once: true }));
 
     const second = open(t.port, term.id, await ticket(t, sid, term.id));
     await second.opened;

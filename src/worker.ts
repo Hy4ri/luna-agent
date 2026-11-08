@@ -1,10 +1,9 @@
 // Luna execution worker: dials the main daemon over WebSocket and runs file and shell calls for sessions that target it.
-// Usage: LUNA_URL=http://main:8787 LUNA_WORKER_TOKEN=lw_... [LUNA_WORKER_CWD=/home/me] pnpm run worker
+// Usage: LUNA_URL=http://main:8787 LUNA_WORKER_TOKEN=lw_... [LUNA_WORKER_CWD=/home/me] bun run worker
 // The worker keeps no session state. When the link drops, it stops every running command and drops open readers.
 import { homedir, hostname, userInfo } from "node:os";
 import { pathToFileURL } from "node:url";
-import WebSocket from "ws";
-import { defaultShell, programInvocation, shellEnvironment, spawnNodePty, type PtyProcess } from "./terminal/pty-host.js";
+import { defaultShell, programInvocation, shellEnvironment, spawnBunPty, type PtyProcess } from "./terminal/pty-host.js";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError } from "@earendil-works/pi-durable/env";
@@ -83,14 +82,15 @@ export function startWorker(o: WorkerOptions) {
 
   function connect() {
     if (stopped) return;
-    const ws = new WebSocket(target, { headers: { authorization: `Bearer ${o.token}` } });
+    const ws = new WebSocket(target, { headers: { authorization: `Bearer ${o.token}` } } as unknown as string);
+    ws.binaryType = "arraybuffer";
     socket = ws;
     const envs = new Map<string, NodeExecutionEnv>();
     const ptys = new Map<number, PtyProcess>();
     const calls = new Map<number, AbortController>();
     const handles = new Map<number, Record<string, (...args: unknown[]) => Promise<unknown>>>();
     let nextHandle = 1, liveness: ReturnType<typeof setTimeout> | undefined;
-    const alive = () => { clearTimeout(liveness); liveness = setTimeout(() => ws.terminate(), 45_000); };
+    const alive = () => { clearTimeout(liveness); liveness = setTimeout(() => ws.close(), 45_000); };
     let released: Promise<void> | undefined;
     release = () => released ??= (async () => {
       for (const p of ptys.values()) try { p.kill(); } catch { /* already gone */ }
@@ -104,20 +104,22 @@ export function startWorker(o: WorkerOptions) {
     const send = (m: WorkerMessage) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
     const envFor = (dir: string) => { let e = envs.get(dir); if (!e) envs.set(dir, e = new NodeExecutionEnv({ cwd: dir })); return e; };
 
-    ws.on("unexpected-response", (_req, res) => {
-      log(`worker: main refused the connection: HTTP ${res.statusCode}`);
-      if (res.statusCode === 401 || res.statusCode === 403) { stopped = true; (o.onUnauthorized ?? (() => {}))(); }
-      ws.terminate();
-    });
-    ws.on("open", () => {
+    ws.addEventListener("open", () => {
       delay = 1000; alive();
       send({ t: "hello", protocol: PROTOCOL_VERSION, capabilities });
     });
-    ws.on("ping", alive);
-    ws.on("message", async raw => {
+    // Bun's WebSocket supports ws.on("ping", ...) at runtime for server heartbeats
+    (ws as unknown as { on?: (event: string, listener: (...args: any[]) => void) => void }).on?.("ping", alive);
+    (ws as unknown as { on?: (event: string, listener: (...args: any[]) => void) => void }).on?.("unexpected-response", (_req: unknown, res: { statusCode?: number }) => {
+      log(`worker: main refused the connection: HTTP ${res?.statusCode}`);
+      if (res?.statusCode === 401 || res?.statusCode === 403) { stopped = true; (o.onUnauthorized ?? (() => {}))(); }
+      ws.close();
+    });
+    ws.addEventListener("message", async event => {
+      const raw = event.data;
       alive();
       let m: MainMessage;
-      try { m = JSON.parse(String(raw)) as MainMessage; } catch { return; }
+      try { m = JSON.parse(typeof raw === "string" ? raw : Buffer.from(raw as ArrayBuffer).toString("utf8")) as MainMessage; } catch { return; }
       if (!m || typeof m !== "object") return;
       if (m.t === "welcome") { log(`worker: connected to ${o.url} as "${m.name}" (id ${m.workerId})`); connected?.(); return; }
       if (m.t === "abort") { calls.get(m.id)?.abort(); return; }
@@ -125,7 +127,7 @@ export function startWorker(o: WorkerOptions) {
         try {
           const shell = defaultShell(process.env);
           const { file, args } = typeof m.command === "string" && m.command ? programInvocation(shell.file, m.command) : shell;
-          const p = spawnNodePty({ file, args, cwd: m.cwd || cwd, env: shellEnvironment(process.env), cols: m.cols, rows: m.rows });
+          const p = spawnBunPty({ file, args, cwd: m.cwd || cwd, env: shellEnvironment(process.env), cols: m.cols, rows: m.rows });
           ptys.set(m.id, p);
           p.onData(d => send({ t: "pty.output", id: m.id, data: d.toString("base64") }));
           p.onExit(e => { if (ptys.delete(m.id)) send({ t: "pty.exit", id: m.id, exitCode: e.exitCode, ...(e.signal ? { signal: e.signal } : {}) }); });
@@ -214,8 +216,12 @@ export function startWorker(o: WorkerOptions) {
         send({ t: "result", id: m.id, result: { ok: false, error: { kind: m.t === "call" && m.method === "exec" ? "exec" : "file", code: "unknown", message: String(error instanceof Error ? error.message : error) } } });
       } finally { calls.delete(m.id); }
     });
-    ws.on("error", error => log(`worker: ${error.message}`));
-    ws.on("close", () => {
+    ws.addEventListener("error", event => {
+      const msg = (event as ErrorEvent).message || "WebSocket error";
+      log(`worker: ${msg}`);
+      if (/status code:\s*(401|403)/.test(msg)) { stopped = true; (o.onUnauthorized ?? (() => {}))(); }
+    });
+    ws.addEventListener("close", () => {
       clearTimeout(liveness);
       // No replay: every command started for this link stops with it.
       void release();

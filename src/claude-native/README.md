@@ -64,7 +64,7 @@ The session id and native cwd must stay stable for one conversation; both sit in
 - One fresh CLI process remains the rule. No warm-process reuse or saved native transcript is introduced.
 - There is no input-size guard. The runtime's compaction owns history size.
 
-Run `pnpm run typecheck` and `pnpm test` from the repository root. `test/claude-native.test.ts` holds the
+Run `bun run typecheck` and `bun test` from the repository root. `test/claude-native.test.ts` holds the
 regression tests for the cache transforms and the relay (policy: `AGENTS.md`, "Tests"); neither proves
 live vendor behavior. The historical `verify:claude-cli:*` scripts are not shipped.
 Authenticated inference requires separate approval and is not part of the compiler gate.

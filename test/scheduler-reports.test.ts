@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { CronStore } from "../src/scheduler.js";
 
 test("attention cursor spans errors and successes without losing reports; read-all leaves superseded history untouched", () => {

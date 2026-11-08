@@ -1,17 +1,14 @@
 // The browser panel: session-owned tabs, the control lock, the HTTP routes, and the live stream.
 import assert from "node:assert/strict";
-import type { AddressInfo } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
-import { serve } from "@hono/node-server";
-import { WebSocket } from "ws";
+import { test } from "bun:test";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { context, openLuna } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
 import { createApp } from "../src/server.js";
-import { BrowserPanel, LOCK_MESSAGE, parseInput, pngSize } from "../src/browser/panel.js";
+import { BrowserPanel, LOCK_MESSAGE, parseInput, pngSize, type BrowserWsData } from "../src/browser/panel.js";
 import { createBrowserToolsExtension, type BrowserInput, type BrowserProvider } from "../src/browser-tools.js";
 
 const TOKEN = "test-token";
@@ -47,16 +44,29 @@ async function setup(extra: Partial<BrowserProvider> = {}) {
   const state = { enabled: true, now: 1_000_000 };
   const panel = new BrowserPanel({ enabled: () => state.enabled, resolve: async () => fake.provider, now: () => state.now, pollMs: 20, allowOrigin: origin => origin === "http://allowed.test" });
   const app = createApp({ harness, conversations, models, browserPanel: panel, token: TOKEN, cwd: "/tmp", agent: { model: { provider: model.provider, modelId: model.id } } });
-  const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
-  panel.attach(server as import("node:http").Server);
-  await new Promise(r => server.once("listening", r));
-  const port = (server.address() as AddressInfo).port;
+  const server = Bun.serve<BrowserWsData>({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 0,
+    fetch(req, srv) {
+      const r = panel.tryUpgrade(req, srv);
+      if (r !== undefined) return r ?? undefined;
+      return app.fetch(req);
+    },
+    websocket: {
+      maxPayloadLength: 16 * 1024 * 1024,
+      open(ws) { panel.wsOpen(ws); },
+      message(ws, msg) { panel.wsMessage(ws, msg); },
+      close(ws) { panel.wsClose(ws); },
+    },
+  });
+  const port = server.port!;
   const call = (path: string, init: RequestInit = {}) =>
     fetch(`http://127.0.0.1:${port}${path}`, { ...init, headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}`, ...init.headers } });
   const session = async () => ((await (await call("/v1/sessions", { method: "POST", body: "{}" })).json()) as { id: number }).id;
   return {
     panel, state, fake, call, session, port,
-    async cleanup() { panel.closeAll(); server.close(); await harness.close(context).catch(() => {}); await rm(dir, { recursive: true, force: true }); },
+    async cleanup() { panel.closeAll(); await server.stop(true); await harness.close(context).catch(() => {}); await rm(dir, { recursive: true, force: true }); },
   };
 }
 
@@ -65,10 +75,18 @@ async function until(fn: () => boolean, what: string) {
   assert.fail(`timed out waiting for ${what}`);
 }
 function attach(port: number, tab: string, ticket: string, headers: Record<string, string> = {}) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/browser/${tab}/attach?ticket=${ticket}`, { headers });
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/browser/${tab}/attach?ticket=${ticket}`, { headers } as unknown as string);
+  ws.binaryType = "arraybuffer";
   const got = { json: [] as { type: string; [k: string]: unknown }[], binary: 0 };
-  ws.on("message", (d, isBinary) => { if (isBinary) got.binary++; else got.json.push(JSON.parse(String(d))); });
-  const opened = new Promise<void>((res, rej) => { ws.once("open", () => res()); ws.once("error", rej); ws.once("unexpected-response", (_q, r) => rej(new Error(`HTTP ${r.statusCode}`))); });
+  ws.addEventListener("message", event => { if (typeof event.data !== "string") got.binary++; else got.json.push(JSON.parse(event.data)); });
+  const opened = new Promise<void>((res, rej) => {
+    ws.addEventListener("open", () => res(), { once: true });
+    ws.addEventListener("error", e => {
+      const msg = (e as ErrorEvent).message || "HTTP error";
+      const m = /status code:\s*(\d+)/.exec(msg);
+      rej(new Error(m ? `HTTP ${m[1]}` : msg));
+    }, { once: true });
+  });
   return { ws, got, opened };
 }
 const ticket = async (s: Awaited<ReturnType<typeof setup>>, sid: number, tab: string) =>

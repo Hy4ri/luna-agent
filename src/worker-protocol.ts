@@ -64,7 +64,7 @@ export interface Capabilities {
   path?: string;
   generatedFiles?: boolean;
   uploadFiles?: boolean;
-  /** The worker can host interactive terminals (node-pty loaded). Optional, so older workers still connect. */
+  /** The worker can host interactive terminals (Bun.Terminal loaded). Optional, so older workers still connect. */
   pty?: boolean;
   /** `pty.open` honors `command`. Older workers would open a shell instead, so the main host checks this first. */
   ptyCommand?: boolean;

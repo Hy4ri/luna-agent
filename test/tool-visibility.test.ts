@@ -1,7 +1,7 @@
 // Contract (#196): a tool hidden by settings has neither declarations nor removals in the outgoing request,
 // and the stored history is not changed. A removal without a matching declaration breaks native replay.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import type { Message, Tool } from "@earendil-works/pi-ai";
 import { filterHiddenTools } from "../src/tool-visibility.js";
 import { pinToolDeclarations } from "../src/stable-tools.js";

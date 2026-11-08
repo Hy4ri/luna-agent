@@ -4,7 +4,6 @@ import { ChildResult } from "./delegate-state.js";
 import { BusyExecutions } from "./busy-tools.js";
 import { SessionCreated } from "./session-activity.js";
 import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Models } from "@earendil-works/pi-ai";
 import { createRegistry, defineDoc, defineExtension, section, Harness, ROOT_CONVERSATION_ID, type Extension, type Registry } from "@earendil-works/pi-durable";
@@ -124,7 +123,7 @@ export async function openLuna(opts: LunaOptions) {
         followUpMode: "one-at-a-time",
       },
       conversationCreated: async (tx, conversation) => {
-        (await tx.doc(ProcessOwner, conversation.id)).token = randomUUID();
+        (await tx.doc(ProcessOwner, conversation.id)).token = crypto.randomUUID();
         (await tx.doc(SessionCreated, conversation.id)).at = Date.now();
         // The reserved root ID can be reused after deletion. Give each incarnation a unique context boundary,
         // so pi-durable cannot extend a retained model-context range from its deleted incarnation.

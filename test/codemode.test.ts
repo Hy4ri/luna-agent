@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { parseConfig } from "../src/config.js";
@@ -62,11 +62,11 @@ test("a conversation tool allowlist also limits sandbox tool access", async () =
 });
 
 for (const directive of ["", '// @options: {"timeout_ms": 600000}\n']) {
-  test(`Luna enforces a deadline when the script ${directive ? "requests a longer one" : "omits one"}`, { timeout: 15000 }, async () => {
+  test(`Luna enforces a deadline when the script ${directive ? "requests a longer one" : "omits one"}`, async () => {
     const result = await runCode(`${directive}while (true) {}`, [], undefined, 100);
     assert.equal(result.isError, true);
     assert.match(text(result), /timed out|timeout/i);
-  });
+  }, 15000);
 }
 
 test("pinned tools stay in the codemode catalog when cheaper tools fill the budget", () => {

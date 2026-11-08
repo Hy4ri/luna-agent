@@ -1,6 +1,6 @@
 // Web modules use bundler resolution, so this folder is excluded from the root tsc project; typecheck:web covers them.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { segments, MAX_WIDGETS } from "../../web/src/lib/segments.ts";
 import { parseWidget } from "../../web/src/lib/widgets/schema.ts";
 

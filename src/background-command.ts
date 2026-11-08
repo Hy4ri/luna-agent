@@ -1,7 +1,6 @@
 // Durable at-most-once admission for background slash commands. Some commands have
 // effects outside a harness transaction, so an interrupted admission must not be replayed.
-import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "bun:sqlite";
 
 export interface BackgroundCommandReceipt {
   state: "pending" | "done";
@@ -9,7 +8,7 @@ export interface BackgroundCommandReceipt {
   result?: unknown;
 }
 export class BackgroundCommandStore {
-  constructor(private readonly db: DatabaseSync) {
+  constructor(private readonly db: Database) {
     db.exec(`CREATE TABLE IF NOT EXISTS luna_background_commands (
       session_id INTEGER NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
       status INTEGER, result TEXT, PRIMARY KEY(session_id, request_id)
@@ -23,7 +22,7 @@ export class BackgroundCommandStore {
   }
   /** Called on the harness mutation line. False means never execute this identity again. */
   claim(session: number, request: string, content: unknown): boolean {
-    const fingerprint = createHash("sha256").update(JSON.stringify(content, (_key, value) =>
+    const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify(content, (_key, value) =>
       value && typeof value === "object" && !Array.isArray(value)
         ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)).digest("hex");
     const prior = this.db.prepare("SELECT fingerprint FROM luna_background_commands WHERE session_id=? AND request_id=?")

@@ -1,6 +1,5 @@
 import { defineDoc, defineExtension, defineTool, LiveDoc, section, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
-import { randomUUID } from "node:crypto";
 import { AskDoc } from "./ask.js";
 import { GoalDoc } from "./goal-doc.js";
 import { classifyLimit } from "./limit-reset.js";
@@ -29,7 +28,7 @@ export const SessionHandoffDoc = defineDoc<{ handoff: Handoff | null }>({
 });
 
 // Review jobs run outside foreground pi tasks. Their document also invalidates session lists.
-const reviewOwner = randomUUID();
+const reviewOwner = crypto.randomUUID();
 type ReviewResult = { boundary: number; at: number; status: "complete" | "failed"; reason: string | null };
 export const SessionReviewDoc = defineDoc<{
   owner: string | null; active: { id: string; boundary: number; at: number }[]; result: ReviewResult | null;

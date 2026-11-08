@@ -1,6 +1,6 @@
 // Contract: a cost total is provider-reported only when every priced part is. A missing flag is an estimate.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createAssistantMessageEventStream, createModels, createProvider, type AssistantMessage, type Usage } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, MemoryStorage, UsageDoc, type ConversationId } from "@earendil-works/pi-durable";

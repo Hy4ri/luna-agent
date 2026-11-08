@@ -1,8 +1,7 @@
 // Durable cron scheduler: jobs + run log live in SQLite (cron.db); each fire runs an isolated
 // ownerless pi-durable conversation. Unique claim per (job, slot); start is at-most-once. A crash before the conversation is recorded fails the run;
 // after that, recovery re-submits with the deterministic requestId, which dedupes.
-import { DatabaseSync } from "node:sqlite";
-import { execFile } from "node:child_process";
+import { Database } from "bun:sqlite";
 import { context } from "./luna.js";
 import { nextRun, parseCron } from "./cron-expr.js";
 import type { Conversation, ConversationId, EntryId, Extension, Harness, Submission, SubmissionId } from "@earendil-works/pi-durable";
@@ -122,9 +121,9 @@ const newestPerJob = `
 const inboxIds = `SELECT id FROM runs WHERE id IN (${newestPerJob}) AND read_at IS NULL`;
 
 export class CronStore {
-  readonly db: DatabaseSync;
+  readonly db: Database;
   constructor(path: string) {
-    this.db = new DatabaseSync(path);
+    this.db = new Database(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS jobs(
         id INTEGER PRIMARY KEY,
@@ -801,12 +800,21 @@ export class Scheduler {
       a.abort = () => ac.abort();
       const timeout = this.deadline(a, run, () => ac.abort());
       try {
-        return await new Promise<string>((resolve, reject) => {
-          execFile(command[0]!, command.slice(1), { cwd, signal: ac.signal, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error) reject(new Error(`${error.message}\n${stderr}`));
-            else resolve(stdout);
-          });
+        const proc = Bun.spawn([command[0]!, ...command.slice(1)], {
+          cwd,
+          signal: ac.signal,
+          stdout: "pipe",
+          stderr: "pipe",
         });
+        const [stdoutText, stderrText, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        if (exitCode !== 0) {
+          throw new Error(`Command failed with exit code ${exitCode}\n${stderrText}`);
+        }
+        return stdoutText;
       } finally { clearTimeout(timeout); }
     }
     this.guard(a);

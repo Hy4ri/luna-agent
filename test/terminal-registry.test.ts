@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, test } from "bun:test";
 import { localLauncher, shellEnvironment } from "../src/terminal/pty-host.js";
 import { TerminalError, TerminalRegistry, type TerminalInfo, type TerminalListener } from "../src/terminal/registry.js";
 

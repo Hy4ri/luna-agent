@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { Type } from "typebox";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
@@ -18,7 +18,7 @@ function gate() {
 }
 
 // Protect the HTTP busy-policy exception, not Pi's configuration implementation.
-test("busy sessions accept thinking-only changes without interrupting the run; model and instruction changes stay blocked", { timeout: 10000 }, async () => {
+test("busy sessions accept thinking-only changes without interrupting the run; model and instruction changes stay blocked", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-thinking-http-"));
   const entered = gate();
   const finish = gate();

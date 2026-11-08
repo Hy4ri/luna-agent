@@ -4,9 +4,7 @@
 // so list/wait/steer/stop only ever touch that parent's children. Replay safety: spawn is keyed by the tool
 // call's task id (a rerun after a crash finds the child it already made) and every message has a deterministic requestId.
 import type { JsonValue } from "@earendil-works/chord";
-import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { promisify } from "node:util";
 import { ExecTarget } from "./workers.js";
 import { AskDoc } from "./ask.js";
 import { readSessionHandoff } from "./session-status.js";
@@ -20,8 +18,6 @@ import { prepareDelegateWorktree } from "./delegate-worktree.js";
 import { readDelegationUsage } from "./delegate-usage.js";
 import type { DelegateProfile } from "./delegate-profiles.js";
 export { Children } from "./delegate-state.js";
-
-const git = promisify(execFile);
 
 /** Added to every spawn brief. Statuses and summaries must agree, and claims must be checkable. */
 const BRIEF_RULES = [
@@ -42,7 +38,17 @@ async function checkReceipt(r: Record<string, unknown>, cwd: string | undefined)
   const sha = typeof r.commit_sha === "string" ? r.commit_sha : undefined;
   if (sha) {
     if (!cwd || !/^[0-9a-f]{7,40}$/i.test(sha)) out.push(`commit ${sha}: cannot verify`);
-    else out.push(await git("git", ["-C", cwd, "cat-file", "-e", `${sha}^{commit}`]).then(() => `commit ${sha}: exists in ${cwd} (not task verification)`, () => `commit ${sha}: NOT FOUND in ${cwd}`));
+    else {
+      const code = await (async () => {
+        try {
+          const proc = Bun.spawn(["git", "-C", cwd, "cat-file", "-e", `${sha}^{commit}`], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+          return await proc.exited;
+        } catch {
+          return 1;
+        }
+      })();
+      out.push(code === 0 ? `commit ${sha}: exists in ${cwd} (not task verification)` : `commit ${sha}: NOT FOUND in ${cwd}`);
+    }
   }
   if (typeof r.pr_url === "string") out.push(`pr ${r.pr_url}: claimed, not verified`);
   if (Array.isArray(r.files_changed)) out.push(`files_changed: ${r.files_changed.length} claimed`);

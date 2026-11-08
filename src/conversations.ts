@@ -1,5 +1,5 @@
 // pi-durable 1.5 has no native delete operation. Keep its SQLite-specific purge here, on the harness mutation line.
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "bun:sqlite";
 import type { ConversationId, ConversationRecord, Tx } from "@earendil-works/pi-durable";
 import { conversationStorage } from "./conversation-storage.js";
 import { context } from "./luna.js";
@@ -19,7 +19,7 @@ export class ConversationError extends Error {
   constructor(readonly status: 404 | 409, message: string) { super(message); }
 }
 export class ConversationStore {
-  private readonly db: DatabaseSync;
+  private readonly db: Database;
   private readonly listeners = new Set<() => void>();
   readonly projects: ProjectStore;
   readonly board: BoardStore;

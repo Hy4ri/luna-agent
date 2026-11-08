@@ -1,5 +1,4 @@
 // Foreground bash can yield its wait; explicit starts use the same owned process registry.
-import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withAbortSignal, withoutAbortSignal } from "@earendil-works/chord/context";
@@ -136,7 +135,7 @@ export class BusyExecutions {
     if (!background) caller.abortSignal?.addEventListener("abort", abort, { once: true });
     let yieldWait!: (result: Result) => void;
     const yielded = new Promise<Result>(resolve => { yieldWait = resolve; });
-    const p: Process = { version: 1, id: randomUUID(), session, owner, command: typeof command === "string" ? command : JSON.stringify(command),
+    const p: Process = { version: 1, id: crypto.randomUUID(), session, owner, command: typeof command === "string" ? command : JSON.stringify(command),
       createdAt: Date.now(), status: "running", exitCode: null, output: "", truncated: false, delivered: false,
       background, controller, done: undefined as never, dirty: false, yield: () => {
         if (p.background || p.status !== "running") return;

@@ -3,13 +3,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, test } from "node:test";
+import { afterAll as after, test } from "bun:test";
 import { createRemoteOrigin, projectRepos, type RemoteReader } from "../src/github.js";
 import { startWorker } from "../src/worker.js";
-import { WorkerHub, WorkerStore } from "../src/workers.js";
+import { WorkerHub, WorkerStore, type WorkerWsData } from "../src/workers.js";
 
 test("project discovery reaches a repository through an execution-machine directory", async () => {
   const calls: [number | null, string][] = [];
@@ -62,10 +61,23 @@ mkdirSync(machineRepo);
 execFileSync("git", ["init", "--initial-branch", "main", machineRepo], { stdio: "ignore" });
 execFileSync("git", ["-C", machineRepo, "remote", "add", "origin", "git@github.com:Hy4ri/machine-only.git"], { stdio: "ignore" });
 const hub = new WorkerHub(new WorkerStore(join(dir, "workers.db")), () => {});
-const server = createServer();
-hub.attach(server);
-await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+const server = Bun.serve<WorkerWsData>({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch(req, srv) {
+    const r = hub.tryUpgrade(req, srv);
+    if (r !== undefined) return r ?? undefined;
+    return new Response("Not Found", { status: 404 });
+  },
+  websocket: {
+    maxPayloadLength: 256 * 1024 * 1024,
+    open(ws) { hub.wsOpen(ws); },
+    message(ws, msg) { hub.wsMessage(ws, msg); },
+    pong(ws) { hub.wsPong(ws); },
+    close(ws) { hub.wsClose(ws); },
+  },
+});
+const url = `http://127.0.0.1:${server.port}`;
 const { worker, token } = hub.store.create("repos");
 const running = startWorker({ url, token, cwd: dir, log: () => {} });
 await running.ready;
@@ -73,7 +85,7 @@ await running.ready;
 after(async () => {
   await running.close();
   hub.close();
-  server.close();
+  await server.stop(true);
   rmSync(dir, { recursive: true, force: true });
 });
 

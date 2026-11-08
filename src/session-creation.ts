@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { defineDocFamily } from "@earendil-works/pi-durable";
 
 export type SessionCreationData = {
@@ -24,7 +23,7 @@ export const SessionCreationDoc = defineDocFamily<
 });
 
 export function sessionPayloadHash(payload: unknown): string {
-  return createHash("sha256").update(JSON.stringify(payload ?? {}, (_key, value) =>
+  return new Bun.CryptoHasher("sha256").update(JSON.stringify(payload ?? {}, (_key, value) =>
     value && typeof value === "object" && !Array.isArray(value)
       ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)).digest("hex");
 }

@@ -1,7 +1,7 @@
 // Contract: Luna projects retained Pi run failures, not previous answers, onto the current input.
 // These are valid persisted-state fixtures, not a test of provider execution or Pi's recovery loop.
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import {

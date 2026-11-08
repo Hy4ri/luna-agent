@@ -1,9 +1,8 @@
 // Incoming file bytes live on disk. Durable records keep metadata and stable references only.
-import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync,
   realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "bun:sqlite";
 
 export const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
 const ID = /^[a-f0-9]{64}$/;
@@ -47,21 +46,21 @@ export function sanitizeFilename(raw: string): string {
   return name;
 }
 export function deriveUploadId(file: UploadInput): string {
-  return createHash("sha256").update(file.name).update("\0").update(file.mimeType).update("\0").update(file.data).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(file.name).update("\0").update(file.mimeType).update("\0").update(file.data).digest("hex");
 }
 const reference = (id: string, name: string) => `${PREFIX}${id}/${encodeURIComponent(name)}`;
 
 export class UploadStore {
   readonly root: string;
   private readonly canonicalRoot: string;
-  private db?: DatabaseSync;
+  private db?: Database;
   constructor(root: string) {
     if (!isAbsolute(root)) throw new UploadError(500, "Upload storage must use an absolute path.");
     this.root = resolve(root);
     mkdirSync(this.root, { recursive: true, mode: 0o700 });
     this.canonicalRoot = realpathSync(this.root);
   }
-  bind(db: DatabaseSync): void {
+  bind(db: Database): void {
     db.exec(`CREATE TABLE IF NOT EXISTS luna_uploads (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, mime_type TEXT NOT NULL, size INTEGER NOT NULL,
       rel_path TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -76,7 +75,7 @@ export class UploadStore {
     const id = deriveUploadId({ name, mimeType, data: file.data }), dir = join(this.root, id);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (!inside(this.canonicalRoot, realpathSync(dir))) throw new UploadError(400, "Upload directory escaped its storage root.");
-    const path = join(dir, name), temporary = join(dir, `.upload-${randomUUID()}.tmp`);
+    const path = join(dir, name), temporary = join(dir, `.upload-${crypto.randomUUID()}.tmp`);
     let fd: number | undefined, created = false;
     try {
       fd = openSync(temporary, "wx", 0o600); created = true;

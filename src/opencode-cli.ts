@@ -1,13 +1,10 @@
 // OpenCode owns the model call (its free tier only works from inside opencode); Luna owns tools and the transcript.
 // Each Luna tool is exposed to opencode through a loopback MCP server. A tool call is held open until Luna has run the tool.
-import { execFile } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server as HttpServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -17,7 +14,30 @@ import {
 } from "@earendil-works/pi-ai";
 import { createStreamDeltas } from "./cli-stream.js";
 
-const run = promisify(execFile);
+async function runCli(cmd: string, args: string[], options: { timeout?: number } = {}): Promise<{ stdout: string; stderr: string }> {
+  const proc = Bun.spawn([cmd, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (options.timeout) {
+    timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+    }, options.timeout);
+  }
+  const [stdoutText, stderrText, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (timer) clearTimeout(timer);
+  if (exitCode !== 0) {
+    const err = new Error(`Command failed: ${cmd} ${args.join(" ")}\n${stderrText}`);
+    (err as any).code = exitCode;
+    throw err;
+  }
+  return { stdout: stdoutText, stderr: stderrText };
+}
 const PROVIDER_ID = "opencode-cli";
 const MCP_NAME = "luna";
 /** opencode tools Luna never wants the model to use. `read` must stay: the free tier rejects requests without it. */
@@ -46,7 +66,7 @@ async function ensureService() {
     try { if ((await fetch(service.url + "/api/info", { headers: { authorization: service.auth } })).ok) return service; } catch { /* restart below */ }
     service = undefined;
   }
-  const { stdout } = await run(opencodeExecutable(), ["service", "start"], { timeout: 30_000 });
+  const { stdout } = await runCli(opencodeExecutable(), ["service", "start"], { timeout: 30_000 });
   const url = stdout.match(/https?:\/\/[^\s]+/)?.[0];
   if (!url) throw new Error(`opencode service start printed no URL: ${stdout.trim().slice(0, 200)}`);
   const file = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode", "service.json");
@@ -177,7 +197,7 @@ function startMcp() {
 }
 
 function hashTools(tools: Tool[]) {
-  return createHash("sha256").update(JSON.stringify(tools.map(t => [t.name, t.description, t.parameters]))).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(JSON.stringify(tools.map(t => [t.name, t.description, t.parameters]))).digest("hex");
 }
 
 function textOf(content: string | { type: string; text?: string }[]) {
@@ -188,7 +208,7 @@ function textOf(content: string | { type: string; text?: string }[]) {
 function conversationKey(messages: Message[], system: string, sessionId?: string) {
   if (sessionId) return `s:${sessionId}`;
   const first = messages.find(m => m.role === "user");
-  return "h:" + createHash("sha256").update(system + "\n" + (first ? textOf(first.content as any) : "")).digest("hex");
+  return "h:" + new Bun.CryptoHasher("sha256").update(system + "\n" + (first ? textOf(first.content as any) : "")).digest("hex");
 }
 
 type Attached = { uri: string; name: string };
@@ -241,7 +261,7 @@ function renderPrompt(conv: Conv, messages: Message[], vision: boolean): { text:
   return { text: lines.join("\n"), files: attachImages(conv, keep) };
 }
 
-const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+const sha = (value: string) => new Bun.CryptoHasher("sha256").update(value).digest("hex");
 
 /** The new user message after the part opencode already holds, when the history is an exact continuation. */
 function followUp(conv: Conv, messages: Message[], model: string, system: string, vision: boolean): { text: string; files: Attached[] } | undefined {
@@ -291,7 +311,7 @@ async function dropConv(conv: Conv) {
 
 let sweeper: NodeJS.Timeout | undefined;
 function newConv(key: string, tools: Tool[], transient = false): Conv {
-  const id = randomUUID();
+  const id = crypto.randomUUID();
   const dir = join(tmpdir(), "luna-opencode", id);
   mkdirSync(dir, { recursive: true });
   const conv: Conv = { key, id, dir, toolsHash: "", tools, queue: new Queue(), held: new Map(), counter: 0, lastUsed: Date.now(), images: 0, ...(transient ? { transient } : {}) };
@@ -395,7 +415,7 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       conv = convs.get(key) ?? newConv(key, tools);
       // Another request with the same session ID is still running, such as a background compaction summary next to the
       // generation. Give this one its own opencode session so neither closes the other's.
-      if (conv.active && !conv.active.aborted) conv = newConv(`${key}:side:${randomUUID()}`, tools, true);
+      if (conv.active && !conv.active.aborted) conv = newConv(`${key}:side:${crypto.randomUUID()}`, tools, true);
       conv.active = options?.signal ?? new AbortController().signal;
       conv.lastUsed = Date.now();
       const toolsHash = hashTools(tools);
@@ -530,7 +550,7 @@ function checkOpencodeAvailable(): Promise<boolean> {
   const executable = opencodeExecutable();
   if (versionCheck?.executable === executable && versionCheck.expires > Date.now()) return versionCheck.promise;
   const entry = { executable, expires: Date.now() + 60_000, promise: Promise.resolve(false) };
-  entry.promise = run(executable, ["--version"], { timeout: 10_000 }).then(() => true, () => {
+  entry.promise = runCli(executable, ["--version"], { timeout: 10_000 }).then(() => true, () => {
     if (versionCheck === entry) versionCheck = undefined;
     return false;
   });
@@ -544,7 +564,7 @@ export function opencodeCliProvider() {
     auth: { apiKey: { name: "OpenCode CLI",
       check: async () => await checkOpencodeAvailable() ? { type: "api_key" as const, source: "opencode CLI" } : undefined,
       resolve: async () =>
-      (await run(opencodeExecutable(), ["--version"], { timeout: 10_000 }).then(() => true, () => false))
+      (await runCli(opencodeExecutable(), ["--version"], { timeout: 10_000 }).then(() => true, () => false))
         ? { auth: {}, source: "opencode CLI" } : undefined } },
     models: FALLBACK.map(id => ({
       id: `opencode/${id}`, name: `${id} (opencode)`, api: PROVIDER_ID as string, provider: PROVIDER_ID, baseUrl: "",

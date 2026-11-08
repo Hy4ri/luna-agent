@@ -2,10 +2,10 @@
 // A project in "only chosen" mode ignores the global setting: only skills switched on for it are active,
 // so skills added later stay off there until someone switches them on.
 // The General project (id 0) always uses the global setting.
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "bun:sqlite";
 
 export class ProjectSkills {
-  constructor(private readonly db: DatabaseSync) {
+  constructor(private readonly db: Database) {
     db.exec(`CREATE TABLE IF NOT EXISTS luna_project_skills (
         project_id INTEGER NOT NULL, skill TEXT NOT NULL, enabled INTEGER NOT NULL, PRIMARY KEY (project_id, skill)
       ) STRICT;

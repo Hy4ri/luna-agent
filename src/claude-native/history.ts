@@ -1,5 +1,4 @@
 // Native history, request body, and model routes.
-import { createHash } from "node:crypto";
 import type { Block, Frame, NativeMessage, NativeReplayMetadata, NativeRequest, NativeTool, Projection } from "./types.js";
 
 /** Private wire namespace, mapped back to Luna's tool names. It is part of signed replay content. */
@@ -90,7 +89,7 @@ export function contentBlocks(content: NativeMessage["content"]): Block[] {
  * Byte-compatible with the Python transport, so existing conversations keep their cache prefix.
  */
 export function conversationSessionId(system: string, frames: Frame[]): string {
-  const digest = createHash("sha256").update(pythonJson([system, frames[0]?.message ?? null]), "utf8").digest();
+  const digest = new Bun.CryptoHasher("sha256").update(pythonJson([system, frames[0]?.message ?? null])).digest();
   digest[6] = (digest[6]! & 0x0f) | 0x40;
   digest[8] = (digest[8]! & 0x3f) | 0x80;
   const hex = digest.subarray(0, 16).toString("hex");
@@ -262,7 +261,7 @@ export function buildBody(request: NativeRequest, toolPrefix = conversationToolP
     }
     const known = names.get(name);
     if (known) return known;
-    const native = name.length <= 50 ? name : name.slice(0, 41) + "_" + createHash("sha256").update(name).digest("hex").slice(0, 8);
+    const native = name.length <= 50 ? name : name.slice(0, 41) + "_" + new Bun.CryptoHasher("sha256").update(name).digest("hex").slice(0, 8);
     if (natives.has(native)) throw new Error(`Tool name collision: '${name}' and '${natives.get(native)}' map to '${native}'`);
     names.set(name, native);
     natives.set(native, name);

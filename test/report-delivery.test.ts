@@ -6,7 +6,7 @@ import { writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
@@ -23,7 +23,7 @@ function signal() {
 }
 
 for (const kind of ["subagent", "crew"] as const) {
-  test(`${kind} reports steer active work once, before the next model request`, { timeout: 10_000 }, async () => {
+  test(`${kind} reports steer active work once, before the next model request`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "luna-report-"));
     const entered = signal();
     const release = signal();
@@ -78,11 +78,11 @@ for (const kind of ["subagent", "crew"] as const) {
       await harness.close(context);
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 }
 
 // A FIFO gives the real shell process an event-driven completion gate; no timing sleeps.
-test("background process output reaches the next active model request", { timeout: 10_000 }, async () => {
+test("background process output reaches the next active model request", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-process-report-"));
   const fifo = join(dir, "output.fifo");
   execFileSync("mkfifo", [fifo]);
@@ -128,4 +128,4 @@ test("background process output reaches the next active model request", { timeou
     await harness.close(context);
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 10_000);

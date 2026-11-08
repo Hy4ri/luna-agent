@@ -2,7 +2,6 @@
 // OpenAI/Anthropic-compatible endpoints, a persistent credential store, and the default model.
 // Runtime settings use SettingsStore. Standalone users retain the legacy providers.json adapter.
 // Credentials remain in auth.json (mode 0600); generated OAuth device identity is not user configuration.
-import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -450,7 +449,7 @@ export class ProviderManager {
     if (type === "oauth" ? !p.auth.oauth : !p.auth.apiKey?.login) throw new Error(`${p.name} has no ${type} login`);
     this.gc();
     for (const l of this.logins.values()) if (l.providerId === providerId && l.status === "running") this.cancelLogin(l.id);
-    const st: LoginState = { id: randomUUID(), providerId, type, status: "running", events: [], prompt: null, error: null, abort: new AbortController(), seq: 0, updated: Date.now() };
+    const st: LoginState = { id: crypto.randomUUID(), providerId, type, status: "running", events: [], prompt: null, error: null, abort: new AbortController(), seq: 0, updated: Date.now() };
     this.logins.set(st.id, st);
     const touch = () => { st.updated = Date.now(); };
     const interaction = {
@@ -508,9 +507,9 @@ export class ProviderManager {
     if (this.settings) {
       const file = this.file.replace("providers.json", "oauth-device-id");
       if (existsSync(file)) return readFileSync(file, "utf8").trim();
-      const id = randomUUID(); writeFileSync(file, id, { mode: 0o600 }); return id;
+      const id = crypto.randomUUID(); writeFileSync(file, id, { mode: 0o600 }); return id;
     }
-    if (!this.state.deviceId) { this.state.deviceId = randomUUID(); this.save(); }
+    if (!this.state.deviceId) { this.state.deviceId = crypto.randomUUID(); this.save(); }
     return this.state.deviceId;
   }
 

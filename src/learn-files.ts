@@ -1,7 +1,6 @@
 // File mutation boundary for approved learning proposals. No executable benchmarks or arbitrary path writes.
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { SkillImprover } from "./improve.js";
 import type { LessonRow } from "./learn.js";
 
@@ -62,7 +61,7 @@ export class LearnFiles {
     mkdirSync(dirname(path), { recursive: true });
     const lock = `${path}.luna-learning-lock`;
     const fd = openSync(lock, "wx", 0o600);
-    const tmp = `${path}.${randomUUID()}.tmp`;
+    const tmp = `${path}.${crypto.randomUUID()}.tmp`;
     try {
       if (this.read(path) !== expected) throw new Error("file changed since review; no overwrite performed");
       if (next === null) {

@@ -1,19 +1,41 @@
 // Persist allocation identity before git creates a branch or worktree. Never adopt or delete unrelated work.
-import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { promisify } from "node:util";
 import type { Context } from "@earendil-works/chord/context";
 import { defineDoc, type ToolExecutionApi } from "@earendil-works/pi-durable";
 
-const exec = promisify(execFile);
 type Allocation = { repo: string; commonGitDir: string; branch: string; path: string; baseRef: string; baseCommit: string };
 const Worktrees = defineDoc<{ allocations: Record<string, Allocation> }>({
   checkpointWhen: () => false, kind: "luna.delegate.worktrees", version: 1,
   scope: "conversation", history: "latest", fork: "initial", initial: () => ({ allocations: {} }),
 });
-const git = async (context: Context, repo: string, ...args: string[]) => (await exec("git", ["-C", repo, ...args], { signal: context.abortSignal })).stdout.replace(/\r?\n$/, "");
+async function git(context: Context, repo: string, ...args: string[]): Promise<string> {
+  context.abortSignal?.throwIfAborted();
+  const proc = Bun.spawn(["git", "-C", repo, ...args], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const onAbort = () => { try { proc.kill(); } catch {} };
+  context.abortSignal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    context.abortSignal?.throwIfAborted();
+    if (code !== 0) {
+      const err = new Error(stderr.trim() || `git ${args[0] ?? ""} exited with code ${code}`) as Error & { code?: number; stderr?: string };
+      err.code = code;
+      err.stderr = stderr;
+      throw err;
+    }
+    return stdout.replace(/\r?\n$/, "");
+  } finally {
+    context.abortSignal?.removeEventListener("abort", onAbort);
+  }
+}
 async function branchExists(context: Context, repo: string, branch: string) {
   try { await git(context, repo, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`); return true; }
   catch (error) { if ((error as { code?: number }).code === 1) return false; throw error; }
@@ -48,7 +70,7 @@ export async function prepareDelegateWorktree(
     const baseCommit = await git(context, repo, "rev-parse", "--verify", "--end-of-options", `${baseRef}^{commit}`);
     const root = join(dirname(repo), ".luna-worktrees");
     mkdirSync(root, { recursive: true });
-    const path = join(realpathSync(root), `${basename(repo)}-${api.conversationId}-${key}-${randomUUID()}`);
+    const path = join(realpathSync(root), `${basename(repo)}-${api.conversationId}-${key}-${crypto.randomUUID()}`);
     const proposed: Allocation = { repo, commonGitDir, branch, path, baseRef, baseCommit };
     allocation = await api.commit(async tx => {
       const doc = await tx.doc(Worktrees, api.conversationId);

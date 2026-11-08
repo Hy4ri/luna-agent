@@ -4,16 +4,16 @@
 // the platform stubs capture Cache API arguments, not the graph selection or response-header logic.
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
+const stripTs = (code: string) => new Bun.Transpiler({ loader: "ts" }).transformSync(code);
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { createWebApp } from "../src/web-assets.js";
 
 type WorkerEvent = { request?: Request; waitUntil(promise: Promise<unknown>): void; respondWith(promise: Promise<Response>): void };
-const source = stripTypeScriptTypes(readFileSync(new URL("../web/sw.ts", import.meta.url), "utf8"));
+const source = stripTs(readFileSync(new URL("../web/sw.ts", import.meta.url), "utf8"));
 function worker(code: string, overrides: Record<string, unknown> = {}) {
   const handlers = new Map<string, (event: WorkerEvent) => void>();
   runInNewContext(code, { URL, Response, Headers, AbortSignal, location: { origin: "https://luna.test" },

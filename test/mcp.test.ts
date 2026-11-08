@@ -2,7 +2,7 @@
 // and its tools are deferred by default so every model call does not carry every MCP schema.
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { after, before, test } from "node:test";
+import { afterAll as after, beforeAll as before, test } from "bun:test";
 import { connectMcpServer, type McpConnection } from "../src/mcp.js";
 
 const SECRETS = { LUNA_TOKEN: "luna-secret", ANTHROPIC_API_KEY: "sk-ant-secret", OPENAI_API_KEY: "sk-secret" };

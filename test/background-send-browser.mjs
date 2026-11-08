@@ -1,13 +1,11 @@
 // Optional real-browser acceptance (no new framework or credentials). Build web first.
-// Run: node --import tsx test/background-send-browser.mjs
+// Run: bun test/background-send-browser.mjs
 // Use existing Playwright/Chromium via LUNA_PLAYWRIGHT_PATH and LUNA_CHROMIUM_PATH if needed.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { once } from 'node:events';
-import { serve } from '@hono/node-server';
 import { createRequire } from 'node:module';
 const { chromium } = createRequire(import.meta.url)(process.env.LUNA_PLAYWRIGHT_PATH || 'playwright');
 import { createModels, fauxProvider, fauxAssistantMessage } from '@earendil-works/pi-ai';
@@ -41,9 +39,9 @@ try {
   const settings = new SettingsStore(join(dir,'config.json'),dir);
   const uploads = new UploadStore(join(dir,'uploads')); uploads.bind(conversationStorage(harness).db);
   const app = createApp({ harness, conversations, models, settings, uploads, workers, token:fixtureToken, cwd:dir, agent:{model,thinkingLevel:'off',instructions:'DEFAULT_ONLY'} });
-  server = serve({ fetch:app.fetch, hostname:'127.0.0.1',port:0 });
-  await once(server,'listening'); const base = `http://127.0.0.1:${server.address().port}`;
-  const browserBase=`http://luna.test:${server.address().port}`;
+  server = Bun.serve({ fetch:app.fetch, hostname:'127.0.0.1', port:0, idleTimeout:0 });
+  const base = `http://127.0.0.1:${server.port}`;
+  const browserBase=`http://luna.test:${server.port}`;
   async function request(path,body,method='POST') {
     const response = await fetch(base+path,{method,headers:{'content-type':'application/json',authorization:'Bearer '+fixtureToken},...(body!==undefined?{body:JSON.stringify(body)}:{})});
     assert.ok(response.ok, `${method} ${path}: ${response.status} ${await response.clone().text()}`); return response.json();
@@ -277,7 +275,7 @@ try {
 } finally {
   releaseSource?.();
   await browser?.close();
-  if(server) { server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); }
+  if(server) await server.stop(true);
   await harness?.close(context);
   workers.close(); workerStore.close();
   rmSync(dir,{recursive:true,force:true});

@@ -5,10 +5,11 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { createChromiumBrowserProvider } from "../src/chromium-browser-provider.js";
 
 const executablePath = process.env.LUNA_TEST_CHROMIUM ?? "/usr/bin/chromium";
+const it = existsSync(executablePath) ? test : test.skip;
 const PAGE = `<!doctype html><title>t</title>
 <input id="q"><select id="s"><option value="a">Apple</option><option value="b">Banana</option></select>
 <input id="c" type="checkbox"><input id="f" type="file">
@@ -23,7 +24,7 @@ const PAGE = `<!doctype html><title>t</title>
   console.error("boom"); fetch("/missing");
 </script>`;
 
-test("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history, evaluate", { skip: !existsSync(executablePath) && "no Chromium", timeout: 60_000 }, async () => {
+it("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history, evaluate", async () => {
   const server = createServer((req, res) => {
     if (req.url === "/") { res.setHeader("content-type", "text/html"); res.end(PAGE); }
     else if (req.url === "/two") { res.setHeader("content-type", "text/html"); res.end("<title>two</title>two"); }
@@ -79,9 +80,9 @@ test("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history
     await p.dispose();
     server.close();
   }
-});
+}, 60_000);
 
-test("chromium provider attached by cdpUrl: shares the browser's logins, closes only its own tabs, leaves the browser running", { skip: !existsSync(executablePath) && "no Chromium", timeout: 60_000 }, async () => {
+it("chromium provider attached by cdpUrl: shares the browser's logins, closes only its own tabs, leaves the browser running", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-cdp-"));
   const proc = spawn(executablePath, ["--headless=new", "--no-sandbox", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   const seen: string[] = [];
@@ -120,9 +121,9 @@ test("chromium provider attached by cdpUrl: shares the browser's logins, closes 
     if (proc.exitCode === null) { const gone = new Promise(r => proc.once("exit", r)); proc.kill(); await gone; }
     rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
   }
-});
+}, 60_000);
 
-test("chromium provider: an unreachable cdpUrl says how to start the browser", { skip: !existsSync(executablePath) && "no Chromium" }, async () => {
+it("chromium provider: an unreachable cdpUrl says how to start the browser", async () => {
   const p = createChromiumBrowserProvider(() => ({ cdpUrl: "http://127.0.0.1:1", headless: true }));
   await assert.rejects(p.open({ url: "https://example.test/" }, new AbortController().signal), /No browser answers at http:\/\/127\.0\.0\.1:1\. Start it with --remote-debugging-port/);
 });

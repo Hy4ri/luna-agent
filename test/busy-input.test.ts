@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { Type } from "typebox";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
@@ -19,7 +19,7 @@ function gate() {
   return { promise, release };
 }
 
-test("Send now steers after tools while a child remains active, without losing either submission", { timeout: 10000 }, async () => {
+test("Send now steers after tools while a child remains active, without losing either submission", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-send-now-"));
   const entered = { parent: gate(), child: gate() };
   const finish = { parent: gate(), child: gate() };
@@ -84,4 +84,4 @@ test("Send now steers after tools while a child remains active, without losing e
     await harness.close(context);
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 10000);

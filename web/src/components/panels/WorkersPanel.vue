@@ -11,7 +11,7 @@ const adding = ref(false);
 const created = ref<{ name: string; token: string } | null>(null);
 
 const mainUrl = location.origin;
-const command = (token: string) => `LUNA_URL=${mainUrl} LUNA_WORKER_TOKEN=${token} pnpm run worker`;
+const command = (token: string) => `LUNA_URL=${mainUrl} LUNA_WORKER_TOKEN=${token} bun run worker`;
 
 async function refresh() {
   errorMsg.value = "";
