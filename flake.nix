@@ -49,6 +49,8 @@
             pkgs.nodejs_26
             pkgs.pnpm
             pkgs.sqlite
+            # The interactive terminal contract test drives a real Vim session.
+            pkgs.vim
             # Tauri desktop shell (src-tauri). Host cargo is too old, so Rust comes from here.
             rust
             pkgs.pkg-config

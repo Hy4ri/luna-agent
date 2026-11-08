@@ -46,6 +46,9 @@ pnpm run typecheck:web      # Frontend, when web/ changed
 pnpm run build:web          # Frontend build, when web/ changed
 ```
 
+The Nix dev shell includes Vim for the interactive terminal test. Run the suite inside it with `nix develop -c pnpm test`.
+For the optional real-browser contracts, set `LUNA_TEST_CHROMIUM` to an installed Chromium-family executable (for example, `LUNA_TEST_CHROMIUM="$(command -v chromium)" pnpm test`). The browser fixtures use temporary profiles, not the user's browser profile. Without an override they look for `/usr/bin/chromium` and skip if it is absent.
+
 ### Verification Rules for Changes
 
 1. **Before opening a PR:** Run `pnpm run typecheck` and `pnpm test`, plus `pnpm run typecheck:web` and `pnpm run build:web` if `web/` changed.

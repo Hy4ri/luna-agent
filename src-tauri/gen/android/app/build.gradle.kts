@@ -1,3 +1,4 @@
+import com.google.gms.googleservices.GoogleServicesTask
 import java.util.Properties
 
 plugins {
@@ -70,7 +71,27 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }
 
-// Firebase config is per project and kept out of git: copy google-services.json next to this file to enable push.
-if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
-
 apply(from = "tauri.build.gradle.kts")
+
+// Deployment config stays outside the checkout, including when building from a worktree.
+val googleServicesPath = providers.gradleProperty("luna.googleServicesFile")
+    .orElse(providers.environmentVariable("LUNA_GOOGLE_SERVICES"))
+val googleServicesFile = if (googleServicesPath.isPresent) {
+    val path = googleServicesPath.get()
+    require(path.isNotBlank()) { "luna.googleServicesFile / LUNA_GOOGLE_SERVICES must not be empty" }
+    rootProject.file(path)
+} else {
+    File(System.getProperty("user.home"), ".luna/android/google-services.json")
+}
+if (googleServicesPath.isPresent || googleServicesFile.exists()) {
+    require(googleServicesFile.isFile && googleServicesFile.canRead()) {
+        "Firebase configuration is missing or unreadable: $googleServicesFile"
+    }
+    apply(plugin = "com.google.gms.google-services")
+    // The plugin registers variants during evaluation and sets its own input list then.
+    afterEvaluate {
+        tasks.withType<GoogleServicesTask>().configureEach {
+            googleServicesJsonFiles.set(listOf(googleServicesFile))
+        }
+    }
+}
