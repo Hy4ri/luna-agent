@@ -2392,8 +2392,18 @@ Existing browser pins are imported once after a successful save: shared order st
 
 The daemon pushes to the Android app when a running session finishes, fails, hits a limit, or needs input or approval. A cron run pushes only on failure.
 
-1. In a Firebase project, add an Android app with package name `dev.luna.mobile`. Copy its `google-services.json` to `src-tauri/gen/android/app/`. Git ignores it. Without it the app builds with push off.
-2. Create a service-account key (Project settings > Service accounts). Set `push.serviceAccountFile` to its path. Keep it outside the repo.
-3. Rebuild the APK. The app registers its token with `POST /v1/push/devices` after each login.
+1. In a Firebase project, add an Android app with package name `dev.luna.mobile`. Save its `google-services.json` at `~/.luna/android/google-services.json`, outside the checkout. Gradle uses this default from any checkout or worktree. If it is absent, the app builds with push off.
+2. To select another file, set `LUNA_GOOGLE_SERVICES` or pass `-Pluna.googleServicesFile=/absolute/path/google-services.json` to Gradle. The Gradle property wins over the environment variable. Relative overrides resolve from the Android project root (`src-tauri/gen/android`), not `app/`. An explicitly selected file must be nonempty as a path, readable, and a regular file; invalid JSON or a mismatched package fails Firebase processing. There is no fallback to a checkout-local JSON file and no private Gradle init hook is needed.
+3. Create a service-account key (Project settings > Service accounts). Set `push.serviceAccountFile` to its path. Keep it outside the repo; it is separate from the Android client JSON.
+4. Rebuild the APK. The app registers its token with `POST /v1/push/devices` after each login.
+
+To verify Firebase resource processing without building Rust or an APK:
+
+```sh
+cd src-tauri/gen/android
+./gradlew --no-daemon :app:processArmDebugGoogleServices :app:processUniversalDebugGoogleServices
+```
+
+These tasks are registered only when a Firebase config is selected. Generated Android resources stay in Gradle's build directory; the deployment JSON is never copied into the checkout.
 
 `GET /v1/push` reports whether push is enabled. Device tokens are in `<dataDir>/push-devices.json`.
