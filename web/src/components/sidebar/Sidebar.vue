@@ -42,12 +42,13 @@ import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects } from "@/lib/projects";
 import ProjectIcon from "@/components/ProjectIcon.vue";
 import type { ProjectAppearance } from "../../../../src/project-appearance";
-import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, projectName, renameSession, generateTitle, titleModelAvailable, togglePinned, moveSession, toggleArchived, activity, markActivitySeen, dismissActivity, markAllActivitySeen, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
+import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, projectName, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, activity, markActivitySeen, dismissActivity, markAllActivitySeen, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
 import { copyToClipboard } from "@/lib/message";
 import { ago } from "@/lib/mention-sources";
 
+const MoveSessionDialog = defineAsyncComponent(() => import("./MoveSessionDialog.vue"));
 const PruneSessionsDialog = defineAsyncComponent(() => import("./PruneSessionsDialog.vue"));
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -98,7 +99,7 @@ const renamingId = ref<string | number | null>(null);
 const renameValue = ref("");
 
 const activeMenuSession = ref<any | null>(null);
-const moveOpen = ref(false);
+const moveTarget = ref<any | null>(null);
 const activeMenuBtnEl = ref<HTMLElement | null>(null);
 const menuPos = ref({ top: 0, left: 0 });
 const titleAvailable = ref(false);
@@ -329,7 +330,6 @@ function openSessionMenu(s: any, event: MouseEvent) {
     return;
   }
   activeMenuSession.value = s;
-  moveOpen.value = false;
   activeMenuBtnEl.value = btn;
   titleAvailable.value = false;
   copyState.value = "";
@@ -788,22 +788,10 @@ onMounted(() => {
         <Sparkles :size="14" />
         <span>{{ titling ? 'Generating title…' : 'Generate title' }}</span>
       </button>
-      <button role="menuitem" aria-haspopup="true" :aria-expanded="moveOpen" @click="moveOpen = !moveOpen">
+      <button role="menuitem" aria-haspopup="dialog" @click="moveTarget = activeMenuSession; closeMenu()">
         <FolderInput :size="14" />
         <span>Move to project</span>
       </button>
-      <template v-if="moveOpen">
-        <button
-          v-for="p in history.projects"
-          :key="p.id"
-          role="menuitem"
-          :disabled="Number(activeMenuSession.project) === Number(p.id)"
-          @click="moveSession(activeMenuSession, p.id).then(ok => ok && closeMenu())"
-        >
-          <span class="w-[14px]" aria-hidden="true"></span>
-          <span>{{ p.name }}</span>
-        </button>
-      </template>
       <button
         role="menuitem"
         :disabled="activeMenuSession.running"
@@ -822,6 +810,7 @@ onMounted(() => {
         <span>Delete</span>
       </button>
     </div></Teleport>
+    <MoveSessionDialog v-if="moveTarget" :session="moveTarget" @close="moveTarget = null" />
     <ProjectAppearanceDialog v-if="appearanceProject !== null" :project-id="appearanceProject" @close="appearanceProject = null" />
     <PruneSessionsDialog v-if="pruneOpen" :project="openFolder?.project ? { id: openFolder.project, name: openFolder.name } : null" @close="pruneOpen = false" @deleted="message => pruneResult = message" />
   </aside>
