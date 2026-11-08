@@ -16,6 +16,7 @@ import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
 import { createMachineFilesExtension } from "./machine-files.js";
 import { createMachineExecExtension } from "./machine-exec.js";
+import { scanSkills } from "./skills.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
@@ -333,7 +334,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     ...(on("skills") ? { skillDirs: cfg.allSkillDirs, disabledSkills: id => {
       const global = live().disabledSkills;
       const pid = id === undefined ? undefined : conversationsRef?.projects.projectOf(id);
-      return pid ? conversationsRef!.projectSkills.disabled(pid, global) : global;
+      return pid ? conversationsRef!.projectSkills.disabled(pid, global, () => scanSkills(cfg.allSkillDirs).map(s => s.name)) : global;
     } } : {}),
     // A built-in missing from the live list is hidden from sessions. Its store and scheduler keep running.
     hiddenExtensions: () => new Set(BUILTIN_EXTENSIONS.filter(e => !live().extensions.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e])),

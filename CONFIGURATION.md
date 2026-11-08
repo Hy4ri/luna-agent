@@ -1781,6 +1781,7 @@ Scheduled runs and delegated children do not receive the board tool.
 - Deleting a named project keeps its conversations and directories. Those conversations then use General.
 - `GET /v1/projects/:id/skills` returns `[{ name, description, global, override, effective }]`. `global` is the global state (not in `disabledSkills`). `override` is `true`, `false`, or `null` (inherit). `effective` is `override ?? global`.
 - `PUT /v1/projects/:id/skills/:name` with `{ "enabled": true | false | null }` sets the project override. `null` resets the skill to the global setting. It returns `404` for an unknown project or skill, and `409` for General (General uses the global setting only).
+- `GET /v1/projects/:id/skill-mode` returns `{ onlyChosen }`. `PUT` with `{ "onlyChosen": true | false }` switches the mode (`409` for General). In "only chosen" mode the global setting does not apply: only skills with an `on` override are active, so skills added later stay off in that project. Turning the mode on saves the currently active skills as `on` overrides and drops `off` overrides, so the active set does not change at the switch. While the mode is on, `enabled: false` removes the override. Turning the mode off keeps the `on` overrides; every other skill follows the global setting again. In this mode `effective` is `override === true`.
 - A skill disabled for a project is hidden from the skills list and cannot be loaded with `skill_view` in that project's conversations. Overrides are deleted with the project.
 
 ### Background send (Ctrl+Enter / Cmd+Enter)
