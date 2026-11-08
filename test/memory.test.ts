@@ -53,6 +53,16 @@ test("render reports hidden entries even when the notes fill the budget", () => 
   assert.ok(text.length <= 500, `${text.length} chars`);
 });
 
+test("render reports hidden entries when facts and digest consume the budget", () => {
+  const m = open({ budget: 300, maxNotes: 100 });
+  m.remember({ key: "fact.heavy", content: "f".repeat(250) });
+  m.remember({ content: "note 1" });
+  m.remember({ content: "note 2" });
+  const text = m.render()!;
+  assert.match(text, /more entries not shown; use the memory tool action=search/);
+  assert.ok(text.length <= 300, `${text.length} chars`);
+});
+
 test("long entries are cut to one line", () => {
   const m = open();
   m.remember({ key: "k", content: `line one\nline two ${"y".repeat(400)}` });
