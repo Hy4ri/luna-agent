@@ -213,7 +213,6 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
         g.activity = sessionAct;
       }
 
-      // Check whether session matches the current archived filter
       const matchesArchived =
         archivedFilter === "all" ||
         (archivedFilter === "1" && s.archived) ||
@@ -230,7 +229,6 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       }
     }
 
-    // Prepare project names lookup for search
     const projectNameMap = new Map<number, string>();
     for (const p of projectsList) {
       projectNameMap.set(p.id, p.name);
