@@ -2,12 +2,7 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
-import * as nodeModule from "node:module";
-const stripTs = (code: string): string => {
-  const fn = (nodeModule as { stripTypeScriptTypes?: (code: string) => string }).stripTypeScriptTypes;
-  if (typeof fn === "function") return fn(code);
-  return new Bun.Transpiler({ loader: "ts" }).transformSync(code);
-};
+const stripTs = (code: string): string => new Bun.Transpiler({ loader: "ts" }).transformSync(code);
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import { registerTS } from "vue/compiler-sfc";

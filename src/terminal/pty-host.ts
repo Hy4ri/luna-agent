@@ -1,4 +1,5 @@
 // PTY backend seam. The registry only sees these types, so Bun.Terminal can be relayed to a worker without touching it.
+import { constants as osConstants } from "node:os";
 import { existsSync } from "node:fs";
 
 export interface PtySpawnOptions {
@@ -51,7 +52,7 @@ export function spawnBunPty(options: PtySpawnOptions): PtyProcess {
 
   void proc.exited.then((code) => {
     try { proc.terminal?.close(); } catch { /* already closed */ }
-    const sig = typeof proc.signalCode === "number" ? proc.signalCode : undefined;
+    const sig = proc.signalCode ? osConstants.signals[proc.signalCode as keyof typeof osConstants.signals] : undefined;
     exitResult = { exitCode: code ?? null, ...(sig !== undefined ? { signal: sig } : {}) };
     for (const fn of exitListeners) fn(exitResult);
   });
@@ -75,7 +76,6 @@ export function spawnBunPty(options: PtySpawnOptions): PtyProcess {
   };
 }
 
-export const spawnNodePty = spawnBunPty;
 
 /** Environment for an interactive shell. The daemon's own credentials never reach a user shell. */
 export function shellEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {

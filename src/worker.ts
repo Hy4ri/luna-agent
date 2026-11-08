@@ -18,6 +18,8 @@ export interface WorkerOptions {
   log?: (message: string) => void;
   /** Called when main refuses the token. Default: stop reconnecting. */
   onUnauthorized?: () => void;
+  /** Close the link after this long without a message or server ping. Default 45 s. */
+  livenessMs?: number;
 }
 
 // Matches the image adapter's response byte ceiling. Buffer is also a Uint8Array.
@@ -82,7 +84,7 @@ export function startWorker(o: WorkerOptions) {
 
   function connect() {
     if (stopped) return;
-    const ws = new WebSocket(target, { headers: { authorization: `Bearer ${o.token}` } } as unknown as string);
+    const ws = new WebSocket(target, { headers: { authorization: `Bearer ${o.token}` } });
     ws.binaryType = "arraybuffer";
     socket = ws;
     const envs = new Map<string, NodeExecutionEnv>();
@@ -90,7 +92,7 @@ export function startWorker(o: WorkerOptions) {
     const calls = new Map<number, AbortController>();
     const handles = new Map<number, Record<string, (...args: unknown[]) => Promise<unknown>>>();
     let nextHandle = 1, liveness: ReturnType<typeof setTimeout> | undefined;
-    const alive = () => { clearTimeout(liveness); liveness = setTimeout(() => ws.close(), 45_000); };
+    const alive = () => { clearTimeout(liveness); liveness = setTimeout(() => ws.close(), o.livenessMs ?? 45_000); };
     let released: Promise<void> | undefined;
     release = () => released ??= (async () => {
       for (const p of ptys.values()) try { p.kill(); } catch { /* already gone */ }
@@ -108,13 +110,8 @@ export function startWorker(o: WorkerOptions) {
       delay = 1000; alive();
       send({ t: "hello", protocol: PROTOCOL_VERSION, capabilities });
     });
-    // Bun's WebSocket supports ws.on("ping", ...) at runtime for server heartbeats
-    (ws as unknown as { on?: (event: string, listener: (...args: any[]) => void) => void }).on?.("ping", alive);
-    (ws as unknown as { on?: (event: string, listener: (...args: any[]) => void) => void }).on?.("unexpected-response", (_req: unknown, res: { statusCode?: number }) => {
-      log(`worker: main refused the connection: HTTP ${res?.statusCode}`);
-      if (res?.statusCode === 401 || res?.statusCode === 403) { stopped = true; (o.onUnauthorized ?? (() => {}))(); }
-      ws.close();
-    });
+    // Server pings count as liveness; an idle link has no other traffic.
+    ws.addEventListener("ping", alive);
     ws.addEventListener("message", async event => {
       const raw = event.data;
       alive();

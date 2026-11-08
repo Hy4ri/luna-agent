@@ -806,11 +806,17 @@ export class Scheduler {
           stdout: "pipe",
           stderr: "pipe",
         });
-        const [stdoutText, stderrText, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          new Response(proc.stderr).text(),
-          proc.exited,
-        ]);
+        const cap = async (stream: ReadableStream<Uint8Array>) => {
+          const chunks: Uint8Array[] = []; let size = 0;
+          for await (const chunk of stream) {
+            size += chunk.length;
+            if (size > MAX_SCRIPT_OUTPUT) { proc.kill(); throw new Error(`script output exceeded ${MAX_SCRIPT_OUTPUT} bytes`); }
+            chunks.push(chunk);
+          }
+          return Buffer.concat(chunks).toString("utf8");
+        };
+        const [stdoutText, stderrText, exitCode] = await Promise.all([cap(proc.stdout), cap(proc.stderr), proc.exited]);
+        if (ac.signal.aborted) { this.guard(a); throw new Error(a.reason ?? "script aborted"); }
         if (exitCode !== 0) {
           throw new Error(`Command failed with exit code ${exitCode}\n${stderrText}`);
         }
@@ -885,6 +891,7 @@ export class Scheduler {
   }
 }
 
+const MAX_SCRIPT_OUTPUT = 4 * 1024 * 1024;
 class Interrupted extends Error {}
 
 function errText(e: unknown) { return e instanceof Error ? e.message : String(e); }
