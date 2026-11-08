@@ -1856,7 +1856,7 @@ The token grants execution-worker access, not access to the shared HTTP API.
 Removing a machine revokes its token and closes its connection.
 
 Use the same package checkout and `bun install --frozen-lockfile` on the worker machine.
-The worker needs Bun compatible with this package. It does not need provider keys or a session database.
+The worker runs on Bun: install Bun 1.4.4 or newer and start it with `bun run worker`. Node-only workers stop working after they update to this version. It does not need provider keys or a session database.
 Set these environment variables through your shell or service configuration:
 
 ```sh
