@@ -1,4 +1,4 @@
-// Runtime config: one JSON file (LUNA_CONFIG, default ./luna.config.json) validated strictly with zod.
+// Runtime config: one JSON file (LUNA_CONFIG, default ~/.luna/luna.config.json) validated strictly with zod.
 // Extensions are an allowlist of built-in names; MCP servers run only when listed here. Unknown keys,
 // unknown extension names and duplicate MCP names are errors, never silently ignored.
 // Secrets stay in the environment: LUNA_TOKEN for the API, provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY).
@@ -283,9 +283,9 @@ export function bindRefusal(host: string, token: string | undefined): string | u
   return "refusing to bind non-loopback host without LUNA_TOKEN";
 }
 
-/** Load LUNA_CONFIG (default ./luna.config.json). A missing default file means all defaults. */
+/** Load LUNA_CONFIG (default ~/.luna/luna.config.json). A missing default file means all defaults. */
 export function loadConfig(path = process.env.LUNA_CONFIG): LunaConfig {
-  const file = resolve(path ?? "luna.config.json");
+  const file = resolve(path ?? join(homedir(), ".luna", "luna.config.json"));
   if (!existsSync(file)) {
     if (path) throw new Error(`config not found: ${file}`);
     return { ...parseConfig({}), configPath: file };

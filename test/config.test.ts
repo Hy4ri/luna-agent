@@ -1,7 +1,8 @@
 // Contract: config is validated strictly. Unknown or conflicting settings fail at load time instead of being ignored,
 // the documented example always loads, and a non-loopback bind needs LUNA_TOKEN.
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -13,6 +14,43 @@ const parse = (raw: unknown, env: NodeJS.ProcessEnv = {}) => parseConfig(raw, ba
 const rejects = (raw: unknown, pattern: RegExp) => assert.throws(() => parse(raw), pattern, JSON.stringify(raw));
 const stdio = (name: string) => ({ name, transport: "stdio", command: "x" });
 const provider = (id: string) => ({ id, name: id, api: "openai-completions", baseUrl: "https://example.com/v1", models: [{ id: "m" }] });
+
+test("config discovery uses home .luna, ignores checkout config, and honors explicit overrides", () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-config-discovery-"));
+  try {
+    const home = join(dir, "home"), cwd = join(dir, "checkout");
+    mkdirSync(join(home, ".luna"), { recursive: true });
+    mkdirSync(cwd);
+    writeFileSync(join(home, ".luna", "luna.config.json"), JSON.stringify({ model: "home", dataDir: "state" }));
+    writeFileSync(join(cwd, "luna.config.json"), JSON.stringify({ model: "checkout" }));
+    writeFileSync(join(cwd, "override.json"), JSON.stringify({ model: "override" }));
+    // A separate process isolates HOME, cwd, and config overrides from the rest of the suite.
+    const result = spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), "--input-type=module", "--eval", `
+      import assert from "node:assert/strict";
+      import { unlinkSync } from "node:fs";
+      import { join } from "node:path";
+      import { loadConfig } from ${JSON.stringify(new URL("../src/config.js", import.meta.url).href)};
+      delete process.env.LUNA_CONFIG;
+      delete process.env.LUNA_DATA;
+      delete process.env.LUNA_MODEL;
+      const expected = join(process.env.HOME, ".luna", "luna.config.json");
+      const config = loadConfig();
+      assert.equal(config.configPath, expected);
+      assert.equal(config.model, "home");
+      assert.equal(config.dataDir, join(process.env.HOME, ".luna", "state"));
+      process.env.LUNA_CONFIG = "override.json";
+      assert.equal(loadConfig().model, "override");
+      assert.equal(loadConfig(expected).model, "home", "argument overrides environment");
+      process.env.LUNA_CONFIG = "missing.json";
+      assert.throws(() => loadConfig(), /config not found/);
+      delete process.env.LUNA_CONFIG;
+      unlinkSync(expected);
+      assert.equal(loadConfig().configPath, expected);
+      assert.notEqual(loadConfig().model, "checkout", "no fallback to checkout config");
+    `], { cwd, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8", timeout: 10_000 });
+    assert.equal(result.status, 0, result.stderr || result.error?.message || "config discovery subprocess failed");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("luna.config.example.json loads", () => {
   const raw = JSON.parse(readFileSync(new URL("../luna.config.example.json", import.meta.url), "utf8"));

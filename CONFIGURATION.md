@@ -1,8 +1,9 @@
 # User settings
 
-Luna reads `luna.config.json` from its launch directory. Set `LUNA_CONFIG` to use another file.
-An explicit path must exist. Without an explicit path, startup creates the default file if necessary.
-Use `luna.config.example.json` as an example.
+Luna reads `~/.luna/luna.config.json` by default, independent of its launch directory. Set `LUNA_CONFIG` to use another file.
+An explicit path must exist; relative override paths resolve from the launch directory. Luna does not fall back to a checkout-local `luna.config.json`.
+Without an explicit path, daemon startup creates the default file if necessary; workers use defaults when it is absent.
+Paths inside a loaded config resolve relative to that config's directory. Use `luna.config.example.json` as an example.
 
 Open **Settings** in the Web UI to edit the same file on a full page.
 The page has eight task-based categories:
@@ -2074,7 +2075,7 @@ No configuration is needed; `luna.config.example.json` stays unchanged.
 ### Browser and MCP on a worker
 
 In a worker session, `browser_*` tools drive the worker's browser. Main MCP servers stay available.
-The worker reads `browser` and `mcpServers` from its own `luna.config.json` (`LUNA_CONFIG`, or the file in the directory where it starts).
+The worker reads `browser` and `mcpServers` from `~/.luna/luna.config.json` on its own machine, unless `LUNA_CONFIG` selects another file (for example, `~/.luna/worker.config.json`). Its launch directory does not affect the default config path.
 A worker without `browser.provider` set reports that browser tools are not enabled. It never fakes a page.
 Workers report their browser provider, configuration status, and configuration error in their connection capabilities.
 The agent sees this status in its machine instructions. Calls to a worker with an unconfigured browser fail before dispatch.
