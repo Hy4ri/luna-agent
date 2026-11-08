@@ -1,7 +1,7 @@
 // Terminal dock state. The server owns the terminals; this store lists them per session and remembers which tab is open.
 import { reactive } from "vue";
 import { json, post, serverUrl } from "@/lib/api";
-import { MIN_HEIGHT, clampHeight } from "@/stores/dock";
+import { MIN_HEIGHT, clampHeight, dock } from "@/stores/dock";
 
 export interface TerminalInfo {
   id: string;
@@ -117,6 +117,15 @@ export async function agentTerminalActivity(session: string, started: boolean) {
   if (!started || terminal.session !== session) return;
   const fresh = terminal.tabs.filter(t => !known.has(t.id) && t.owner === "agent").at(-1);
   if (fresh) { terminal.active = fresh.id; terminal.open = true; }
+}
+
+/** m57 asked to see a terminal from the transcript: open the dock on the Terminal pane and select it when it still exists. */
+export async function showTerminal(session: string, id?: string) {
+  if (!session || terminal.session !== session) return;
+  dock.pane = "terminal";
+  terminal.open = true;
+  await loadTerminals(session);
+  if (terminal.session === session && id && terminal.tabs.some(t => t.id === id)) terminal.active = id;
 }
 
 export type ControlAction = "take" | "give" | "share" | "unshare";

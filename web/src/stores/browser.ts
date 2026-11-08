@@ -22,6 +22,8 @@ export const browser = reactive({
   session: "",
   tabs: [] as BrowserTabInfo[],
   active: "",
+  /** m57 pressed New tab: a blank tab shows until he enters an address. It does not start from the active tab's page. */
+  draft: false,
   loading: false,
   error: "",
 });
@@ -32,7 +34,7 @@ const message = (e: unknown) => (e as Error).message || "Browser request failed.
 
 export async function loadBrowser(session: string) {
   const mine = ++epoch;
-  if (browser.session !== session) { browser.tabs = []; browser.active = ""; browser.enabled = false; }
+  if (browser.session !== session) { browser.tabs = []; browser.active = ""; browser.enabled = false; browser.draft = false; }
   browser.session = session;
   browser.error = "";
   if (!session) return;
@@ -66,8 +68,25 @@ export async function openBrowserTab(url: string) {
     const tab = await post<BrowserTabInfo>(`/v1/sessions/${session}/browser`, { url });
     if (browser.session !== session) return;
     browser.tabs.push(tab);
-    browser.active = tab.tabId;
+    selectBrowserTab(tab.tabId);
   } catch (e) { browser.error = message(e); }
+}
+
+/** Show one tab. Leaves a blank new tab. */
+export function selectBrowserTab(tabId: string) {
+  browser.active = tabId;
+  browser.draft = false;
+}
+
+/** m57 asked to see a tab from the transcript: open the dock on the Browser pane and select the tab when it still exists. */
+export async function showBrowserTab(session: string, tabId?: string) {
+  if (!session || browser.session !== session) return;
+  dock.pane = "browser";
+  terminal.open = true;
+  await loadBrowser(session);
+  if (browser.session !== session || !browser.enabled) return;
+  if (tabId && browser.tabs.some(t => t.tabId === tabId)) selectBrowserTab(tabId);
+  else browser.draft = false;
 }
 
 export async function closeBrowserTab(tabId: string) {
@@ -103,7 +122,7 @@ export async function agentBrowserActivity(session: string, opened: boolean) {
   await loadBrowser(session);
   if (!browser.enabled || browser.session !== session) return;
   const fresh = browser.tabs.filter(t => !known.has(t.tabId) && t.owner === "agent").at(-1);
-  if (opened && fresh) { browser.active = fresh.tabId; dock.pane = "browser"; terminal.open = true; }
+  if (opened && fresh) { selectBrowserTab(fresh.tabId); dock.pane = "browser"; terminal.open = true; }
 }
 
 /** WebSocket URL for one attach. The ticket is single use, so call this for every connection attempt. */
