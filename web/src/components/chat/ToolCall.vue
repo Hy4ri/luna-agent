@@ -149,7 +149,26 @@ function openInDock() {
   if (target.pane === 'browser') void showBrowserTab(chat.session, target.id);
   else void showTerminal(chat.session, target.id);
 }
-const codemodeCalls = computed(() => view.value === 'codemode' ? parseCodemodeCalls(details.value) : []);
+// After codemode finishes, details.calls has the final list. While running, build it from live toolStarts.
+const codemodeCalls = computed(() => {
+  if (view.value !== 'codemode') return [];
+  // Finished: use the durable details.
+  const fromDetails = parseCodemodeCalls(details.value);
+  if (fromDetails.length > 0 || state.value === 'complete') return fromDetails;
+  // Still running: build from live nested tool slots whose parentCallId matches this call.
+  const live: ReturnType<typeof parseCodemodeCalls> = [];
+  let seq = 0;
+  for (const [callId, tool] of Object.entries(chat.toolStarts)) {
+    if (tool.parentCallId !== props.id) continue;
+    seq++;
+    const res = chat.toolResults[callId];
+    const running = chat.activeTools.has(callId);
+    const status = res ? (res.isError ? 'error' as const : 'ok' as const) : running ? 'running' as const : 'cancelled' as const;
+    const argsSummary = toolSummary(tool.name, tool.args) || (tool.args ? JSON.stringify(tool.args).slice(0, 120) : '');
+    live.push({ id: seq, name: tool.name, args: argsSummary, status });
+  }
+  return live;
+});
 const codemodeCode = computed(() => typeof a.value.code === 'string' ? a.value.code : '');
 const hasBody = computed(() => {
   if (state.value === 'failed') return view.value === 'edit' || view.value === 'codemode';
