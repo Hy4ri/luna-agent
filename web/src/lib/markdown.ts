@@ -1,7 +1,19 @@
-// Markdown builds DOM nodes only (never innerHTML). Links are limited to http(s)/mailto.
+// Markdown builds DOM nodes; only KaTeX may generate inert math markup. Links are limited to http(s)/mailto.
 import { h } from "./dom";
 import { copyToClipboard } from "./message";
 import { openFence, closesFence, fenceLang, findFenceEnd } from "./fences";
+
+// Loaded only when a message contains math, sharing the existing GenUI KaTeX chunk.
+let mathEngine: Promise<typeof import("katex")> | undefined;
+function mathNode(source: string, displayMode: boolean, literal: string): HTMLElement {
+  const node = h("span", { class: displayMode ? "md-math md-math-display" : "md-math", dir: "ltr" }, literal);
+  mathEngine ??= Promise.all([import("katex"), import("katex/dist/katex.min.css")])
+    .then(([engine]) => engine).catch(error => { mathEngine = undefined; throw error; });
+  void mathEngine.then(({ default: katex }) => {
+    katex.render(source, node, { displayMode, throwOnError: true, trust: false, strict: "ignore", maxSize: 20, maxExpand: 1000, output: "htmlAndMathml" });
+  }).catch(() => { node.textContent = literal; });
+  return node;
+}
 
 function inline(text: string): (Node | string)[] {
   const out: (Node | string)[] = [];
@@ -18,8 +30,9 @@ function inline(text: string): (Node | string)[] {
   // 15: underscore italic: \b_text_\b
   // 16: strikethrough: ~~text~~
   // 17: keyboard key: <kbd>text</kbd> (plain text, no attributes)
+  // 18..21: display/inline math ($$, \[...\], \(...\), $)
   // \n: line break
-  const re = /(`+)([\s\S]*?)\1|!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|<((?:https?|mailto):[^\s>]+)>|\b(https?:\/\/[^\s<)]+)|\*\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*\*|\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*|\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*|__([^_\s\n](?:[^_\n]*?[^_\s\n])?)__|\b_([^_\s\n](?:[^_\n]*?[^_\s\n])?)_\b|~~([^~\s\n](?:[^~\n]*?[^~\s\n])?)~~|<kbd>([^<>\n]*)<\/kbd>|\n/g;
+  const re = /(`+)([\s\S]*?)\1|!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)|<((?:https?|mailto):[^\s>]+)>|\b(https?:\/\/[^\s<)]+)|\*\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*\*|\*\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*\*|\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*|__([^_\s\n](?:[^_\n]*?[^_\s\n])?)__|\b_([^_\s\n](?:[^_\n]*?[^_\s\n])?)_\b|~~([^~\s\n](?:[^~\n]*?[^~\s\n])?)~~|<kbd>([^<>\n]*)<\/kbd>|(?<!\\)\$\$([\s\S]+?)\$\$|(?<!\\)\\\[([\s\S]+?)\\\]|(?<!\\)\\\(([^\n]+?)\\\)|(?<![\\$])\$(?![\s$])((?:\\[^\n]|[^$\n\\])+?)(?<!\s)\$(?![\d$])|\n/g;
 
   let last = 0;
   let m: RegExpExecArray | null;
@@ -57,6 +70,8 @@ function inline(text: string): (Node | string)[] {
     } else if (m[17] !== undefined) {
       // Only this exact tag pair is supported; content stays text, never HTML.
       out.push(h("kbd", { dir: "auto" }, m[17]));
+    } else if (m[18] !== undefined || m[19] !== undefined || m[20] !== undefined || m[21] !== undefined) {
+      out.push(mathNode(m[18] ?? m[19] ?? m[20] ?? m[21], m[18] !== undefined || m[19] !== undefined, m[0]));
     } else if (m[0] === "\n") {
       out.push(h("br"));
     }
@@ -159,6 +174,21 @@ function markdown(src: string): DocumentFragment {
       frag.append(codeBlock(lines.slice(i + 1, stop).join("\n"), fenceLang(fence)));
       i = end === -1 ? lines.length : end + 1;
       continue;
+    }
+
+    // Display formulas are atomic: their newlines are not Markdown structure.
+    const display = /^\s*(\$\$|\\\[)/.exec(l);
+    if (display) {
+      const delimiter = display[1] === "$$" ? "$$" : "\\]";
+      const start = l.indexOf(display[1]) + display[1].length;
+      let end = i;
+      while (end < lines.length && lines[end].indexOf(delimiter, end === i ? start : 0) === -1) end++;
+      if (end < lines.length) {
+        flush();
+        frag.append(...inline(lines.slice(i, end + 1).join("\n")));
+        i = end + 1;
+        continue;
+      }
     }
 
     // Headings h1..h6
@@ -309,13 +339,21 @@ function splitBlocks(src: string): string[] {
   let cur: string[] = [];
   let fence: ReturnType<typeof openFence> = null;
   let blankRun = false;
+  let mathClose: string | null = null;
   for (const l of lines) {
     if (fence) {
       if (closesFence(l, fence)) fence = null;
+    } else if (mathClose) {
+      if (l.includes(mathClose)) mathClose = null;
     } else {
       fence = openFence(l);
+      const display = !fence && /^\s*(\$\$|\\\[)/.exec(l);
+      if (display) {
+        const close = display[1] === "$$" ? "$$" : "\\]";
+        if (!l.slice(l.indexOf(display[1]) + display[1].length).includes(close)) mathClose = close;
+      }
     }
-    const blank = !fence && !l.trim();
+    const blank = !fence && !mathClose && !l.trim();
     if (blankRun && !blank && cur.length && !/^\s{2,}\S/.test(l)) {
       blocks.push(cur);
       cur = [];

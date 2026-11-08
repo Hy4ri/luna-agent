@@ -1179,3 +1179,8 @@ pre[dir="auto"],
 .project-custom-icon {
   font-family: "Luna Nerd Symbols", system-ui, sans-serif;
 }
+
+/* Math stays LTR within RTL prose; only wide display formulas scroll. */
+.md .md-math { direction: ltr; unicode-bidi: isolate; overflow-wrap: normal; }
+.md .md-math-display { display: block; max-width: 100%; margin: .65em 0; overflow-x: auto; overflow-y: hidden; }
+.md .md-math-display .katex-display { margin: .25em 0; }
