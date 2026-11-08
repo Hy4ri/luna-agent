@@ -4,7 +4,7 @@ import { LIMIT_DIAGNOSTIC } from "./provider-limits.js";
 import { ClaudeTransportError } from "./claude-native/types.js";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
-  createProvider, createAssistantMessageEventStream, getCurrentTools, clampThinkingLevel,
+  createProvider, createAssistantMessageEventStream, clampThinkingLevel,
   type ProviderStreams, type AssistantMessage, type Model, type ToolCall,
 } from "@earendil-works/pi-ai";
 import { createStreamDeltas } from "./cli-stream.js";
@@ -72,12 +72,13 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       // Validate the complete batch before any actionable tool event is emitted.
       const calls: ToolCall[] = [];
       if (choice.finish_reason !== "content_filter" && choice.finish_reason !== "length") {
-        const offered = new Set(getCurrentTools(context.messages).map(t => t.name));
+        // A call to a tool Luna did not offer is a model error, not a transport error: the harness answers it
+        // with a tool_unavailable result and the model can recover.
         const seen = new Set<string>();
         for (const call of final.tool_calls ?? []) {
           if (!call || call.type !== "function" || typeof call.id !== "string" || !call.id || seen.has(call.id) ||
-            !call.function || typeof call.function.name !== "string" || !offered.has(call.function.name)) {
-            throw new Error("Invalid, duplicate, or unknown Luna tool in Claude response");
+            !call.function || typeof call.function.name !== "string" || !call.function.name) {
+            throw new Error("Invalid or duplicate Luna tool call in Claude response");
           }
           seen.add(call.id);
           if (typeof call.function.arguments !== "string") throw new Error("Invalid Claude tool arguments");
