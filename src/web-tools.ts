@@ -1,6 +1,7 @@
 // Stable tool `web` (search, read): provider options and transport never enter the agent-facing schemas.
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
+import { StringEnum } from "./string-enum.js";
 export interface WebSearchRequest { query: string; count?: number }
 export interface WebSearchResult { title: string; url: string; snippet: string }
 export interface WebExtractRequest { url: string; format?: "markdown" | "text" }
@@ -67,11 +68,11 @@ export function createWebToolsExtension(config: () => { searchProvider: string; 
         "search: query (and optional count); returns titles, URLs and snippets, no page content. " +
         "read: url (HTTP(S)); returns the page's readable content as markdown or text. Pages that need clicks, logins or JavaScript need the browser tools.",
       parameters: Type.Object({
-        action: Type.Union([Type.Literal("search"), Type.Literal("read")]),
+        action: StringEnum(["search", "read"]),
         query: Type.Optional(Type.String({ minLength: 1, description: "search: the query." })),
         count: Type.Optional(Type.Integer({ minimum: 1, description: "search: number of results. Default: 5." })),
         url: Type.Optional(Type.String({ minLength: 1, description: "read: HTTP(S) URL of the page." })),
-        format: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("text")], { description: "read: default markdown." })),
+        format: Type.Optional(StringEnum(["markdown", "text"], { description: "read: default markdown." })),
       }, { additionalProperties: false }),
       async execute(args, _api, context) {
         const signal = context.abortSignal ?? new AbortController().signal;

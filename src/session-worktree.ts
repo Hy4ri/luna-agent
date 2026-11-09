@@ -10,6 +10,7 @@ import { Type } from "typebox";
 import type { ProjectStore } from "./projects.js";
 import { switchWorkspace } from "./session-workspace.js";
 import { ExecTarget } from "./workers.js";
+import { StringEnum } from "./string-enum.js";
 
 type Active = { root: string; path: string; branch: string; baseRef: string };
 // Forks start with the initial value, so a fork never shares its parent's working tree.
@@ -101,7 +102,7 @@ export function createSessionWorktreeExtension(deps: Deps) {
   const tool = defineTool({
     name: "session_worktree",
     description: "Give this session its own git worktree and branch (luna/s<id>-<title>), cut from origin's default branch, and switch the session into it. Call it before your first edit when a project has auto-worktree on; edit/write refuse until then. action 'finish' removes the worktree and branch once the branch has merged and the tree is clean, and returns to the main checkout.",
-    parameters: Type.Object({ action: Type.Optional(Type.Union([Type.Literal("start"), Type.Literal("finish")], { default: "start" })) }, { additionalProperties: false }),
+    parameters: Type.Object({ action: Type.Optional(StringEnum(["start", "finish"], { default: "start" })) }, { additionalProperties: false }),
     executionMode: "sequential",
     replay: "safe",
     execute: async ({ action }, api, context) => {

@@ -5,6 +5,7 @@ import { Type, type TSchema } from "typebox";
 import { loadVisionImage, fitVisionImage } from "./vision-images.js";
 import { confinedReader, generatedImageWriter, isWorkerEnv } from "./worker-protocol.js";
 import { confinedRead } from "./confined-read.js";
+import { StringEnum } from "./string-enum.js";
 
 export type AspectRatio = "landscape" | "square" | "portrait";
 export type CreativeControl = "creativity" | "intensity" | "complexity" | "movement";
@@ -28,7 +29,7 @@ const gateways = new Set(["nous", "krea", "portal"]);
 function schema(caps: ImageGenCapabilities) {
   const properties: Record<string, TSchema> = {
     prompt: Type.String({ minLength: 1 }),
-    aspect_ratio: Type.Optional(Type.Union([Type.Literal("landscape"), Type.Literal("square"), Type.Literal("portrait")], { default: "landscape", description: "Landscape is 16:9; portrait is 9:16." })),
+    aspect_ratio: Type.Optional(StringEnum(["landscape", "square", "portrait"], { default: "landscape", description: "Landscape is 16:9; portrait is 9:16." })),
   };
   if (caps.edit) properties.image_url = Type.Optional(Type.String({ minLength: 1 }));
   if (caps.max_reference_images) properties.reference_image_urls = Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: caps.max_reference_images }));

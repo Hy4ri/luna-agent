@@ -18,6 +18,7 @@ import { prepareDelegateWorktree } from "./delegate-worktree.js";
 import { readDelegationUsage } from "./delegate-usage.js";
 import type { DelegateProfile } from "./delegate-profiles.js";
 import { resolveThinkingLevel } from "./thinking.js";
+import { StringEnum } from "./string-enum.js";
 export { Children } from "./delegate-state.js";
 
 /** Added to every spawn brief. Statuses and summaries must agree, and claims must be checkable. */
@@ -57,8 +58,8 @@ async function checkReceipt(r: Record<string, unknown>, cwd: string | undefined)
   return out.length ? out.join("; ") : "empty";
 }
 const parameters = Type.Object({
-  action: Type.Union(
-    [Type.Literal("spawn"), Type.Literal("steer"), Type.Literal("wait"), Type.Literal("list"), Type.Literal("stop"), Type.Literal("show"), Type.Literal("profiles"), Type.Literal("usage")],
+  action: StringEnum(
+    ["spawn", "steer", "wait", "list", "stop", "show", "profiles", "usage"],
     { description: "spawn: start a child; steer: message a child; wait: gather answers; list: show children; stop: abort a child; show: full pending request and recent tool calls of a child" },
   ),
   profile: Type.Optional(Type.String({ description: "spawn: configured role name; profiles lists roles, tool allowlists, model overrides, and context defaults" })),

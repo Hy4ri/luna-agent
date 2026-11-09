@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { proposeBenchmark, type ProposalResult, type ProposeOptions, type SkillImprover } from "./improve.js";
 import { linkedFiles, scanSkills, type Skill, type SkillViewer } from "./skills.js";
+import { StringEnum } from "./string-enum.js";
 
 export interface TrashEntry {
   id: string;
@@ -201,7 +202,7 @@ export function createSkillManageExtension(mgr: SkillManager, imp: SkillImprover
       "delete: move the skill to the trash. write_file / delete_file: a linked file (file_path relative to the skill dir); a replaced or deleted file goes to the trash. " +
       "restore: bring a trash entry back by id (see list include_deleted). Delegated children can only view and list.",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("view"), Type.Literal("list"), Type.Literal("create"), Type.Literal("edit"), Type.Literal("propose"), Type.Literal("rollback"), Type.Literal("delete"), Type.Literal("write_file"), Type.Literal("delete_file"), Type.Literal("restore")]),
+      action: StringEnum(["view", "list", "create", "edit", "propose", "rollback", "delete", "write_file", "delete_file", "restore"]),
       name: Type.Optional(Type.String({ description: "Skill name (all actions except list and restore)." })),
       content: Type.Optional(Type.String({ description: "create/edit/propose: full SKILL.md including frontmatter. write_file: file content." })),
       old_text: Type.Optional(Type.String({ description: "edit: exact text in SKILL.md to replace (must match once)." })),

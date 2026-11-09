@@ -11,6 +11,7 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { Context } from "@earendil-works/chord/context";
 
 import { GoalDoc, type Goal, type GoalStatus, type GoalTask } from "./goal-doc.js";
+import { StringEnum } from "./string-enum.js";
 
 export const DEFAULT_MAX_RUNS = 25;
 const OPEN: GoalStatus[] = ["active", "paused", "blocked", "budget_limited"];
@@ -205,15 +206,15 @@ export function createGoalExtension(o: { harness: () => Harness | undefined }) {
       "set_tasks: set or replace the task plan (small, atomic, verifiable steps in order); completed tasks with the same title keep their status and evidence. " +
       "update_task: mark one task complete (evidence required), skipped (skip_reason required), or pending again.",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("create"), Type.Literal("get"), Type.Literal("update"), Type.Literal("set_tasks"), Type.Literal("update_task")]),
+      action: StringEnum(["create", "get", "update", "set_tasks", "update_task"]),
       objective: Type.Optional(Type.String({ description: "create: full objective; preserve ordered steps and done criteria." })),
-      mode: Type.Optional(Type.Union([Type.Literal("regular"), Type.Literal("sisyphus")], { description: "create: default regular; sisyphus (ordered step-by-step plan) only if requested." })),
+      mode: Type.Optional(StringEnum(["regular", "sisyphus"], { description: "create: default regular; sisyphus (ordered step-by-step plan) only if requested." })),
       verification_contract: Type.Optional(Type.String({ description: "create: what must be verified before completion, if the user stated it." })),
       token_budget: Type.Optional(Type.Integer({ minimum: 1, description: "create: lifetime token budget, only if the user supplied one." })),
       max_runs: Type.Optional(Type.Integer({ minimum: 0, description: `create: automatic continuations before pausing (default ${DEFAULT_MAX_RUNS}; 0 = never continue automatically).` })),
       audit: Type.Optional(Type.Boolean({ description: "create: independent completion audit (default true)." })),
       replace: Type.Optional(Type.Boolean({ description: "create: replace an open goal (only if the user asked)." })),
-      status: Type.Optional(Type.Union([Type.Literal("complete"), Type.Literal("blocked"), Type.Literal("paused"), Type.Literal("active"), Type.Literal("skipped"), Type.Literal("pending")], { description: "update: complete, blocked, paused, or active. update_task: complete, skipped, or pending." })),
+      status: Type.Optional(StringEnum(["complete", "blocked", "paused", "active", "skipped", "pending"], { description: "update: complete, blocked, paused, or active. update_task: complete, skipped, or pending." })),
       reason: Type.Optional(Type.String({ description: "update: required for blocked and paused: the concrete blocker." })),
       completion_summary: Type.Optional(Type.String({ description: "update complete: what was done and how it was verified (an untrusted claim, never evidence)." })),
       tasks: Type.Optional(Type.Array(Type.Object({

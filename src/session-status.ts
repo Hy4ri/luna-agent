@@ -4,6 +4,7 @@ import { AskDoc } from "./ask.js";
 import { GoalDoc } from "./goal-doc.js";
 import { classifyLimit } from "./limit-reset.js";
 import { readProviderLimit, type ProviderLimit } from "./provider-limits.js";
+import { StringEnum } from "./string-enum.js";
 
 export type SessionStatus = "ready" | "running" | "reviewing" | "review_finished" | "finished" | "needs_approval" | "needs_input" | "limit_reached" | "failed" | "stopped";
 export interface SessionState { status: SessionStatus; statusReason: string | null }
@@ -86,7 +87,7 @@ export const SessionStatusExtension = defineExtension({
     name: "session_handoff",
     description: "Mark that your final response needs human approval or input. Call before the final response, then stop work until the user replies. This records state only: it does not grant approval, abort tools, or verify completion. Use ask_user_question for a structured question instead.",
     parameters: Type.Object({
-      status: Type.Union([Type.Literal("needs_approval"), Type.Literal("needs_input")]),
+      status: StringEnum(["needs_approval", "needs_input"]),
       reason: Type.String({ minLength: 1, maxLength: 500, description: "Short reason explaining the permission or information needed." }),
     }),
     replay: "safe",

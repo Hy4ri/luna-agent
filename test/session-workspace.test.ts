@@ -37,7 +37,8 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
 
   const faux = fauxProvider();
   faux.setResponses([
-    // Turn 1: Session 1 calls session_workspace to activate the worktree directory
+    // Turn 1: session_workspace is deferred, so Session 1 loads it with tool_search, then activates the worktree
+    fauxAssistantMessage([fauxToolCall("tool_search", { query: "session workspace activate directory" })], { stopReason: "toolUse" }),
     fauxAssistantMessage([fauxToolCall("session_workspace", { path: wtDir })], { stopReason: "toolUse" }),
 
     // Turn 2: Session 1 uses relative read and write tools in the SAME runtime session
@@ -73,7 +74,7 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
   const cfg = parseConfig({
     dataDir,
     cwd: mainRepo,
-    extensions: ["coding"],
+    extensions: ["coding", "tool-search"],
   });
 
   let rt: Awaited<ReturnType<typeof startRuntime>> | undefined;
@@ -137,6 +138,14 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
     // Verify session 1 agent cwd was updated to wtDir
     assert.equal((await conv1.agent(context)).cwd, wtDir);
 
+    // session_workspace is deferred: not declared upfront, but named in the deferred-tools section; tool_search adds it.
+    const systems = (await conv1.entries({}, 50, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "system").reverse();
+    assert.ok(systems[0]!.toolsAdded?.some(t => t.name === "read"));
+    assert.ok(!systems[0]!.toolsAdded?.some(t => t.name === "session_workspace"), "session_workspace must not be offered upfront");
+    const sections = (systems[0] as { sections?: Record<string, string> }).sections ?? {};
+    assert.match(sections["deferred-tools"] ?? "", /tool_search[^<]*\bsession_workspace\b/);
+    assert.ok(systems.some(m => m.toolsAdded?.some(t => t.name === "session_workspace")), "tool_search loads session_workspace");
+
     // Verify session feed received an agent_changed event with the new cwd
     const agentChangedEvents = events1.filter((e): e is Extract<AgentEvent, { type: "agent_changed" }> => e.type === "agent_changed");
     assert.ok(agentChangedEvents.length >= 1, "Session feed must emit agent_changed when workspace switches");
@@ -154,9 +163,9 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
     assert.equal(s2ChangesBody.branch, "main");
     assert.equal(s2ChangesBody.cwd, mainRepo);
 
-    // The relative read and write execute after the switch in the SAME run.
+    // The relative read and write execute after the switch in the SAME run (after tool_search and the switch).
     const results = (await conv1.entries({}, 50, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult");
-    assert.equal(results.length, 3);
+    assert.deepEqual(results.map(r => r.toolName).sort(), ["read", "session_workspace", "tool_search", "write"]);
     assert.ok(results.every(r => !r.isError));
     assert.match(JSON.stringify(results.find(r => r.toolName === "read")!.content), /wt-initial/);
 

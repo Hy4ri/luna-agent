@@ -5,6 +5,7 @@ import { validateWebUrl } from "./web-tools.js";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { isWorkerEnv, WORKER_ENV_PREFIX } from "./worker-protocol.js";
 import type { WorkerHub } from "./workers.js";
+import { StringEnum } from "./string-enum.js";
 
 export interface BrowserTab { tabId: string; url: string }
 export interface BrowserImage { data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" }
@@ -204,14 +205,13 @@ export function createBrowserToolsExtension(config: () => { provider: string; ev
         return args as { action: BrowserAction; url?: string; tabId?: string; offset?: number; text?: string; selector?: string; state?: "load" | "networkidle"; timeout?: number; clear?: boolean };
       },
       parameters: Type.Object({
-        action: Type.Union([Type.Literal("list"), Type.Literal("open"), Type.Literal("navigate"), Type.Literal("back"), Type.Literal("forward"), Type.Literal("reload"), Type.Literal("close"),
-          Type.Literal("snapshot"), Type.Literal("screenshot"), Type.Literal("wait"), Type.Literal("logs")]),
+        action: StringEnum(["list", "open", "navigate", "back", "forward", "reload", "close", "snapshot", "screenshot", "wait", "logs"]),
         url: Type.Optional(Type.String({ minLength: 1, description: "open, navigate: HTTP(S) URL." })),
         tabId: Type.Optional(Type.String({ ...tabIdDoc, description: "Every action except list and open: tab handle." })),
         offset: Type.Optional(Type.Integer({ minimum: 0, description: "snapshot: content offset (nextOffset)." })),
         text: Type.Optional(Type.String({ minLength: 1, description: "wait: visible text to wait for." })),
         selector: Type.Optional(Type.String({ minLength: 1, description: "wait: CSS selector to wait for." })),
-        state: Type.Optional(Type.Union([Type.Literal("load"), Type.Literal("networkidle")], { description: "wait: page load state." })),
+        state: Type.Optional(StringEnum(["load", "networkidle"], { description: "wait: page load state." })),
         timeout: Type.Optional(Type.Integer({ minimum: 1, maximum: 60, description: "wait: seconds, default 10." })),
         clear: Type.Optional(Type.Boolean({ description: "logs: empty the logs after reading." })),
       }, options),
@@ -259,14 +259,14 @@ export function createBrowserToolsExtension(config: () => { provider: string; ev
         "evaluate: run a JavaScript expression in the page and return its JSON value; needs browser.evaluate on.",
       prepareArguments(args) { checkInteger(args, "amount", 1); checkInteger(args, "x", 0); checkInteger(args, "y", 0); checkInteger(args, "clickCount", 1); return args as ActArgs; },
       parameters: Type.Object({
-        action: Type.Union([Type.Literal("click"), Type.Literal("type"), Type.Literal("scroll"), Type.Literal("press"), Type.Literal("hover"), Type.Literal("drag"), Type.Literal("select"), Type.Literal("check"), Type.Literal("uncheck"), Type.Literal("upload"), Type.Literal("dialog"), Type.Literal("evaluate")]),
+        action: StringEnum(["click", "type", "scroll", "press", "hover", "drag", "select", "check", "uncheck", "upload", "dialog", "evaluate"]),
         tabId,
         ref: Type.Optional(Type.String({ minLength: 1, description: "Element ref from the latest snapshot." })),
         selector: Type.Optional(Type.String({ minLength: 1, description: "CSS selector instead of ref." })),
         x: Type.Optional(Type.Integer({ minimum: 0, description: "click, hover: page x in screenshot pixels." })),
         y: Type.Optional(Type.Integer({ minimum: 0, description: "click, hover: page y in screenshot pixels." })),
         path: Type.Optional(Type.Array(Type.Object({ x: coord, y: coord }, options), { minItems: 2, maxItems: MAX_POINTS, description: "drag: points in screenshot pixels." })),
-        button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("middle"), Type.Literal("right")], { description: "click at a point, drag: mouse button, default left." })),
+        button: Type.Optional(StringEnum(["left", "middle", "right"], { description: "click at a point, drag: mouse button, default left." })),
         clickCount: Type.Optional(Type.Integer({ minimum: 1, maximum: 3, description: "click at a point: 2 for a double click." })),
         text: Type.Optional(Type.String({ description: "type: text to fill. dialog: answer for a prompt." })),
         pressEnter: Type.Optional(Type.Boolean({ description: "type: press Enter after filling." })),
@@ -275,7 +275,7 @@ export function createBrowserToolsExtension(config: () => { provider: string; ev
         files: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "upload: absolute file paths." })),
         accept: Type.Optional(Type.Boolean({ description: "dialog: true accepts, false dismisses." })),
         script: Type.Optional(Type.String({ minLength: 1, description: "evaluate: JavaScript expression." })),
-        direction: Type.Optional(Type.Union([Type.Literal("up"), Type.Literal("down"), Type.Literal("left"), Type.Literal("right")], { description: "scroll: direction." })),
+        direction: Type.Optional(StringEnum(["up", "down", "left", "right"], { description: "scroll: direction." })),
         amount: Type.Optional(Type.Integer({ minimum: 1, description: "scroll: pixels, default 500." })),
       }, options),
       async execute(raw, api, context) {

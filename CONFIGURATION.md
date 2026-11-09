@@ -893,7 +893,7 @@ When a user message contains `@file:<path>`, the prompt gets a **Referenced file
 
 ### Active session workspace
 
-With `coding` enabled, `session_workspace { path: "/absolute/directory" }` explicitly activates an existing directory on the session's current machine. Use it when moving work into a new worktree. Creating a worktree, inspecting a file, or passing a shell command an explicit directory does not activate it.
+With `coding` enabled, `session_workspace { path: "/absolute/directory" }` explicitly activates an existing directory on the session's current machine. Use it when moving work into a new worktree. The tool is deferred: with `tool-search` enabled the model loads it through `tool_search` first. The `tool-search` extension also adds a `deferred-tools` prompt section that names every deferred tool (built-in and MCP). Creating a worktree, inspecting a file, or passing a shell command an explicit directory does not activate it.
 
 ### Auto-worktree
 

@@ -28,6 +28,8 @@ export const SessionWorkspaceExtension = defineExtension({
   name: "session-workspace",
   tools: [defineTool({
     name: "session_workspace",
+    // Rare: most sessions never switch. tool_search loads it; session_worktree switches on its own.
+    deferred: true,
     description: "Activate an existing directory as this session's workspace on its current machine. Updates default file/shell paths and the Git UI. Use explicitly when moving work into a worktree; creating or inspecting one does not switch. Does not move running processes or change the project or machine. Call separately before other work.",
     parameters: Type.Object({ path: Type.String({ minLength: 1, description: "Absolute directory path on this session's current machine." }) }, { additionalProperties: false }),
     executionMode: "sequential",

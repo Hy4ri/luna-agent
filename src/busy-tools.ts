@@ -7,6 +7,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { ExecutionError, type ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { Type } from "typebox";
 import { z } from "zod";
+import { StringEnum } from "./string-enum.js";
 
 type Exec = ExecutionEnv["exec"];
 type Result = Awaited<ReturnType<Exec>>;
@@ -235,7 +236,7 @@ export class BusyExecutions {
       defineTool({ name: "process_manage", executionMode: "sequential",
         description: "Manage background commands owned by this chat: the ones bash started with background:true and foreground bash commands that moved to the background. " +
           "list: this chat's background commands. read: live or final stdout and stderr, state, exit code, and retained-output pagination. wait: until it finishes; a wait timeout does not stop it. stop: kill its process group.",
-        parameters: Type.Object({ action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("wait"), Type.Literal("stop")]),
+        parameters: Type.Object({ action: StringEnum(["list", "read", "wait", "stop"]),
           id: Type.Optional(Type.String({ minLength: 1, description: "read, wait, stop: process ID." })),
           timeoutSec: Type.Optional(Type.Number({ minimum: 0, maximum: 60, description: "wait, stop: wait limit in seconds, at most 60, default 10." })),
           offset: Type.Optional(Type.Integer({ minimum: 0, description: "Character offset in retained output; for list, process index." })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 40000, description: "Maximum output characters; for list, maximum process count." })) }, schema),

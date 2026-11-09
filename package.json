@@ -11,7 +11,8 @@
     "build:web": "bun --bun vite build -c web/vite.config.ts",
     "dev:web": "bun --bun vite -c web/vite.config.ts",
     "typecheck:web": "bun web/typecheck.cjs -p web/tsconfig.json",
-    "desktop": "bun run build:web && cd src-tauri && cargo build --features custom-protocol && ./target/debug/luna-desktop"
+    "desktop": "bun run build:web && cd src-tauri && cargo build --features custom-protocol && ./target/debug/luna-desktop",
+    "eval:tools": "bun scripts/tool-eval.ts"
   },
   "keywords": [],
   "author": "",

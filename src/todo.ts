@@ -4,6 +4,7 @@
 import { Type, type Static } from "typebox";
 import type { JsonValue } from "@earendil-works/chord";
 import { defineDoc, defineExtension, defineTool } from "@earendil-works/pi-durable";
+import { StringEnum } from "./string-enum.js";
 
 export type TaskStatus = "pending" | "in_progress" | "completed" | "deleted";
 export type Task = {
@@ -29,11 +30,11 @@ export const TodoDoc = defineDoc<{ tasks: Task[]; nextId: number }>({
 });
 
 export const TodoParams = Type.Object({
-  action: Type.Union([Type.Literal("create"), Type.Literal("update"), Type.Literal("list"), Type.Literal("get"), Type.Literal("delete"), Type.Literal("clear")]),
+  action: StringEnum(["create", "update", "list", "get", "delete", "clear"]),
   subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
   description: Type.Optional(Type.String({ description: "Long-form task description" })),
   activeForm: Type.Optional(Type.String({ description: "Present-continuous label shown while status is in_progress (e.g. 'writing tests')" })),
-  status: Type.Optional(Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("completed"), Type.Literal("deleted")], {
+  status: Type.Optional(StringEnum(["pending", "in_progress", "completed", "deleted"], {
     description: "Set this task's status (update): one of pending, in_progress, completed, deleted. When action is list, filters returned tasks by this status.",
   })),
   blockedBy: Type.Optional(Type.Array(Type.Number(), { description: "Initial blockedBy ids (create only)" })),
