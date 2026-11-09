@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     # These versions have local patches. Update them with their patches manually.
     ignore:
       - dependency-name: "@earendil-works/pi-ai"
