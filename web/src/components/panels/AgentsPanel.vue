@@ -73,7 +73,7 @@ onMounted(() => {
 
     <template v-else-if="sessionData">
       <p v-if="!sessionData.children || !sessionData.children.length" class="muted">
-        This session has not spawned subagents. Ask Luna to delegate with delegate_task.
+        This session has not spawned subagents. Ask Luna to delegate with subagent.
       </p>
 
       <div v-for="c in sortChildren(childSessions)" :key="c.id" class="card">

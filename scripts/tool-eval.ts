@@ -60,14 +60,14 @@ const tasks: Task[] = [
   { id: "session-search", prompt: "Search our past conversations for the Bun migration and tell me the session title.", expect: ["session_search"] },
   { id: "todo", prompt: "Make a todo list with three steps for writing a README. Do not do the steps.", expect: ["todo"] },
   { id: "board", prompt: "List the cards on the project board.", expect: ["board"] },
-  { id: "machine", prompt: "Run `hostname` on the machine named main and tell me the output.", expect: ["machine_exec", "bash"] },
+  { id: "machine", prompt: "Run `hostname` on the machine named main and tell me the output.", expect: ["worker_exec", "bash"] },
   { id: "ask", prompt: "Ask me a structured multiple-choice question: tabs or spaces?", expect: ["ask_user_question"] },
-  { id: "delegate", prompt: `Spawn one subagent that counts the lines of ${SCRATCH}/notes.txt, and report its answer.`, expect: ["delegate_task"] },
+  { id: "delegate", prompt: `Spawn one subagent that counts the lines of ${SCRATCH}/notes.txt, and report its answer.`, expect: ["subagent"] },
   { id: "terminal", prompt: "Start an interactive python3 REPL in a real terminal, compute 2**10 in it, then exit.", expect: ["terminal"] },
   { id: "cloudflare", prompt: "Search the Cloudflare documentation: what is the maximum value size in Workers KV?", expect: ["cloudflare__docs"] },
-  { id: "workspace", prompt: `Make ${SCRATCH}/out this session's active workspace.`, expect: ["session_workspace"] },
+  { id: "workspace", prompt: `Make ${SCRATCH}/out this session's active workspace.`, expect: ["session_worktree"] },
   { id: "goal", prompt: "What is this conversation's current goal status?", expect: ["goal"] },
-  { id: "handoff", prompt: "You need my permission before you may delete anything. Mark that you are waiting for approval to delete /tmp/luna-tool-eval/out.", expect: ["session_handoff", "ask_user_question"] },
+  { id: "handoff", prompt: "You need my permission before you may delete anything. Mark that you are waiting for approval to delete /tmp/luna-tool-eval/out.", expect: ["session_status", "ask_user_question"] },
 ];
 
 const { values: opt } = parseArgs({ options: {

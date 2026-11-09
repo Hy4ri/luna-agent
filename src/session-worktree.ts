@@ -8,7 +8,7 @@ import { AgentDoc, ToolTask, defineDoc, defineExtension, defineTool, hook, type 
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { Type } from "typebox";
 import type { ProjectStore } from "./projects.js";
-import { switchWorkspace } from "./session-workspace.js";
+import { WorkspaceSwitch, switchWorkspace } from "./session-workspace.js";
 import { ExecTarget } from "./workers.js";
 import { StringEnum } from "./string-enum.js";
 
@@ -101,14 +101,32 @@ export function createSessionWorktreeExtension(deps: Deps) {
 
   const tool = defineTool({
     name: "session_worktree",
-    description: "Give this session its own git worktree and branch (luna/s<id>-<title>), cut from origin's default branch, and switch the session into it. Call it before your first edit when a project has auto-worktree on; edit/write refuse until then. action 'finish' removes the worktree and branch once the branch has merged and the tree is clean, and returns to the main checkout.",
-    parameters: Type.Object({ action: Type.Optional(StringEnum(["start", "finish"], { default: "start" })) }, { additionalProperties: false }),
+    description: "Manage where this session works. start (default): give this session its own git worktree and branch (luna/s<id>-<title>), cut from origin's default branch, and switch into it. Call it before your first edit when a project has auto-worktree on; edit/write refuse until then. switch: activate an existing directory (path) on this machine as the workspace for file and shell tools and the Git UI; running processes keep their directories. finish: remove the worktree and branch once the branch has merged and the tree is clean, and return to the main checkout.",
+    parameters: Type.Object({
+      action: Type.Optional(StringEnum(["start", "switch", "finish"], { default: "start" })),
+      path: Type.Optional(Type.String({ minLength: 1, description: "switch: absolute directory path on this session's current machine." })),
+    }, { additionalProperties: false }),
     executionMode: "sequential",
     replay: "safe",
-    execute: async ({ action }, api, context) => {
+    execute: async ({ action, path: target }, api, context) => {
       if (!api.env) throw new Error("This session has no execution environment.");
       const env = api.env, id = api.conversationId;
       const reply = (text: string) => ({ output: [{ type: "text" as const, text }] });
+
+      if (action === "switch") {
+        const switched = (cwd: string) => reply(`Active workspace: ${cwd}. Subsequent file and shell tools and the Git UI use this directory. Existing processes keep their original directories.`);
+        const previous = await api.snapshot(WorkspaceSwitch, api.taskId, context);
+        if (previous?.cwd) return switched(previous.cwd);
+        if (!target || !target.trim() || !posix.isAbsolute(target) || target.includes("\0")) throw new Error("switch needs path: an absolute directory path.");
+        const absolute = await env.absolutePath(target, context);
+        if (!absolute.ok) throw new Error(absolute.error.message);
+        // Validate through the session environment, including worker routing. Never inspect a worker path on the host.
+        const directory = await env.openDirReader(absolute.value, context);
+        if (!directory.ok) throw new Error(`Cannot activate workspace: ${directory.error.message}`);
+        await directory.value.close(context);
+        return switched(await switchWorkspace(api, absolute.value, context));
+      }
+      if (target !== undefined) throw new Error(`path applies only to action 'switch'.`);
       const state = await api.snapshot(SessionWorktree, id, context);
       let active = state?.active ?? null;
 

@@ -43,7 +43,7 @@ async function rejectTarget(tx: Tx, from: ConversationId, to: number): Promise<s
   if (record.owner) return `session ${to} belongs to another session's task`;
   const after = record.parent ? { minEntryId: (Number(record.parent.at) + 1) as never } : {};
   const head = (await tx.scanEntries({ conversationId: to as ConversationId, order: "ascending", ...after }, 30)).items;
-  if (head.some((e) => e.kind === "delegate.child")) return `session ${to} is a subagent; use delegate_task from its parent`;
+  if (head.some((e) => e.kind === "delegate.child")) return `session ${to} is a subagent; use subagent from its parent`;
   return undefined;
 }
 
@@ -127,7 +127,7 @@ const Params = Type.Object({
 const DESCRIPTION = [
   "Send a message to another session. It runs as a new turn when the target is idle and waits in its queue when it is busy; it never interrupts.",
   "Use it when m57 asks you to coordinate with a session, or to answer a peer that asked you something.",
-  "Do not send acknowledgements or thanks. Read a session first with session_search sessionId=<id>. Subagents use delegate_task instead.",
+  "Do not send acknowledgements or thanks. Read a session first with session_search sessionId=<id>. Subagents use subagent instead.",
 ].join("\n");
 
 export function createSessionTalkExtension(o: { policy: () => SessionTalkPolicy; titles: () => Titles | undefined; harness: () => HarnessLike | undefined }) {

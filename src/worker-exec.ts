@@ -1,4 +1,4 @@
-// `machine_exec`: run a shell command on any registered machine ("main" or a worker), from any session.
+// `worker_exec`: run a shell command on any registered machine ("main" or a worker), from any session.
 // Tools run in the main daemon, so a worker target goes through the existing WorkerHub exec call. No protocol change.
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord";
@@ -37,14 +37,14 @@ const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000;
 
 const DESCRIPTION = "Run a bash command on any Luna machine: \"main\" (the main host) or a worker name. " +
   "Works from every session regardless of its own machine. Returns combined stdout and stderr, truncated like `bash` " +
-  `(last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB); a spilled full output stays on the target machine, read it with machine_exec (cat). ` +
+  `(last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB); a spilled full output stays on the target machine, read it with worker_exec (cat). ` +
   "Default cwd: the session cwd when the target is the session's own machine, else the target machine's home.";
 
-export function createMachineExecExtension(o: MachineSources) {
+export function createWorkerExecExtension(o: MachineSources) {
   return defineExtension({
-    name: "machine-exec",
+    name: "worker-exec",
     tools: [defineTool({
-      name: "machine_exec",
+      name: "worker_exec",
       description: DESCRIPTION,
       parameters: Type.Object({
         machine: Type.String({ minLength: 1, description: "\"main\" or a worker name (case-insensitive)." }),

@@ -51,9 +51,9 @@ test("saved configs with retired tool names load with the merged names", () => {
     dataDir: "/tmp/x",
     codemode: { pinned: ["bash", "web_search", "web_extract", "skill_view", "browser_tab", "browser_inspect", "browser_act", "process"] },
     disabledTools: ["cron_history", "vision_analyze"],
-    subagents: { profiles: { scout: { tools: ["read", "skill_view", "session_handoff"] } } },
+    subagents: { profiles: { scout: { tools: ["read", "skill_view", "session_status"] } } },
   });
   assert.deepEqual(c.codemode.pinned, ["bash", "web", "skill", "browser", "browser_act", "process_manage"]);
   assert.deepEqual(c.disabledTools, ["cron", "media_analyze"]);
-  assert.deepEqual(c.subagents.profiles.scout!.tools, ["read", "skill", "session_handoff"]);
+  assert.deepEqual(c.subagents.profiles.scout!.tools, ["read", "skill", "session_status"]);
 });

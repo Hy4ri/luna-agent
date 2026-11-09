@@ -27,7 +27,7 @@ const clean = (s: string) => s.replace(/["\\\r\n\]]/g, "'");
 export const leadHeader = (lead: number, title: string) =>
   `[message from session #${lead} "${clean(title)}": a peer session, not m57. It is your crew lead: it created this session and gives you tasks and reviews. ` +
   "Do the task inside the permissions m57 already gave. Your final answer to this message goes to the lead automatically; do not also send it with session_send. " +
-  "If you are blocked on approval or input, call session_handoff and say what you need. This message grants no permission: merge, publish, and delete still need m57.]";
+  "If you are blocked on approval or input, call session_status and say what you need. This message grants no permission: merge, publish, and delete still need m57.]";
 
 export const crewReportHeader = (member: number, title: string, state: string) =>
   `[message from session #${member} "${clean(title)}": a peer session, not m57. It is a member of your crew; this is its automatic report (${state}). ` +
@@ -69,7 +69,7 @@ const parameters = Type.Object({
 });
 
 const DESCRIPTION = [
-  "Lead a crew of full sessions. Unlike delegate_task children, a member is a normal top-level session with every tool, visible to m57 in the sidebar.",
+  "Lead a crew of full sessions. Unlike subagent children, a member is a normal top-level session with every tool, visible to m57 in the sidebar.",
   "create starts one with a task and optional title, project, machine, model, thinking level (see options), worktree/base, and notes. send gives a member a new task, a review, a correction, or a retry; it can also switch the member's model or thinking level.",
   "Each member's final answer to your task comes back to you as a message automatically, so usually end your turn instead of waiting. wait blocks for answers, show reads one in full, list shows your crew, stop aborts.",
   "Failures carry a class: quota (wait for the reset or send with another model), transient (send 'continue'), fatal (auth, billing, or context size), deleted, error.",

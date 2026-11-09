@@ -1,4 +1,4 @@
-// Orchestrator extension: `delegate_task` lets a conversation spawn, fork, steer, wait on, list and stop
+// Orchestrator extension: `subagent` lets a conversation spawn, fork, steer, wait on, list and stop
 // parallel subagent conversations. Children are ownerless durable conversations, so they survive the
 // spawning tool call and the parent's abort. Each parent records its own children in a conversation document,
 // so list/wait/steer/stop only ever touch that parent's children. Replay safety: spawn is keyed by the tool
@@ -24,7 +24,7 @@ export { Children } from "./delegate-state.js";
 /** Added to every spawn brief. Statuses and summaries must agree, and claims must be checkable. */
 const BRIEF_RULES = [
   "Rules for this task:",
-  "- If you are blocked on approval or input, call session_handoff and end with 'blocked on <what>'. Never write a completed summary for work that is blocked, denied, or not done.",
+  "- If you are blocked on approval or input, call session_status and end with 'blocked on <what>'. Never write a completed summary for work that is blocked, denied, or not done.",
   "- Claim only commits, PRs, and files you made yourself. Validation of your result schema is not proof that the work is correct.",
 ].join("\n");
 
@@ -91,7 +91,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
     tasks: [DelegateDeadline],
     tools: [
       defineTool({
-        name: "delegate_task",
+        name: "subagent",
         description:
           "Delegate work to parallel subagent conversations. spawn (optionally fork=true to inherit this conversation's history) returns a child id; " +
           "spawn several, keep working, then wait to gather their answers. steer redirects a running child; stop aborts one; list shows yours. " +
@@ -133,7 +133,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
             const page = await tx.scanEntries({ conversationId: id as never, order: "descending" }, 40);
             for (const e of page.items) {
               if (e.kind !== "pi.assistant" || calls.length >= 5) continue;
-              for (const m of e.model ?? []) if (m.role === "assistant") for (const c of [...m.content].reverse()) if (c.type === "toolCall" && c.name !== "session_handoff" && calls.length < 5) calls.push(`${c.name} ${JSON.stringify(c.arguments).slice(0, 1500)}`);
+              for (const m of e.model ?? []) if (m.role === "assistant") for (const c of [...m.content].reverse()) if (c.type === "toolCall" && c.name !== "session_status" && calls.length < 5) calls.push(`${c.name} ${JSON.stringify(c.arguments).slice(0, 1500)}`);
             }
             if (calls.length) out.push(`last tool calls (newest first):\n${calls.join("\n")}`);
             return out.join("\n\n") || "no pending request";
@@ -189,7 +189,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               // Both lists already enforce the parent's enabled tools and model-caller restrictions.
               const available = new Map([...parent.tools, ...parent.deferred].map(tool => [tool.name, tool]));
               const requested = profile?.tools ?? parent.tools.map(tool => tool.name);
-              const forbidden = new Set(["delegate_task", "session_crew", "ask_user_question", "board"]);
+              const forbidden = new Set(["subagent", "session_crew", "ask_user_question", "board"]);
               const missing = requested.filter(name => !forbidden.has(name) && !available.has(name));
               if (missing.length) return text(`Child profile requires unavailable tools: ${missing.join(", ")}.`, true);
               const tools = requested.filter(name => !forbidden.has(name)).map(name => available.get(name)!);

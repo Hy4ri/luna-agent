@@ -75,7 +75,7 @@ test("unknown extensions and duplicate names fail", () => {
 test("cross-field rules fail", () => {
   rejects({ provider: "anthropic" }, /model is required for provider anthropic/);
   rejects({ provider: "faux", subagents: { provider: "anthropic" } }, /provider and model must be set together/);
-  rejects({ provider: "faux", subagents: { profiles: { r: { tools: ["delegate_task"] } } } }, /Child profiles cannot delegate/);
+  rejects({ provider: "faux", subagents: { profiles: { r: { tools: ["subagent"] } } } }, /Child profiles cannot delegate/);
 });
 
 test("environment overrides apply before validation and are validated too", () => {

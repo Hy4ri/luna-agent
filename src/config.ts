@@ -16,7 +16,7 @@ export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
  * The `cron` and `skill-manage` registry extensions also serve `improve`, so the runtime hides each only when both are off.
  */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
-  coding: ["coding-tools", "busy-processes", "session-workspace"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
+  coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
   cron: [], improve: ["improve"], "tool-search": ["tool-search", "deferred-tools"], todo: ["todo"], "ask-user": ["ask-user"],
   recall: ["recall"], goal: ["goal"], learn: ["learn"], codemode: ["codemode"], webhooks: ["webhooks"],
 };
@@ -189,7 +189,7 @@ export const ConfigSchema = z
       memoryLimitBytes: z.number().int().positive().default(128 * 1024 * 1024),
       inlineBudget: z.number().int().positive().default(3000),
       pinned: z.array(z.string().min(1)).refine(names => new Set(names).size === names.length, "duplicate tool name")
-        .default(["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process_manage", "web", "browser", "browser_act", "delegate_task", "skill"]),
+        .default(["bash", "read", "edit", "write", "todo", "board", "worker_exec", "process_manage", "web", "browser", "browser_act", "subagent", "skill"]),
     }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
@@ -230,7 +230,7 @@ export const ConfigSchema = z
     if (!!c.subagents.provider !== !!c.subagents.model) ctx.addIssue({ code: "custom", path: ["subagents"], message: "provider and model must be set together" });
     for (const [role, profile] of Object.entries(c.subagents.profiles)) {
       if (!!profile.provider !== !!profile.model) ctx.addIssue({ code: "custom", path: ["subagents", "profiles", role], message: "provider and model must be set together" });
-      if (profile.tools.some(tool => ["delegate_task", "session_crew", "ask_user_question", "board", "tool_search"].includes(tool)))
+      if (profile.tools.some(tool => ["subagent", "session_crew", "ask_user_question", "board", "tool_search"].includes(tool)))
         ctx.addIssue({ code: "custom", path: ["subagents", "profiles", role, "tools"], message: "Child profiles cannot delegate, ask a hidden questionnaire, mutate a board, or load additional tools." });
     }
     if (new Set(c.providers.map(p => p.id)).size !== c.providers.length) ctx.addIssue({ code: "custom", path: ["providers"], message: "duplicate provider id" });
@@ -261,6 +261,7 @@ export const RETIRED_TOOL_NAMES: Readonly<Record<string, string>> = {
   web_search: "web", web_extract: "web", skill_view: "skill", skill_manage: "skill",
   cron_history: "cron", vision_analyze: "media_analyze", video_analyze: "media_analyze",
   browser_tab: "browser", browser_inspect: "browser", process: "process_manage",
+  delegate_task: "subagent", session_handoff: "session_status", machine_exec: "worker_exec", session_workspace: "session_worktree",
 };
 export const renameTools = (names: unknown) => Array.isArray(names) ? [...new Set(names.map(n => typeof n === "string" ? RETIRED_TOOL_NAMES[n] ?? n : n))] : names;
 

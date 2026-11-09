@@ -6,8 +6,8 @@ export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" |
 
 const TEXT_TOOLS = new Set([
   // cron_history stays for older transcripts; it is now cron runs/get_run/lessons.
-  "board", "memory", "cron", "cron_history", "goal", "delegate_task", "session_search",
-  "tool_search", "session_handoff", "browser", "browser_tab", "browser_inspect", "browser_act",
+  "board", "memory", "cron", "cron_history", "goal", "subagent", "delegate_task", "session_search",
+  "tool_search", "session_status", "session_handoff", "browser", "browser_tab", "browser_inspect", "browser_act",
 ]);
 
 /** Image and video analysis. vision_analyze and video_analyze are the retired names in older transcripts. */
@@ -74,7 +74,7 @@ export function toolSummary(name: string, args: unknown): string {
     }
     case "skill": case "skill_manage": return [str(a.action), str(a.name), str(a.file_path)].filter(Boolean).join(" ");
     case "ask_user_question": return Array.isArray(a.questions) && a.questions[0] ? clip(str(a.questions[0].question)) + (a.questions.length > 1 ? ` +${a.questions.length - 1}` : "") : "";
-    case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
+    case "subagent": case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
     case "codemode": return clip(str(a.code));
     case "web": return [str(a.action), clip(str(a.action) === "read" ? str(a.url) : str(a.query), 70)].filter(Boolean).join(" ");
   }

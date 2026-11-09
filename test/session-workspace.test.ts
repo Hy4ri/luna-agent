@@ -1,4 +1,4 @@
-// Luna runtime integration test: session_workspace tool switches session cwd, updates Git HTTP status,
+// Luna runtime integration test: session_worktree switch switches session cwd, updates Git HTTP status,
 // delivers agent_changed via session feed, isolates from other sessions, and persists across reopen.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -25,7 +25,7 @@ function initGitRepo(dir: string, branch = "main") {
   execFileSync("git", ["commit", "-m", "initial commit"], { cwd: dir });
 }
 
-test("session_workspace activates cwd, updates relative read/write, reflects in Git HTTP, emits agent_changed, isolates sessions, persists across reopen, and rejects invalid paths", async () => {
+test("session_worktree switch activates cwd, updates relative read/write, reflects in Git HTTP, emits agent_changed, isolates sessions, persists across reopen, and rejects invalid paths", async () => {
   const baseDir = realpathSync(mkdtempSync(join(tmpdir(), "luna-session-workspace-")));
   const mainRepo = join(baseDir, "main-repo");
   mkdirSync(mainRepo, { recursive: true });
@@ -37,9 +37,8 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
 
   const faux = fauxProvider();
   faux.setResponses([
-    // Turn 1: session_workspace is deferred, so Session 1 loads it with tool_search, then activates the worktree
-    fauxAssistantMessage([fauxToolCall("tool_search", { query: "session workspace activate directory" })], { stopReason: "toolUse" }),
-    fauxAssistantMessage([fauxToolCall("session_workspace", { path: wtDir })], { stopReason: "toolUse" }),
+    // Turn 1: Session 1 activates the existing worktree with session_worktree switch
+    fauxAssistantMessage([fauxToolCall("session_worktree", { action: "switch", path: wtDir })], { stopReason: "toolUse" }),
 
     // Turn 2: Session 1 uses relative read and write tools in the SAME runtime session
     fauxAssistantMessage([
@@ -53,13 +52,13 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
     fauxAssistantMessage([fauxText("session2 root read")]),
 
     // Turn 4: Session 1 attempts invalid workspace paths
-    fauxAssistantMessage([fauxToolCall("session_workspace", { path: "relative/path" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("session_worktree", { action: "switch", path: "relative/path" })], { stopReason: "toolUse" }),
     fauxAssistantMessage([fauxText("rejected relative path")]),
 
-    fauxAssistantMessage([fauxToolCall("session_workspace", { path: join(baseDir, "nonexistent-dir") })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("session_worktree", { action: "switch", path: join(baseDir, "nonexistent-dir") })], { stopReason: "toolUse" }),
     fauxAssistantMessage([fauxText("rejected missing path")]),
 
-    fauxAssistantMessage([fauxToolCall("session_workspace", { path: join(mainRepo, "root.txt") })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("session_worktree", { action: "switch", path: join(mainRepo, "root.txt") })], { stopReason: "toolUse" }),
     fauxAssistantMessage([fauxText("rejected file path")]),
   ]);
 
@@ -138,14 +137,6 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
     // Verify session 1 agent cwd was updated to wtDir
     assert.equal((await conv1.agent(context)).cwd, wtDir);
 
-    // session_workspace is deferred: not declared upfront, but named in the deferred-tools section; tool_search adds it.
-    const systems = (await conv1.entries({}, 50, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "system").reverse();
-    assert.ok(systems[0]!.toolsAdded?.some(t => t.name === "read"));
-    assert.ok(!systems[0]!.toolsAdded?.some(t => t.name === "session_workspace"), "session_workspace must not be offered upfront");
-    const sections = (systems[0] as { sections?: Record<string, string> }).sections ?? {};
-    assert.match(sections["deferred-tools"] ?? "", /tool_search[^<]*\bsession_workspace\b/);
-    assert.ok(systems.some(m => m.toolsAdded?.some(t => t.name === "session_workspace")), "tool_search loads session_workspace");
-
     // Verify session feed received an agent_changed event with the new cwd
     const agentChangedEvents = events1.filter((e): e is Extract<AgentEvent, { type: "agent_changed" }> => e.type === "agent_changed");
     assert.ok(agentChangedEvents.length >= 1, "Session feed must emit agent_changed when workspace switches");
@@ -163,9 +154,9 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
     assert.equal(s2ChangesBody.branch, "main");
     assert.equal(s2ChangesBody.cwd, mainRepo);
 
-    // The relative read and write execute after the switch in the SAME run (after tool_search and the switch).
+    // The relative read and write execute after the switch in the SAME run (after the switch).
     const results = (await conv1.entries({}, 50, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult");
-    assert.deepEqual(results.map(r => r.toolName).sort(), ["read", "session_workspace", "tool_search", "write"]);
+    assert.deepEqual(results.map(r => r.toolName).sort(), ["read", "session_worktree", "write"]);
     assert.ok(results.every(r => !r.isError));
     assert.match(JSON.stringify(results.find(r => r.toolName === "read")!.content), /wt-initial/);
 
@@ -203,7 +194,7 @@ test("session_workspace activates cwd, updates relative read/write, reflects in 
     const turn4File = await (await conv1.submit({ type: "input", content: "try file instead of dir" }, context)).wait(context);
     assert.equal(turn4File.status, "done");
     assert.equal((await conv1.agent(context)).cwd, wtDir);
-    const failed = (await conv1.entries({}, 100, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult").filter(m => m.toolName === "session_workspace");
+    const failed = (await conv1.entries({}, 100, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult").filter(m => m.toolName === "session_worktree");
     assert.equal(failed.length, 4);
     assert.equal(failed.filter(r => r.isError).length, 3);
 

@@ -13,7 +13,7 @@ import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
-import { createMachineExecExtension } from "./machine-exec.js";
+import { createWorkerExecExtension } from "./worker-exec.js";
 import { createSkillViewer, scanSkills } from "./skills.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
@@ -153,7 +153,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   });
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
-  extensions.push(createMachineExecExtension({ hub: () => workers }));
+  extensions.push(createWorkerExecExtension({ hub: () => workers }));
   const workerOutput = (id: number) => {
     const caps = workers.store.get(id)?.capabilities;
     if (!caps?.generatedFiles) return undefined;

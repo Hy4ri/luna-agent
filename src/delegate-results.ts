@@ -73,6 +73,6 @@ export const DelegateResults = defineExtension({
   name: "delegate-results", tools: [delegateResultTool, delegateFilesTool],
   sections: [section("delegate-result", async ({ read, conversationId }, context) => {
     const contract = await read.snapshot(ChildResult, conversationId, context);
-    return contract?.schema ? `Before ending assigned work, call delegate_result with a value matching this JSON Schema:\n${JSON.stringify(contract.schema)}\nAfter new input or steering, submit a new result. Schema validation is not proof of correct work or approval. If blocked, use session_handoff instead of claiming completion.` : undefined;
+    return contract?.schema ? `Before ending assigned work, call delegate_result with a value matching this JSON Schema:\n${JSON.stringify(contract.schema)}\nAfter new input or steering, submit a new result. Schema validation is not proof of correct work or approval. If blocked, use session_status instead of claiming completion.` : undefined;
   })],
 });
