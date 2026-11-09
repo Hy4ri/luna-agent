@@ -235,6 +235,19 @@ export function createGitControl() {
         }
         args = ['status', '--short'];
         summary = `Merged origin/${def}`;
+      } else if (action === 'checkout-pr') {
+        const n = body.number as number;
+        if (s.files.length) throw new GitError('Commit or stash your changes before switching to a pull request', 409);
+        const local = `pr-${n}`, remoteRef = `refs/remotes/origin/pr/${n}`;
+        // The + is safe: this ref is only ever written by this action, never by the user.
+        check(await run(w, ['fetch', 'origin', `+pull/${n}/head:${remoteRef}`], { cwd: s.cwd, network: true }));
+        if ((await branches(w)).local.some(l => l.name === local)) {
+          check(await run(w, ['switch', local], { cwd: s.cwd }));
+          const m = await run(w, ['merge', '--ff-only', remoteRef], { cwd: s.cwd });
+          if (m.code !== 0) throw new GitError(`${local} has local commits that differ from the pull request. It was left as it is.`, 409);
+          args = ['status', '--short'];
+        } else args = ['switch', '-c', local, '--no-track', remoteRef];
+        summary = `Checked out pull request #${n} as ${local}`;
       } else if (action === 'stash') {
         if (s.unborn) throw new GitError('Commit once before stashing', 400);
         if (!s.files.length) throw new GitError('There are no changes to stash', 400);

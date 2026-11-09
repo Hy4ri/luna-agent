@@ -160,3 +160,29 @@ test("update-from-default merges origin's default, and aborts cleanly on conflic
   assert.equal(git(cwd, "rev-parse", "HEAD"), head);
   assert.equal(git(cwd, "status", "--porcelain"), "");
 });
+
+test("checkout-pr fetches the pull ref, switches, and refuses a dirty tree or diverged local branch", async () => {
+  const { cwd, w, ctl } = repo();
+  const bare = join(cwd, "..", "origin.git");
+  git(cwd, "switch", "-qc", "topic");
+  writeFileSync(join(cwd, "pr.txt"), "pr\n"); git(cwd, "add", "pr.txt"); git(cwd, "commit", "-qm", "pr");
+  git(cwd, "push", "-q", "origin", "topic:refs/pull/5/head");
+  git(cwd, "switch", "-q", "main");
+  writeFileSync(join(cwd, "dirty.txt"), "d\n");
+  await fail(ctl.mutate(w, "checkout-pr", { number: 5 }), 409);
+  rmSync(join(cwd, "dirty.txt"));
+  await ctl.mutate(w, "checkout-pr", { number: 5 });
+  assert.equal(git(cwd, "branch", "--show-current"), "pr-5");
+  assert.equal(existsSync(join(cwd, "pr.txt")), true);
+  // Local commit on pr-5 diverges from a new PR head: left untouched.
+  writeFileSync(join(cwd, "local.txt"), "l\n"); git(cwd, "add", "local.txt"); git(cwd, "commit", "-qm", "local");
+  git(cwd, "switch", "-q", "main");
+  git(cwd, "switch", "-qc", "other-head", "main");
+  writeFileSync(join(cwd, "o.txt"), "o\n"); git(cwd, "add", "o.txt"); git(cwd, "commit", "-qm", "o");
+  git(cwd, "push", "-q", "-f", "origin", "other-head:refs/pull/5/head");
+  git(cwd, "switch", "-q", "main");
+  const before = git(cwd, "rev-parse", "pr-5");
+  await fail(ctl.mutate(w, "checkout-pr", { number: 5 }), 409);
+  assert.equal(git(cwd, "rev-parse", "pr-5"), before);
+  void bare;
+});

@@ -11,6 +11,8 @@ import { get as cached, makeKey } from "./github/cache";
 const ChangesTab = defineAsyncComponent(() => import("./source-control/ChangesTab.vue"));
 const HistoryTab = defineAsyncComponent(() => import("./source-control/HistoryTab.vue"));
 const BranchesTab = defineAsyncComponent(() => import("./source-control/BranchesTab.vue"));
+import { startItemSession } from "@/stores/chat";
+import { mutateGit } from "./source-control/client";
 import ItemList from "./github/ItemList.vue";
 import NewItemDialog from "./github/NewItemDialog.vue";
 import ContextBar from "./source-control/ContextBar.vue";
@@ -290,6 +292,21 @@ async function refreshAfterAction(updated?: Detail) {
   items.value = items.value.map(row => row.number === current.number ? { ...row, state: current.state } : row);
   if (stateFilter.value !== 'all') items.value = items.value.filter(row => stateFilter.value === 'open' ? row.state === 'OPEN' : row.state !== 'OPEN');
 }
+const itemNotice = ref("");
+async function checkoutPr() {
+  const n = selectedItemNumber.value, sel = selector.value;
+  if (n === null || !sel) { itemNotice.value = "Pick a project in the context bar first."; return; }
+  itemNotice.value = "";
+  try { const r = await mutateGit(sel, "checkout-pr", { number: n }); itemNotice.value = r.summary || `Checked out #${n}`; }
+  catch (e) { itemNotice.value = (e as Error).message; }
+}
+async function startSession() {
+  const d = detail.value; if (!d) return;
+  const project = sourceProject.value, worker = sourceMachine.value && sourceMachine.value !== 'main' ? Number(sourceMachine.value) : null;
+  const prompt = `${d.kind === 'pr' ? 'Pull request' : 'Issue'} ${selectedRepo.value}#${d.number}: ${d.title}\n${d.url}\n\n`;
+  try { await startItemSession(prompt, project, worker); backToChat(); }
+  catch (e) { itemNotice.value = (e as Error).message; }
+}
 async function handleDeleted() { backToList(); await refreshAfterAction(); }
 function refresh() {
   cancelPrefetch();
@@ -530,7 +547,11 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <p v-if="itemNotice" role="status" class="px-3 py-1.5 text-xs text-muted-foreground border-b border-border">{{ itemNotice }}</p>
           <ItemDetail
+            :can-checkout="!!localRepo && localRepo.toLowerCase() === selectedRepo.toLowerCase()"
+            @checkout="checkoutPr"
+            @start-session="startSession"
             :key="`${selectedRepo}:${selectedItemNumber}`"
             :repo="selectedRepo"
             :info="repoInfo"
