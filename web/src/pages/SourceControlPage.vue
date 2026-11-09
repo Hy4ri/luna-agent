@@ -12,6 +12,7 @@ const ChangesTab = defineAsyncComponent(() => import("./source-control/ChangesTa
 const HistoryTab = defineAsyncComponent(() => import("./source-control/HistoryTab.vue"));
 const BranchesTab = defineAsyncComponent(() => import("./source-control/BranchesTab.vue"));
 import ItemList from "./github/ItemList.vue";
+import NewItemDialog from "./github/NewItemDialog.vue";
 import ContextBar from "./source-control/ContextBar.vue";
 const ItemDetail = defineAsyncComponent(() => import("./github/ItemDetail.vue"));
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
@@ -63,6 +64,7 @@ const stateFilter = ref<"open" | "closed" | "all">(startPrefs.state ?? "open");
 /** Open-item totals per kind, from the last unfiltered list; absent until loaded. */
 const counts = ref<{ pr?: number; issue?: number; changes?: number }>({});
 const searchQuery = ref("");
+const newOpen = ref(false);
 const mineOnly = ref(false), labelFilter = ref(""), draftFilter = ref(""), reviewFilter = ref("");
 const activeFilters = computed<ItemFilters>(() => ({
   ...(mineOnly.value ? { author: "@me" } : {}),
@@ -455,6 +457,7 @@ onUnmounted(() => {
                   class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
                 />
               </div>
+              <button type="button" class="shrink-0 px-2 py-1 text-xs rounded border border-border bg-muted hover:bg-accent" title="Create on GitHub" @click="newOpen = true">New</button>
               <select
                 v-model="stateFilter"
                 class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
@@ -480,6 +483,7 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <NewItemDialog v-model:open="newOpen" :repo="selectedRepo" :kind="kind" :info="repoInfo" @created="n => { selectedItemNumber = n; void loadList(false, true); void loadDetail(n, true); }" />
           <!-- List Error -->
           <div v-if="listError" role="alert" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border flex items-center justify-between gap-2">
             <span class="min-w-0 break-words">{{ listError }}</span>

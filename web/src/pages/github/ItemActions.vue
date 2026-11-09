@@ -6,7 +6,9 @@ import { post } from '@/lib/api';
 import Markdown from '@/components/chat/Markdown.vue';
 import MergeDialog from './MergeDialog.vue';
 import DeleteIssueDialog from './DeleteIssueDialog.vue';
-import { MessageSquare, GitMerge, Trash2 } from '@lucide/vue';
+import MetaPicker from './MetaPicker.vue';
+import { editItem } from './client';
+import { MessageSquare, GitMerge, Trash2, Pencil } from '@lucide/vue';
 const props = defineProps<{ repo: string; detail: Detail; info: RepoInfo }>();
 const emit = defineEmits<{ changed: [detail?: Detail]; deleted: [] }>();
 const commentBody = ref(''), replyMode = ref<'write' | 'preview'>('write');
@@ -14,6 +16,39 @@ const commenting = ref(false), closing = ref(false), merging = ref(false), delet
 const pending = computed(() => commenting.value || closing.value || merging.value || deletingBranch.value || deletingIssue.value);
 const commentError = ref<string | null>(null), closeError = ref<string | null>(null), mergeError = ref<string | null>(null), branchDeleteError = ref<string | null>(null), issueDeleteError = ref<string | null>(null);
 const issueCloseReason = ref<'completed' | 'not_planned'>('completed');
+const editing = ref(false), editTitle = ref(''), editBody = ref(''), editLabels = ref<string[]>([]), editAssignees = ref<string[]>([]), editBusy = ref(false), editError = ref<string | null>(null);
+const reviewing = ref(false), reviewBody = ref(''), reviewError = ref<string | null>(null), prBusy = ref(false), prError = ref<string | null>(null);
+function startEdit() {
+  const d = props.detail; editTitle.value = d.title; editBody.value = d.body; editLabels.value = d.labels.map(l => l.name); editAssignees.value = [...d.assignees]; editError.value = null; editing.value = true;
+}
+async function saveEdit() {
+  if (editBusy.value || !editTitle.value.trim()) return;
+  const d = props.detail, same = (a: string[], b: string[]) => a.length === b.length && a.every(x => b.includes(x));
+  const patch: { kind: 'pr' | 'issue'; title?: string; body?: string; labels?: string[]; assignees?: string[] } = { kind: d.kind };
+  if (editTitle.value.trim() !== d.title) patch.title = editTitle.value.trim();
+  if (editBody.value !== d.body) patch.body = editBody.value;
+  if (!same(editLabels.value, d.labels.map(l => l.name))) patch.labels = editLabels.value;
+  if (!same(editAssignees.value, d.assignees)) patch.assignees = editAssignees.value;
+  if (Object.keys(patch).length === 1) { editing.value = false; return; }
+  editBusy.value = true; editError.value = null;
+  try { const updated = await editItem(props.repo, d.number, patch); if (!disposed) { editing.value = false; emit('changed', updated); } }
+  catch (e) { if (!disposed) editError.value = message(e); }
+  finally { editBusy.value = false; }
+}
+async function sendReview(event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT') {
+  if (reviewing.value || !props.detail.pr) return;
+  reviewing.value = true; reviewError.value = null;
+  try { const updated = await post<Detail>(endpoint('pulls') + '/review', { event, sha: props.detail.pr.headOid, ...(reviewBody.value.trim() ? { body: reviewBody.value } : {}) }); if (!disposed) { reviewBody.value = ''; emit('changed', updated); } }
+  catch (e) { if (!disposed) { reviewError.value = message(e); if ((e as { status?: number }).status === 409) emit('changed'); } }
+  finally { reviewing.value = false; }
+}
+async function prAction(path: 'draft' | 'update-branch', body: Record<string, unknown>) {
+  if (prBusy.value || !props.detail.pr) return;
+  prBusy.value = true; prError.value = null;
+  try { const updated = await post<Detail>(endpoint('pulls') + '/' + path, body); if (!disposed) emit('changed', updated); }
+  catch (e) { if (!disposed) { prError.value = message(e); if ((e as { status?: number }).status === 409) emit('changed'); } }
+  finally { prBusy.value = false; }
+}
 const mergeOpen = ref(false), deleteIssueOpen = ref(false);
 let disposed = false;
 onUnmounted(() => { disposed = true; });
@@ -129,6 +164,14 @@ async function handleDeleteIssueConfirm(confirm: number) {
         <span>Merge…</span>
       </button>
 
+      <template v-if="detail.kind === 'pr' && detail.state === 'OPEN' && detail.pr">
+        <button type="button" class="px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium rounded border border-border transition-colors disabled:opacity-50" :disabled="pending || prBusy || !detail.can.close" @click="prAction('draft', { draft: !detail.pr.draft })">{{ detail.pr.draft ? 'Ready for review' : 'Convert to draft' }}</button>
+        <button v-if="detail.pr.mergeState === 'BEHIND'" type="button" class="px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium rounded border border-border transition-colors disabled:opacity-50" :disabled="pending || prBusy || !detail.can.close" @click="prAction('update-branch', { sha: detail.pr.headOid })">Update branch</button>
+      </template>
+      <button type="button" class="px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium rounded border border-border transition-colors disabled:opacity-50 flex items-center gap-1.5" :disabled="pending || editing || !detail.can.close" :title="detail.can.close ? 'Edit title, description, labels, assignees' : 'Permission denied to edit'" @click="startEdit">
+        <Pencil class="w-3.5 h-3.5" /><span>Edit</span>
+      </button>
+
       <!-- Delete Branch button (PR, closed/merged, branch exists) -->
       <button
         v-if="detail.kind === 'pr' && detail.state !== 'OPEN' && detail.pr?.branchExists"
@@ -156,6 +199,32 @@ async function handleDeleteIssueConfirm(confirm: number) {
       </button>
 
 
+    </div>
+
+    <p v-if="prError" role="alert" class="text-xs text-destructive bg-destructive/10 border border-destructive/20 p-3 rounded">{{ prError }}</p>
+
+    <!-- Edit -->
+    <div v-if="editing" class="bg-card border border-border rounded-lg p-4 space-y-3">
+      <input v-model="editTitle" type="text" maxlength="256" aria-label="Title" class="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
+      <textarea v-model="editBody" rows="6" aria-label="Description" class="w-full bg-background border border-border rounded p-3 text-sm font-mono resize-y focus:outline-none focus:border-primary"></textarea>
+      <MetaPicker v-model:labels="editLabels" v-model:assignees="editAssignees" :repo="repo" with-assignees />
+      <p v-if="editError" role="alert" class="text-xs text-destructive">{{ editError }}</p>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="px-3 py-1.5 text-xs rounded border border-border hover:bg-accent" :disabled="editBusy" @click="editing = false">Cancel</button>
+        <button type="button" class="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-medium rounded disabled:opacity-50" :disabled="editBusy || !editTitle.trim()" @click="saveEdit">{{ editBusy ? 'Saving…' : 'Save' }}</button>
+      </div>
+    </div>
+
+    <!-- Review -->
+    <div v-if="detail.kind === 'pr' && detail.state === 'OPEN' && detail.pr" class="bg-card border border-border rounded-lg p-4 space-y-2">
+      <h4 class="text-xs font-medium uppercase tracking-wider">Review</h4>
+      <textarea v-model="reviewBody" rows="2" placeholder="Review comment (required to request changes or comment)" aria-label="Review comment" class="w-full bg-background border border-border rounded p-2 text-sm focus:outline-none focus:border-primary resize-y"></textarea>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="px-3 py-1.5 text-xs rounded border border-green-400/40 text-green-400 hover:bg-green-400/10 disabled:opacity-50" :disabled="reviewing" @click="sendReview('APPROVE')">Approve</button>
+        <button type="button" class="px-3 py-1.5 text-xs rounded border border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50" :disabled="reviewing || !reviewBody.trim()" @click="sendReview('REQUEST_CHANGES')">Request changes</button>
+        <button type="button" class="px-3 py-1.5 text-xs rounded border border-border hover:bg-accent disabled:opacity-50" :disabled="reviewing || !reviewBody.trim()" @click="sendReview('COMMENT')">Comment</button>
+      </div>
+      <p v-if="reviewError" role="alert" class="text-xs text-destructive">{{ reviewError }}</p>
     </div>
 
     <!-- Error Banners -->

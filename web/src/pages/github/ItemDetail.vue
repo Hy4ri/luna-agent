@@ -120,6 +120,10 @@ function formatTime(iso: string): string {
           <span v-if="detail.author">@{{ detail.author }}</span>
           <span>opened on {{ formatTime(detail.createdAt) }}</span>
         </div>
+        <div v-if="detail.labels.length || detail.assignees.length" class="flex flex-wrap items-center gap-1.5 text-xs">
+          <span v-for="l in detail.labels" :key="l.name" class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border"><span class="w-2 h-2 rounded-full" :style="{ backgroundColor: '#' + l.color }"></span>{{ l.name }}</span>
+          <span v-for="a in detail.assignees" :key="a" class="text-muted-foreground">@{{ a }}</span>
+        </div>
       </div>
 
       <!-- PR specific info -->
