@@ -99,6 +99,8 @@ function formatTime(iso: string): string {
           <span>{{ formatTime(item.updatedAt) }}</span>
 
           <div v-if="item.kind === 'pr'" class="flex items-center gap-1 ml-auto">
+            <span v-if="item.review === 'APPROVED'" class="text-[10px] text-green-400">Approved</span>
+            <span v-else-if="item.review === 'CHANGES_REQUESTED'" class="text-[10px] text-destructive">Changes requested</span>
             <CircleCheck v-if="item.checks === 'SUCCESS'" class="w-3.5 h-3.5 text-green-400" title="Checks passed" />
             <CircleX v-else-if="item.checks === 'FAILURE' || item.checks === 'ERROR'" class="w-3.5 h-3.5 text-destructive" title="Checks failed" />
             <AlertCircle v-else-if="item.checks === 'PENDING'" class="w-3.5 h-3.5 text-yellow-400" title="Checks pending" />
