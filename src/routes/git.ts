@@ -2,6 +2,7 @@ import type { Hono, Context as HonoContext } from "hono";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { createGitControl, GitError, type Workspace } from "../git-control.js";
 import { createGitStatusReader } from "../git-status.js";
+import { resolveProjectTarget } from "../git-target.js";
 import { ExecTarget } from "../workers.js";
 import { context } from "../luna.js";
 import { z } from "zod";
@@ -39,12 +40,17 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
   const gitWorkspace = async (c: HonoContext): Promise<Workspace> => {
     const session = c.req.query("session"),
       project = c.req.query("project");
-    if (session && project) throw new GitError("Select either a session or a project", 400);
+    if (session && (project || c.req.query("machine"))) throw new GitError("Select either a session or a project", 400);
     if (session) return sessionEnv(session);
     if (!project || !/^\d+$/.test(project)) throw new GitError("Select a session or a project", 400);
-    const p = opts.conversations?.projects.get(Number(project));
-    if (!p || p.general || !p.cwd) throw new GitError("Project has no main-host directory", 400);
-    return { machine: "main", env: new NodeExecutionEnv({ cwd: p.cwd }) };
+    const projects = opts.conversations?.projects;
+    if (!projects) throw new GitError("Select a session or a project", 400);
+    const t = resolveProjectTarget(Number(project), c.req.query("machine"), {
+      project: id => projects.get(id),
+      online: id => opts.workers?.view(id)?.online === true,
+    });
+    if (t.worker === null) return { machine: "main", env: new NodeExecutionEnv({ cwd: t.cwd }) };
+    return { machine: String(t.worker), env: opts.workers!.env(t.worker, t.cwd), commandEnv: opts.workers!.reviewEnvironment(t.worker) };
   };
 
   const gitFail = (c: HonoContext, e: unknown) =>
