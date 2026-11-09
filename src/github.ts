@@ -176,6 +176,8 @@ export type Detail = {
   createdAt: string;
   body: string;
   comments: Comment[];
+  labels: { name: string; color: string }[];
+  assignees: string[];
   commentTotal: number;
   commentsBefore: string | null;
   can: {

@@ -153,12 +153,32 @@ function mapPR(node: RepoPRNode): ListItem {
   };
 }
 
+export type ListFilters = { author?: string; label?: string; draft?: "true" | "false"; review?: "approved" | "changes_requested" | "required" };
+/** Search qualifiers for the list filters. Values are validated here, so a filter cannot inject another qualifier. */
+export function filterQualifiers(kind: Kind, f: ListFilters): string {
+  const out: string[] = [];
+  if (f.author !== undefined) {
+    if (f.author !== "@me" && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(f.author)) throw new GhError("Invalid author filter", 400);
+    out.push(`author:${f.author}`);
+  }
+  if (f.label !== undefined) {
+    if (!/^[^"\\\n\r:]{1,50}$/.test(f.label)) throw new GhError("Invalid label filter", 400);
+    out.push(`label:"${f.label}"`);
+  }
+  if (kind === "pr") {
+    if (f.draft !== undefined) { if (f.draft !== "true" && f.draft !== "false") throw new GhError("Invalid draft filter", 400); out.push(`draft:${f.draft}`); }
+    if (f.review !== undefined) { if (!["approved", "changes_requested", "required"].includes(f.review)) throw new GhError("Invalid review filter", 400); out.push(`review:${f.review}`); }
+  }
+  return out.join(" ");
+}
+
 export async function listItems(
   repo: string,
   kind: Kind,
   state: "open" | "closed" | "all",
   q: string,
-  after?: string | null
+  after?: string | null,
+  filters: ListFilters = {},
 ): Promise<ItemPage> {
   const parts = repo.split("/");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
@@ -169,7 +189,7 @@ export async function listItems(
     throw new GhError("Search query cannot contain repo, is, type, user, or org qualifiers", 400);
   }
 
-  const cleanQ = (q || "").trim();
+  const cleanQ = [filterQualifiers(kind, filters), (q || "").trim()].filter(Boolean).join(" ");
 
   if (cleanQ === "") {
     const owner = parts[0]!;
