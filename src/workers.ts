@@ -389,7 +389,7 @@ export function createWorkersExtension(hub: () => WorkerHub | undefined): Extens
     const workingDirectory = directory
       ? ` Current working directory for this session: ${JSON.stringify(directory)}. Relative file paths and shell commands start here.`
       : " The session's working directory is unavailable; do not assume a directory on another machine.";
-    const peers = hub()?.store.list().length ? ' The read-only `machine_files` tool lists and reads files, and `machine_exec` runs shell commands, on "main" or any worker, whichever machine this session uses.' : "";
+    const peers = hub()?.store.list().length ? ' The `machine_exec` tool runs shell commands (including ls and cat) on "main" or any worker, whichever machine this session uses.' : "";
     const authority = peers + " This is the authoritative execution location for Luna tools, not any provider or Claude CLI transport directory.";
     if (!target?.worker) return `bash, read, write, edit, and process tools run on the main Luna host (hostname ${hostname()}).${workingDirectory}${authority}`;
     // Stable text: last known capabilities only, never online state, so the prompt cache survives reconnects.

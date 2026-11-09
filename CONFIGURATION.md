@@ -400,6 +400,7 @@ The `learn` extension captures contextual evidence without a background model ca
 reviewable change, not a new authority to write. **All proposals require user approval.** No automatic-write
 policy is enabled. The existing `memory`, file, and skill tools retain their separate permission scope;
 this feature is not an OS sandbox around those tools.
+The model-facing `lesson_signal` and `lesson_curate` tools were removed (zero calls in use); capture, review, and proposals run through the daemon and web UI.
 
 ### Capture and diagnosis
 
@@ -416,21 +417,9 @@ this feature is not an OS sandbox around those tools.
   a stop signal (exit 130 or 143), and a harness interruption. Patterns from at least two conversations become
   visible for review. Legacy signals whose key ends in `:<harness>` stay in the ledger but are hidden from the
   queue. A later success from the same tool is only a recovery heuristic; it does not prove the same problem was fixed.
-- `lesson_signal { action: "capture", session, message, kind }` captures a source missed by the heuristic, including long corrections
-  and tool outcomes. `kind` is `rule`, `correction`, or `outcome`. User statements and tool results are checked
-  against the original transcript, not model-supplied source text.
-- `lesson_curate { action: "record" }` creates an unapplied candidate with `claim`, `cause`, `scope`, optional `skill`, `target`,
-  `domain` (default `global`), `review_at` (Unix milliseconds), and `signal_ids`. `lesson_id` edits an existing
-  candidate. A semantic diagnosis change invalidates previous assessments but retains them in history.
 - Causes: `missing` (missing fact/procedure), `stale`, `not_loaded` (retrieval), `ignored` (available rule not followed),
   `wrong`, `conflict`, `project` (project-only knowledge), and `uncertain`. Ignored rules need a proposed code check,
   not more text. Conflicting and uncertain diagnoses cannot produce writes.
-- `lesson_signal { action: "assess", signal_id, role, rationale }` records `explicit`, `support`, `conflict`, or `irrelevant` after
-  context review. One explicit user statement can support a preference; inferred claims need distinct sources in
-  at least two sessions. Repeated normalized content does not count twice. Semantic independence still needs
-  review; fingerprints do not detect all paraphrases. Unresolved conflict blocks a proposal.
-- `lesson_curate { action: "dismiss", signal_id | lesson_id, reason }` dismisses noise without deleting its evidence. It cannot
-  dismiss an applied change or bypass a held proposal.
 
 ### Storage and write destinations
 
@@ -456,7 +445,6 @@ Enrollment is not approval of a change. Targets must be regular text files; syml
 files over 100 KB are refused. Learning refuses proposals whose snapshots contain recognizable credentials.
 Redaction is heuristic, not a guarantee that every secret format is detected. Store databases and backups securely.
 
-`lesson_curate { action: "propose" }` accepts `lesson_id`, optional `content`, `fact`, `fact_key`, `must_contain`, and
 `critical` (review explanation). It saves a before/after snapshot and waits for the user. `must_contain` checks
 text only; it is not behavioral verification. Proposals do not run shell commands or paid model benchmarks.
 Skill learning rollback uses the learning journal, not the separate `skill_manage` `rollback` version series.
@@ -489,13 +477,11 @@ Keep user preferences and other durable facts in `memory.db` (`memory` `save`, o
 
 ### Outcomes and cost
 
-`lesson_signal { action: "observe", lesson_id, session, message, outcome, relevance, evidence }` records a later relevant
 `success`, `failure`, or `unknown`. Assistant claims alone cannot establish success. The observation is bound to
 an applied change and source timestamp. Repeated source content is deduplicated. Reported failures mark a change
 `ineffective`; no observations means effect unknown. The user can verify a successful observation only while the
 applied target still matches and no later failure contradicts it. This verifies that observation, not every future task.
 
-`lesson_curate { action: "review" }` returns paged open lessons and signals (default 20, maximum 100) and observation
 counts. Use `offset` for pagination, `history: true` for closed lessons and legacy signals, or `lesson_id` for evidence, change journal,
 and revision history. Legacy signals lack original-source fingerprints and stay outside the default queue.
 Metrics include reported outcomes, observed lesson/session pairs, and review-due items.
@@ -1102,7 +1088,7 @@ Enable or configure Code Mode under **Settings → Tools → Code Mode**:
   "timeoutMs": 300000,
   "memoryLimitBytes": 134217728,
   "inlineBudget": 3000,
-  "pinned": ["bash", "read", "edit", "write", "machine_exec", "machine_files", "web_search", "web_extract", "delegate_task", "board"]
+  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web_search", "web_extract", "browser_act", "browser_inspect", "delegate_task", "skill_view"]
 }
 ```
 
@@ -2047,17 +2033,6 @@ The web UI uses authenticated blob requests; tokens are not included in image UR
 Live partials and nested tool results without committed entry IDs remain inline.
 This transport needs no configuration changes; `luna.config.example.json` stays unchanged.
 
-### Cross-machine file access (`machine_files`)
-
-`machine_files` is a read-only tool available in every session, whatever its own machine.
-Parameters: `machine` (`main` or a worker name, case-insensitive), `path` (absolute or `~/...`; `~` is the target machine's home),
-optional `offset` (1-based line) and `limit` (lines, default and maximum 2000).
-A directory returns its entries, directories first, up to 500 (a note shows truncation).
-A file returns text truncated at 2000 lines or 50KB; continue with `offset`. Binary files and files over 16 MB return an error.
-An unknown machine returns the valid names. An offline worker returns `worker <name> is offline.`
-The machine section of the system prompt mentions the tool only when at least one worker is registered.
-No configuration is needed; `luna.config.example.json` stays unchanged.
-
 ### Cross-machine command execution (`machine_exec`)
 
 `machine_exec` runs a bash command on any machine, from every session, whatever its own machine:
@@ -2066,7 +2041,7 @@ Parameters: `machine` (`main` or a worker name, case-insensitive), `command`,
 optional `cwd` (absolute or `~/...` on the target machine) and `timeout` (seconds).
 Without `cwd`, the command runs in the session cwd when the target is the session's own machine, else in the target machine's home.
 Output streams and is truncated like `bash` (last 2000 lines or 50KB). A nonzero exit is an error result with the exit code.
-Spilled full output stays on the target machine; the diagnostic names it as `<machine>:<path>`, readable with `machine_files`.
+Spilled full output stays on the target machine; the diagnostic names it as `<machine>:<path>`, readable with `machine_exec` (`cat`).
 Abort and `timeout` stop the command on the target machine. An unknown machine returns the valid names; an offline worker returns an error without running anything.
 Worker targets use the existing worker exec call; the worker protocol is unchanged. There is no per-worker permission gate.
 The machine section of the system prompt mentions the tool only when at least one worker is registered.

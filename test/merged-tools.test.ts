@@ -24,9 +24,7 @@ test("merged action tools register and execute through startRuntime", async () =
     ["cron_history", { action: "runs" }],
     ["cron_history", { action: "lessons" }],
     ["skill_manage", { action: "list" }],
-    ["tool_search", { query: "lesson curate signal" }],
-    ["lesson_curate", { action: "review" }],
-    ["lesson_signal", { action: "assess" }],
+    ["tool_search", { query: "policy" }],
   ];
   let step = 0, toolNames: string[] = [];
   const faux = fauxProvider();
@@ -60,9 +58,7 @@ test("merged action tools register and execute through startRuntime", async () =
     assert.equal(by(3).error, false);
     assert.equal(by(4).error, false); assert.match(by(4).text, /scratch objective/);
     assert.equal(by(5).error, true); assert.match(by(5).text, /update_task needs/);
-    for (const i of [6, 7, 8, 9, 10, 11]) assert.equal(by(i).error, false, `${by(i).name}: ${by(i).text}`);
-    assert.match(by(11).text, /"policy"/);
-    assert.equal(by(12).error, true); assert.match(by(12).text, /assess needs signal_id/);
+    for (const i of [6, 7, 8, 9, 10]) assert.equal(by(i).error, false, `${by(i).name}: ${by(i).text}`);
   } finally {
     await rt?.close();
     rmSync(dir, { recursive: true, force: true });

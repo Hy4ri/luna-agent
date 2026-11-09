@@ -35,22 +35,22 @@ test("pinToolDeclarations keeps the leading tool list and moves later tools to t
   const history: Message[] = [
     { role: "system", content: "base", toolsAdded: [tool("codemode"), tool("bash")], timestamp: 1 },
     user,
-    { role: "system", content: "", toolsAdded: [tool("lesson_signal"), tool("bash")], toolsRemoved: [{ name: "bash" }], timestamp: 3 },
-    { role: "system", content: "", toolsRemoved: [{ name: "lesson_signal" }], timestamp: 4 },
+    { role: "system", content: "", toolsAdded: [tool("cron_history"), tool("bash")], toolsRemoved: [{ name: "bash" }], timestamp: 3 },
+    { role: "system", content: "", toolsRemoved: [{ name: "cron_history" }], timestamp: 4 },
   ];
   const before = structuredClone(history);
   const out = pinToolDeclarations(history);
   assert.deepEqual(out.map(m => m.role === "system" ? [m.toolsAdded?.map(t => t.name), m.toolsRemoved?.map(t => t.name)] : m.role),
     [[["codemode", "bash"], undefined], "user", [["bash"], ["bash"]], [undefined, undefined]]);
   const moved = out[2] as Extract<Message, { role: "system" }>;
-  assert.match(typeof moved.content === "string" ? moved.content : "", /inside `codemode`[\s\S]*lesson_signal/);
+  assert.match(typeof moved.content === "string" ? moved.content : "", /inside `codemode`[\s\S]*cron_history/);
   assert.deepEqual(history, before, "stored history is not mutated");
 });
 
 test("pinToolDeclarations changes nothing without codemode in the leading tools", () => {
   const history: Message[] = [
     { role: "system", content: "base", toolsAdded: [tool("bash")], timestamp: 1 },
-    { role: "system", content: "", toolsAdded: [tool("lesson_signal")], timestamp: 2 },
+    { role: "system", content: "", toolsAdded: [tool("cron_history")], timestamp: 2 },
   ];
   assert.equal(pinToolDeclarations(history), history);
 });
