@@ -42,6 +42,7 @@ test("bash background starts a process that process_manage waits for and reads",
     const started = await bash({ command: "echo BG_SENTINEL", background: true });
     const id = started.structuredOutput.id as string;
     assert.match(started.structuredOutput.output, /Process ID/);
+    assert.match(started.output[0].text, new RegExp(`Process ID: ${id}`));
     assert.equal((await pm({ action: "list" })).output[0].text.includes(id), true);
     const done = JSON.parse((await pm({ action: "wait", id, timeoutSec: 10 })).output[0].text);
     assert.equal(done.status, "complete"); assert.match(done.output, /BG_SENTINEL/);

@@ -221,7 +221,9 @@ export class BusyExecutions {
           if (!managed) throw new Error("Background execution requires a managed session environment.");
           const { p } = this.begin(managed.env, api.conversationId, args.command, { timeout: args.timeout }, caller, true, managed.owner);
           // exitCode 0 means the start succeeded; the command's own exit arrives with its completion report.
-          return { structuredOutput: { output: `Started in the background. Process ID: ${p.id}. Completion resumes this chat; use process_manage to read, wait for, or stop it.`, truncated: false, exitCode: 0, id: p.id, status: p.status, background: true } };
+          const text = `Started in the background. Process ID: ${p.id}. Completion resumes this chat; use process_manage to read, wait for, or stop it.`;
+          // `output` is the model's text; without it the model sees an empty result and no process ID.
+          return { output: [{ type: "text" as const, text }], structuredOutput: { output: text, truncated: false, exitCode: 0, id: p.id, status: p.status, background: true } };
         },
       }) as unknown as ToolRegistration;
     });
