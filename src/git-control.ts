@@ -213,6 +213,28 @@ export function createGitControl() {
         if (tracked.length) check(await run(w, ['restore', '--worktree', '--', ...tracked], { cwd: s.cwd }));
         if (untracked.length) check(await run(w, ['clean', '-f', '-d', '--', ...untracked], { cwd: s.cwd }));
         args = ['status', '--short'];
+      } else if (action === 'delete-branch') {
+        const name = body.branch as string, b = await branches(w);
+        if (name.startsWith('-') || !b.local.some(l => l.name === name)) throw new GitError('Unknown local branch', 400);
+        if (name === s.branch) throw new GitError('Switch to another branch before deleting this one', 409);
+        if (name === b.default) throw new GitError('The default branch cannot be deleted here', 409);
+        // -d refuses unmerged work; -D needs an explicit force from the user.
+        args = ['branch', body.force === true ? '-D' : '-d', '--', name];
+      } else if (action === 'update-from-default') {
+        if (s.detached || s.unborn) throw new GitError('Select a branch with commits first', 400);
+        if (s.files.length) throw new GitError('Commit or stash your changes before updating the branch', 409);
+        const def = (await branches(w)).default;
+        if (!def) throw new GitError('Could not find the default branch', 400);
+        if (def === s.branch) throw new GitError('This is the default branch. Use pull instead', 400);
+        check(await run(w, ['fetch', '--prune', 'origin'], { cwd: s.cwd, network: true }));
+        const m = await run(w, ['merge', '--no-edit', `origin/${def}`], { cwd: s.cwd });
+        if (m.code !== 0) {
+          // Leave the branch exactly as it was; resolving conflicts belongs in an editor.
+          await run(w, ['merge', '--abort'], { cwd: s.cwd });
+          throw new GitError(`Merging origin/${def} conflicts. The branch was not changed. Resolve it in a terminal.`, 409);
+        }
+        args = ['status', '--short'];
+        summary = `Merged origin/${def}`;
       } else if (action === 'stash') {
         if (s.unborn) throw new GitError('Commit once before stashing', 400);
         if (!s.files.length) throw new GitError('There are no changes to stash', 400);
@@ -261,9 +283,10 @@ export function createGitControl() {
         args = ['push', 'origin', `${s.headOid}:refs/heads/${remoteBranch}`]; network = true;
       } else throw new GitError('Unknown Git action', 400);
       // `stash --include-untracked` builds its own pathspecs, which literal mode breaks. It passes no user paths.
-      const r = await run(w, args, { cwd: s.cwd, network, globPathspecs: action === 'stash' }); check(r);
+      const r = await run(w, args, { cwd: s.cwd, network, globPathspecs: action === 'stash' }); if (action === 'delete-branch' && r.code !== 0 && /not fully merged/i.test(r.error)) throw new GitError(`confirm-force: ${body.branch} has commits that are not merged anywhere else.`, 409);
+      check(r);
       if (action === 'push' && !s.upstream) check(await run(w, ['branch', '--set-upstream-to', `origin/${s.branch}`, s.branch], { cwd: s.cwd }));
-      summary = redact((r.out + r.error).trim());
+      summary = summary || redact((r.out + r.error).trim());
       const state = await changes(w);
       return { changes: state, summary, sha: state.headOid };
     } finally { active.delete(key); }
