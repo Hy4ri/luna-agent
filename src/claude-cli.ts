@@ -9,7 +9,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { createStreamDeltas } from "./cli-stream.js";
 import { prepareNativeRequest, runNativeRequest, nativeResponseCarrier, validateNativeResponse } from "./claude-native.js";
-import { nativeContextWindow } from "./claude-native/history.js";
+import { NATIVE_ROUTE_IDS, nativeContextWindow } from "./claude-native/history.js";
 import { FATAL_BILLING_LIMIT } from "./claude-native/billing.js";
 import { readClaudeLoginStatusCached } from "./claude-native/status.js";
 import { claudeControlOptions } from "./claude-native/transport.js";
@@ -120,6 +120,14 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
   return events;
 };
 
+/** "claude-fable-5-2" -> "Fable 5.2"; catalog names win when known. */
+function routeName(id: string): string {
+  const known = anthropicProvider().getModels().find(m => m.id === id);
+  if (known) return known.name;
+  const [family = id, ...version] = id.replace(/^claude-/u, "").split("-");
+  return `${family[0]!.toUpperCase()}${family.slice(1)} ${version.join(".")}`.trim();
+}
+
 export function claudeCliProvider() {
   const catalog = anthropicProvider().getModels();
   const modelDefinition = (id: string, name: string) => {
@@ -177,6 +185,8 @@ export function claudeCliProvider() {
           const id = m.resolvedModel ?? m.value;
           return [id, modelDefinition(id, m.displayName)];
         }));
+        // Nonessential traffic is off, so the CLI omits remotely announced routes such as new Fable releases.
+        for (const id of NATIVE_ROUTE_IDS) if (!unique.has(id)) unique.set(id, modelDefinition(id, routeName(id)));
         return [...unique.values()];
       } finally {
         clearTimeout(timer);
