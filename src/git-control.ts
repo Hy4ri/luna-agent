@@ -263,7 +263,9 @@ export function createGitControl() {
         if (amend) {
           if (s.unborn || !s.headOid) throw new GitError('There is no commit to amend', 400);
           // Rewriting a commit that origin already has would diverge from it.
-          if (s.upstream && s.ahead === 0 && body.force !== true) throw new GitError('confirm-amend: this commit is already pushed. Amending rewrites history.', 409);
+          // Any remote-tracking branch containing HEAD means origin has it, whatever the upstream setting says.
+          const pushed = (await run(w, ['branch', '-r', '--contains', 'HEAD'], { cwd: s.cwd, read: true })).out.trim() !== '';
+          if (pushed && body.force !== true) throw new GitError('confirm-amend: this commit is already pushed. Amending rewrites history.', 409);
         } else if (!s.files.some(f => f.staged)) throw new GitError('Nothing is staged', 400);
         args = ['commit', ...(amend ? ['--amend'] : []), '-m', body.message as string];
       } else if (action === 'switch') {

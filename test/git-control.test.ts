@@ -186,3 +186,17 @@ test("checkout-pr fetches the pull ref, switches, and refuses a dirty tree or di
   assert.equal(git(cwd, "rev-parse", "pr-5"), before);
   void bare;
 });
+
+test("amend refuses a commit pushed to a branch that is not the upstream", async () => {
+  const { cwd, w, ctl } = repo();
+  git(cwd, "switch", "-qc", "side");
+  writeFileSync(join(cwd, "s.txt"), "s\n"); git(cwd, "add", "s.txt"); git(cwd, "commit", "-qm", "s");
+  git(cwd, "push", "-q", "origin", "side"); // no upstream set: side has none
+  const before = git(cwd, "rev-parse", "HEAD");
+  await fail(ctl.mutate(w, "commit", { message: "x", amend: true }), 409);
+  assert.equal(git(cwd, "rev-parse", "HEAD"), before);
+  // A purely local commit on top is not pushed and can be amended.
+  writeFileSync(join(cwd, "l.txt"), "l\n"); git(cwd, "add", "l.txt"); git(cwd, "commit", "-qm", "l");
+  await ctl.mutate(w, "commit", { message: "reworded", amend: true });
+  assert.equal(git(cwd, "log", "-1", "--format=%s"), "reworded");
+});

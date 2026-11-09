@@ -168,7 +168,7 @@ async function handleDeleteIssueConfirm(confirm: number) {
         <button type="button" class="px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium rounded border border-border transition-colors disabled:opacity-50" :disabled="pending || prBusy || !detail.can.close" @click="prAction('draft', { draft: !detail.pr.draft })">{{ detail.pr.draft ? 'Ready for review' : 'Convert to draft' }}</button>
         <button v-if="detail.pr.mergeState === 'BEHIND'" type="button" class="px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium rounded border border-border transition-colors disabled:opacity-50" :disabled="pending || prBusy || !detail.can.close" @click="prAction('update-branch', { sha: detail.pr.headOid })">Update branch</button>
       </template>
-      <button type="button" class="px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium rounded border border-border transition-colors disabled:opacity-50 flex items-center gap-1.5" :disabled="pending || editing || !detail.can.close" :title="detail.can.close ? 'Edit title, description, labels, assignees' : 'Permission denied to edit'" @click="startEdit">
+      <button type="button" class="px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium rounded border border-border transition-colors disabled:opacity-50 flex items-center gap-1.5" :disabled="pending || editing || !detail.can.edit" :title="detail.can.edit ? 'Edit title, description, labels, assignees' : 'Permission denied to edit'" @click="startEdit">
         <Pencil class="w-3.5 h-3.5" /><span>Edit</span>
       </button>
 
