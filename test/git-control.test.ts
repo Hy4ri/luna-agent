@@ -83,3 +83,14 @@ test("a plain commit still needs staged files", async () => {
   const { w, ctl } = repo();
   await fail(ctl.mutate(w, "commit", { message: "nothing" }), 400);
 });
+
+test("the staged diff lists staged files only", async () => {
+  const { cwd, w, ctl } = repo();
+  writeFileSync(join(cwd, "a.txt"), "changed\n"); writeFileSync(join(cwd, "b.txt"), "b\n");
+  git(cwd, "add", "a.txt");
+  const d = await ctl.stagedDiff(w);
+  assert.match(d.stat, /a\.txt/);
+  assert.doesNotMatch(d.patch, /b\.txt/);
+  assert.match(d.patch, /\+changed/);
+  assert.equal(d.truncated, false);
+});
