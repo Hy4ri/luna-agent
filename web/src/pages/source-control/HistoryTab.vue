@@ -10,8 +10,8 @@ import RefChips from "./RefChips.vue";
 import { useVirtualList } from "@vueuse/core";
 
 /** wide: commit list beside the detail. filesWide: file list beside the diff inside the detail. */
-const props = defineProps<{ session?: string; project?: number; wide: boolean; filesWide: boolean }>();
-const selector = computed<SelectorParams>(() => ({ session: props.session, project: props.project }));
+const props = defineProps<{ session?: string; project?: number; machine?: string; wide: boolean; filesWide: boolean }>();
+const selector = computed<SelectorParams>(() => ({ session: props.session, project: props.project, machine: props.machine }));
 const SCOPE_KEY = "luna.git.historyScope";
 const scope = ref<"head" | "all">(localStorage.getItem(SCOPE_KEY) === "all" ? "all" : "head");
 const commits = ref<LogCommit[]>([]), more = ref(false), loading = ref(false), error = ref<string | null>(null);
@@ -111,7 +111,7 @@ function loadFile(file: FileStat, signal?: AbortSignal) {
 
 const { list: vCommits, containerProps: commitContainerProps, wrapperProps: commitWrapperProps } = useVirtualList(commits, { itemHeight: ROW, overscan: 10 });
 watch(scope, value => { localStorage.setItem(SCOPE_KEY, value); void load(true); });
-watch(() => [props.session, props.project, serverUrl.value, token.value], () => {
+watch(() => [props.session, props.project, props.machine, serverUrl.value, token.value], () => {
   epoch++;
   cancelLog();
   commits.value = [];

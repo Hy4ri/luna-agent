@@ -6,8 +6,8 @@ import { serverUrl, token } from "@/lib/api";
 import { fetchBranches, fetchCompare, fetchRangeDiff, isAbortError, type Branches, type Compare, type SelectorParams, type FileStat } from "./client";
 import FileDiffList from "./FileDiffList.vue";
 
-const props = defineProps<{ session?: string; project?: number; wide: boolean }>();
-const selector = computed<SelectorParams>(() => ({ session: props.session, project: props.project }));
+const props = defineProps<{ session?: string; project?: number; machine?: string; wide: boolean }>();
+const selector = computed<SelectorParams>(() => ({ session: props.session, project: props.project, machine: props.machine }));
 const branches = ref<Branches | null>(null), loading = ref(false), error = ref<string | null>(null);
 const base = ref(""), head = ref("");
 const result = ref<Compare | null>(null), comparing = ref(false), compareError = ref<string | null>(null), shownCompare = ref<{ base: string; head: string } | null>(null);
@@ -110,7 +110,7 @@ function compareBranch(name: string, upstream?: string) {
   if (upstream) return compare(upstream, name);
 }
 
-watch(() => [props.session, props.project, serverUrl.value, token.value], () => {
+watch(() => [props.session, props.project, props.machine, serverUrl.value, token.value], () => {
   epoch++;
   cancelBranches();
   branches.value = null;

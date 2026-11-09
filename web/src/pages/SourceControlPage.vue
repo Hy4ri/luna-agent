@@ -4,6 +4,7 @@ import { backToChat, setDrawer } from "@/stores/app";
 import { chat } from "@/stores/chat";
 import { serverUrl, token } from "@/lib/api";
 import { history, loadProjects } from "@/stores/sessions";
+import { workers, loadWorkers } from "@/stores/workers";
 import { handleTablistKeydown } from "@/lib/keyboard";
 import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
 import { get as cached, makeKey } from "./github/cache";
@@ -19,9 +20,26 @@ type Section = 'changes' | 'history' | 'branches' | 'pr' | 'issue';
 const section = ref<Section>('changes');
 /** Sections that read the local repository instead of GitHub. */
 const local = computed(() => section.value === 'changes' || section.value === 'history' || section.value === 'branches');
-const sourceProjects = ref<{id:number;name:string;cwd:string;general?:boolean}[]>([]);
+type SourceProject = { id: number; name: string; cwd: string; general?: boolean; workerDirs?: { worker: number; cwd: string }[] };
+/** A project is usable when it has a directory on the main host or on any machine. */
+const usable = (projects: readonly SourceProject[]) => projects.filter(p => !p.general && (p.cwd || p.workerDirs?.some(d => d.cwd)));
+const sourceProjects = ref<SourceProject[]>([]);
 const sourceProject = ref<number | null>(chat.project);
-const selector = computed(() => chat.session ? { session: String(chat.session) } : sourceProject.value !== null ? { project: sourceProject.value } : null);
+/** `''` lets the server choose: the main host first, else the first online machine. */
+const sourceMachine = ref('');
+const machineChoices = computed(() => {
+  const p = sourceProjects.value.find(x => x.id === sourceProject.value);
+  if (!p) return [];
+  const name = (id: number) => workers.list.find(w => w.id === id);
+  return [
+    ...(p.cwd ? [{ value: 'main', label: 'Main host', online: true }] : []),
+    ...(p.workerDirs ?? []).filter(d => d.cwd).map(d => ({ value: String(d.worker), label: name(d.worker)?.name ?? `Machine ${d.worker}`, online: name(d.worker)?.online === true })),
+  ];
+});
+watch([sourceProject, machineChoices], () => {
+  if (sourceMachine.value && !machineChoices.value.some(m => m.value === sourceMachine.value)) sourceMachine.value = '';
+});
+const selector = computed(() => chat.session ? { session: String(chat.session) } : sourceProject.value !== null ? { project: sourceProject.value, ...(sourceMachine.value ? { machine: sourceMachine.value } : {}) } : null);
 // A directory switch keeps the session ID but changes every local Git request target.
 // Remount local tabs to discard old selections and fence their in-flight reads.
 const workspaceKey = computed(() => JSON.stringify([selector.value, chat.cwd, chat.machine?.id, serverUrl.value, token.value]));
@@ -102,7 +120,7 @@ async function loadSourceProjects() {
   try {
     await loadProjects();
     if (disposed || scope !== context()) return;
-    sourceProjects.value = history.projects.filter(p => !p.general && p.cwd);
+    sourceProjects.value = usable(history.projects);
     if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
   } catch (e) { if (!disposed && scope === context()) listError.value = (e as Error).message; }
 }
@@ -264,10 +282,10 @@ watch([serverUrl, token], () => {
   void init(); void loadSourceProjects();
 }, { flush: 'sync' });
 watch(() => history.projects, projects => {
-  sourceProjects.value = projects.filter(p => !p.general && p.cwd);
+  sourceProjects.value = usable(projects);
   if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
 });
-onMounted(() => { window.addEventListener('resize', handleResize); void loadSourceProjects(); void init(); });
+onMounted(() => { window.addEventListener('resize', handleResize); void loadSourceProjects(); void loadWorkers().catch(() => {}); void init(); });
 onUnmounted(() => {
   disposed = true; loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
   window.removeEventListener('resize', handleResize);
@@ -363,6 +381,7 @@ onUnmounted(() => {
     <template v-if="local">
       <div v-if="!chat.session" class="px-3 py-2 border-b border-border text-xs">
         <label>Project <select v-model="sourceProject" aria-label="Source Control project" class="bg-secondary border border-border rounded px-2 py-1"><option v-for="project in sourceProjects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
+        <label v-if="machineChoices.length > 1 || machineChoices.some(m => !m.online)" class="ml-3">Machine <select v-model="sourceMachine" aria-label="Source Control machine" class="bg-secondary border border-border rounded px-2 py-1"><option value="">Automatic</option><option v-for="m in machineChoices" :key="m.value" :value="m.value" :disabled="!m.online">{{ m.label }}{{ m.online ? '' : ' (offline)' }}</option></select></label>
       </div>
       <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
       <template v-if="selector">
@@ -370,7 +389,7 @@ onUnmounted(() => {
         <HistoryTab v-else-if="section === 'history'" :key="`history:${workspaceKey}`" v-bind="selector" :wide="isWide" :files-wide="isVeryWide" />
         <BranchesTab v-else :key="`branches:${workspaceKey}`" v-bind="selector" :wide="isWide" />
       </template>
-      <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on this host to use source control.</p>
+      <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on the main host or a machine to use source control.</p>
     </template>
     <!-- Main Content Area -->
     <div v-else class="flex-1 min-h-0 overflow-hidden min-w-0">
