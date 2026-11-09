@@ -16,6 +16,8 @@ function serviceWorker(): Plugin {
   return {
     name: "luna-service-worker",
     generateBundle() {
+      // ghostty-web fetches ./ghostty-vt.wasm at runtime. Without this the SPA fallback returns HTML ("expected magic word").
+      this.emitFile({ type: "asset", fileName: "ghostty-vt.wasm", source: readFileSync(new URL("../node_modules/ghostty-web/ghostty-vt.wasm", import.meta.url)) });
       this.emitFile({ type: "asset", fileName: "sw.js", source: stripTs(readFileSync(new URL("./sw.ts", import.meta.url), "utf8")) });
     },
   };
