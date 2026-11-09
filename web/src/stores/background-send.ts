@@ -81,7 +81,7 @@ export async function captureBackgroundSend(project?: number | null): Promise<bo
     throw new Error("Choose a valid thinking level before sending in background.");
   // Everything mutable is captured before the first await.
   const snapshot = { project: project === undefined ? chat.project : project, model: { ...model },
-    thinking: models.thinking, worker: chat.session ? chat.machine?.id ?? null : chat.draftWorker,
+    thinking: models.thinking, ...(models.speed ? { speed: models.speed } : {}), worker: chat.session ? chat.machine?.id ?? null : chat.draftWorker,
     cwd: chat.session ? chat.cwd ?? "" : chat.draftCwd };
   const originalText = composer.text, epoch = chat.epoch;
   const origin = serverUrl.value, credential = token.value;

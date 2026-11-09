@@ -63,5 +63,7 @@ export interface ModelInfo {
   thinkingLevels?: string[];
   /** Level a new session with this model starts at. */
   defaultThinkingLevel?: string;
+  /** OpenAI service tiers the model accepts ("fast", "ultrafast"); absent or empty hides the speed button. */
+  speeds?: string[];
   [key: string]: any;
 }

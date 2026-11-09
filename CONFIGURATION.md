@@ -1951,6 +1951,16 @@ The change applies to the next model request, including the next tool round in t
 It does not restart or interrupt an in-flight model request or tool.
 Patches that include `model` or `instructions` still return 409 while busy, even when they also include `thinkingLevel`.
 
+### OpenAI speed (Fast and Ultrafast)
+
+OpenAI and OpenAI Codex models that use the Responses API accept a speed: `fast` (sent as `service_tier: "priority"`,
+about 2x the standard price) or `ultrafast` (about 6x; only `gpt-6-astra` and `gpt-6.1-sol`). `GET /v1/models` lists each
+model's `speeds`; an empty list hides the lightning button next to the reasoning control.
+`PATCH /v1/sessions/:id` with `speed: "fast" | "ultrafast" | null` saves it, also while busy, and `POST /v1/sessions`
+accepts the same field. The session view returns `agent.speed`. Speed applies from the next model request.
+On a model without Ultrafast, `ultrafast` runs Fast; on a model without service tiers, requests run at standard speed.
+Usage cost includes the tier multiplier.
+
 ### Lightweight session history
 
 `GET /v1/sessions/:id?view=ui&limit=100` requests a display-only projection.

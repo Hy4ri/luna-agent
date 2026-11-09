@@ -302,13 +302,14 @@ export function clearConversation() {
   saveDraft(); detachView(); setSession(null);
   chat.title = "New conversation";
   models.draft = {};
-  setSelectedModel(models.defaultModel); models.thinking = defaultLevelFor(models.defaultModel); chat.usage = null;
+  setSelectedModel(models.defaultModel); models.thinking = defaultLevelFor(models.defaultModel); models.speed = null; chat.usage = null;
   restoreDraft();
 }
 function applyAgent(agent: any) {
   chat.cwd = agent?.cwd ?? null;
   setSelectedModel(agent?.model || models.defaultModel);
   models.thinking = agent?.thinkingLevel || defaultLevelFor(agent?.model || models.defaultModel);
+  models.speed = agent?.speed ?? null;
 }
 function syncLive() {
   chat.liveText = textBlocks(liveMessage?.content);
