@@ -7,8 +7,7 @@ import { conversationStorage } from "./conversation-storage.js";
 import { createOpenAICodexImageProvider } from "./plugins/image_gen/openai-codex.js";
 import { createChatCompletionsImageProvider } from "./plugins/image_gen/chat-completions.js";
 import { createCodexImageAuth } from "./codex-image-auth.js";
-import { createVideoExtension } from "./video.js";
-import { createVisionExtension } from "./vision.js";
+import { createMediaExtension } from "./media.js";
 import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
@@ -35,7 +34,7 @@ import { createToggleExtension } from "./toggles.js";
 import { createStableToolsExtension } from "./stable-tools.js";
 import { createSessionWorktreeExtension } from "./session-worktree.js";
 import { createAskExtension } from "./ask.js";
-import { createCronExtension, createCronHistoryExtension, deliverRun } from "./cron-tools.js";
+import { createCronExtension, deliverRun } from "./cron-tools.js";
 import { createDelegateExtension } from "./delegate.js";
 import { DelegateResults } from "./delegate-results.js";
 import { createGoalExtension } from "./goal.js";
@@ -46,7 +45,7 @@ import { createSkillManageExtension, SkillManager } from "./skill-manage.js";
 import { LEARN_JOB, LearnStore, scanIdle } from "./learn.js";
 import { LearnFiles } from "./learn-files.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
-import { McpManager } from "./mcp.js";
+import { McpManager, providerBackedServers } from "./mcp.js";
 import { createBrowserResolver, createBrowserToolsExtension } from "./browser-tools.js";
 import { BrowserPanel } from "./browser/panel.js";
 import { createCamofoxBrowserProvider } from "./camofox-browser-provider.js";
@@ -74,7 +73,7 @@ import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
 export const IMPROVE_PROMPT =
-  "Self-improvement pass. 1) Call cron_history with action=lessons. 2) If it reports no recurring failure, answer 'nothing to improve' and stop. " +
+  "Self-improvement pass. 1) Call cron with action=lessons. 2) If it reports no recurring failure, answer 'nothing to improve' and stop. " +
   "3) For each recurring failure, load related skills with skill_view, then draft or update ONE focused skill with skill_manage action=propose " +
   "(full SKILL.md with name and description frontmatter, concrete steps that avoid the failure) and a must_contain benchmark " +
   "listing the key steps. 4) Answer with what was applied or blocked and why.";
@@ -127,7 +126,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const registry = createRegistry();
 
   // MCP first, so their (deferred) tools are in the registry before the harness resumes old runs.
-  const mcp = new McpManager(registry, cfg.mcpServers, join(cfg.dataDir, "mcp.json"), settings);
+  // A server behind a selected web or browser provider stays connected, but the model gets only the native tool.
+  const mcp = new McpManager(registry, cfg.mcpServers, join(cfg.dataDir, "mcp.json"), settings, () => providerBackedServers(settings?.resolved() ?? cfg));
   await mcp.start();
   for (const f of mcp.failures) log(`mcp ${f.name}: failed to start: ${f.error}`);
   for (const c of mcp.connections) log(`mcp ${c.name}: ${c.toolNames.length} tools`);
@@ -186,13 +186,11 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     if (!caps?.uploadFiles) return undefined;
     try { return workerUploadRoot(caps.home, caps.platform); } catch { return undefined; }
   }));
-  extensions.push(createVisionExtension({ config: () => settings?.resolved() ?? cfg, models: built.models, defaultModel: () => providers.defaultModel(),
+  extensions.push(createMediaExtension({ config: () => settings?.resolved() ?? cfg, models: built.models, defaultModel: () => providers.defaultModel(), fetch: o.fetch,
     history: async (id, ctx) => {
       const view = await (await harnessRef!.conversation(id, ctx))!.context(ctx);
       return { ...view, messages: uploads.hydrate(view.messages) };
     } }));
-  extensions.push(createVideoExtension({ config: () => settings?.resolved() ?? cfg, models: built.models,
-    defaultModel: () => providers.defaultModel(), fetch: o.fetch }));
   // Read per call so Settings changes apply to the next tool call.
   const live = () => settings?.resolved() ?? cfg;
   extensions.push(createWebToolsExtension(() => live().web, new Map([
@@ -235,7 +233,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     title: id => conversationsRef?.get(id).title ?? null,
     setTitle: (id, title) => conversationsRef!.update(id, { title }),
   }));
-  if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler));
   // Webhooks: the store and receiver always run; the extension name only controls the agent tools.
   let webhookTargets: WebhookTargets | undefined;
   const webhooks = new Webhooks(new WebhookStore(join(cfg.dataDir, "webhooks.db")), { targets: () => webhookTargets, fetch: o.fetch, log });
@@ -243,8 +240,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const improver = on("improve") || on("learn") || on("skills")
     ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
     : undefined;
-  // cron_history: runs need cron or improve; its lessons action needs improve.
-  if (on("cron") || on("improve")) extensions.push(createCronHistoryExtension(store!, on("improve") ? improver : undefined));
+  // cron: job actions need the cron extension; run history needs cron or improve; lessons need improve.
+  if (on("cron") || on("improve")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler, { jobs: () => live().extensions.includes("cron"), lessons: on("improve") ? improver : undefined }));
   // skill_manage carries benchmark-gated propose and rollback, which the improve job needs even with "skills" off.
   if (on("skills") || on("improve")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs), improver!, { allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks }));
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
@@ -334,7 +331,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       return pid ? conversationsRef!.projectSkills.disabled(pid, global, () => scanSkills(cfg.allSkillDirs).map(s => s.name)) : global;
     } } : {}),
     // A built-in missing from the live list is hidden from sessions. Its store and scheduler keep running.
-    hiddenExtensions: () => new Set(BUILTIN_EXTENSIONS.filter(e => !live().extensions.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e])),
+    hiddenExtensions: () => {
+      const on = live().extensions;
+      const hidden = new Set(BUILTIN_EXTENSIONS.filter(e => !on.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e]));
+      if (!on.includes("cron") && !on.includes("improve")) hidden.add("cron");
+      return hidden;
+    },
     extensions,
   });
   uploads.bind(conversationStorage(harness).db);
@@ -451,6 +453,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     providers.reconcile(next.providers);
     await limitContinuer.reconcile();
     for (const f of await mcp.reconcile(next.mcpServers)) warnings.push(`mcp ${f.name}: ${f.error}`);
+    mcp.syncExposure();
     if (scheduler && store) {
       syncImproveJob(live(), store);
       disableLegacyLearnJob(store);

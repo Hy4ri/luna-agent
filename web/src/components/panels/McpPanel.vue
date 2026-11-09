@@ -173,7 +173,7 @@ onMounted(() => {
         <span v-if="s.secretKeys.length" class="muted">secrets: {{ s.secretKeys.join(', ') }} (hidden)</span>
         <span v-if="s.error" :style="{ color: 'var(--err)' }">{{ s.error }}</span>
         <details v-if="s.tools.length">
-          <summary class="muted">{{ s.tools.length }} tools{{ s.defer ? ' (deferred)' : '' }}</summary>
+          <summary class="muted">{{ s.tools.length }} tools{{ s.backend ? ' (backend only: not given to the model)' : s.defer ? ' (deferred)' : '' }}</summary>
           <pre class="code">{{ s.tools.join('\n') }}</pre>
         </details>
         <div v-if="s.source === 'web'" class="row">

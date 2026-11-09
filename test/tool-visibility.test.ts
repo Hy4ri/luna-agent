@@ -11,12 +11,12 @@ const user: Message = { role: "user", content: "hi", timestamp: 2 };
 
 test("hidden tools are removed from additions and removals; other messages are untouched", () => {
   const history: Message[] = [
-    { role: "system", content: "base", toolsAdded: [tool("bash"), tool("vision_analyze")], timestamp: 1 },
+    { role: "system", content: "base", toolsAdded: [tool("bash"), tool("media_analyze")], timestamp: 1 },
     user,
-    { role: "system", content: "", toolsRemoved: [{ name: "vision_analyze" }, { name: "bash" }], timestamp: 3 },
+    { role: "system", content: "", toolsRemoved: [{ name: "media_analyze" }, { name: "bash" }], timestamp: 3 },
   ];
   const before = structuredClone(history);
-  const out = filterHiddenTools(history, new Set(["vision_analyze"]));
+  const out = filterHiddenTools(history, new Set(["media_analyze"]));
   assert.deepEqual(out.map(m => m.role === "system" ? [m.toolsAdded?.map(t => t.name), m.toolsRemoved?.map(t => t.name)] : m.role),
     [[["bash"], undefined], "user", [undefined, ["bash"]]]);
   assert.deepEqual(history, before, "stored history is not mutated");
@@ -25,7 +25,7 @@ test("hidden tools are removed from additions and removals; other messages are u
 
 test("messages without hidden tools keep their identity", () => {
   const system: Message = { role: "system", content: "base", toolsAdded: [tool("bash")], timestamp: 1 };
-  const out = filterHiddenTools([system], new Set(["vision_analyze"]));
+  const out = filterHiddenTools([system], new Set(["media_analyze"]));
   assert.equal(out[0], system);
 });
 
@@ -35,22 +35,22 @@ test("pinToolDeclarations keeps the leading tool list and moves later tools to t
   const history: Message[] = [
     { role: "system", content: "base", toolsAdded: [tool("codemode"), tool("bash")], timestamp: 1 },
     user,
-    { role: "system", content: "", toolsAdded: [tool("cron_history"), tool("bash")], toolsRemoved: [{ name: "bash" }], timestamp: 3 },
-    { role: "system", content: "", toolsRemoved: [{ name: "cron_history" }], timestamp: 4 },
+    { role: "system", content: "", toolsAdded: [tool("image_generate"), tool("bash")], toolsRemoved: [{ name: "bash" }], timestamp: 3 },
+    { role: "system", content: "", toolsRemoved: [{ name: "image_generate" }], timestamp: 4 },
   ];
   const before = structuredClone(history);
   const out = pinToolDeclarations(history);
   assert.deepEqual(out.map(m => m.role === "system" ? [m.toolsAdded?.map(t => t.name), m.toolsRemoved?.map(t => t.name)] : m.role),
     [[["codemode", "bash"], undefined], "user", [["bash"], ["bash"]], [undefined, undefined]]);
   const moved = out[2] as Extract<Message, { role: "system" }>;
-  assert.match(typeof moved.content === "string" ? moved.content : "", /inside `codemode`[\s\S]*cron_history/);
+  assert.match(typeof moved.content === "string" ? moved.content : "", /inside `codemode`[\s\S]*image_generate/);
   assert.deepEqual(history, before, "stored history is not mutated");
 });
 
 test("pinToolDeclarations changes nothing without codemode in the leading tools", () => {
   const history: Message[] = [
     { role: "system", content: "base", toolsAdded: [tool("bash")], timestamp: 1 },
-    { role: "system", content: "", toolsAdded: [tool("cron_history")], timestamp: 2 },
+    { role: "system", content: "", toolsAdded: [tool("image_generate")], timestamp: 2 },
   ];
   assert.equal(pinToolDeclarations(history), history);
 });

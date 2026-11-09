@@ -370,6 +370,8 @@ For example, use the following entries with the rest of your configuration:
 ```
 
 Use an absolute command path if DDGS is not on the daemon's PATH.
+While a web setting (`searchProvider`, `searchFallbacks`, or `extractProvider`) selects DDGS, its MCP server stays connected as a provider backend only:
+its `ddgs__*` tools are not given to the model, which uses `web_search` and `web_extract` instead. The MCP panel labels such a server "backend only".
 DDGS options remain under `web.providers.ddgs`. Its proxy credentials, if needed, remain in the protected MCP environment (`DDGS_PROXY`).
 Connection timeouts use the existing MCP `timeoutMs`. Cancellation reaches the same managed connection.
 Saving applies web provider selection and option changes to the next tool call.
@@ -1338,9 +1340,14 @@ During a rebuild, requests can fail while Vite replaces the output files. Reload
 Run `bun run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
 Use `bun run typecheck:web` to check Vue components. `bun test` runs the backend and runtime unit test suite.
 
-## Image analysis
+## Image and video analysis
 
-`vision_analyze(image_url, question, region?, use_active_model?)` accepts a local path, an HTTP(S) URL, or an image data URL.
+`media_analyze(source, question, region?, use_active_model?)` analyzes one image or one video.
+A source is a video when it is a `data:video/` URL or its path ends in `.mp4`, `.webm`, `.mov`, `.mpeg`, `.mpg`, `.avi`, or `.mkv`.
+Video sources use the whole-video route below; `region` and `use_active_model` are rejected for them. All other sources use the image route.
+The tool is offered when either the image route or the video route is available.
+
+The image route accepts a local path, an HTTP(S) URL, or an image data URL.
 Load the full image first. Then use `region` to inspect small text.
 `region` is `{ "x": 0, "y": 0, "width": 200, "height": 100 }` in original-image pixels.
 All values must be integers. Regions outside the image are rejected. Cropping occurs before resizing.
@@ -1567,7 +1574,7 @@ Legacy files under `<dataDir>/generated-images/` remain untouched.
 Success results include `success`, `image`, `model`, `prompt`, `aspect_ratio`, `modality`, `provider`, and `upscaled`.
 Errors include `success: false`, `error`, and `error_type`. Server error bodies and credentials are not exposed.
 The tool returns a bounded image preview for chat delivery. If preview delivery fails, the successful file path is retained.
-Use `vision_analyze` on the returned local path to inspect the original.
+Use `media_analyze` on the returned local path to inspect the original.
 Generated images in the session machine's generated `images/` directory can be edited directly without copying them into the project.
 
 ### Chat completions image models
@@ -1611,10 +1618,10 @@ The live check is excluded from the default suite and requires explicit permissi
 
 ## Whole-video analysis
 
-`video_analyze(video_url, question)` sends a complete video to an auxiliary provider and returns text only.
+`media_analyze` with a video source sends the complete video to an auxiliary provider and returns text only.
 It never attaches the video to the main conversation. It does not extract frames, resize, crop, or apply image history/call limits.
 
-The tool is offered only when an authenticated auxiliary vision client resolves.
+The video route is available only when an authenticated auxiliary vision client resolves.
 An explicit `auxiliary.vision` provider is authoritative. Without it, resolution tries the active provider, `openrouter`, then `nous`.
 Automatic selection prefers a Gemini catalog model within each provider, then the active model, then other image-capable models.
 An image-capable catalog entry is not proof of video support. Use a video-capable model such as Gemini.
@@ -1825,7 +1832,7 @@ One main daemon owns sessions, history, agent execution, models, skills, memory,
 A worker runs file, shell, browser, and MCP operations for sessions that explicitly target it.
 Opening or sending instructions to a session never changes its execution machine.
 Web, image generation, vision, and video tools run on main. In a worker session, they read local file paths from the worker.
-`video_analyze` applies the credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
+`media_analyze` applies the video credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
 `image_generate` source images must be inside the worker's working directory, generated `images/`, or upload storage.
 The worker opens each protected file once. It checks the opened file and reads from it, so a symlink swap cannot redirect the read.
 These protected reads need a Linux worker at the same Luna version as main. Other workers refuse them.

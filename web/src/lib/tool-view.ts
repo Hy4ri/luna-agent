@@ -5,9 +5,13 @@ export type AnsiSpan = { text: string; cls: string };
 export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" | "web_search" | "web_extract" | "answers" | "skill" | "media" | "codemode" | "text" | "generic";
 
 const TEXT_TOOLS = new Set([
+  // cron_history stays for older transcripts; it is now cron runs/get_run/lessons.
   "board", "memory", "cron", "cron_history", "goal", "delegate_task", "session_search",
   "tool_search", "session_handoff", "browser_tab", "browser_inspect", "browser_act",
 ]);
+
+/** Image and video analysis. vision_analyze and video_analyze are the retired names in older transcripts. */
+export const ANALYZE_TOOLS = new Set(["media_analyze", "vision_analyze", "video_analyze"]);
 
 /** Which renderer a call uses. Unknown tools (MCP and others) keep the generic arguments/output card. */
 export function toolView(name: string): ToolView {
@@ -18,7 +22,7 @@ export function toolView(name: string): ToolView {
   if (name === "skill_view") return "skill";
   // Content-carrying skill changes show the proposed SKILL.md; list and other actions stay plain text.
   if (name === "skill_manage") return "skill";
-  if (name === "image_generate" || name === "vision_analyze") return "media";
+  if (name === "image_generate" || ANALYZE_TOOLS.has(name)) return "media";
   return TEXT_TOOLS.has(name) ? "text" : "generic";
 }
 

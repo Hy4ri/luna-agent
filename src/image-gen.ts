@@ -175,7 +175,7 @@ export function createImageGenExtension(manager: ImageGenManager, defaultCwd = p
     if (!manager.available()) return [];
     return [defineTool({
       name: "image_generate", executionMode: "sequential", replay: "unsafe",
-      description: "Generate or edit an image with the explicitly selected provider. This consumes the selected provider's quota. Returns a local image path and preview. Use vision_analyze to inspect it.",
+      description: "Generate or edit an image with the explicitly selected provider. This consumes the selected provider's quota. Returns a local image path and preview. Use media_analyze to inspect it.",
       parameters: manager.parameters(),
       async execute(args, api, context) {
         const agent = await api.agent(context), signal = context.abortSignal ?? new AbortController().signal;
