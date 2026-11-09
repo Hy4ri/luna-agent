@@ -4,6 +4,7 @@ import { backToChat, setDrawer } from "@/stores/app";
 import { chat } from "@/stores/chat";
 import { serverUrl, token } from "@/lib/api";
 import { history, loadProjects } from "@/stores/sessions";
+import { workers, loadWorkers } from "@/stores/workers";
 import { handleTablistKeydown } from "@/lib/keyboard";
 import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
 import { get as cached, makeKey } from "./github/cache";
@@ -11,17 +12,43 @@ const ChangesTab = defineAsyncComponent(() => import("./source-control/ChangesTa
 const HistoryTab = defineAsyncComponent(() => import("./source-control/HistoryTab.vue"));
 const BranchesTab = defineAsyncComponent(() => import("./source-control/BranchesTab.vue"));
 import ItemList from "./github/ItemList.vue";
+import ContextBar from "./source-control/ContextBar.vue";
 const ItemDetail = defineAsyncComponent(() => import("./github/ItemDetail.vue"));
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
 import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu, X } from "@lucide/vue";
 
-type Section = 'changes' | 'history' | 'branches' | 'pr' | 'issue';
-const section = ref<Section>('changes');
+import { formatHash, parseHash, readPrefs, mergePrefs, type Section, type Prefs } from "./source-control/state";
+const prefsKey = () => `luna.sourceControl.${serverUrl.value || "default"}`;
+const readSaved = (): Prefs => { try { return readPrefs(localStorage.getItem(prefsKey())); } catch { return {}; } };
+const savePrefs = (patch: Prefs) => { try { localStorage.setItem(prefsKey(), JSON.stringify(mergePrefs(readSaved(), patch))); } catch {} };
+/** A deep link wins over the saved section. */
+const startHash = parseHash(location.hash), startPrefs = readSaved();
+const hashed = location.hash.startsWith('#source-control/');
+const section = ref<Section>(hashed ? startHash.section : startPrefs.section ?? 'changes');
+/** Item from the URL; opened once the first list for its repository has loaded. */
+let pendingOpen: number | null = hashed ? startHash.number ?? null : null;
 /** Sections that read the local repository instead of GitHub. */
 const local = computed(() => section.value === 'changes' || section.value === 'history' || section.value === 'branches');
-const sourceProjects = ref<{id:number;name:string;cwd:string;general?:boolean}[]>([]);
+type SourceProject = { id: number; name: string; cwd: string; general?: boolean; workerDirs?: { worker: number; cwd: string }[] };
+/** A project is usable when it has a directory on the main host or on any machine. */
+const usable = (projects: readonly SourceProject[]) => projects.filter(p => !p.general && (p.cwd || p.workerDirs?.some(d => d.cwd)));
+const sourceProjects = ref<SourceProject[]>([]);
 const sourceProject = ref<number | null>(chat.project);
-const selector = computed(() => chat.session ? { session: String(chat.session) } : sourceProject.value !== null ? { project: sourceProject.value } : null);
+/** `''` lets the server choose: the main host first, else the first online machine. */
+const sourceMachine = ref('');
+const machineChoices = computed(() => {
+  const p = sourceProjects.value.find(x => x.id === sourceProject.value);
+  if (!p) return [];
+  const name = (id: number) => workers.list.find(w => w.id === id);
+  return [
+    ...(p.cwd ? [{ value: 'main', label: 'Main host', online: true }] : []),
+    ...(p.workerDirs ?? []).filter(d => d.cwd).map(d => ({ value: String(d.worker), label: name(d.worker)?.name ?? `Machine ${d.worker}`, online: name(d.worker)?.online === true })),
+  ];
+});
+watch([sourceProject, machineChoices], () => {
+  if (sourceMachine.value && !machineChoices.value.some(m => m.value === sourceMachine.value)) sourceMachine.value = '';
+});
+const selector = computed(() => chat.session ? { session: String(chat.session) } : sourceProject.value !== null ? { project: sourceProject.value, ...(sourceMachine.value ? { machine: sourceMachine.value } : {}) } : null);
 // A directory switch keeps the session ID but changes every local Git request target.
 // Remount local tabs to discard old selections and fence their in-flight reads.
 const workspaceKey = computed(() => JSON.stringify([selector.value, chat.cwd, chat.machine?.id, serverUrl.value, token.value]));
@@ -31,8 +58,10 @@ const selectedRepo = ref("");
 const customRepoInput = ref("");
 const showCustomRepo = ref(false);
 const repoInputError = ref("");
-const kind = ref<Kind>("pr");
-const stateFilter = ref<"open" | "closed" | "all">("open");
+const kind = ref<Kind>(section.value === 'issue' ? 'issue' : 'pr');
+const stateFilter = ref<"open" | "closed" | "all">(startPrefs.state ?? "open");
+/** Open-item totals per kind, from the last unfiltered list; absent until loaded. */
+const counts = ref<{ pr?: number; issue?: number; changes?: number }>({});
 const searchQuery = ref("");
 const appliedSearch = ref("");
 const items = ref<ListItem[]>([]);
@@ -53,6 +82,8 @@ const isWide = ref(window.innerWidth >= 900);
 const isVeryWide = ref(window.innerWidth >= 1280);
 const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 let lastWorkspaceRepo: string | null = null;
+/** Origin of the local checkout, for display in the context bar. */
+const localRepo = ref<string | null>(null);
 let disposed = false, loadGeneration = 0, detailGeneration = 0, initGeneration = 0, infoGeneration = 0;
 let displayedListKey = "";
 let listController: AbortController | undefined, detailController: AbortController | undefined, infoController: AbortController | undefined, initController: AbortController | undefined;
@@ -77,7 +108,7 @@ function listKey(repo: string, type: Kind, state: string, q: string) {
 }
 function followRepo(repo: string | null) {
   if (repo === lastWorkspaceRepo) return;
-  lastWorkspaceRepo = repo;
+  lastWorkspaceRepo = repo; localRepo.value = repo;
   if (repo) selectedRepo.value = repo;
 }
 const SECTIONS = [
@@ -88,6 +119,14 @@ const SECTIONS = [
   { id: 'issue', label: 'Issues' },
 ] as const;
 
+function syncHash() {
+  if (disposed) return;
+  const next = formatHash({ section: section.value, ...(!local.value && selectedItemNumber.value !== null ? { number: selectedItemNumber.value } : {}) });
+  if (location.hash !== next) window.history.replaceState(null, "", next);
+}
+watch([section, selectedItemNumber], syncHash);
+watch(section, value => savePrefs({ section: value }));
+watch(stateFilter, value => savePrefs({ state: value }));
 function setSection(value: Section) {
   if (value === section.value) return;
   section.value = value;
@@ -102,7 +141,7 @@ async function loadSourceProjects() {
   try {
     await loadProjects();
     if (disposed || scope !== context()) return;
-    sourceProjects.value = history.projects.filter(p => !p.general && p.cwd);
+    sourceProjects.value = usable(history.projects);
     if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
   } catch (e) { if (!disposed && scope === context()) listError.value = (e as Error).message; }
 }
@@ -174,7 +213,9 @@ async function loadList(loadMore = false, fresh = false) {
     if (!current()) return;
     items.value = loadMore ? [...items.value, ...page.items.filter(row => !items.value.some(old => old.number === row.number))] : page.items;
     totalCount.value = page.total; nextCursor.value = page.next;
+    if (!loadMore && state === 'open' && !q) counts.value = { ...counts.value, [type]: page.total };
     lastUpdated.value = new Date().toLocaleTimeString();
+    if (pendingOpen !== null && !loadMore) { const n = pendingOpen; pendingOpen = null; selectedItemNumber.value = n; void loadDetail(n); }
 
   } catch (e) { if (current() && !controller.signal.aborted) listError.value = (e as Error).message; }
   finally { if (current()) { loadingItems.value = false; loadingMore.value = false; refreshingItems.value = false; } }
@@ -215,8 +256,7 @@ function selectItem(item: ListItem) {
   cancelPrefetch();
 }
 function backToList() { detailController?.abort(); detailGeneration++; selectedItemNumber.value = null; detail.value = null; loadingDetail.value = false; detailError.value = null; }
-function handleRepoChange(e: Event) {
-  const val = (e.target as HTMLSelectElement).value;
+function handleRepoChange(val: string) {
   if (val === '__custom__') { showCustomRepo.value = true; repoInputError.value = ''; }
   else { showCustomRepo.value = false; selectedRepo.value = val; }
 }
@@ -247,7 +287,14 @@ function refresh() {
   const scope = context();
   void fetchGhStatus(true).then(value => { if (!disposed && scope === context()) status.value = value; }).catch(() => {});
 }
+/** The repository follows the selected project, but only when the project maps to one. A manual pick holds until the project changes. */
+function repoOfProject(id: number | null) { return id === null ? undefined : repos.value.find(r => r.projects.some(p => p.id === id))?.repo; }
+watch(() => chat.session ? chat.project : sourceProject.value, id => {
+  const repo = repoOfProject(id);
+  if (repo && repo !== selectedRepo.value) { showCustomRepo.value = false; selectedRepo.value = repo; }
+});
 watch(selectedRepo, val => {
+  counts.value = { ...counts.value, pr: undefined, issue: undefined };
   cancelPrefetch(); listController?.abort(); infoController?.abort(); loadGeneration++; infoGeneration++; backToList();
   if (val && REPO_REGEX.test(val)) {
     try { localStorage.setItem(storageKey(), val); } catch {}
@@ -257,20 +304,28 @@ watch(selectedRepo, val => {
 watch([kind, stateFilter], () => { cancelPrefetch(); backToList(); void loadList(); });
 watch([serverUrl, token], () => {
   loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
-  lastWorkspaceRepo = null; selectedRepo.value = ''; detail.value = null; items.value = []; repoInfo.value = null;
+  lastWorkspaceRepo = null; localRepo.value = null; selectedRepo.value = ''; detail.value = null; items.value = []; repoInfo.value = null;
   totalCount.value = 0; nextCursor.value = null; displayedListKey = ''; lastUpdated.value = ''; listError.value = null; detailError.value = null;
   status.value = null; repos.value = []; sourceProjects.value = [];
   loadingItems.value = loadingMore.value = refreshingItems.value = loadingDetail.value = false;
   void init(); void loadSourceProjects();
 }, { flush: 'sync' });
 watch(() => history.projects, projects => {
-  sourceProjects.value = projects.filter(p => !p.general && p.cwd);
+  sourceProjects.value = usable(projects);
   if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
 });
-onMounted(() => { window.addEventListener('resize', handleResize); void loadSourceProjects(); void init(); });
+function onKey(e: KeyboardEvent) {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if (e.key === 'r' && !local.value && status.value?.state === 'ok') { e.preventDefault(); refresh(); }
+  else if (e.key === '/' && !local.value) { e.preventDefault(); document.querySelector<HTMLInputElement>('#sc-search')?.focus(); }
+  else if (e.key === 'Escape' && !isWide.value && selectedItemNumber.value !== null) backToList();
+}
+onMounted(() => { syncHash(); window.addEventListener('keydown', onKey); window.addEventListener('resize', handleResize); void loadSourceProjects(); void loadWorkers().catch(() => {}); void init(); });
 onUnmounted(() => {
   disposed = true; loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
-  window.removeEventListener('resize', handleResize);
+  window.removeEventListener('resize', handleResize); window.removeEventListener('keydown', onKey);
 });
 </script>
 
@@ -296,35 +351,6 @@ onUnmounted(() => {
       </div>
 
       <div v-if="!local && status?.state === 'ok'" class="flex flex-wrap items-center gap-2 min-w-0">
-        <!-- Repo Selector -->
-        <select
-          :value="showCustomRepo ? '__custom__' : selectedRepo"
-          @change="handleRepoChange"
-          class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
-        >
-          <option v-if="selectedRepo && !repos.some(r => r.repo === selectedRepo)" :value="selectedRepo">{{ selectedRepo }}</option>
-          <option v-for="r in repos" :key="r.repo" :value="r.repo">{{ r.repo }}</option>
-          <option value="__custom__">Other repository…</option>
-        </select>
-
-        <div v-if="showCustomRepo" class="flex items-center gap-1">
-          <input
-            v-model="customRepoInput"
-            type="text"
-            placeholder="owner/repo"
-            class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground w-32 focus:outline-none focus:border-primary"
-            @keydown.enter="confirmCustomRepo"
-          />
-          <button
-            type="button"
-            @click="confirmCustomRepo"
-            class="px-2 py-1 text-xs bg-primary text-primary-foreground rounded"
-          >
-            Go
-          </button>
-        </div>
-        <span v-if="repoInputError" class="text-xs text-destructive">{{ repoInputError }}</span>
-
         <button
           type="button"
           @click="refresh"
@@ -358,19 +384,32 @@ onUnmounted(() => {
         class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0"
         :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="setSection(tab.id)"
-      >{{ tab.label }}</button>
+      >{{ tab.label }}<span v-if="counts[tab.id as 'pr' | 'issue' | 'changes'] !== undefined" class="ml-1.5 text-muted-foreground tabular-nums">{{ counts[tab.id as 'pr' | 'issue' | 'changes'] }}</span></button>
     </div>
+    <ContextBar
+      v-model:project="sourceProject"
+      v-model:machine="sourceMachine"
+      v-model:custom-input="customRepoInput"
+      :session-target="chat.session ? { machine: chat.machine?.name ?? (chat.machine ? `Machine ${chat.machine.id}` : 'main'), cwd: chat.cwd ?? '' } : null"
+      :projects="sourceProjects"
+      :machines="machineChoices"
+      :repos="repos"
+      :repo="selectedRepo"
+      :local-repo="localRepo"
+      :show-repo="!local && status?.state === 'ok'"
+      :show-custom="showCustomRepo"
+      :custom-error="repoInputError"
+      @repo-change="handleRepoChange"
+      @confirm-custom="confirmCustomRepo"
+    />
     <template v-if="local">
-      <div v-if="!chat.session" class="px-3 py-2 border-b border-border text-xs">
-        <label>Project <select v-model="sourceProject" aria-label="Source Control project" class="bg-secondary border border-border rounded px-2 py-1"><option v-for="project in sourceProjects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
-      </div>
       <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
       <template v-if="selector">
-        <ChangesTab v-if="section === 'changes'" :key="`changes:${workspaceKey}`" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
+        <ChangesTab v-if="section === 'changes'" :key="`changes:${workspaceKey}`" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" @count="n => counts = { ...counts, changes: n }" />
         <HistoryTab v-else-if="section === 'history'" :key="`history:${workspaceKey}`" v-bind="selector" :wide="isWide" :files-wide="isVeryWide" />
         <BranchesTab v-else :key="`branches:${workspaceKey}`" v-bind="selector" :wide="isWide" />
       </template>
-      <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on this host to use source control.</p>
+      <p v-else class="p-5 text-sm text-muted-foreground">Select a project with a directory on the main host or a machine to use source control.</p>
     </template>
     <!-- Main Content Area -->
     <div v-else class="flex-1 min-h-0 overflow-hidden min-w-0">
@@ -382,6 +421,7 @@ onUnmounted(() => {
         <div class="text-destructive font-medium">GitHub CLI is not available or logged out.</div>
         <div class="text-sm text-muted-foreground max-w-md">{{ status.message }}</div>
         <div class="text-xs text-muted-foreground">Run `gh auth login` on the host daemon environment.</div>
+        <button type="button" class="px-3 py-1.5 text-xs bg-card hover:bg-accent rounded border border-border" @click="refresh">Check again</button>
       </div>
 
       <!-- Main Layout -->
@@ -398,9 +438,10 @@ onUnmounted(() => {
               <div class="relative flex-1">
                 <Search class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
                 <input
+                  id="sc-search"
                   v-model="searchQuery"
                   type="text"
-                  placeholder="Search (Enter)"
+                  placeholder="Search (Enter, / to focus)"
                   @keydown.enter="handleSearchSubmit"
                   class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
                 />
@@ -417,8 +458,9 @@ onUnmounted(() => {
           </div>
 
           <!-- List Error -->
-          <div v-if="listError" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border">
-            {{ listError }}
+          <div v-if="listError" role="alert" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border flex items-center justify-between gap-2">
+            <span class="min-w-0 break-words">{{ listError }}</span>
+            <button type="button" class="shrink-0 px-2 py-1 bg-card text-foreground rounded border border-border hover:bg-accent" @click="refresh">Retry</button>
           </div>
 
           <!-- List -->
@@ -429,6 +471,8 @@ onUnmounted(() => {
               :loading="loadingItems"
               :has-next="nextCursor !== null"
               :loading-more="loadingMore"
+              :empty-hint="stateFilter === 'open' && !appliedSearch && !listError ? 'Show closed' : undefined"
+              @empty-action="stateFilter = 'all'"
               @select="selectItem"
               @prefetch="prefetchItem"
               @load-more="loadList(true)"

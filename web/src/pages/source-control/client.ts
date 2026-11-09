@@ -56,12 +56,15 @@ export type GitMutationResult = {
 export type SelectorParams = {
   session?: string;
   project?: number;
+  /** `main` or a worker id; only with `project`. Absent picks the main host, else the first online machine. */
+  machine?: string;
 };
 
 function queryParams(selector: SelectorParams): string {
   const params = new URLSearchParams();
   if (selector.session) params.set("session", selector.session);
   if (selector.project !== undefined) params.set("project", String(selector.project));
+  if (selector.machine) params.set("machine", selector.machine);
   const s = params.toString();
   return s ? `?${s}` : "";
 }
@@ -87,6 +90,7 @@ export async function fetchDiff(selector: SelectorParams, path: string, staged: 
   const params = new URLSearchParams();
   if (selector.session) params.set("session", selector.session);
   if (selector.project !== undefined) params.set("project", String(selector.project));
+  if (selector.machine) params.set("machine", selector.machine);
   params.set("path", path);
   params.set("staged", staged ? "1" : "0");
   const res = await json<DiffResult>(`/v1/git/diff?${params.toString()}`, signal ? { signal } : undefined);

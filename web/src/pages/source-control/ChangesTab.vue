@@ -8,9 +8,9 @@ import DiffView from './DiffView.vue';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { GitBranch, RefreshCw, ArrowDown, ArrowUp, AlertCircle, Server, ChevronLeft } from '@lucide/vue';
 
-const props = defineProps<{ session?: string; project?: number; runActive?: boolean }>();
-const emit = defineEmits<{ repo: [repo: string | null] }>();
-const selector = computed<SelectorParams>(() => ({ session: props.session, project: props.project }));
+const props = defineProps<{ session?: string; project?: number; machine?: string; runActive?: boolean }>();
+const emit = defineEmits<{ repo: [repo: string | null]; count: [files: number] }>();
+const selector = computed<SelectorParams>(() => ({ session: props.session, project: props.project, machine: props.machine }));
 
 const changes = ref<Changes | null>(null), branches = ref<Branches | null>(null), diff = ref<DiffResult | null>(null);
 const selectedPath = ref<string | null>(null), selectedStaged = ref(false), loadingDiff = ref(false), loadingState = ref(false);
@@ -76,7 +76,7 @@ function reconcileSelection(files: ChangeFile[]): boolean {
 function applyChanges(c: Changes, keepSelection: boolean) {
   changes.value = c;
   branchSelectValue.value = c.branch;
-  emit('repo', c.repo);
+  emit('repo', c.repo); emit('count', c.files.length);
   if (pushedBranch.value && pushedBranch.value !== c.branch) pushedBranch.value = null;
   if (!keepSelection) {
     selectedPath.value = null;
@@ -248,7 +248,7 @@ onUnmounted(() => {
 });
 // A finished agent run has usually changed files.
 watch(() => props.runActive, (active, was) => { if (was && !active) refreshIfIdle(); });
-watch(() => [props.session, props.project, serverUrl.value, token.value], () => {
+watch(() => [props.session, props.project, props.machine, serverUrl.value, token.value], () => {
   epoch++; stateTicket++; diffTicket++;
   cancelState();
   cancelDiff();
