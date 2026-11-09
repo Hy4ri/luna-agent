@@ -106,18 +106,18 @@
     "profiles": {
       "scout": {
         "context": "fresh",
-        "tools": ["read", "delegate_files", "skill_view", "session_handoff"],
+        "tools": ["read", "delegate_files", "skill_view", "session_status"],
         "instructions": "Read the assigned code and return relevant files and evidence. Do not edit."
       },
       "reviewer": {
         "context": "fresh",
         "thinkingLevel": "high",
-        "tools": ["read", "delegate_files", "skill_view", "session_handoff"],
+        "tools": ["read", "delegate_files", "skill_view", "session_status"],
         "instructions": "Review independently. Return concrete findings with file paths and lines. Do not claim tests passed."
       },
       "worker": {
         "context": "fresh",
-        "tools": ["read", "write", "edit", "bash", "skill_view", "session_handoff"],
+        "tools": ["read", "write", "edit", "bash", "skill_view", "session_status"],
         "instructions": "Implement only the assigned scope. Report actual changes, validation, and limits."
       }
     }

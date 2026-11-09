@@ -32,8 +32,8 @@ for (const fork of [false, true]) {
       }
       parentPrompts.push(prompt);
       switch (parentCalls++) {
-        case 0: return fauxAssistantMessage([fauxToolCall("delegate_task", { action: "spawn", task: "Return an empty receipt.", fork, ...(fork ? { profile: "worker" } : {}) })], { stopReason: "toolUse" });
-        case 1: return fauxAssistantMessage([fauxToolCall("delegate_task", { action: "wait" })], { stopReason: "toolUse" });
+        case 0: return fauxAssistantMessage([fauxToolCall("subagent", { action: "spawn", task: "Return an empty receipt.", fork, ...(fork ? { profile: "worker" } : {}) })], { stopReason: "toolUse" });
+        case 1: return fauxAssistantMessage([fauxToolCall("subagent", { action: "wait" })], { stopReason: "toolUse" });
         default: return fauxAssistantMessage([fauxText("parent finished")]);
       }
     };

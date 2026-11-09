@@ -662,7 +662,7 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
     reads: toolCallsGlobal.get("read") ?? 0,
     writes: toolCallsGlobal.get("write") ?? 0,
     edits: toolCallsGlobal.get("edit") ?? 0,
-    bashes: (toolCallsGlobal.get("bash") ?? 0) + (toolCallsGlobal.get("machine_exec") ?? 0),
+    bashes: (toolCallsGlobal.get("bash") ?? 0) + (toolCallsGlobal.get("worker_exec") ?? 0),
     boards: toolCallsGlobal.get("board") ?? 0,
   };
 

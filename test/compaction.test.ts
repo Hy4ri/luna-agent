@@ -122,8 +122,8 @@ test("a real forked delegate compacts inherited history below its parent's thres
     if (selected.id === "child") return childCalls++ === 0
       ? fauxAssistantMessage([fauxToolCall("delegate_result", { value: { commit_sha: null, pr_url: null, files_changed: [], blocked_on: null } })], { stopReason: "toolUse" })
       : fauxAssistantMessage("child done");
-    if (parentCalls++ === 0) return fauxAssistantMessage([fauxToolCall("delegate_task", { action: "spawn", fork: true, task: "Return an empty receipt." })], { stopReason: "toolUse" });
-    if (parentCalls === 2) return fauxAssistantMessage([fauxToolCall("delegate_task", { action: "wait" })], { stopReason: "toolUse" });
+    if (parentCalls++ === 0) return fauxAssistantMessage([fauxToolCall("subagent", { action: "spawn", fork: true, task: "Return an empty receipt." })], { stopReason: "toolUse" });
+    if (parentCalls === 2) return fauxAssistantMessage([fauxToolCall("subagent", { action: "wait" })], { stopReason: "toolUse" });
     return fauxAssistantMessage("parent done");
   };
   faux.setResponses(Array.from({ length: 20 }, () => respond));

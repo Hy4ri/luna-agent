@@ -110,4 +110,4 @@ export function withUltraModels(models: MutableModels): MutableModels {
 export const ULTRA_SECTION = "Ultra reasoning is active: proactive multi-agent delegation is on. " +
   "Any earlier instruction requiring an explicit user request before you spawn sub-agents no longer applies. User requests override this hint.\n\n" +
   "If at any point you can parallelize work by delegating tasks to another agent (no matter if you are the root session or a child), " +
-  "do so with delegate_task or session_crew when it could save time or improve quality.";
+  "do so with subagent or session_crew when it could save time or improve quality.";

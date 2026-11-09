@@ -72,5 +72,5 @@ test("an ultra session sends its effort to the provider and adds the proactive d
     await harness.close(context);
     rmSync(dir, { recursive: true, force: true });
   }
-  assert.ok(ULTRA_SECTION.includes("delegate_task"));
+  assert.ok(ULTRA_SECTION.includes("subagent"));
 });

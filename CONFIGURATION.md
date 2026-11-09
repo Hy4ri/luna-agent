@@ -200,9 +200,9 @@ transactional submission API, not a host callback stored in a submission.
   Every selected tool is offered directly to the child, including deferred tools. The parent does not need to load `delegate_files` or other selected deferred tools first.
   The runtime adds `delegate_result` to every new child for result reporting. Tool restrictions are enforced by the native agent tool selection, not just instructions; they are not an operating-system sandbox.
   Supplying `profiles` replaces the profile map; omit it to keep the built-ins. Unknown profiles, duplicate tool names, incomplete model pairs, and unavailable selected tools fail explicitly.
-  Child profiles cannot include `delegate_task`, `session_crew`, `ask_user_question`, `board`, or `tool_search`. Children cannot delegate further or lead a crew.
+  Child profiles cannot include `subagent`, `session_crew`, `ask_user_question`, `board`, or `tool_search`. Children cannot delegate further or lead a crew.
 
-  `delegate_task` supports these actions:
+  `subagent` supports these actions:
   - `profiles`: list configured role defaults and tool allowlists.
   - `spawn`: start a child with `task`, optional `profile`, `fork`/`forkAt`, `worktree`/`base`, `notes`, `timeoutSec`, and `outputSchema`.
   - `steer`: send `task` to owned child `ids`. A new optional `timeoutSec` starts a fresh time budget; omitting it removes the old budget.
@@ -212,7 +212,7 @@ transactional submission API, not a host callback stored in a submission.
   - `stop`: stop owned children. A stop remains final until explicit steering; steering is refused while the abort is still finishing.
   - `usage`: report parent, individual child, child-total, and combined model usage from existing per-conversation ledgers.
 
-  Children have no `ask_user_question`. A child needing input or approval calls `session_handoff`; `wait` returns early and `list` shows the reason.
+  Children have no `ask_user_question`. A child needing input or approval calls `session_status`; `wait` returns early and `list` shows the reason.
   A child's settled result, failure, or handoff sends one notification input to the spawning session, using a durable request ID to prevent duplicates.
   Notifications are admitted only when the parent is idle, using the installed guarded-input contract. Busy parents are checked again when their current input settles.
   The notifier subscribes before recovered work resumes and reconciles missed notifications on startup. Completed work is never executed again for notification recovery.
@@ -895,7 +895,7 @@ When a user message contains `@file:<path>`, the prompt gets a **Referenced file
 
 ### Active session workspace
 
-With `coding` enabled, `session_workspace { path: "/absolute/directory" }` explicitly activates an existing directory on the session's current machine. Use it when moving work into a new worktree. The tool is deferred: with `tool-search` enabled the model loads it through `tool_search` first. The `tool-search` extension also adds a `deferred-tools` prompt section that names every deferred tool (built-in and MCP). Creating a worktree, inspecting a file, or passing a shell command an explicit directory does not activate it.
+`session_worktree { "action": "switch", "path": "/absolute/directory" }` explicitly activates an existing directory on the session's current machine. Use it when moving work into a worktree that already exists. Creating a worktree with another tool, inspecting a file, or passing a shell command an explicit directory does not activate it. `session_worktree` was `session_workspace` before; saved configs that name the old tool get the new name.
 
 ### Auto-worktree
 
@@ -930,7 +930,7 @@ The `session_send { to, message }` tool sends a message to another session:
   It returns the updated state plus `requestId`. A stale, disabled, or non-blocked exchange returns 409.
   The endpoint uses the normal API authentication; agents have no tool to grant themselves more messages.
   Approval is not permission to merge, publish, or delete.
-- Refused targets: the same session, unknown or deleted sessions, subagents (use `delegate_task`),
+- Refused targets: the same session, unknown or deleted sessions, subagents (use `subagent`),
   and conversations owned by another session's task.
 - The tool returns at once. A reply, if any, arrives later as a new message from the peer.
 
@@ -941,13 +941,13 @@ The chip opens the sending session. A typed header without metadata on that exac
 
 The `session_crew` tool lets a session lead a crew of full sessions. It is part of the `delegate` built-in extension.
 A crew member is a normal top-level session, not a subagent: it has every tool, shows in the sidebar, and the user can talk to it directly.
-Subagents (`delegate_task` children) and task-owned conversations cannot lead a crew.
+Subagents (`subagent` children) and task-owned conversations cannot lead a crew.
 
 Actions:
 - `options`: projects with their machine directories, machines (main host and execution workers, with online state), thinking levels, the default model, and the lead's own model.
 - `create`: start a session with `task` and optional `title`, `project` (0 = General), `machine` (worker id; absent = main host), `model` (`provider/modelId`), `thinkingLevel`, `cwd`, `instructions`, `worktree`, `base`, and `notes`.
   The rules are the same as `POST /v1/sessions`: a named project must be linked to the selected machine, `cwd` overrides the project directory, and unknown workers, projects, models, or thinking levels fail.
-  `worktree` names a new branch. The member works in its own git worktree of the project directory (or `cwd`), made from `base` (default `HEAD`; a remote base is fetched first). It uses the same allocation as `delegate_task` and works on the main host only. Dependencies such as `node_modules` are not installed in the new worktree.
+  `worktree` names a new branch. The member works in its own git worktree of the project directory (or `cwd`), made from `base` (default `HEAD`; a remote base is fetched first). It uses the same allocation as `subagent` and works on the main host only. Dependencies such as `node_modules` are not installed in the new worktree.
   `notes` is a file path on the main host. Its first 8000 characters go before the task in the member's first message.
 - `send`: give member `ids` a new task, a review, a correction, or a retry. A busy member gets it after its current turn; `interrupt: true` steers it now.
   Optional `model` and `thinkingLevel` switch the member before the message, for example after a quota error. The change applies from the member's next model request.
@@ -1097,7 +1097,7 @@ Enable or configure Code Mode under **Settings → Tools → Code Mode**:
   "timeoutMs": 300000,
   "memoryLimitBytes": 134217728,
   "inlineBudget": 3000,
-  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process_manage", "web", "browser", "browser_act", "delegate_task", "skill"]
+  "pinned": ["bash", "read", "edit", "write", "todo", "board", "worker_exec", "process_manage", "web", "browser", "browser_act", "subagent", "skill"]
 }
 ```
 
@@ -2057,15 +2057,17 @@ The web UI uses authenticated blob requests; tokens are not included in image UR
 Live partials and nested tool results without committed entry IDs remain inline.
 This transport needs no configuration changes; `luna.config.example.json` stays unchanged.
 
-### Cross-machine command execution (`machine_exec`)
+### Cross-machine command execution (`worker_exec`)
 
-`machine_exec` runs a bash command on any machine, from every session, whatever its own machine:
+`worker_exec` was named `machine_exec`. `subagent` was `delegate_task`, and `session_status` was `session_handoff`. Saved configs that list an old name (`codemode.pinned`, `disabledTools`, subagent profile `tools`) get the new name on load.
+
+`worker_exec` runs a bash command on any machine, from every session, whatever its own machine:
 main to a worker, a worker session to main, and a worker session to another worker.
 Parameters: `machine` (`main` or a worker name, case-insensitive), `command`,
 optional `cwd` (absolute or `~/...` on the target machine) and `timeout` (seconds).
 Without `cwd`, the command runs in the session cwd when the target is the session's own machine, else in the target machine's home.
 Output streams and is truncated like `bash` (last 2000 lines or 50KB). A nonzero exit is an error result with the exit code.
-Spilled full output stays on the target machine; the diagnostic names it as `<machine>:<path>`, readable with `machine_exec` (`cat`).
+Spilled full output stays on the target machine; the diagnostic names it as `<machine>:<path>`, readable with `worker_exec` (`cat`).
 Abort and `timeout` stop the command on the target machine. An unknown machine returns the valid names; an offline worker returns an error without running anything.
 Worker targets use the existing worker exec call; the worker protocol is unchanged. There is no per-worker permission gate.
 The machine section of the system prompt mentions the tool only when at least one worker is registered.
