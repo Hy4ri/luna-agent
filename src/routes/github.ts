@@ -1,9 +1,10 @@
 import type { Hono, Context as HonoContext } from "hono";
 import { GhError, REPO_PART, createRemoteOrigin, ghStatus, projectRepos, pullFiles } from "../github.js";
-import { repoInfo, listItems } from "../github-list.js";
+import { repoInfo, listItems, type ListFilters } from "../github-list.js";
 import { detail, commentsPage } from "../github-detail.js";
 import { createGithubCache } from "../github-cache.js";
 import * as ghActions from "../github-actions.js";
+import * as ghWrite from "../github-write.js";
 import { cardInput, itemUrl, linked } from "../github-board.js";
 import { context } from "../luna.js";
 import { z } from "zod";
@@ -82,12 +83,17 @@ export function registerGithub(app: Hono, ctx: RouteCtx): void {
     const after = c.req.query("after");
     if (after && after.length > 1000) return err(c, 400, "invalid cursor");
 
+    const filters: ListFilters = {};
+    for (const key of ["author", "label", "draft", "review"] as const) {
+      const v = c.req.query(key);
+      if (v) (filters as Record<string, string>)[key] = v;
+    }
     try {
       return c.json(
         await githubCache.read(
-          `${repo.toLowerCase()}|list|${JSON.stringify([kind, state, q, after ?? null])}`,
+          `${repo.toLowerCase()}|list|${JSON.stringify([kind, state, q, after ?? null, filters])}`,
           30_000,
-          () => listItems(repo, kind, state as "open" | "closed" | "all", q, after),
+          () => listItems(repo, kind, state as "open" | "closed" | "all", q, after, filters),
           freshGithub(c),
         ),
       );
@@ -217,6 +223,54 @@ export function registerGithub(app: Hono, ctx: RouteCtx): void {
     } catch (e) {
       return ghFail(c, e);
     }
+  });
+
+  const text = (max: number) => z.string().max(max);
+  const names = z.array(z.string().min(1).max(100)).max(30);
+  const sha40 = z.string().regex(/^[0-9a-f]{40}$/);
+
+  app.get("/v1/github/repos/:owner/:name/labels", async (c) => {
+    try { return c.json({ labels: await githubCache.read(`${ghRepo(c).toLowerCase()}|labels`, 120_000, () => ghWrite.repoLabels(ghRepo(c)), freshGithub(c)) }); } catch (e) { return ghFail(c, e); }
+  });
+  app.get("/v1/github/repos/:owner/:name/assignees", async (c) => {
+    try { return c.json({ assignees: await githubCache.read(`${ghRepo(c).toLowerCase()}|assignees`, 120_000, () => ghWrite.repoAssignees(ghRepo(c)), freshGithub(c)) }); } catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/issues", async (c) => {
+    try {
+      const b = await ghBody(c, z.strictObject({ title: z.string().trim().min(1).max(256), body: text(65536).optional(), labels: names.optional(), assignees: names.optional() }));
+      return await githubWrite(c, async () => c.json(await ghWrite.createIssue(ghRepo(c), b)));
+    } catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/pulls", async (c) => {
+    try {
+      const b = await ghBody(c, z.strictObject({ title: z.string().trim().min(1).max(256), head: z.string().min(1).max(255), base: z.string().min(1).max(255), body: text(65536).optional(), draft: z.boolean().optional() }));
+      return await githubWrite(c, async () => c.json(await ghWrite.createPull(ghRepo(c), b)));
+    } catch (e) { return ghFail(c, e); }
+  });
+  app.patch("/v1/github/repos/:owner/:name/items/:number", async (c) => {
+    try {
+      const b = await ghBody(c, z.strictObject({ kind: z.enum(["pr", "issue"]), title: z.string().trim().min(1).max(256).optional(), body: text(65536).optional(), labels: names.optional(), assignees: names.optional() }));
+      const { kind, ...patch } = b;
+      return await githubWrite(c, async () => c.json(await ghWrite.editItem(ghRepo(c), kind, ghNumber(c), patch)));
+    } catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/pulls/:number/review", async (c) => {
+    try {
+      const b = await ghBody(c, z.strictObject({ event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]), body: text(65536).optional(), sha: sha40 }));
+      return await githubWrite(c, async () => c.json(await ghWrite.review(ghRepo(c), ghNumber(c), b)));
+    } catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/pulls/:number/draft", async (c) => {
+    try {
+      const b = await ghBody(c, z.strictObject({ draft: z.boolean() }));
+      return await githubWrite(c, async () => c.json(await ghWrite.setDraft(ghRepo(c), ghNumber(c), b.draft)));
+    } catch (e) { return ghFail(c, e); }
+  });
+  app.post("/v1/github/repos/:owner/:name/pulls/:number/update-branch", async (c) => {
+    try {
+      const b = await ghBody(c, z.strictObject({ sha: sha40 }));
+      return await githubWrite(c, async () => c.json(await ghWrite.updatePullBranch(ghRepo(c), ghNumber(c), b.sha)));
+    } catch (e) { return ghFail(c, e); }
   });
 
   app.delete("/v1/github/repos/:owner/:name/issues/:number", async (c) => {
