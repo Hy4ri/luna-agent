@@ -116,7 +116,8 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 - **Single Centered Column (`#log`):**
   - Horizontal padding centers a `760px` reading column (`padding: 28px max(24px, calc((100% - 760px) / 2))`; `20px 16px` on mobile) with `24px` vertical message gap.
   - Empty conversations display `#welcome` centered in the transcript.
-  - Floating scroll jump buttons (`.transcript-jumps`) anchor at `right: 24px; bottom: 190px` when scrolled away from the bottom.
+  - Conversation context that is not a control is the last row **inside** the scroller, through the `Transcript` default slot (the undocked `GitStatus` footer). A wheel or touch drag that starts on it scrolls the transcript instead of dead-ending on fixed chrome, and it stays visible whenever the log is at the bottom. Only the extras dock, queued dock, and composer sit outside `#log`.
+  - Floating scroll jump buttons (`.transcript-jumps`) anchor at `right: 24px; bottom: 140px` when scrolled away from the bottom.
 - **Message Presentation:**
   - **User messages (`.msg.user`):** Right-aligned (`align-self: flex-end`), `max-width: 85%` (`92%` on mobile), `background: var(--secondary)`, `border: 1px solid var(--border)`, `border-radius: var(--radius)`, `white-space: pre-wrap`.
   - **Assistant messages (`.msg.assistant`):** Full-bleed prose rendered directly on `--background` (never wrapped in a filled card), prefixed by the `Luna` label (`::before`), using `.md` Markdown styles and copyable code blocks (`.codewrap` + `pre.code`).

@@ -847,7 +847,7 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .att-download:hover { background: var(--secondary); }
 .att-missing { border-color: color-mix(in srgb, #f87171 40%, var(--border)); }
 .att-missing svg { color: #f87171; flex: none; }
-.transcript-jumps { position: absolute; right: 24px; bottom: 190px; display: flex; flex-direction: column; gap: 6px; }
+.transcript-jumps { position: absolute; right: 24px; bottom: 140px; display: flex; flex-direction: column; gap: 6px; }
 .transcript-jumps button { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border-radius: var(--radius); background: var(--secondary); box-shadow: var(--shadow); border: 1px solid var(--border); }
 .transcript-jumps button[hidden] { display: none; }
 #extras { padding: 0 max(24px, calc((100% - 760px) / 2)); display: flex; flex-direction: column; gap: 8px; max-height: 28dvh; overflow: auto; flex-shrink: 0; font-size: 14.5px; font-weight: 440; }

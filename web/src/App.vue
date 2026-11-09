@@ -462,8 +462,9 @@ onUnmounted(() => {
           <div class="work-area" ref="workAreaRef" :class="dockSide ? 'dock-side' : 'dock-bottom'">
           <div class="chat-body">
             <div class="chat-column">
-              <Transcript />
-              <GitStatus v-if="!docked && chat.session" />
+              <Transcript>
+                <GitStatus v-if="!docked && chat.session" />
+              </Transcript>
               <Extras v-if="!docked" />
               <div id="compose" class="mx-auto w-full max-w-4xl shrink-0 px-4 pb-3 pt-2 md:px-8">
                 <Composer />
