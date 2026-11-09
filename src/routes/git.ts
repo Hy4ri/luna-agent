@@ -121,6 +121,8 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
   const gitAll = z.strictObject({ all: z.literal(true) });
   const gitSchemas = {
     discard: gitPaths,
+    'delete-branch': z.strictObject({ branch: z.string().min(1).max(255), force: z.boolean().optional() }),
+    'update-from-default': z.strictObject({}),
     stash: z.strictObject({ message: z.string().trim().min(1).max(200).optional(), includeUntracked: z.boolean().optional() }),
     'stash-pop': z.strictObject({ index: z.number().int().min(0).max(1000) }),
     'stash-drop': z.strictObject({ index: z.number().int().min(0).max(1000) }),
