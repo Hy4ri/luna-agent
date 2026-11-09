@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { serverUrl, token } from '@/lib/api';
-import { fetchChanges, fetchBranches, fetchDiff, fetchCommit, draftCommitMessage, commitDraftAvailable, mutateGit, isAbortError } from './client';
+import { fetchChanges, fetchBranches, fetchStashes, fetchDiff, fetchCommit, draftCommitMessage, commitDraftAvailable, mutateGit, isAbortError } from './client';
 import { confirmAction } from '@/lib/confirm';
-import type { Changes, Branches, DiffResult, SelectorParams, ChangeFile } from './client';
+import type { StashEntry, Changes, Branches, DiffResult, SelectorParams, ChangeFile } from './client';
 import ChangeList from './ChangeList.vue';
+import StashList from './StashList.vue';
 import DiffView from './DiffView.vue';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { GitBranch, RefreshCw, ArrowDown, ArrowUp, AlertCircle, Server, ChevronLeft } from '@lucide/vue';
@@ -113,7 +114,7 @@ async function loadState(keepSelection = true, clearError = true) {
   try {
     const [c, b] = await Promise.all([fetchChanges(owner, controller.signal), fetchBranches(owner, controller.signal)]);
     if (disposed || generation !== epoch || ticket !== stateTicket) return;
-    branches.value = b;
+    branches.value = b; void loadStashes();
     applyChanges(c, keepSelection);
   } catch (e) {
     if (!disposed && generation === epoch && ticket === stateTicket && !isAbortError(e)) {
@@ -127,6 +128,11 @@ async function loadState(keepSelection = true, clearError = true) {
   }
 }
 
+const stashes = ref<StashEntry[]>([]);
+async function loadStashes() {
+  const generation = epoch, owner = { ...selector.value };
+  try { const list = await fetchStashes(owner); if (!disposed && generation === epoch) stashes.value = list; } catch { /* stashes are optional */ }
+}
 async function loadBranches() {
   if (disposed) return;
   branchesController?.abort();
@@ -168,7 +174,7 @@ function closeDiff() {
   loadingDiff.value = false;
 }
 
-const BUSY: Record<string, string> = { stage: 'Staging…', unstage: 'Unstaging…', commit: 'Committing…', switch: 'Switching branch…', fetch: 'Fetching…', pull: 'Pulling…', push: 'Pushing…' };
+const BUSY: Record<string, string> = { discard: 'Discarding…', stash: 'Stashing…', 'stash-pop': 'Applying stash…', 'stash-drop': 'Dropping stash…', stage: 'Staging…', unstage: 'Unstaging…', commit: 'Committing…', switch: 'Switching branch…', fetch: 'Fetching…', pull: 'Pulling…', push: 'Pushing…' };
 /** Actions that can change branch names, upstreams, or ahead/behind counts. */
 const BRANCH_ACTIONS = new Set(['commit', 'switch', 'fetch', 'pull', 'push']);
 
@@ -189,6 +195,7 @@ async function runMutation(action: string, body: Record<string, unknown>, confir
     ok = true;
     const after = result.changes;
     if (BRANCH_ACTIONS.has(action)) void loadBranches();
+    if (action.startsWith('stash')) void loadStashes();
     applyChanges(after, action !== 'switch');
     if (action === 'commit') { commitMessage.value = ''; amend.value = false; showNotice(`Committed ${result.sha?.slice(0, 7) ?? ''}`.trim()); }
     else if (action === 'fetch') showNotice(after.upstream ? (after.behind ? `Fetched origin: ${after.behind} new commit${after.behind === 1 ? '' : 's'} on ${after.upstream}` : 'Fetched origin: up to date') : 'Fetched origin');
@@ -234,6 +241,16 @@ async function toggleAmend() {
     const detail = await fetchCommit(owner, oid);
     if (!disposed && generation === epoch && amend.value && !commitMessage.value.trim()) commitMessage.value = detail.message.trim();
   } catch (e) { if (!disposed && generation === epoch) { error.value = (e as Error).message; amend.value = false; } }
+}
+async function handleDiscard(paths: string[]) {
+  const what = paths.length === 1 ? `'${paths[0]}'` : `${paths.length} files`;
+  if (!(await confirmAction({ title: `Discard changes to ${what}?`, message: 'This cannot be undone. Untracked files are deleted.', confirmLabel: 'Discard', danger: true }))) return;
+  await runMutation('discard', paths.length > MAX_PATHS ? { paths: paths.slice(0, MAX_PATHS) } : { paths });
+}
+const handleStash = () => runMutation('stash', { includeUntracked: true });
+const handleStashPop = (index: number) => runMutation('stash-pop', { index });
+async function handleStashDrop(index: number) {
+  if (await confirmAction({ title: 'Drop this stash?', message: 'The stashed changes are lost.', confirmLabel: 'Drop', danger: true })) await runMutation('stash-drop', { index });
 }
 async function handleCommit() {
   if (!canCommit.value || loadingState.value) return;
@@ -424,9 +441,14 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
             @select="handleSelectFile"
             @stage="handleStage"
             @unstage="handleUnstage"
+            @discard="handleDiscard"
           />
         </div>
         <div class="p-2 border-t border-border bg-background shrink-0 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <StashList :stashes="stashes" :disabled="loadingState" @pop="handleStashPop" @drop="handleStashDrop" />
+            <button type="button" class="text-[11px] underline text-muted-foreground disabled:opacity-50 disabled:no-underline ml-auto" :disabled="loadingState || !(changes?.files.length) || changes?.unborn" title="Save all changes, including untracked files, and clean the tree" @click="handleStash">Stash changes</button>
+          </div>
           <textarea
             v-model="commitMessage"
             aria-label="Commit message"

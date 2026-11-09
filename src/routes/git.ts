@@ -101,6 +101,9 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
     }
   });
 
+  app.get('/v1/git/stashes', async c => {
+    try { return c.json({ stashes: await gitControl.stashes(await gitWorkspace(c)) }); } catch (e) { return gitFail(c, e); }
+  });
   app.get('/v1/git/commit-message', c => c.json({ available: !!opts.titler?.available() }));
   // A draft only: the model sees the staged diff and the reply fills the commit box. One paid call per request.
   app.post('/v1/git/commit-message', async c => {
@@ -117,6 +120,10 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
   const gitPaths = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).min(1).max(500) });
   const gitAll = z.strictObject({ all: z.literal(true) });
   const gitSchemas = {
+    discard: gitPaths,
+    stash: z.strictObject({ message: z.string().trim().min(1).max(200).optional(), includeUntracked: z.boolean().optional() }),
+    'stash-pop': z.strictObject({ index: z.number().int().min(0).max(1000) }),
+    'stash-drop': z.strictObject({ index: z.number().int().min(0).max(1000) }),
     stage: z.union([gitPaths, gitAll]),
     unstage: z.union([gitPaths, gitAll]),
     commit: z.strictObject({ message: z.string().trim().min(1).max(10000), amend: z.boolean().optional(), force: z.boolean().optional() }),

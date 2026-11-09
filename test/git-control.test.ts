@@ -1,7 +1,7 @@
 // Local Git actions run against real temporary repositories; nothing touches the network.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll as after, test } from "bun:test";
@@ -93,4 +93,36 @@ test("the staged diff lists staged files only", async () => {
   assert.doesNotMatch(d.patch, /b\.txt/);
   assert.match(d.patch, /\+changed/);
   assert.equal(d.truncated, false);
+});
+
+test("discard restores tracked files, removes untracked ones, and refuses staged files", async () => {
+  const { cwd, w, ctl } = repo();
+  writeFileSync(join(cwd, "a.txt"), "changed\n"); writeFileSync(join(cwd, "new.txt"), "n\n"); writeFileSync(join(cwd, "s.txt"), "s\n");
+  git(cwd, "add", "s.txt");
+  await fail(ctl.mutate(w, "discard", { paths: ["s.txt"] }), 409);
+  await fail(ctl.mutate(w, "discard", { paths: ["../etc/passwd"] }), 400);
+  const r = await ctl.mutate(w, "discard", { paths: ["a.txt", "new.txt"] });
+  assert.equal(git(cwd, "show", "HEAD:a.txt"), "a");
+  assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "a\n");
+  assert.equal(existsSync(join(cwd, "new.txt")), false);
+  assert.deepEqual(r.changes.files.map(f => f.path), ["s.txt"]);
+});
+
+test("stash saves changes, lists them, then pops or drops by index", async () => {
+  const { cwd, w, ctl } = repo();
+  await fail(ctl.mutate(w, "stash", {}), 400);
+  writeFileSync(join(cwd, "a.txt"), "changed\n"); writeFileSync(join(cwd, "u.txt"), "u\n");
+  await ctl.mutate(w, "stash", { message: "wip", includeUntracked: true });
+  assert.equal((await ctl.changes(w)).files.length, 0);
+  const list = await ctl.stashes(w);
+  assert.equal(list.length, 1);
+  assert.match(list[0]!.subject, /wip/);
+  await fail(ctl.mutate(w, "stash-pop", { index: 5 }), 409);
+  await ctl.mutate(w, "stash-pop", { index: 0 });
+  assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "changed\n");
+  assert.equal((await ctl.stashes(w)).length, 0);
+  await ctl.mutate(w, "stash", {});
+  await ctl.mutate(w, "stash-drop", { index: 0 });
+  assert.equal((await ctl.stashes(w)).length, 0);
+  assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "a\n");
 });
