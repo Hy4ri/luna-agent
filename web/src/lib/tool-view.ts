@@ -7,7 +7,7 @@ export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" |
 const TEXT_TOOLS = new Set([
   // cron_history stays for older transcripts; it is now cron runs/get_run/lessons.
   "board", "memory", "cron", "cron_history", "goal", "delegate_task", "session_search",
-  "tool_search", "session_handoff", "browser_tab", "browser_inspect", "browser_act",
+  "tool_search", "session_handoff", "browser", "browser_tab", "browser_inspect", "browser_act",
 ]);
 
 /** Image and video analysis. vision_analyze and video_analyze are the retired names in older transcripts. */
@@ -45,8 +45,9 @@ export function toolSummary(name: string, args: unknown): string {
       const to = from !== undefined && typeof a.limit === "number" ? from + a.limit - 1 : undefined;
       return clip(a.path) + (from === undefined ? "" : to === undefined ? `:${from}` : `:${from}–${to}`);
     }
-    case "browser_tab": return [str(a.action), clip(str(a.url), 60) || str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
+    case "browser": case "browser_tab": return [str(a.action), clip(str(a.url), 60) || str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
     case "browser_inspect": return [str(a.action), str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
+    // `browser` replaced browser_tab and browser_inspect; the old names stay for older transcripts.
     case "browser_act": {
       const el = str(a.ref) ? "ref " + a.ref : str(a.selector);
       if (a.action === "type") return clip(`type "${str(a.text)}" → ${el}`);
@@ -123,13 +124,13 @@ export function parseJson(text: string): any {
 }
 
 export type DockTarget = { pane: "browser" | "terminal"; id?: string };
-const BROWSER_TOOLS = new Set(["browser_tab", "browser_inspect", "browser_act"]);
+const BROWSER_TOOLS = new Set(["browser", "browser_tab", "browser_inspect", "browser_act"]);
 
 /** The dock pane a call worked in, and the tab or terminal it used when the arguments or output name one. */
 export function dockTarget(name: string, args: unknown, output: string): DockTarget | undefined {
   const a = args && typeof args === "object" ? args as Record<string, unknown> : {};
   if (BROWSER_TOOLS.has(name)) {
-    // browser_tab open returns the new handle; every other call names it.
+    // browser open returns the new handle; every other call names it.
     const id = str(a.tabId) || str(parseJson(output)?.tabId);
     return id ? { pane: "browser", id } : { pane: "browser" };
   }

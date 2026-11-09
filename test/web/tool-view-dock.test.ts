@@ -4,11 +4,11 @@ import { dockTarget } from "../../web/src/lib/tool-view.ts";
 
 test("browser calls target the tab named in the arguments", () => {
   assert.deepEqual(dockTarget("browser_act", { action: "click", tabId: "tab_1" }, ""), { pane: "browser", id: "tab_1" });
-  assert.deepEqual(dockTarget("browser_inspect", { action: "snapshot", tabId: "tab_2" }, "page text"), { pane: "browser", id: "tab_2" });
+  assert.deepEqual(dockTarget("browser", { action: "snapshot", tabId: "tab_2" }, "page text"), { pane: "browser", id: "tab_2" });
 });
 
-test("browser_tab open targets the tab handle in its result", () => {
-  assert.deepEqual(dockTarget("browser_tab", { action: "open", url: "https://example.com/" }, '{"tabId":"tab_3","url":"https://example.com/"}'), { pane: "browser", id: "tab_3" });
+test("browser open targets the tab handle in its result", () => {
+  assert.deepEqual(dockTarget("browser", { action: "open", url: "https://example.com/" }, '{"tabId":"tab_3","url":"https://example.com/"}'), { pane: "browser", id: "tab_3" });
 });
 
 test("browser calls without a handle open the pane only", () => {

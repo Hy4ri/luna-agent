@@ -49,11 +49,11 @@ test("delegated children can view and list but not change skills", async () => {
 test("saved configs with retired tool names load with the merged names", () => {
   const c = parseConfig({
     dataDir: "/tmp/x",
-    codemode: { pinned: ["bash", "web_search", "web_extract", "skill_view"] },
+    codemode: { pinned: ["bash", "web_search", "web_extract", "skill_view", "browser_tab", "browser_inspect", "browser_act"] },
     disabledTools: ["cron_history", "vision_analyze"],
     subagents: { profiles: { scout: { tools: ["read", "skill_view", "session_handoff"] } } },
   });
-  assert.deepEqual(c.codemode.pinned, ["bash", "web", "skill"]);
+  assert.deepEqual(c.codemode.pinned, ["bash", "web", "skill", "browser", "browser_act"]);
   assert.deepEqual(c.disabledTools, ["cron", "media_analyze"]);
   assert.deepEqual(c.subagents.profiles.scout!.tools, ["read", "skill", "session_handoff"]);
 });

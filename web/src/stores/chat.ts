@@ -14,6 +14,9 @@ import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission
 import { models, setSelectedModel } from "./models";
 import { history, loadSessions, loadFocusedSession, resetHistoryView } from "./sessions";
 
+/** `browser` tab actions move or open tabs; its read actions (snapshot, screenshot, wait, logs) do not. */
+const isBrowserTabAction = (args: unknown) => !["snapshot", "screenshot", "wait", "logs"].includes(String((args as { action?: unknown } | undefined)?.action));
+
 export interface Notice { id: number; text: string; kind: "err" | "muted"; scope: "session" | "run" }
 export interface SideMedia { directive: string; name: string; url: string; type: string }
 export interface SideJob { id: string; kind: string; status: string; prompt: string; text?: string; media?: SideMedia[]; createdAt: number; activity?: { kind: "status" | "message" | "tool"; text: string; result?: string; isError?: boolean }[] }
@@ -405,7 +408,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     chat.activeTools.delete(e.toolCallId);
     const started = chat.toolStarts[e.toolCallId];
     if (started?.name === "terminal" && !sessionPane) void agentTerminalActivity(chat.session ?? "", (started.args as { action?: unknown } | undefined)?.action === "start");
-    if ((started?.name === "browser_tab" || started?.name === "browser_act") && !sessionPane) void agentBrowserActivity(chat.session ?? "", (started.args as { action?: unknown } | undefined)?.action === "open");
+    if ((started?.name === "browser_tab" || started?.name === "browser_act" || (started?.name === "browser" && isBrowserTabAction(started.args))) && !sessionPane) void agentBrowserActivity(chat.session ?? "", (started.args as { action?: unknown } | undefined)?.action === "open");
     if (e.entry) putEntry(e.entry);
     if (e.result) {
       const output = e.result.structuredOutput;

@@ -394,7 +394,7 @@ The `skills` extension gives the agent one `skill` tool and the skills catalog. 
   `list` with `include_deleted` shows the ids; `restore` never overwrites an existing path.
 - Delegated children and goal auditors can only `view` and `list`; every other action is refused there.
 - Saved configs that still name a retired tool (`skill_view`, `skill_manage`, `web_search`, `web_extract`, `cron_history`,
-  `vision_analyze`, `video_analyze`) in `codemode.pinned`, `disabledTools`, or a subagent profile load with the new name.
+  `vision_analyze`, `video_analyze`, `browser_tab`, `browser_inspect`) in `codemode.pinned`, `disabledTools`, or a subagent profile load with the new name.
   A retired name in `disabledTools` disables the whole merged tool.
 - Linked-file paths stay in the skill's own directory: no `..`, no hidden parts, no symlinks,
   no `SKILL.md`, and no path inside a nested skill. A skill that contains nested skills cannot be deleted.
@@ -549,11 +549,11 @@ The agent uses these provider-neutral tools without `tool_search` discovery:
 
 | Tool | `action` | Parameters | Result |
 | --- | --- | --- | --- |
-| `browser_tab` | `open` | `url` | `tabId`, current `url` |
-| `browser_tab` | `navigate` | `tabId`, `url` | `tabId`, current `url` |
-| `browser_tab` | `close` | `tabId` | `tabId`, `closed: true` |
-| `browser_inspect` | `snapshot` | `tabId`, optional `offset` | `tabId`, `url`, `content`, `hasMore`, optional `nextOffset` and `totalChars`; image when available |
-| `browser_inspect` | `screenshot` | `tabId` | `tabId` and a viewport image block |
+| `browser` | `open` | `url` | `tabId`, current `url` |
+| `browser` | `navigate` | `tabId`, `url` | `tabId`, current `url` |
+| `browser` | `close` | `tabId` | `tabId`, `closed: true` |
+| `browser` | `snapshot` | `tabId`, optional `offset` | `tabId`, `url`, `content`, `hasMore`, optional `nextOffset` and `totalChars`; image when available |
+| `browser` | `screenshot` | `tabId` | `tabId` and a viewport image block |
 | `browser_act` | `click` | `tabId`, exactly one `ref` or `selector` | `tabId`, `ok: true` |
 | `browser_act` | `type` | `tabId`, exactly one `ref` or `selector`, `text`, optional `pressEnter` | `tabId`, `ok: true` |
 | `browser_act` | `scroll` | `tabId`, `direction`, optional `amount` | `tabId`, `ok: true` |
@@ -1094,7 +1094,7 @@ Enable or configure Code Mode under **Settings → Tools → Code Mode**:
   "timeoutMs": 300000,
   "memoryLimitBytes": 134217728,
   "inlineBudget": 3000,
-  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web", "browser_act", "browser_inspect", "delegate_task", "skill"]
+  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web", "browser", "browser_act", "delegate_task", "skill"]
 }
 ```
 

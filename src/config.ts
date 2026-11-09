@@ -185,7 +185,7 @@ export const ConfigSchema = z
       memoryLimitBytes: z.number().int().positive().default(128 * 1024 * 1024),
       inlineBudget: z.number().int().positive().default(3000),
       pinned: z.array(z.string().min(1)).refine(names => new Set(names).size === names.length, "duplicate tool name")
-        .default(["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web", "browser_act", "browser_inspect", "delegate_task", "skill"]),
+        .default(["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web", "browser", "browser_act", "delegate_task", "skill"]),
     }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
@@ -256,6 +256,7 @@ const expand = (p: string, base: string) => {
 export const RETIRED_TOOL_NAMES: Readonly<Record<string, string>> = {
   web_search: "web", web_extract: "web", skill_view: "skill", skill_manage: "skill",
   cron_history: "cron", vision_analyze: "media_analyze", video_analyze: "media_analyze",
+  browser_tab: "browser", browser_inspect: "browser",
 };
 export const renameTools = (names: unknown) => Array.isArray(names) ? [...new Set(names.map(n => typeof n === "string" ? RETIRED_TOOL_NAMES[n] ?? n : n))] : names;
 
