@@ -188,12 +188,18 @@ export function createGitControl() {
     try {
       let args: string[] = [], network = false;
       if (action === 'stage' || action === 'unstage') {
-        const selected = await paths(w, s, body.paths as string[], action === 'unstage');
-        args = action === 'stage' ? ['add', '--', ...selected] : s.unborn ? ['rm', '--cached', '-r', '-f', '--', ...selected] : ['restore', '--staged', '--', ...selected];
+        // `all` acts on the whole repository, so it needs no per-path validation.
+        const selected = body.all === true ? ['.'] : await paths(w, s, body.paths as string[], action === 'unstage');
+        args = action === 'stage' ? (body.all === true ? ['add', '-A'] : ['add', '--', ...selected]) : s.unborn ? ['rm', '--cached', '-r', '-f', '--', ...selected] : ['restore', '--staged', '--', ...selected];
       } else if (action === 'commit') {
+        const amend = body.amend === true;
         if (s.files.some(f => f.conflict)) throw new GitError('Resolve conflicts before committing', 409);
-        if (!s.files.some(f => f.staged)) throw new GitError('Nothing is staged', 400);
-        args = ['commit', '-m', body.message as string];
+        if (amend) {
+          if (s.unborn || !s.headOid) throw new GitError('There is no commit to amend', 400);
+          // Rewriting a commit that origin already has would diverge from it.
+          if (s.upstream && s.ahead === 0 && body.force !== true) throw new GitError('confirm-amend: this commit is already pushed. Amending rewrites history.', 409);
+        } else if (!s.files.some(f => f.staged)) throw new GitError('Nothing is staged', 400);
+        args = ['commit', ...(amend ? ['--amend'] : []), '-m', body.message as string];
       } else if (action === 'switch') {
         const branch = body.branch as string, create = body.create === true;
         const name = branch.startsWith('origin/') && !create ? branch.slice(7) : branch;
