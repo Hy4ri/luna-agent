@@ -101,10 +101,11 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
   });
 
   const gitPaths = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).min(1).max(500) });
+  const gitAll = z.strictObject({ all: z.literal(true) });
   const gitSchemas = {
-    stage: gitPaths,
-    unstage: gitPaths,
-    commit: z.strictObject({ message: z.string().trim().min(1).max(10000) }),
+    stage: z.union([gitPaths, gitAll]),
+    unstage: z.union([gitPaths, gitAll]),
+    commit: z.strictObject({ message: z.string().trim().min(1).max(10000), amend: z.boolean().optional(), force: z.boolean().optional() }),
     switch: z.strictObject({
       branch: z.string().min(1).max(255),
       create: z.boolean().optional(),
