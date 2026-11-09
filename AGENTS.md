@@ -197,7 +197,7 @@ A capability is complete only when all three layers are verified:
 ### 6. Security & Process Isolation
 - **Network binding:** Binding `server.host` to any non-loopback address (`0.0.0.0`, LAN IP) requires `LUNA_TOKEN` in the environment. `src/daemon.ts` refuses to start otherwise.
 - **Secrets handling:** API tokens and provider credentials belong in environment variables or `<dataDir>/auth.json` (mode `0600`). HTTP API responses (such as `/v1/mcp` or `/v1/providers`) must expose secret key names/status only, never secret values.
-- **MCP child environment:** Stdio MCP servers must receive `getDefaultEnvironment()` merged with their explicitly configured `env` map—never raw `process.env` (which would leak `LUNA_TOKEN` and provider API keys).
+- **MCP child environment:** Stdio MCP servers receive `getDefaultEnvironment()` merged with their configured `env` map, never raw `process.env` (which would leak `LUNA_TOKEN` and provider keys).
 - **Agent terminal:** `terminal.agent` is off by default and read live. The `terminal` tool is deferred and must stay a last resort: its description and errors send ordinary commands to `bash`/`process`, and `start` refuses a bare shell. Only `src/terminal/vt-model.ts` imports `ghostty-web`, which stays pinned.
 - **User terminals:** `terminal.user` is off by default and read live. The shell environment must never contain `LUNA_TOKEN` or `LUNA_WORKER_TOKEN`. The attach WebSocket takes a single-use ticket, never the Bearer token in a URL.
 - **Gated execution:** Background shell processes (`processes.enabled`) and shell command skill benchmarks (`improve.allowCommandBenchmarks`) are disabled by default and must remain config-gated.
@@ -210,7 +210,7 @@ A capability is complete only when all three layers are verified:
 ### UI Design Rules
 - **Minimal, state-honest UI:** Every control, badge, or chip must reflect real backend state. Avoid decorative clutter, fake toggles, or no-op controls.
 - **No emojis in application UI:** Use Lucide icons (`@lucide/vue`) for visual indicators instead of emoji characters.
-- **Shared state on reopen:** Modals, pickers, and drawers that remain mounted must refresh their data on open, not only on initial mount.
+- **Shared state on reopen:** Modals, pickers, and drawers that stay mounted must refresh data when opened, not just on initial mount.
 - **Accessible DOM structure:** Keep remove/pin actions as sibling buttons rather than nesting `<button>` inside `<button>`, and ensure unavailable items remain removable.
 
 ### Technical Pitfalls
