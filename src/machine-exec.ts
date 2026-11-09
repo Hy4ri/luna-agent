@@ -4,8 +4,31 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { Context } from "@earendil-works/chord";
 import { Type } from "typebox";
 import { expandHome } from "./file-mentions.js";
-import { resolveMachine, type MachineSources } from "./machine-files.js";
+import { homedir } from "node:os";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import type { WorkerHub } from "./workers.js";
 import { WORKER_ENV_PREFIX, isWorkerEnv } from "./worker-protocol.js";
+
+export interface MachineSources { hub: () => WorkerHub | undefined; mainEnv?: () => ExecutionEnv }
+export type ResolvedMachine = { ok: true; env: ExecutionEnv; home: string | undefined; workerId: number | undefined } | { ok: false; error: string };
+
+/** "main" or a worker name (case-insensitive) to its execution env. Unknown and offline machines are errors. */
+export async function resolveMachine(o: MachineSources, machine: string): Promise<ResolvedMachine> {
+  const name = machine.trim().toLowerCase();
+  if (name === "main") {
+    const { NodeExecutionEnv } = await import("@earendil-works/pi-durable/env/node");
+    return { ok: true, env: o.mainEnv?.() ?? new NodeExecutionEnv({ cwd: homedir() }), home: homedir(), workerId: undefined };
+  }
+  const hub = o.hub();
+  const worker = hub?.store.list().find(w => w.name.toLowerCase() === name);
+  if (!hub || !worker) {
+    const names = ["main", ...(hub?.store.list().map(w => w.name) ?? [])];
+    return { ok: false, error: `Unknown machine "${machine}". Valid machines: ${names.join(", ")}.` };
+  }
+  if (!hub.view(worker.id)?.online) return { ok: false, error: `worker ${worker.name} is offline.` };
+  const home = worker.capabilities?.home;
+  return { ok: true, env: hub.env(worker.id, home), home, workerId: worker.id };
+}
 
 // Same limits as the built-in `bash` tool (pi-durable DEFAULT_MAX_LINES / DEFAULT_MAX_BYTES).
 const MAX_LINES = 2000;
@@ -14,7 +37,7 @@ const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000;
 
 const DESCRIPTION = "Run a bash command on any Luna machine: \"main\" (the main host) or a worker name. " +
   "Works from every session regardless of its own machine. Returns combined stdout and stderr, truncated like `bash` " +
-  `(last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB); a spilled full output stays on the target machine, read it with machine_files. ` +
+  `(last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB); a spilled full output stays on the target machine, read it with machine_exec (cat). ` +
   "Default cwd: the session cwd when the target is the session's own machine, else the target machine's home.";
 
 export function createMachineExecExtension(o: MachineSources) {

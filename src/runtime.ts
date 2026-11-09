@@ -14,7 +14,6 @@ import { ConversationStore } from "./conversations.js";
 import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
-import { createMachineFilesExtension } from "./machine-files.js";
 import { createMachineExecExtension } from "./machine-exec.js";
 import { scanSkills } from "./skills.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
@@ -44,7 +43,7 @@ import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
 import { cronRunSource, SkillImprover } from "./improve.js";
 import { createSkillManageExtension, SkillManager } from "./skill-manage.js";
-import { createLearnExtension, LEARN_JOB, LearnStore, scanIdle } from "./learn.js";
+import { LEARN_JOB, LearnStore, scanIdle } from "./learn.js";
 import { LearnFiles } from "./learn-files.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager } from "./mcp.js";
@@ -151,7 +150,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   });
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
-  extensions.push(createMachineFilesExtension({ hub: () => workers }));
   extensions.push(createMachineExecExtension({ hub: () => workers }));
   const workerOutput = (id: number) => {
     const caps = workers.store.get(id)?.capabilities;
@@ -254,7 +252,6 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     files: new LearnFiles(cfg.dataDir, () => live().learn.files),
     skip: id => !!store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1").get(String(id)),
   }) : undefined;
-  if (learn) extensions.push(createLearnExtension(learn, improver!, memory || undefined));
   if (on("tool-search")) extensions.push(createToolSearchExtension());
   if (on("todo")) extensions.push(Todo);
   // All chat sessions get a board. Unlinked sessions use General. The store exists once the harness is open.
