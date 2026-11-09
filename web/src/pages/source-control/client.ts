@@ -105,6 +105,14 @@ export async function mutateGit(
   return post<GitMutationResult>(`/v1/git/${action}${queryParams(selector)}`, body);
 }
 
+/** One paid auxiliary-model call. Returns a draft only; nothing is committed. */
+export async function draftCommitMessage(selector: SelectorParams): Promise<string> {
+  return (await post<{ message: string }>(`/v1/git/commit-message${queryParams(selector)}`, {})).message;
+}
+export async function commitDraftAvailable(): Promise<boolean> {
+  try { return (await json<{ available: boolean }>("/v1/git/commit-message")).available; } catch { return false; }
+}
+
 function withSelector(selector: SelectorParams, extra: Record<string, string>): string {
   const params = new URLSearchParams(queryParams(selector).slice(1));
   for (const [key, value] of Object.entries(extra)) params.set(key, value);

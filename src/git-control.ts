@@ -307,5 +307,15 @@ export function createGitControl() {
     check(r);
     return { path, binary: /(?:Binary files|GIT binary patch)/.test(r.out), directory: false, text: redact(r.out), truncated: r.truncated };
   }
-  return { changes, diff, branches, mutate, log, commit, compare, rangeDiff };
+  /** The staged diff for drafting a commit message: a file summary plus the patch, cut at 64 KiB and redacted. */
+  async function stagedDiff(w: Workspace) {
+    const cwd = await root(w);
+    const [stat, patch] = await Promise.all([
+      run(w, ['diff', '--cached', '--stat', '--no-ext-diff', '--no-textconv'], { cwd, read: true, limit: 64 << 10, truncate: true }),
+      run(w, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-color'], { cwd, read: true, limit: 64 << 10, truncate: true }),
+    ]);
+    check(stat); check(patch);
+    return { stat: redact(stat.out), patch: redact(patch.out), truncated: patch.truncated };
+  }
+  return { changes, diff, branches, mutate, log, commit, compare, rangeDiff, stagedDiff };
 }

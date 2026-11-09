@@ -125,6 +125,20 @@ export class SessionTitler {
       },
     });
   }
+  /**
+   * One plain model call on the auxiliary route, thinking off. Used for short drafts that are not session titles.
+   * Cost is recorded on `sessionId` when given; a draft with no session is not recorded.
+   */
+  async draft(system: string, input: string, sessionId?: number, maxTokens = MAX_OUTPUT_TOKENS): Promise<string> {
+    const model = this.model();
+    if (!model || !this.o.models || !await this.o.models.getAuth(model)) throw new Error("No auxiliary model is configured.");
+    const response = await this.o.models.completeSimple(model, {
+      systemPrompt: system, tools: [], messages: [{ role: "user", timestamp: Date.now(), content: input }],
+    }, { maxTokens });
+    if (sessionId !== undefined) await this.usage(sessionId, `${model.provider}/${model.id}`, response.usage).catch(() => {});
+    if (response.stopReason === "error" || response.stopReason === "aborted") throw new Error(response.errorMessage || response.stopReason);
+    return response.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+  }
   /** True when a route resolves to a known model with credentials. */
   available() { return !!this.model(); }
   private model() {

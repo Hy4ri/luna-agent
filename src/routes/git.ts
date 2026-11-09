@@ -3,6 +3,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { createGitControl, GitError, type Workspace } from "../git-control.js";
 import { createGitStatusReader } from "../git-status.js";
 import { resolveProjectTarget } from "../git-target.js";
+import { draftCommitMessage } from "../commit-message.js";
 import { ExecTarget } from "../workers.js";
 import { context } from "../luna.js";
 import { z } from "zod";
@@ -98,6 +99,19 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
     } catch (e) {
       return gitFail(c, e);
     }
+  });
+
+  app.get('/v1/git/commit-message', c => c.json({ available: !!opts.titler?.available() }));
+  // A draft only: the model sees the staged diff and the reply fills the commit box. One paid call per request.
+  app.post('/v1/git/commit-message', async c => {
+    try {
+      const titler = opts.titler;
+      if (!titler?.available()) throw new GitError('No auxiliary model is configured', 400);
+      const staged = await gitControl.stagedDiff(await gitWorkspace(c));
+      const session = c.req.query('session');
+      const id = session && opts.conversations ? Number(session) : undefined;
+      return c.json({ message: await draftCommitMessage(staged, (system, input) => titler.draft(system, input, Number.isInteger(id) ? id : undefined)) });
+    } catch (e) { return gitFail(c, e); }
   });
 
   const gitPaths = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).min(1).max(500) });
