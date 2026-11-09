@@ -14,7 +14,7 @@ import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
 import { createMachineExecExtension } from "./machine-exec.js";
-import { scanSkills } from "./skills.js";
+import { createSkillViewer, scanSkills } from "./skills.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
@@ -74,7 +74,7 @@ import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 export const IMPROVE_JOB = "luna-self-improve";
 export const IMPROVE_PROMPT =
   "Self-improvement pass. 1) Call cron with action=lessons. 2) If it reports no recurring failure, answer 'nothing to improve' and stop. " +
-  "3) For each recurring failure, load related skills with skill_view, then draft or update ONE focused skill with skill_manage action=propose " +
+  "3) For each recurring failure, load related skills with skill action=view, then draft or update ONE focused skill with skill action=propose " +
   "(full SKILL.md with name and description frontmatter, concrete steps that avoid the failure) and a must_contain benchmark " +
   "listing the key steps. 4) Answer with what was applied or blocked and why.";
 
@@ -242,8 +242,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     : undefined;
   // cron: job actions need the cron extension; run history needs cron or improve; lessons need improve.
   if (on("cron") || on("improve")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler, { jobs: () => live().extensions.includes("cron"), lessons: on("improve") ? improver : undefined }));
-  // skill_manage carries benchmark-gated propose and rollback, which the improve job needs even with "skills" off.
-  if (on("skills") || on("improve")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs), improver!, { allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks }));
+  // The skill tool carries benchmark-gated propose and rollback, which the improve job needs even with "skills" off.
+  // One `skill` tool: view needs "skills"; the write actions also serve "improve".
+  const disabledSkills = (id?: number) => {
+    const global = live().disabledSkills;
+    const pid = id === undefined ? undefined : conversationsRef?.projects.projectOf(id);
+    return pid ? conversationsRef!.projectSkills.disabled(pid, global, () => scanSkills(cfg.allSkillDirs).map(s => s.name)) : global;
+  };
+  if (on("skills") || on("improve")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs), improver!, {
+    allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks,
+    view: { load: createSkillViewer({ dirs: cfg.allSkillDirs, disabled: disabledSkills }), enabled: () => live().extensions.includes("skills") },
+  }));
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
   const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db"), {
     files: new LearnFiles(cfg.dataDir, () => live().learn.files),
@@ -325,16 +334,13 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       if (!response.ok) throw new Error(`notification HTTP ${response.status}`);
     },
     memory,
-    ...(on("skills") ? { skillDirs: cfg.allSkillDirs, disabledSkills: id => {
-      const global = live().disabledSkills;
-      const pid = id === undefined ? undefined : conversationsRef?.projects.projectOf(id);
-      return pid ? conversationsRef!.projectSkills.disabled(pid, global, () => scanSkills(cfg.allSkillDirs).map(s => s.name)) : global;
-    } } : {}),
+    ...(on("skills") ? { skillDirs: cfg.allSkillDirs, disabledSkills } : {}),
     // A built-in missing from the live list is hidden from sessions. Its store and scheduler keep running.
     hiddenExtensions: () => {
       const on = live().extensions;
       const hidden = new Set(BUILTIN_EXTENSIONS.filter(e => !on.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e]));
       if (!on.includes("cron") && !on.includes("improve")) hidden.add("cron");
+      if (!on.includes("skills") && !on.includes("improve")) hidden.add("skill-manage");
       return hidden;
     },
     extensions,

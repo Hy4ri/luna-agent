@@ -118,7 +118,7 @@ const fieldHelp: Record<string, string> = {
   'subagents.maxTurns': 'Tool-round limit for new subagents. Leave blank to inherit the parent session limit.',
   'instructions': 'Default instructions for new conversations. This does not rewrite instructions in existing conversations.',
   'disabledTools': 'Hidden from the model and refused if called. Changes apply on the next model request after saving.',
-  'disabledSkills': 'Hidden from the skills catalog and skill_view immediately after saving.',
+  'disabledSkills': 'Hidden from the skills catalog and skill action=view immediately after saving.',
   'skillDirs': 'Extra directories scanned after the skills folder inside your data directory.',
   'vision.image_mode': 'Native sends images to the active model. Auxiliary asks the image-analysis model configured in Models and returns text.',
   'vision.history_budget_bytes': 'Target byte budget for an image retained in conversation history. Smaller images reduce later request sizes.',

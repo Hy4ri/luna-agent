@@ -21,9 +21,9 @@ export function toolView(name: string, args?: unknown): ToolView {
   if (["edit", "bash", "write", "read", "todo", "web_search", "web_extract"].includes(name)) return name as ToolView;
   if (name === "process") return "process";
   if (name === "ask_user_question") return "answers";
-  if (name === "skill_view") return "skill";
   // Content-carrying skill changes show the proposed SKILL.md; list and other actions stay plain text.
-  if (name === "skill_manage") return "skill";
+  // skill_view and skill_manage are the retired names in older transcripts.
+  if (name === "skill" || name === "skill_view" || name === "skill_manage") return "skill";
   if (name === "image_generate" || ANALYZE_TOOLS.has(name)) return "media";
   return TEXT_TOOLS.has(name) ? "text" : "generic";
 }
@@ -69,7 +69,7 @@ export function toolSummary(name: string, args: unknown): string {
       if (a.action === "create") return clip("create " + str(a.objective));
       return str(a.action);
     }
-    case "skill_manage": return [str(a.action), str(a.name), str(a.file_path)].filter(Boolean).join(" ");
+    case "skill": case "skill_manage": return [str(a.action), str(a.name), str(a.file_path)].filter(Boolean).join(" ");
     case "ask_user_question": return Array.isArray(a.questions) && a.questions[0] ? clip(str(a.questions[0].question)) + (a.questions.length > 1 ? ` +${a.questions.length - 1}` : "") : "";
     case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
     case "codemode": return clip(str(a.code));

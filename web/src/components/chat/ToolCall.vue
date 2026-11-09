@@ -178,7 +178,7 @@ const hasBody = computed(() => {
     case 'process': return !!proc.value?.output || (!proc.value && !!body.value);
     case 'todo': return tasks.value.length > 0 || !!body.value;
     case 'media': return !!media.value || (ANALYZE_TOOLS.has(props.name) && typeof json.value?.analysis === 'string' && !!json.value.analysis);
-    case 'skill': return (props.name === 'skill_manage' && typeof a.value.content === 'string') || !!body.value;
+    case 'skill': return (['skill', 'skill_manage'].includes(props.name) && typeof a.value.content === 'string') || !!body.value;
     case 'codemode': return !!codemodeCode.value || codemodeCalls.value.length > 0 || !!body.value;
     default: return !!body.value;
   }
@@ -260,7 +260,7 @@ const hasBody = computed(() => {
             <template v-for="(q, i) in answers" :key="i"><dt dir="auto">{{ q.question }}</dt><dd dir="auto">{{ q.answer }}</dd></template>
           </dl>
           <template v-else-if="view === 'skill'">
-            <template v-if="name === 'skill_manage' && typeof a.content === 'string'">
+            <template v-if="(name === 'skill' || name === 'skill_manage') && typeof a.content === 'string'">
               <span class="tool-section-label">Proposed content</span>
               <CodeView :text="a.content" />
               <pre v-if="body">{{ body }}</pre>

@@ -225,7 +225,7 @@ export class SkillImprover {
   }
 }
 
-/** Benchmark options for benchmark-gated skill changes (skill_manage action=propose). */
+/** Benchmark options for benchmark-gated skill changes (skill action=propose). */
 export type ProposeOptions = Pick<ImproverOptions, "benchmarks" | "allowCommandBenchmarks">;
 
 /** Pick the benchmark a propose call asked for: a named one, a shell command (when allowed), or must_contain phrases. */
