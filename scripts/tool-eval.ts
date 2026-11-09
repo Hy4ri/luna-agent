@@ -13,8 +13,24 @@ type Task = {
   expect: string[];
   /** Optional extra check on the calls of an expected tool. */
   check?: (calls: Call[]) => boolean;
+  /** The task also passes without a tool call when the final answer matches (the prompt may already hold the data). */
+  answer?: RegExp;
 };
-type Call = { name: string; args: Record<string, unknown>; error: boolean };
+/** inner: named inside a codemode script. */
+type Call = { name: string; args: Record<string, unknown>; error: boolean; inner?: boolean };
+
+/** The first call that does the work: skips tool_search (loading a deferred tool) and a codemode wrapper that names tools. */
+const firstWork = (list: Call[]) => list.find((c, i) => c.name !== "tool_search" && !(c.name === "codemode" && list[i + 1]?.inner))?.name ?? null;
+
+/** Text of the last assistant message. */
+function finalText(entries: { model?: { role: string; content?: unknown }[] }[]): string {
+  for (const e of [...entries].reverse()) for (const m of [...(e.model ?? [])].reverse()) {
+    if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
+    const text = (m.content as { type: string; text?: string }[]).filter(b => b.type === "text").map(b => b.text ?? "").join("");
+    if (text) return text;
+  }
+  return "";
+}
 
 const SCRATCH = "/tmp/luna-tool-eval";
 const tasks: Task[] = [
@@ -37,7 +53,7 @@ const tasks: Task[] = [
   { id: "media-image", prompt: `Describe the image ${SCRATCH}/pic.png.`, expect: ["media_analyze", "read"] },
   { id: "cron-list", prompt: "List my scheduled cron jobs.", expect: ["cron"], check: c => c.some(x => x.name === "cron" && x.args.action === "list") },
   { id: "cron-runs", prompt: "Show the most recent failed scheduled-job runs.", expect: ["cron"], check: c => c.some(x => x.name === "cron" && ["runs", "lessons"].includes(String(x.args.action))) },
-  { id: "skill-list", prompt: "Which skills are installed? Just list their names.", expect: ["skill"] },
+  { id: "skill-list", prompt: "Which skills are installed? Just list their names.", expect: ["skill"], answer: /humanizer/i },
   { id: "skill-view", prompt: "Load the humanizer skill and summarize what it does in one sentence.", expect: ["skill"],
     check: c => c.some(x => x.name === "skill" && x.args.action === "view") },
   { id: "memory-search", prompt: "Search your saved memory for anything about the printer and tell me its IP.", expect: ["memory"] },
@@ -88,7 +104,7 @@ function calls(entries: { model?: { role: string; content?: unknown; toolCallId?
       if (b.type !== "toolCall" || !b.name) continue;
       out.push({ name: b.name, args: b.arguments ?? {}, error: false, id: b.id });
       if (b.name === "codemode") for (const [, name] of String(b.arguments?.code ?? "").matchAll(/tools\.([A-Za-z0-9_]+)\s*\(/g))
-        out.push({ name: name!, args: {}, error: false });
+        out.push({ name: name!, args: {}, error: false, inner: true });
     }
   }
   return out.map(({ id, ...c }) => ({ ...c, error: !!id && errors.has(id) }));
@@ -110,9 +126,11 @@ async function run(task: Task) {
     }
     const timedOut = s.running && !["needs_input", "needs_approval"].includes(s.status);
     if (s.running) await api("POST", `/v1/sessions/${id}/abort`).catch(() => {});
-    const list = calls([...s.entries].reverse());
-    const pass = list.some(c => task.expect.includes(c.name)) && (!task.check || task.check(list));
-    return { id: task.id, session: id, pass, first: list[0]?.name ?? null, calls: list.length, errors: list.filter(c => c.error).length,
+    const entries = [...s.entries].reverse();
+    const list = calls(entries);
+    const pass = (list.some(c => task.expect.includes(c.name)) && (!task.check || task.check(list)))
+      || (!!task.answer && list.length === 0 && task.answer.test(finalText(entries)));
+    return { id: task.id, session: id, pass, first: firstWork(list), calls: list.length, errors: list.filter(c => c.error).length,
       tools: list.map(c => c.name), timedOut, status: s.status, seconds: Math.round((Date.now() - started) / 1000) };
   } finally {
     if (!opt.keep) await api("DELETE", `/v1/sessions/${id}`).catch(e => console.error(`cleanup ${id}: ${e}`));
