@@ -11,6 +11,8 @@ const props = defineProps<{
   loading: boolean;
   hasNext: boolean;
   loadingMore: boolean;
+  /** Shown in the empty state so it can offer the next useful action. */
+  emptyHint?: string;
 }>();
 
 const { list: vItems, containerProps, wrapperProps } = useVirtualList(computed(() => props.items), { itemHeight: 72, overscan: 8 });
@@ -18,7 +20,18 @@ const emit = defineEmits<{
   (e: "select", item: ListItem): void;
   (e: "loadMore"): void;
   (e: "prefetch", item: ListItem): void;
+  (e: "emptyAction"): void;
 }>();
+/** Arrow keys and j/k move focus between rows; the virtual list renders the rows near the viewport. */
+function onKeydown(e: KeyboardEvent) {
+  const key = e.key === "j" ? "ArrowDown" : e.key === "k" ? "ArrowUp" : e.key;
+  if ((key !== "ArrowDown" && key !== "ArrowUp") || e.ctrlKey || e.metaKey || e.altKey) return;
+  const rows = [...(e.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>("button[data-row]")];
+  const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+  const next = rows[at < 0 ? (key === "ArrowDown" ? 0 : rows.length - 1) : at + (key === "ArrowDown" ? 1 : -1)];
+  if (!next) return;
+  e.preventDefault(); next.focus(); next.scrollIntoView({ block: "nearest" });
+}
 
 let hoverTimer: ReturnType<typeof setTimeout> | undefined;
 function cancelPrefetch() { clearTimeout(hoverTimer); hoverTimer = undefined; }
@@ -42,17 +55,20 @@ function formatTime(iso: string): string {
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-y-auto divide-y divide-border/40 text-foreground" v-bind="containerProps">
+  <div class="flex flex-col h-full overflow-y-auto divide-y divide-border/40 text-foreground" v-bind="containerProps" @keydown="onKeydown">
     <div v-if="loading && items.length === 0" class="p-8 text-center text-muted-foreground text-sm">
       Loading items…
     </div>
     <div v-else-if="items.length === 0" class="p-8 text-center text-muted-foreground text-sm">
-      No items found.
+      <p>No items found.</p>
+      <button v-if="emptyHint" type="button" class="mt-2 px-3 py-1.5 text-xs bg-card hover:bg-accent rounded border border-border" @click="$emit('emptyAction')">{{ emptyHint }}</button>
     </div>
     <div v-bind="wrapperProps"><button
       v-for="{ data: item } in vItems"
       :key="item.number"
       type="button"
+      data-row
+      :aria-current="selectedNumber === item.number ? 'true' : undefined"
       @click="$emit('select', item)"
       @pointerenter="schedulePrefetch(item)" @pointerleave="cancelPrefetch"
       @focus="schedulePrefetch(item, true)" @blur="cancelPrefetch"

@@ -17,8 +17,16 @@ const ItemDetail = defineAsyncComponent(() => import("./github/ItemDetail.vue"))
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
 import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu, X } from "@lucide/vue";
 
-type Section = 'changes' | 'history' | 'branches' | 'pr' | 'issue';
-const section = ref<Section>('changes');
+import { formatHash, parseHash, readPrefs, mergePrefs, type Section, type Prefs } from "./source-control/state";
+const prefsKey = () => `luna.sourceControl.${serverUrl.value || "default"}`;
+const readSaved = (): Prefs => { try { return readPrefs(localStorage.getItem(prefsKey())); } catch { return {}; } };
+const savePrefs = (patch: Prefs) => { try { localStorage.setItem(prefsKey(), JSON.stringify(mergePrefs(readSaved(), patch))); } catch {} };
+/** A deep link wins over the saved section. */
+const startHash = parseHash(location.hash), startPrefs = readSaved();
+const hashed = location.hash.startsWith('#source-control/');
+const section = ref<Section>(hashed ? startHash.section : startPrefs.section ?? 'changes');
+/** Item from the URL; opened once the first list for its repository has loaded. */
+let pendingOpen: number | null = hashed ? startHash.number ?? null : null;
 /** Sections that read the local repository instead of GitHub. */
 const local = computed(() => section.value === 'changes' || section.value === 'history' || section.value === 'branches');
 type SourceProject = { id: number; name: string; cwd: string; general?: boolean; workerDirs?: { worker: number; cwd: string }[] };
@@ -50,8 +58,10 @@ const selectedRepo = ref("");
 const customRepoInput = ref("");
 const showCustomRepo = ref(false);
 const repoInputError = ref("");
-const kind = ref<Kind>("pr");
-const stateFilter = ref<"open" | "closed" | "all">("open");
+const kind = ref<Kind>(section.value === 'issue' ? 'issue' : 'pr');
+const stateFilter = ref<"open" | "closed" | "all">(startPrefs.state ?? "open");
+/** Open-item totals per kind, from the last unfiltered list; absent until loaded. */
+const counts = ref<{ pr?: number; issue?: number; changes?: number }>({});
 const searchQuery = ref("");
 const appliedSearch = ref("");
 const items = ref<ListItem[]>([]);
@@ -109,6 +119,14 @@ const SECTIONS = [
   { id: 'issue', label: 'Issues' },
 ] as const;
 
+function syncHash() {
+  if (disposed) return;
+  const next = formatHash({ section: section.value, ...(!local.value && selectedItemNumber.value !== null ? { number: selectedItemNumber.value } : {}) });
+  if (location.hash !== next) window.history.replaceState(null, "", next);
+}
+watch([section, selectedItemNumber], syncHash);
+watch(section, value => savePrefs({ section: value }));
+watch(stateFilter, value => savePrefs({ state: value }));
 function setSection(value: Section) {
   if (value === section.value) return;
   section.value = value;
@@ -195,7 +213,9 @@ async function loadList(loadMore = false, fresh = false) {
     if (!current()) return;
     items.value = loadMore ? [...items.value, ...page.items.filter(row => !items.value.some(old => old.number === row.number))] : page.items;
     totalCount.value = page.total; nextCursor.value = page.next;
+    if (!loadMore && state === 'open' && !q) counts.value = { ...counts.value, [type]: page.total };
     lastUpdated.value = new Date().toLocaleTimeString();
+    if (pendingOpen !== null && !loadMore) { const n = pendingOpen; pendingOpen = null; selectedItemNumber.value = n; void loadDetail(n); }
 
   } catch (e) { if (current() && !controller.signal.aborted) listError.value = (e as Error).message; }
   finally { if (current()) { loadingItems.value = false; loadingMore.value = false; refreshingItems.value = false; } }
@@ -274,6 +294,7 @@ watch(() => chat.session ? chat.project : sourceProject.value, id => {
   if (repo && repo !== selectedRepo.value) { showCustomRepo.value = false; selectedRepo.value = repo; }
 });
 watch(selectedRepo, val => {
+  counts.value = { ...counts.value, pr: undefined, issue: undefined };
   cancelPrefetch(); listController?.abort(); infoController?.abort(); loadGeneration++; infoGeneration++; backToList();
   if (val && REPO_REGEX.test(val)) {
     try { localStorage.setItem(storageKey(), val); } catch {}
@@ -293,10 +314,18 @@ watch(() => history.projects, projects => {
   sourceProjects.value = usable(projects);
   if (!sourceProjects.value.some(p => p.id === sourceProject.value)) sourceProject.value = sourceProjects.value[0]?.id ?? null;
 });
-onMounted(() => { window.addEventListener('resize', handleResize); void loadSourceProjects(); void loadWorkers().catch(() => {}); void init(); });
+function onKey(e: KeyboardEvent) {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if (e.key === 'r' && !local.value && status.value?.state === 'ok') { e.preventDefault(); refresh(); }
+  else if (e.key === '/' && !local.value) { e.preventDefault(); document.querySelector<HTMLInputElement>('#sc-search')?.focus(); }
+  else if (e.key === 'Escape' && !isWide.value && selectedItemNumber.value !== null) backToList();
+}
+onMounted(() => { syncHash(); window.addEventListener('keydown', onKey); window.addEventListener('resize', handleResize); void loadSourceProjects(); void loadWorkers().catch(() => {}); void init(); });
 onUnmounted(() => {
   disposed = true; loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
-  window.removeEventListener('resize', handleResize);
+  window.removeEventListener('resize', handleResize); window.removeEventListener('keydown', onKey);
 });
 </script>
 
@@ -355,7 +384,7 @@ onUnmounted(() => {
         class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0"
         :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="setSection(tab.id)"
-      >{{ tab.label }}</button>
+      >{{ tab.label }}<span v-if="counts[tab.id as 'pr' | 'issue' | 'changes'] !== undefined" class="ml-1.5 text-muted-foreground tabular-nums">{{ counts[tab.id as 'pr' | 'issue' | 'changes'] }}</span></button>
     </div>
     <ContextBar
       v-model:project="sourceProject"
@@ -376,7 +405,7 @@ onUnmounted(() => {
     <template v-if="local">
       <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
       <template v-if="selector">
-        <ChangesTab v-if="section === 'changes'" :key="`changes:${workspaceKey}`" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
+        <ChangesTab v-if="section === 'changes'" :key="`changes:${workspaceKey}`" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" @count="n => counts = { ...counts, changes: n }" />
         <HistoryTab v-else-if="section === 'history'" :key="`history:${workspaceKey}`" v-bind="selector" :wide="isWide" :files-wide="isVeryWide" />
         <BranchesTab v-else :key="`branches:${workspaceKey}`" v-bind="selector" :wide="isWide" />
       </template>
@@ -392,6 +421,7 @@ onUnmounted(() => {
         <div class="text-destructive font-medium">GitHub CLI is not available or logged out.</div>
         <div class="text-sm text-muted-foreground max-w-md">{{ status.message }}</div>
         <div class="text-xs text-muted-foreground">Run `gh auth login` on the host daemon environment.</div>
+        <button type="button" class="px-3 py-1.5 text-xs bg-card hover:bg-accent rounded border border-border" @click="refresh">Check again</button>
       </div>
 
       <!-- Main Layout -->
@@ -408,9 +438,10 @@ onUnmounted(() => {
               <div class="relative flex-1">
                 <Search class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
                 <input
+                  id="sc-search"
                   v-model="searchQuery"
                   type="text"
-                  placeholder="Search (Enter)"
+                  placeholder="Search (Enter, / to focus)"
                   @keydown.enter="handleSearchSubmit"
                   class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
                 />
@@ -427,8 +458,9 @@ onUnmounted(() => {
           </div>
 
           <!-- List Error -->
-          <div v-if="listError" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border">
-            {{ listError }}
+          <div v-if="listError" role="alert" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border flex items-center justify-between gap-2">
+            <span class="min-w-0 break-words">{{ listError }}</span>
+            <button type="button" class="shrink-0 px-2 py-1 bg-card text-foreground rounded border border-border hover:bg-accent" @click="refresh">Retry</button>
           </div>
 
           <!-- List -->
@@ -439,6 +471,8 @@ onUnmounted(() => {
               :loading="loadingItems"
               :has-next="nextCursor !== null"
               :loading-more="loadingMore"
+              :empty-hint="stateFilter === 'open' && !appliedSearch && !listError ? 'Show closed' : undefined"
+              @empty-action="stateFilter = 'all'"
               @select="selectItem"
               @prefetch="prefetchItem"
               @load-more="loadList(true)"
