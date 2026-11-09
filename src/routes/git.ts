@@ -123,6 +123,7 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
     discard: gitPaths,
     'delete-branch': z.strictObject({ branch: z.string().min(1).max(255), force: z.boolean().optional() }),
     'update-from-default': z.strictObject({}),
+    'checkout-pr': z.strictObject({ number: z.number().int().min(1).max(10_000_000) }),
     stash: z.strictObject({ message: z.string().trim().min(1).max(200).optional(), includeUntracked: z.boolean().optional() }),
     'stash-pop': z.strictObject({ index: z.number().int().min(0).max(1000) }),
     'stash-drop': z.strictObject({ index: z.number().int().min(0).max(1000) }),

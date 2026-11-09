@@ -176,11 +176,14 @@ export type Detail = {
   createdAt: string;
   body: string;
   comments: Comment[];
+  labels: { name: string; color: string }[];
+  assignees: string[];
   commentTotal: number;
   commentsBefore: string | null;
   can: {
     comment: boolean;
     close: boolean;
+    edit: boolean;
     merge: boolean;
     deleteBranch: boolean;
     delete: boolean;

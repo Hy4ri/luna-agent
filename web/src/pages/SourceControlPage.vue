@@ -6,12 +6,15 @@ import { serverUrl, token } from "@/lib/api";
 import { history, loadProjects } from "@/stores/sessions";
 import { workers, loadWorkers } from "@/stores/workers";
 import { handleTablistKeydown } from "@/lib/keyboard";
-import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
+import { type ItemFilters, fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
 import { get as cached, makeKey } from "./github/cache";
 const ChangesTab = defineAsyncComponent(() => import("./source-control/ChangesTab.vue"));
 const HistoryTab = defineAsyncComponent(() => import("./source-control/HistoryTab.vue"));
 const BranchesTab = defineAsyncComponent(() => import("./source-control/BranchesTab.vue"));
+import { startItemSession } from "@/stores/chat";
+import { mutateGit } from "./source-control/client";
 import ItemList from "./github/ItemList.vue";
+import NewItemDialog from "./github/NewItemDialog.vue";
 import ContextBar from "./source-control/ContextBar.vue";
 const ItemDetail = defineAsyncComponent(() => import("./github/ItemDetail.vue"));
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
@@ -63,6 +66,16 @@ const stateFilter = ref<"open" | "closed" | "all">(startPrefs.state ?? "open");
 /** Open-item totals per kind, from the last unfiltered list; absent until loaded. */
 const counts = ref<{ pr?: number; issue?: number; changes?: number }>({});
 const searchQuery = ref("");
+const newOpen = ref(false);
+const mineOnly = ref(false), labelFilter = ref(""), draftFilter = ref(""), reviewFilter = ref("");
+const activeFilters = computed<ItemFilters>(() => ({
+  ...(mineOnly.value ? { author: "@me" } : {}),
+  ...(labelFilter.value.trim() ? { label: labelFilter.value.trim() } : {}),
+  ...(kind.value === "pr" && draftFilter.value ? { draft: draftFilter.value } : {}),
+  ...(kind.value === "pr" && reviewFilter.value ? { review: reviewFilter.value } : {}),
+}));
+const hasFilters = computed(() => Object.keys(activeFilters.value).length > 0);
+function clearFilters() { mineOnly.value = false; labelFilter.value = ""; draftFilter.value = ""; reviewFilter.value = ""; }
 const appliedSearch = ref("");
 const items = ref<ListItem[]>([]);
 const totalCount = ref(0);
@@ -102,9 +115,9 @@ function itemKey(repo: string, number: number) {
   const [owner, name] = repo.toLowerCase().split("/");
   return makeKey("item-detail", { owner, name, number });
 }
-function listKey(repo: string, type: Kind, state: string, q: string) {
+function listKey(repo: string, type: Kind, state: string, q: string, filters: ItemFilters = activeFilters.value) {
   const [owner, name] = repo.toLowerCase().split("/");
-  return makeKey("items", { owner, name, kind: type, state, q, after: "" });
+  return makeKey("items", { owner, name, kind: type, state, q, after: "", ...filters });
 }
 function followRepo(repo: string | null) {
   if (repo === lastWorkspaceRepo) return;
@@ -192,7 +205,7 @@ async function loadList(loadMore = false, fresh = false) {
   listController?.abort(); const controller = listController = new AbortController();
   const gen = ++loadGeneration;
   const current = () => !disposed && gen === loadGeneration && repo === selectedRepo.value && scope === context();
-  const key = listKey(repo, type, state, q), cursor = loadMore ? nextCursor.value : null;
+  const filters = { ...activeFilters.value }, key = listKey(repo, type, state, q, filters), cursor = loadMore ? nextCursor.value : null;
   listError.value = null;
   if (loadMore) loadingMore.value = true;
   else {
@@ -209,11 +222,11 @@ async function loadList(loadMore = false, fresh = false) {
     refreshingItems.value = true;
   }
   try {
-    const page = await fetchItems(owner, name, type, state, q, cursor, fresh, controller.signal);
+    const page = await fetchItems(owner, name, type, state, q, cursor, fresh, controller.signal, filters);
     if (!current()) return;
     items.value = loadMore ? [...items.value, ...page.items.filter(row => !items.value.some(old => old.number === row.number))] : page.items;
     totalCount.value = page.total; nextCursor.value = page.next;
-    if (!loadMore && state === 'open' && !q) counts.value = { ...counts.value, [type]: page.total };
+    if (!loadMore && state === 'open' && !q && !Object.keys(filters).length) counts.value = { ...counts.value, [type]: page.total };
     lastUpdated.value = new Date().toLocaleTimeString();
     if (pendingOpen !== null && !loadMore) { const n = pendingOpen; pendingOpen = null; selectedItemNumber.value = n; void loadDetail(n); }
 
@@ -279,6 +292,21 @@ async function refreshAfterAction(updated?: Detail) {
   items.value = items.value.map(row => row.number === current.number ? { ...row, state: current.state } : row);
   if (stateFilter.value !== 'all') items.value = items.value.filter(row => stateFilter.value === 'open' ? row.state === 'OPEN' : row.state !== 'OPEN');
 }
+const itemNotice = ref("");
+async function checkoutPr() {
+  const n = selectedItemNumber.value, sel = selector.value;
+  if (n === null || !sel) { itemNotice.value = "Pick a project in the context bar first."; return; }
+  itemNotice.value = "";
+  try { const r = await mutateGit(sel, "checkout-pr", { number: n }); itemNotice.value = r.summary || `Checked out #${n}`; }
+  catch (e) { itemNotice.value = (e as Error).message; }
+}
+async function startSession() {
+  const d = detail.value; if (!d) return;
+  const project = sourceProject.value, worker = sourceMachine.value && sourceMachine.value !== 'main' ? Number(sourceMachine.value) : null;
+  const prompt = `${d.kind === 'pr' ? 'Pull request' : 'Issue'} ${selectedRepo.value}#${d.number}: ${d.title}\n${d.url}\n\n`;
+  try { await startItemSession(prompt, project, worker); backToChat(); }
+  catch (e) { itemNotice.value = (e as Error).message; }
+}
 async function handleDeleted() { backToList(); await refreshAfterAction(); }
 function refresh() {
   cancelPrefetch();
@@ -301,7 +329,7 @@ watch(selectedRepo, val => {
     void loadInfo(); void loadList();
   }
 }, { flush: 'sync' });
-watch([kind, stateFilter], () => { cancelPrefetch(); backToList(); void loadList(); });
+watch([kind, stateFilter, mineOnly, draftFilter, reviewFilter], () => { cancelPrefetch(); backToList(); void loadList(); });
 watch([serverUrl, token], () => {
   loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
   lastWorkspaceRepo = null; localRepo.value = null; selectedRepo.value = ''; detail.value = null; items.value = []; repoInfo.value = null;
@@ -446,6 +474,7 @@ onUnmounted(() => {
                   class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
                 />
               </div>
+              <button type="button" class="shrink-0 px-2 py-1 text-xs rounded border border-border bg-muted hover:bg-accent" title="Create on GitHub" @click="newOpen = true">New</button>
               <select
                 v-model="stateFilter"
                 class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
@@ -455,8 +484,23 @@ onUnmounted(() => {
                 <option value="all">All</option>
               </select>
             </div>
+            <!-- Filters -->
+            <div class="flex flex-wrap items-center gap-2 text-xs" role="group" aria-label="List filters">
+              <button type="button" class="px-2 py-1 rounded border border-border" :class="mineOnly ? 'bg-secondary text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">Mine</button>
+              <input v-model="labelFilter" type="text" maxlength="50" placeholder="Label" aria-label="Filter by label" class="w-20 min-w-0 flex-1 bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary" @keydown.enter="loadList()" @blur="loadList()" />
+              <template v-if="kind === 'pr'">
+                <select v-model="draftFilter" aria-label="Filter by draft" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary">
+                  <option value="">Any draft</option><option value="false">Ready</option><option value="true">Draft</option>
+                </select>
+                <select v-model="reviewFilter" aria-label="Filter by review" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary">
+                  <option value="">Any review</option><option value="approved">Approved</option><option value="changes_requested">Changes requested</option><option value="required">Review required</option>
+                </select>
+              </template>
+              <button v-if="hasFilters" type="button" class="px-2 py-1 text-muted-foreground hover:text-foreground underline" @click="clearFilters(); loadList()">Clear</button>
+            </div>
           </div>
 
+          <NewItemDialog v-model:open="newOpen" :repo="selectedRepo" :kind="kind" :info="repoInfo" @created="n => { selectedItemNumber = n; void loadList(false, true); void loadDetail(n, true); }" />
           <!-- List Error -->
           <div v-if="listError" role="alert" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border flex items-center justify-between gap-2">
             <span class="min-w-0 break-words">{{ listError }}</span>
@@ -503,7 +547,11 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <p v-if="itemNotice" role="status" class="px-3 py-1.5 text-xs text-muted-foreground border-b border-border">{{ itemNotice }}</p>
           <ItemDetail
+            :can-checkout="!!localRepo && localRepo.toLowerCase() === selectedRepo.toLowerCase()"
+            @checkout="checkoutPr"
+            @start-session="startSession"
             :key="`${selectedRepo}:${selectedItemNumber}`"
             :repo="selectedRepo"
             :info="repoInfo"

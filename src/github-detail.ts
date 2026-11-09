@@ -17,6 +17,8 @@ type DetailGraphQLResponse = {
           author: { login: string } | null;
           viewerCanUpdate: boolean;
           locked: boolean;
+          labels: { nodes: Array<{ name: string; color: string } | null> };
+          assignees: { nodes: Array<{ login: string } | null> };
           viewerCanDelete: boolean;
           comments: {
             totalCount: number;
@@ -45,6 +47,8 @@ type DetailGraphQLResponse = {
           author: { login: string } | null;
           viewerCanUpdate: boolean;
           locked: boolean;
+          labels: { nodes: Array<{ name: string; color: string } | null> };
+          assignees: { nodes: Array<{ login: string } | null> };
           isDraft: boolean;
           merged: boolean;
           baseRefName: string;
@@ -225,6 +229,8 @@ export async function detail(owner: string, name: string, number: number): Promi
             }
             viewerCanUpdate
             locked
+            labels(first: 30) { nodes { name color } }
+            assignees(first: 20) { nodes { login } }
             viewerCanDelete
             comments(last: 30) {
               totalCount
@@ -256,6 +262,8 @@ export async function detail(owner: string, name: string, number: number): Promi
             }
             viewerCanUpdate
             locked
+            labels(first: 30) { nodes { name color } }
+            assignees(first: 20) { nodes { login } }
             isDraft
             merged
             baseRefName
@@ -378,11 +386,14 @@ export async function detail(owner: string, name: string, number: number): Promi
       createdAt: node.createdAt,
       body: node.body,
       comments: commentsList,
+      labels: node.labels.nodes.flatMap(l => l ? [{ name: l.name, color: l.color }] : []),
+      assignees: node.assignees.nodes.flatMap(a => a ? [a.login] : []),
       commentTotal: node.comments.totalCount,
       commentsBefore: hasPrevious ? startCursor : null,
       can: {
         comment: canComment,
         close: !repoData.isArchived && node.viewerCanUpdate,
+        edit: !repoData.isArchived && node.viewerCanUpdate,
         merge: false,
         deleteBranch: false,
         delete: node.viewerCanDelete,
@@ -486,11 +497,14 @@ export async function detail(owner: string, name: string, number: number): Promi
       createdAt: node.createdAt,
       body: node.body,
       comments: commentsList,
+      labels: node.labels.nodes.flatMap(l => l ? [{ name: l.name, color: l.color }] : []),
+      assignees: node.assignees.nodes.flatMap(a => a ? [a.login] : []),
       commentTotal: node.comments.totalCount,
       commentsBefore: hasPrevious ? startCursor : null,
       can: {
         comment: canComment,
         close: !repoData.isArchived && node.viewerCanUpdate && node.state !== "MERGED",
+        edit: !repoData.isArchived && node.viewerCanUpdate,
         merge: canMerge,
         deleteBranch: canDeleteBranch,
         delete: false,
