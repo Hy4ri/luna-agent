@@ -131,7 +131,11 @@ function routeName(id: string): string {
 export function claudeCliProvider() {
   const catalog = anthropicProvider().getModels();
   const modelDefinition = (id: string, name: string) => {
-    const known = catalog.find(m => m.id === id.replace(/\[1m\]$/u, ""));
+    const base = id.replace(/\[1m\]$/u, "");
+    // A release newer than the catalog takes the thinking levels of its newest catalogued family member.
+    const family = /^claude-[a-z]+-/u.exec(base)?.[0];
+    const known = catalog.find(m => m.id === base) ?? (family ? catalog.filter(m => m.id.startsWith(family))
+      .sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }))[0] : undefined);
     return {
       id, name: `${name} (CLI)`, api: "anthropic-messages" as const,
       provider: "claude-cli", baseUrl: "", input: ["text" as const, "image" as const], reasoning: known?.reasoning ?? false,
