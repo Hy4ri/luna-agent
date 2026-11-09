@@ -1,7 +1,7 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
 export const sections = [
   { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'compaction', 'busyInput', 'autoContinue', 'afterFailedRun', 'maxTurns', 'sessionTalk'] },
-  { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'pinnedModels', 'subagents', 'auxiliary'] },
+  { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'modelThinkingLevels', 'pinnedModels', 'subagents', 'auxiliary'] },
   { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
   { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'terminal', 'codemode', 'extensions', 'disabledTools'] },
   { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge and learning from conversations.', keys: ['skillDirs', 'disabledSkills', 'learn'] },
@@ -40,7 +40,7 @@ export const fieldTitles: Record<string, string> = {
   busyInput: 'Messages during a response', mode: 'Message handling', acknowledgements: 'Show message acknowledgements',
   sessionTalk: 'Messages between sessions', maxHops: 'Messages per exchange',
   autoContinue: 'Continue after usage limits', maxWaitHours: 'Maximum reset wait (hours)', maxAttempts: 'Consecutive retry limit',
-  provider: 'Provider ID', model: 'Model ID', thinkingLevel: 'Thinking level', pinnedModels: 'Pinned models', subagents: 'Subagent defaults',
+  provider: 'Provider ID', model: 'Model ID', thinkingLevel: 'Thinking level', modelThinkingLevels: 'Per-model thinking levels', pinnedModels: 'Pinned models', subagents: 'Subagent defaults',
   auxiliary: 'Task-specific models', side_question: 'Side questions', session_title: 'Session titles', review: 'Session review',
   providers: 'Provider accounts', id: 'ID', name: 'Display name', api: 'API format', baseUrl: 'Base URL', models: 'Models',
   contextWindow: 'Context window (tokens)', maxTokens: 'Maximum output (tokens)', reasoning: 'Supports reasoning',
@@ -108,6 +108,7 @@ const fieldHelp: Record<string, string> = {
   'provider': 'Provider ID from the catalog or a custom definition in Accounts & connections.',
   'model': 'Exact model ID. Keep any slashes that are part of the ID. New defaults must be available in the catalog or defined in Accounts & connections.',
   'thinkingLevel': 'Applies to new sessions. The selected model can restrict the supported levels.',
+  'modelThinkingLevels': 'Sets the main thinking level for specific models. These take priority over the main thinking level; the model’s supported levels still clamp the value.',
   'subagents.cwd': 'Leave blank to use the parent conversation’s working directory.',
   'subagents.profiles': 'Named child roles with exact tool allowlists, context defaults, and optional model overrides. Changes affect new children only. Supplying a map replaces the built-ins.',
   'auxiliary.side_question': 'Override the model used for /btw side questions. Leave unset to use the normal default.',
@@ -184,7 +185,7 @@ export function helpFor(path: (string | number)[]): string {
 }
 
 export const timing: Record<string, string> = {
-  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live', terminal: 'Applies live',
+  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', modelThinkingLevels: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live', terminal: 'Applies live',
   codemode: 'Restart required', dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Disable live; enable may need restart', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required', push: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
@@ -195,6 +196,7 @@ export const summaries: Record<string, string> = {
   sessionTalk: 'Let a session send messages to other sessions. Mention a session with @ in the chat box.',
   instructions: 'Set the instructions shared by new conversations.',
   subagents: 'Delegated workers inherit the parent model and thinking level unless you set an override.',
+  modelThinkingLevels: 'Set the main thinking level for specific models. These take priority over the main thinking level; the model’s supported levels still clamp the value.',
   auxiliary: 'Use a different model for a specific task without changing the main chat model.',
   providers: 'Define custom APIs and their model capabilities. Account credentials are managed separately.',
   vision: 'Control the analysis route, image size, and per-turn call limits.',
