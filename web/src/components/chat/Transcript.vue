@@ -365,6 +365,9 @@ function backgroundReport(entry: any, message: any): boolean {
     <div v-if="activityLabel" id="activity" role="status" aria-live="polite" aria-atomic="true">
       <span>{{ activityLabel }}</span>
     </div>
+    <!-- Context that belongs to the conversation, not to the composer: it renders as the last
+         row of the scroller, so a wheel or swipe that starts on it scrolls the transcript. -->
+    <slot />
     <Questions />
   </div>
   <div v-if="queued.length" class="queued-dock" role="region" aria-label="Queued messages">
