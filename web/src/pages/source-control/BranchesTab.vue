@@ -3,7 +3,8 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { RefreshCw, ChevronLeft, AlertCircle, GitCompare, ArrowUp, ArrowDown } from "@lucide/vue";
 import { ago } from "@/lib/mention-sources";
 import { serverUrl, token } from "@/lib/api";
-import { fetchBranches, fetchCompare, fetchRangeDiff, isAbortError, type Branches, type Compare, type SelectorParams, type FileStat } from "./client";
+import { confirmAction } from "@/lib/confirm";
+import { fetchBranches, mutateGit, fetchCompare, fetchRangeDiff, isAbortError, type Branches, type Compare, type SelectorParams, type FileStat } from "./client";
 import FileDiffList from "./FileDiffList.vue";
 
 const props = defineProps<{ session?: string; project?: number; machine?: string; wide: boolean }>();
@@ -119,6 +120,29 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
   closeCompare();
   void load();
 }, { immediate: true });
+const acting = ref<string | null>(null), notice = ref<string | null>(null);
+async function act(action: string, body: Record<string, unknown>, label: string) {
+  if (acting.value) return;
+  acting.value = label; error.value = null; notice.value = null;
+  const owner = { ...selector.value }, mine = epoch;
+  try {
+    const r = await mutateGit(owner, action, body);
+    if (mine !== epoch) return;
+    notice.value = r.summary || label;
+  } catch (e) {
+    if (mine === epoch) error.value = (e as Error).message;
+    // The server marks an unmerged delete so the user can confirm it once.
+    if (action === 'delete-branch' && (e as Error).message.includes('confirm-force:') && mine === epoch) {
+      error.value = null;
+      if (await confirmAction({ title: `Force delete '${body.branch}'?`, message: 'It has commits that are not merged anywhere else. They will be hard to recover.', confirmLabel: 'Force delete', danger: true })) { acting.value = null; return act(action, { ...body, force: true }, label); }
+    }
+  } finally { if (mine === epoch) acting.value = null; }
+  if (mine === epoch) await load();
+}
+async function deleteBranch(name: string) {
+  if (await confirmAction({ title: `Delete branch '${name}'?`, message: 'Only the local branch is removed.', confirmLabel: 'Delete', danger: true })) await act('delete-branch', { branch: name }, `Deleted ${name}`);
+}
+const updateFromDefault = () => act('update-from-default', {}, 'Updated from the default branch');
 const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
 </script>
 
@@ -135,6 +159,7 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
         <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
       </button>
     </form>
+ <p v-if="notice" role="status" class="px-3 py-1.5 bg-muted text-foreground border-b border-border shrink-0">{{ notice }}</p>
     <div v-if="error" role="alert" class="px-3 py-2 bg-destructive/10 text-destructive border-b border-border flex items-center gap-2 shrink-0">
       <AlertCircle class="w-4 h-4 shrink-0" aria-hidden="true" /><span class="break-words">{{ error }}</span>
     </div>
@@ -195,6 +220,8 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
             </template>
             <button v-if="(branches.default && b.name !== branches.default) || b.upstream" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent"
               :title="branches.default && b.name !== branches.default ? `Compare with ${branches.default}` : `Compare with ${b.upstream}`" @click="compareBranch(b.name, b.upstream)">Compare</button>
+            <button v-if="b.name === branches.current && branches.default && b.name !== branches.default" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent disabled:opacity-50" :disabled="!!acting" :title="`Merge origin/${branches.default} into this branch`" @click="updateFromDefault">Update</button>
+            <button v-if="b.name !== branches.current && b.name !== branches.default" type="button" class="px-2 py-0.5 border border-border rounded text-destructive hover:bg-accent disabled:opacity-50" :disabled="!!acting" :aria-label="`Delete branch ${b.name}`" @click="deleteBranch(b.name)">Delete</button>
           </div>
         </div>
       </section>

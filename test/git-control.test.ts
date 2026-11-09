@@ -126,3 +126,37 @@ test("stash saves changes, lists them, then pops or drops by index", async () =>
   assert.equal((await ctl.stashes(w)).length, 0);
   assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "a\n");
 });
+
+test("delete-branch removes merged branches, guards unmerged, current and default", async () => {
+  const { cwd, w, ctl } = repo();
+  git(cwd, "branch", "merged");
+  git(cwd, "switch", "-qc", "work"); writeFileSync(join(cwd, "w.txt"), "w\n"); git(cwd, "add", "w.txt"); git(cwd, "commit", "-qm", "w");
+  git(cwd, "switch", "-q", "main");
+  await fail(ctl.mutate(w, "delete-branch", { branch: "main" }), 409);
+  await fail(ctl.mutate(w, "delete-branch", { branch: "nope" }), 400);
+  await ctl.mutate(w, "delete-branch", { branch: "merged" });
+  await fail(ctl.mutate(w, "delete-branch", { branch: "work" }), 409);
+  await ctl.mutate(w, "delete-branch", { branch: "work", force: true });
+  assert.equal(git(cwd, "branch", "--format=%(refname:short)"), "main");
+});
+
+test("update-from-default merges origin's default, and aborts cleanly on conflict", async () => {
+  const { cwd, w, ctl } = repo();
+  const other = join(cwd, "..", "other");
+  git(cwd, "clone", "-q", join(cwd, "..", "origin.git"), other);
+  git(other, "config", "user.name", "T"); git(other, "config", "user.email", "t@example.com"); git(other, "config", "commit.gpgsign", "false");
+  git(cwd, "switch", "-qc", "feat");
+  writeFileSync(join(other, "n.txt"), "n\n"); git(other, "add", "n.txt"); git(other, "commit", "-qm", "n"); git(other, "push", "-q", "origin", "main");
+  writeFileSync(join(cwd, "dirty.txt"), "d\n");
+  await fail(ctl.mutate(w, "update-from-default", {}), 409);
+  rmSync(join(cwd, "dirty.txt"));
+  await ctl.mutate(w, "update-from-default", {});
+  assert.equal(existsSync(join(cwd, "n.txt")), true);
+  // Conflict: both sides edit a.txt.
+  writeFileSync(join(cwd, "a.txt"), "mine\n"); git(cwd, "commit", "-qam", "mine");
+  writeFileSync(join(other, "a.txt"), "theirs\n"); git(other, "commit", "-qam", "theirs"); git(other, "push", "-q", "origin", "main");
+  const head = git(cwd, "rev-parse", "HEAD");
+  await fail(ctl.mutate(w, "update-from-default", {}), 409);
+  assert.equal(git(cwd, "rev-parse", "HEAD"), head);
+  assert.equal(git(cwd, "status", "--porcelain"), "");
+});
