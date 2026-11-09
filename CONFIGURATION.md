@@ -122,6 +122,8 @@ transactional submission API, not a host callback stored in a submission.
 
 - `provider`, `model`: default model for new sessions and cron runs.
 - `thinkingLevel`, `instructions`: defaults for new chat sessions.
+- `modelThinkingLevels`: optional map from `provider/modelId` to a thinking level. It takes priority over `thinkingLevel` for new
+  conversations and is clamped to the levels the model supports.
 - `maxTurns`: optional integer of 1 or more. A run may take this many tool rounds. The round that reaches the limit runs its tools,
   then the run ends unanswered and the session shows **Limit reached**. A new input starts a new run with a fresh count. It is not a time,
   token, cost, goal, or delegate-deadline limit and does not replace them. Unset means no limit. It applies to conversations created after the change.

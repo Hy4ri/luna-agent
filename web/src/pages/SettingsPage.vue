@@ -73,6 +73,7 @@ function groupStatus(key: string): string {
   if (key === 'models-main') return modelValue() || 'Runtime default'
   if (key === 'models-subagents') return modelValue(true) || 'Inherit parent model'
   if (key === 'models-refresh') return `${models.list.length} models available`
+  if (key === 'modelThinkingLevels') return Object.keys(value || {}).length ? `${Object.keys(value).length} model overrides` : 'Main level for every model'
   if (Array.isArray(value)) return `${value.length} ${key === 'extensions' ? 'enabled' : 'configured'}`
   if (key === 'busyInput') return `${value?.mode || 'interrupt'} mode`
   if (key === 'vision') return value?.image_mode === 'auxiliary' ? 'Auxiliary model' : 'Active model'
@@ -102,6 +103,18 @@ function chooseModel(value: string, child = false) {
   const slash = value.indexOf('/')
   setVal([...path, 'provider'], value.slice(0, slash))
   setVal([...path, 'model'], value.slice(slash + 1))
+}
+const perModelLevels = computed<[string, string][]>(() => Object.entries(draft.value?.modelThinkingLevels || {}) as [string, string][])
+function modelChoiceLabel(key: string) { return choices.value.find(choice => choice.value === key)?.label || key }
+function setModelLevel(model: string, level?: string) {
+  const next = { ...(draft.value?.modelThinkingLevels || {}) }
+  if (level) next[model] = level
+  else delete next[model]
+  setVal(['modelThinkingLevels'], Object.keys(next).length ? next : undefined)
+}
+function addModelLevel(model: string) {
+  if (!model || draft.value?.modelThinkingLevels?.[model]) return
+  setModelLevel(model, 'medium')
 }
 async function selectTab(id: string, focus = false) {
   if (disabled.value || loading.value) return
@@ -297,6 +310,17 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
                 <ComponentField :schema="saved.schema.properties.subagents.properties.cwd" :path="['subagents','cwd']" :required="false" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" />
                 <details class="advanced-fields"><summary>Provider and model IDs</summary><ComponentField v-for="key in ['provider', 'model']" :key="key" :schema="saved.schema.properties.subagents.properties[key]" :path="['subagents', key]" :required="false" :get="getVal" :set="setVal" :seed="seedSchema" :label-for="labelFor" :help-for="helpFor" /></details>
               </SettingsGroup>
+              <SettingsGroup title="Per-model thinking levels" :status="groupStatus('modelThinkingLevels')" timing="New conversations" :description="summaries.modelThinkingLevels" data-section="modelThinkingLevels">
+                <div v-if="perModelLevels.length" class="model-level-list">
+                  <div v-for="[model, level] in perModelLevels" :key="model" class="model-level-row">
+                    <span class="model-level-name">{{ modelChoiceLabel(model) }}</span>
+                    <select class="input" :value="level" :data-setting="'modelThinkingLevels.' + model" :aria-label="'Thinking level for ' + modelChoiceLabel(model)" @change="setModelLevel(model, ($event.target as HTMLSelectElement).value)"><option v-for="option in thinkingLevels" :key="option" :value="option">{{ option }}</option></select>
+                    <button class="settings-button" type="button" :aria-label="'Remove thinking level for ' + modelChoiceLabel(model)" @click="setModelLevel(model, undefined)">Remove</button>
+                  </div>
+                </div>
+                <p v-else class="help">Every model uses the main thinking level.</p>
+                <label class="field-label"><span>Add a model</span><ModelCombobox :model-value="undefined" placeholder="Search models…" empty-label="Choose a model" aria-label="Add per-model thinking level" @change="addModelLevel($event || '')" /><small>{{ helpFor(['modelThinkingLevels']) }}</small></label>
+              </SettingsGroup>
               <SettingsGroup title="Model catalog" :status="groupStatus('models-refresh')" class="full-span" data-section="catalog"><div><button class="settings-button" type="button" :disabled="isRefreshingModels" @click="refreshModels"><RefreshCw :size="16" :class="{ 'refresh-spin': isRefreshingModels }" />{{ isRefreshingModels ? 'Refreshing…' : 'Refresh models' }}</button></div><p class="section-description">Refreshes automatically at startup and every hour. Saved model definitions and unsaved settings are kept.</p><p v-if="models.refresh?.checkedAt" class="help">Last checked: {{ new Date(models.refresh.checkedAt).toLocaleString() }}</p><p v-if="modelRefreshMessage" role="status" class="help">{{ modelRefreshMessage }}</p><p v-else-if="models.refresh && Object.keys(models.refresh.errors).length" role="status" class="help">Some providers could not refresh. Existing models are kept. {{ Object.entries(models.refresh.errors).map(([id, error]) => `${id}: ${error}`).join('; ') }}</p></SettingsGroup>
             </template>
               <template v-for="key in section.keys" :key="key">
@@ -357,6 +381,9 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .field-label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 500; min-width: 0; }
 .field-label small { font-size: 14px; line-height: 1.55; color: var(--muted-foreground); font-weight: 400; }
 .input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); }
+.model-level-list { display: grid; gap: 8px; }
+.model-level-row { display: grid; grid-template-columns: minmax(0, 1fr) 9rem auto; align-items: center; gap: 8px; }
+.model-level-name { font-size: 14px; overflow-wrap: anywhere; }
 .advanced-fields { border-top: 1px solid var(--border); padding-top: 8px; }
 .advanced-fields summary { cursor: pointer; color: var(--muted-foreground); font-size: 14px; padding-block: 8px; }
 .advanced-fields[open] summary { margin-bottom: 12px; }
@@ -397,6 +424,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .save-state p { margin: 0; max-height: 4.5em; overflow-y: auto; }
   .save-actions { width: 100%; justify-content: flex-end; }
   .manager-link { padding: 16px; }
+  .model-level-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .model-level-name { grid-column: 1 / -1; }
   .input { font-size: 16.5px; min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { .refresh-spin { animation: none; } }
