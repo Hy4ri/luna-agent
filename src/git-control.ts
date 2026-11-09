@@ -75,7 +75,7 @@ function parseStatus(out: string) {
 export function createGitControl() {
   const roots = new Map<string, { until: number; result: Promise<string> }>();
   const workspaceKey = (w: Workspace) => JSON.stringify([w.machine, w.env.cwd]);
-  async function run(w: Workspace, args: string[], options: { cwd?: string; network?: boolean; read?: boolean; limit?: number; truncate?: boolean } = {}) {
+  async function run(w: Workspace, args: string[], options: { cwd?: string; network?: boolean; read?: boolean; limit?: number; truncate?: boolean; globPathspecs?: boolean } = {}) {
     const source = w.commandEnv ?? process.env;
     const safe: Record<string, string> = {};
     for (const key of ['PATH', 'HOME', 'SSH_AUTH_SOCK', 'XDG_CONFIG_HOME', 'GH_CONFIG_DIR']) if (source[key] !== undefined) safe[key] = source[key]!;
@@ -83,7 +83,7 @@ export function createGitControl() {
     const limit = options.limit ?? (4 << 20);
     const result = await w.env.exec(['git', ...(options.read ? ['--no-optional-locks'] : []), ...args], {
       cwd: options.cwd ?? w.env.cwd, inheritEnv: false, timeout: options.network ? 120 : 15,
-      env: { ...safe, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1', SSH_ASKPASS: '/bin/false', GIT_ASKPASS: '/bin/false', GCM_INTERACTIVE: 'Never', GIT_SSH_COMMAND: 'ssh -oBatchMode=yes' },
+      env: { ...safe, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', ...(options.globPathspecs ? {} : { GIT_LITERAL_PATHSPECS: '1' }), SSH_ASKPASS: '/bin/false', GIT_ASKPASS: '/bin/false', GCM_INTERACTIVE: 'Never', GIT_SSH_COMMAND: 'ssh -oBatchMode=yes' },
       onOutput: (text, _c, info) => { const room = limit - out.length - error.length; if (text.length > room) overflow = true; const part = text.slice(0, Math.max(0, room)); if (info.stream === 'stderr') error += part; else out += part; },
     }, ctx);
     if (!result.ok) throw new GitError(redact(`Git execution failed; refresh to check the result: ${result.error.message}`), /time.?out|timed out/i.test(result.error.message) ? 504 : 503);
@@ -180,6 +180,15 @@ export function createGitControl() {
     if (remoteDefaultIndex > 0) remoteBranches.unshift(...remoteBranches.splice(remoteDefaultIndex, 1));
     return { current, local, remote: remoteBranches, default: defaultName ?? null };
   }
+  /** Stash entries, newest first. */
+  async function stashes(w: Workspace) {
+    const cwd = await root(w);
+    const r = await run(w, ['stash', 'list', '--format=%gd%x1f%cI%x1f%gs'], { cwd, read: true }); check(r);
+    return r.out.split('\n').filter(Boolean).map(line => {
+      const [ref = '', date = '', subject = ''] = line.split('\x1f');
+      return { index: Number(/\{(\d+)\}/.exec(ref)?.[1] ?? -1), date, subject };
+    }).filter(e => e.index >= 0);
+  }
   async function mutate(w: Workspace, action: string, body: Record<string, unknown>) {
     const s = await changes(w), key = `${w.machine}:${s.cwd}`;
     if (active.has(key)) throw new GitError('Another Git action is running', 409);
@@ -191,6 +200,28 @@ export function createGitControl() {
         // `all` acts on the whole repository, so it needs no per-path validation.
         const selected = body.all === true ? ['.'] : await paths(w, s, body.paths as string[], action === 'unstage');
         args = action === 'stage' ? (body.all === true ? ['add', '-A'] : ['add', '--', ...selected]) : s.unborn ? ['rm', '--cached', '-r', '-f', '--', ...selected] : ['restore', '--staged', '--', ...selected];
+      } else if (action === 'discard') {
+        const selected = await paths(w, s, body.paths as string[], false);
+        const byPath = new Map(s.files.map(f => [f.path, f]));
+        // Discarding is permanent: a staged file must be unstaged first so that nothing is lost by accident.
+        for (const path of selected) {
+          const f = byPath.get(path);
+          if (f?.staged) throw new GitError(`Unstage ${path} before discarding it`, 409);
+          if (f?.conflict) throw new GitError(`Resolve ${path} before discarding it`, 409);
+        }
+        const untracked = selected.filter(p => byPath.get(p)?.untracked), tracked = selected.filter(p => !byPath.get(p)?.untracked);
+        if (tracked.length) check(await run(w, ['restore', '--worktree', '--', ...tracked], { cwd: s.cwd }));
+        if (untracked.length) check(await run(w, ['clean', '-f', '-d', '--', ...untracked], { cwd: s.cwd }));
+        args = ['status', '--short'];
+      } else if (action === 'stash') {
+        if (s.unborn) throw new GitError('Commit once before stashing', 400);
+        if (!s.files.length) throw new GitError('There are no changes to stash', 400);
+        args = ['stash', 'push', ...(body.includeUntracked === true ? ['--include-untracked'] : []), ...(body.message ? ['-m', body.message as string] : [])];
+      } else if (action === 'stash-pop' || action === 'stash-drop') {
+        const index = body.index as number, list = await stashes(w);
+        if (!list.some(e => e.index === index)) throw new GitError('That stash no longer exists. Refresh the list.', 409);
+        if (action === 'stash-pop' && s.files.some(f => f.conflict)) throw new GitError('Resolve conflicts before applying a stash', 409);
+        args = ['stash', action === 'stash-pop' ? 'pop' : 'drop', `stash@{${index}}`];
       } else if (action === 'commit') {
         const amend = body.amend === true;
         if (s.files.some(f => f.conflict)) throw new GitError('Resolve conflicts before committing', 409);
@@ -229,7 +260,8 @@ export function createGitControl() {
         if (!s.upstream && body.setUpstream !== true) throw new GitError('Publish branch with setUpstream first', 400);
         args = ['push', 'origin', `${s.headOid}:refs/heads/${remoteBranch}`]; network = true;
       } else throw new GitError('Unknown Git action', 400);
-      const r = await run(w, args, { cwd: s.cwd, network }); check(r);
+      // `stash --include-untracked` builds its own pathspecs, which literal mode breaks. It passes no user paths.
+      const r = await run(w, args, { cwd: s.cwd, network, globPathspecs: action === 'stash' }); check(r);
       if (action === 'push' && !s.upstream) check(await run(w, ['branch', '--set-upstream-to', `origin/${s.branch}`, s.branch], { cwd: s.cwd }));
       summary = redact((r.out + r.error).trim());
       const state = await changes(w);
@@ -317,5 +349,5 @@ export function createGitControl() {
     check(stat); check(patch);
     return { stat: redact(stat.out), patch: redact(patch.out), truncated: patch.truncated };
   }
-  return { changes, diff, branches, mutate, log, commit, compare, rangeDiff, stagedDiff };
+  return { changes, diff, branches, mutate, log, commit, compare, rangeDiff, stagedDiff, stashes };
 }
