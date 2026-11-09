@@ -12,6 +12,7 @@ const ChangesTab = defineAsyncComponent(() => import("./source-control/ChangesTa
 const HistoryTab = defineAsyncComponent(() => import("./source-control/HistoryTab.vue"));
 const BranchesTab = defineAsyncComponent(() => import("./source-control/BranchesTab.vue"));
 import ItemList from "./github/ItemList.vue";
+import ContextBar from "./source-control/ContextBar.vue";
 const ItemDetail = defineAsyncComponent(() => import("./github/ItemDetail.vue"));
 import type { GhStatus, ListItem, Detail, Kind, RepoInfo, ItemPage } from "../../../src/github";
 import { GitPullRequest, Search, RefreshCw, ArrowLeft, Menu, X } from "@lucide/vue";
@@ -71,6 +72,8 @@ const isWide = ref(window.innerWidth >= 900);
 const isVeryWide = ref(window.innerWidth >= 1280);
 const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 let lastWorkspaceRepo: string | null = null;
+/** Origin of the local checkout, for display in the context bar. */
+const localRepo = ref<string | null>(null);
 let disposed = false, loadGeneration = 0, detailGeneration = 0, initGeneration = 0, infoGeneration = 0;
 let displayedListKey = "";
 let listController: AbortController | undefined, detailController: AbortController | undefined, infoController: AbortController | undefined, initController: AbortController | undefined;
@@ -95,7 +98,7 @@ function listKey(repo: string, type: Kind, state: string, q: string) {
 }
 function followRepo(repo: string | null) {
   if (repo === lastWorkspaceRepo) return;
-  lastWorkspaceRepo = repo;
+  lastWorkspaceRepo = repo; localRepo.value = repo;
   if (repo) selectedRepo.value = repo;
 }
 const SECTIONS = [
@@ -233,8 +236,7 @@ function selectItem(item: ListItem) {
   cancelPrefetch();
 }
 function backToList() { detailController?.abort(); detailGeneration++; selectedItemNumber.value = null; detail.value = null; loadingDetail.value = false; detailError.value = null; }
-function handleRepoChange(e: Event) {
-  const val = (e.target as HTMLSelectElement).value;
+function handleRepoChange(val: string) {
   if (val === '__custom__') { showCustomRepo.value = true; repoInputError.value = ''; }
   else { showCustomRepo.value = false; selectedRepo.value = val; }
 }
@@ -265,6 +267,12 @@ function refresh() {
   const scope = context();
   void fetchGhStatus(true).then(value => { if (!disposed && scope === context()) status.value = value; }).catch(() => {});
 }
+/** The repository follows the selected project, but only when the project maps to one. A manual pick holds until the project changes. */
+function repoOfProject(id: number | null) { return id === null ? undefined : repos.value.find(r => r.projects.some(p => p.id === id))?.repo; }
+watch(() => chat.session ? chat.project : sourceProject.value, id => {
+  const repo = repoOfProject(id);
+  if (repo && repo !== selectedRepo.value) { showCustomRepo.value = false; selectedRepo.value = repo; }
+});
 watch(selectedRepo, val => {
   cancelPrefetch(); listController?.abort(); infoController?.abort(); loadGeneration++; infoGeneration++; backToList();
   if (val && REPO_REGEX.test(val)) {
@@ -275,7 +283,7 @@ watch(selectedRepo, val => {
 watch([kind, stateFilter], () => { cancelPrefetch(); backToList(); void loadList(); });
 watch([serverUrl, token], () => {
   loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
-  lastWorkspaceRepo = null; selectedRepo.value = ''; detail.value = null; items.value = []; repoInfo.value = null;
+  lastWorkspaceRepo = null; localRepo.value = null; selectedRepo.value = ''; detail.value = null; items.value = []; repoInfo.value = null;
   totalCount.value = 0; nextCursor.value = null; displayedListKey = ''; lastUpdated.value = ''; listError.value = null; detailError.value = null;
   status.value = null; repos.value = []; sourceProjects.value = [];
   loadingItems.value = loadingMore.value = refreshingItems.value = loadingDetail.value = false;
@@ -314,35 +322,6 @@ onUnmounted(() => {
       </div>
 
       <div v-if="!local && status?.state === 'ok'" class="flex flex-wrap items-center gap-2 min-w-0">
-        <!-- Repo Selector -->
-        <select
-          :value="showCustomRepo ? '__custom__' : selectedRepo"
-          @change="handleRepoChange"
-          class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
-        >
-          <option v-if="selectedRepo && !repos.some(r => r.repo === selectedRepo)" :value="selectedRepo">{{ selectedRepo }}</option>
-          <option v-for="r in repos" :key="r.repo" :value="r.repo">{{ r.repo }}</option>
-          <option value="__custom__">Other repository…</option>
-        </select>
-
-        <div v-if="showCustomRepo" class="flex items-center gap-1">
-          <input
-            v-model="customRepoInput"
-            type="text"
-            placeholder="owner/repo"
-            class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground w-32 focus:outline-none focus:border-primary"
-            @keydown.enter="confirmCustomRepo"
-          />
-          <button
-            type="button"
-            @click="confirmCustomRepo"
-            class="px-2 py-1 text-xs bg-primary text-primary-foreground rounded"
-          >
-            Go
-          </button>
-        </div>
-        <span v-if="repoInputError" class="text-xs text-destructive">{{ repoInputError }}</span>
-
         <button
           type="button"
           @click="refresh"
@@ -378,11 +357,23 @@ onUnmounted(() => {
         @click="setSection(tab.id)"
       >{{ tab.label }}</button>
     </div>
+    <ContextBar
+      v-model:project="sourceProject"
+      v-model:machine="sourceMachine"
+      v-model:custom-input="customRepoInput"
+      :session-target="chat.session ? { machine: chat.machine?.name ?? (chat.machine ? `Machine ${chat.machine.id}` : 'main'), cwd: chat.cwd ?? '' } : null"
+      :projects="sourceProjects"
+      :machines="machineChoices"
+      :repos="repos"
+      :repo="selectedRepo"
+      :local-repo="localRepo"
+      :show-repo="!local && status?.state === 'ok'"
+      :show-custom="showCustomRepo"
+      :custom-error="repoInputError"
+      @repo-change="handleRepoChange"
+      @confirm-custom="confirmCustomRepo"
+    />
     <template v-if="local">
-      <div v-if="!chat.session" class="px-3 py-2 border-b border-border text-xs">
-        <label>Project <select v-model="sourceProject" aria-label="Source Control project" class="bg-secondary border border-border rounded px-2 py-1"><option v-for="project in sourceProjects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
-        <label v-if="machineChoices.length > 1 || machineChoices.some(m => !m.online)" class="ml-3">Machine <select v-model="sourceMachine" aria-label="Source Control machine" class="bg-secondary border border-border rounded px-2 py-1"><option value="">Automatic</option><option v-for="m in machineChoices" :key="m.value" :value="m.value" :disabled="!m.online">{{ m.label }}{{ m.online ? '' : ' (offline)' }}</option></select></label>
-      </div>
       <p v-if="chat.runActive" class="px-3 py-1 text-xs text-muted-foreground">The session is running. Files can change while you work.</p>
       <template v-if="selector">
         <ChangesTab v-if="section === 'changes'" :key="`changes:${workspaceKey}`" v-bind="selector" :run-active="chat.runActive" @repo="followRepo" />
