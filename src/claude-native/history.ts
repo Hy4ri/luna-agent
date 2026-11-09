@@ -166,11 +166,11 @@ export function prepareHistory(messages: NativeMessage[], names?: Map<string, st
 const CONTEXT_WINDOWS: Record<string, number> = {
   "claude-sonnet-5-5": 1_000_000, "claude-sonnet-5": 1_000_000, "claude-haiku-5-5": 1_000_000,
   "claude-haiku-4-5-20251001": 200_000, "claude-opus-5-5": 1_000_000, "claude-opus-5": 1_000_000,
-  "claude-opus-4-8": 1_000_000, "claude-fable-5-1": 1_000_000,
+  "claude-opus-4-8": 1_000_000, "claude-fable-5-1": 1_000_000, "claude-fable-5-2": 1_000_000,
 };
 const ALIASES: Record<string, string> = {
   sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", "claude-haiku-4-5": "claude-haiku-4-5-20251001",
-  opus: "claude-opus-5-5", fable: "claude-fable-5-1",
+  opus: "claude-opus-5-5", fable: "claude-fable-5-2",
 };
 
 /** The catalogued id a short name points at, or the name unchanged; an unknown route fails at the CLI, not here. */
