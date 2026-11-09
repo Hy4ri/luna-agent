@@ -6,7 +6,7 @@ import { serverUrl, token } from "@/lib/api";
 import { history, loadProjects } from "@/stores/sessions";
 import { workers, loadWorkers } from "@/stores/workers";
 import { handleTablistKeydown } from "@/lib/keyboard";
-import { fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
+import { type ItemFilters, fetchGhStatus, fetchRepos, fetchItems, fetchItemDetail, fetchRepoInfo, dropRepo } from "./github/client";
 import { get as cached, makeKey } from "./github/cache";
 const ChangesTab = defineAsyncComponent(() => import("./source-control/ChangesTab.vue"));
 const HistoryTab = defineAsyncComponent(() => import("./source-control/HistoryTab.vue"));
@@ -63,6 +63,15 @@ const stateFilter = ref<"open" | "closed" | "all">(startPrefs.state ?? "open");
 /** Open-item totals per kind, from the last unfiltered list; absent until loaded. */
 const counts = ref<{ pr?: number; issue?: number; changes?: number }>({});
 const searchQuery = ref("");
+const mineOnly = ref(false), labelFilter = ref(""), draftFilter = ref(""), reviewFilter = ref("");
+const activeFilters = computed<ItemFilters>(() => ({
+  ...(mineOnly.value ? { author: "@me" } : {}),
+  ...(labelFilter.value.trim() ? { label: labelFilter.value.trim() } : {}),
+  ...(kind.value === "pr" && draftFilter.value ? { draft: draftFilter.value } : {}),
+  ...(kind.value === "pr" && reviewFilter.value ? { review: reviewFilter.value } : {}),
+}));
+const hasFilters = computed(() => Object.keys(activeFilters.value).length > 0);
+function clearFilters() { mineOnly.value = false; labelFilter.value = ""; draftFilter.value = ""; reviewFilter.value = ""; }
 const appliedSearch = ref("");
 const items = ref<ListItem[]>([]);
 const totalCount = ref(0);
@@ -102,9 +111,9 @@ function itemKey(repo: string, number: number) {
   const [owner, name] = repo.toLowerCase().split("/");
   return makeKey("item-detail", { owner, name, number });
 }
-function listKey(repo: string, type: Kind, state: string, q: string) {
+function listKey(repo: string, type: Kind, state: string, q: string, filters: ItemFilters = activeFilters.value) {
   const [owner, name] = repo.toLowerCase().split("/");
-  return makeKey("items", { owner, name, kind: type, state, q, after: "" });
+  return makeKey("items", { owner, name, kind: type, state, q, after: "", ...filters });
 }
 function followRepo(repo: string | null) {
   if (repo === lastWorkspaceRepo) return;
@@ -192,7 +201,7 @@ async function loadList(loadMore = false, fresh = false) {
   listController?.abort(); const controller = listController = new AbortController();
   const gen = ++loadGeneration;
   const current = () => !disposed && gen === loadGeneration && repo === selectedRepo.value && scope === context();
-  const key = listKey(repo, type, state, q), cursor = loadMore ? nextCursor.value : null;
+  const filters = { ...activeFilters.value }, key = listKey(repo, type, state, q, filters), cursor = loadMore ? nextCursor.value : null;
   listError.value = null;
   if (loadMore) loadingMore.value = true;
   else {
@@ -209,11 +218,11 @@ async function loadList(loadMore = false, fresh = false) {
     refreshingItems.value = true;
   }
   try {
-    const page = await fetchItems(owner, name, type, state, q, cursor, fresh, controller.signal);
+    const page = await fetchItems(owner, name, type, state, q, cursor, fresh, controller.signal, filters);
     if (!current()) return;
     items.value = loadMore ? [...items.value, ...page.items.filter(row => !items.value.some(old => old.number === row.number))] : page.items;
     totalCount.value = page.total; nextCursor.value = page.next;
-    if (!loadMore && state === 'open' && !q) counts.value = { ...counts.value, [type]: page.total };
+    if (!loadMore && state === 'open' && !q && !Object.keys(filters).length) counts.value = { ...counts.value, [type]: page.total };
     lastUpdated.value = new Date().toLocaleTimeString();
     if (pendingOpen !== null && !loadMore) { const n = pendingOpen; pendingOpen = null; selectedItemNumber.value = n; void loadDetail(n); }
 
@@ -301,7 +310,7 @@ watch(selectedRepo, val => {
     void loadInfo(); void loadList();
   }
 }, { flush: 'sync' });
-watch([kind, stateFilter], () => { cancelPrefetch(); backToList(); void loadList(); });
+watch([kind, stateFilter, mineOnly, draftFilter, reviewFilter], () => { cancelPrefetch(); backToList(); void loadList(); });
 watch([serverUrl, token], () => {
   loadGeneration++; detailGeneration++; initGeneration++; infoGeneration++; cancelReads(); cancelPrefetch();
   lastWorkspaceRepo = null; localRepo.value = null; selectedRepo.value = ''; detail.value = null; items.value = []; repoInfo.value = null;
@@ -454,6 +463,20 @@ onUnmounted(() => {
                 <option value="closed">Closed</option>
                 <option value="all">All</option>
               </select>
+            </div>
+            <!-- Filters -->
+            <div class="flex flex-wrap items-center gap-2 text-xs" role="group" aria-label="List filters">
+              <button type="button" class="px-2 py-1 rounded border border-border" :class="mineOnly ? 'bg-secondary text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">Mine</button>
+              <input v-model="labelFilter" type="text" maxlength="50" placeholder="Label" aria-label="Filter by label" class="w-20 min-w-0 flex-1 bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary" @keydown.enter="loadList()" @blur="loadList()" />
+              <template v-if="kind === 'pr'">
+                <select v-model="draftFilter" aria-label="Filter by draft" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary">
+                  <option value="">Any draft</option><option value="false">Ready</option><option value="true">Draft</option>
+                </select>
+                <select v-model="reviewFilter" aria-label="Filter by review" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary">
+                  <option value="">Any review</option><option value="approved">Approved</option><option value="changes_requested">Changes requested</option><option value="required">Review required</option>
+                </select>
+              </template>
+              <button v-if="hasFilters" type="button" class="px-2 py-1 text-muted-foreground hover:text-foreground underline" @click="clearFilters(); loadList()">Clear</button>
             </div>
           </div>
 

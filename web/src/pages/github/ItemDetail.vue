@@ -141,7 +141,7 @@ function formatTime(iso: string): string {
             <XCircle v-else-if="chk.state === 'FAILURE' || chk.state === 'ERROR'" class="w-3.5 h-3.5 text-destructive shrink-0" />
             <Clock v-else class="w-3.5 h-3.5 text-yellow-400 shrink-0" />
             <span class="truncate">{{ chk.name }}</span>
-            <a v-if="chk.url" :href="chk.url" target="_blank" class="ml-auto text-primary hover:underline">Details</a>
+            <a v-if="chk.url" :href="chk.url" target="_blank" rel="noopener noreferrer" class="ml-auto text-primary hover:underline">Details</a>
           </div>
         </div>
       </div>
@@ -163,7 +163,7 @@ function formatTime(iso: string): string {
           <div class="flex items-center gap-2 text-xs text-muted-foreground border-b border-border/40 pb-2">
             <span class="font-medium text-foreground">@{{ c.author ?? 'ghost' }}</span>
             <span>commented on {{ formatTime(c.createdAt) }}</span>
-            <a :href="c.url" target="_blank" class="ml-auto text-primary hover:underline flex items-center gap-1">
+            <a :href="c.url" target="_blank" rel="noopener noreferrer" class="ml-auto text-primary hover:underline flex items-center gap-1">
               <span>View</span>
               <ExternalLink class="w-3 h-3" />
             </a>
