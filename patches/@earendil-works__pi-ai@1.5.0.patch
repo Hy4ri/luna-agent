@@ -1,5 +1,5 @@
 diff --git a/dist/api/google-generative-ai.js b/dist/api/google-generative-ai.js
-index feb37cc..ae6f873 100644
+index feb37cc3b55ab8011b12e316ee41203194d84fa6..ae6f87354c001ff4cc92e67fb6e92ea22ec46240 100644
 --- a/dist/api/google-generative-ai.js
 +++ b/dist/api/google-generative-ai.js
 @@ -2,6 +2,8 @@ import { GoogleGenAI, } from "@google/genai";
@@ -23,7 +23,7 @@ index feb37cc..ae6f873 100644
              stream.end();
          }
 diff --git a/dist/api/google-vertex.js b/dist/api/google-vertex.js
-index 1b7cb58..c9bd92b 100644
+index 1b7cb58ec7ad745938a5684014867601454acdcb..c9bd92bc1829e68b719dd531f8900daf3dd5a507 100644
 --- a/dist/api/google-vertex.js
 +++ b/dist/api/google-vertex.js
 @@ -2,6 +2,8 @@ import { GoogleGenAI, ResourceScope, } from "@google/genai";
@@ -47,7 +47,7 @@ index 1b7cb58..c9bd92b 100644
              stream.end();
          }
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 427df0a..bbd7d7c 100644
+index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4b3b08845 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
 @@ -53,7 +53,7 @@ function isTerminalRateLimitError(errorText) {
@@ -109,7 +109,27 @@ index 427df0a..bbd7d7c 100644
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
          }
-@@ -496,6 +509,48 @@ class CodexApiError extends Error {
+@@ -436,7 +449,10 @@ function getServiceTierCostMultiplier(model, serviceTier) {
+         case "flex":
+             return 0.5;
+         case "priority":
++        case "fast":
+             return model.id === "gpt-5.5" ? 2.5 : 2;
++        case "ultrafast":
++            return 6;
+         default:
+             return 1;
+     }
+@@ -452,7 +468,7 @@ function applyServiceTierPricing(usage, serviceTier, model) {
+     usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
+ }
+ function resolveCodexServiceTier(responseServiceTier, requestServiceTier) {
+-    if (responseServiceTier === "default" && (requestServiceTier === "flex" || requestServiceTier === "priority")) {
++    if (responseServiceTier === "default" && (requestServiceTier === "flex" || requestServiceTier === "priority" || requestServiceTier === "ultrafast")) {
+         return requestServiceTier;
+     }
+     return responseServiceTier ?? requestServiceTier;
+@@ -496,6 +512,48 @@ class CodexApiError extends Error {
          this.cause = options?.cause;
      }
  }
@@ -158,7 +178,7 @@ index 427df0a..bbd7d7c 100644
  class CodexProtocolError extends Error {
      payload;
      constructor(message, options) {
-@@ -535,6 +590,7 @@ function extractCodexEventError(event) {
+@@ -535,6 +593,7 @@ function extractCodexEventError(event) {
      };
  }
  async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
@@ -166,7 +186,7 @@ index 427df0a..bbd7d7c 100644
      for await (const event of events) {
          try {
              await onProviderStreamEvent?.(event, model);
-@@ -546,18 +602,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+@@ -546,18 +605,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
          const type = typeof event.type === "string" ? event.type : undefined;
          if (!type)
              continue;
@@ -205,7 +225,7 @@ index 427df0a..bbd7d7c 100644
          }
          if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
              const response = event.response;
-@@ -1257,6 +1330,11 @@ async function parseErrorResponse(response) {
+@@ -1257,6 +1333,11 @@ async function parseErrorResponse(response) {
                  friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
              }
              message = err.message || friendlyMessage || message;
@@ -217,9 +237,22 @@ index 427df0a..bbd7d7c 100644
          }
      }
      catch { }
+diff --git a/dist/api/openai-responses.js b/dist/api/openai-responses.js
+index 7b3b0d733c3495fd0815f563212acac457224dc0..f07202a559914e01215dd155beabd7b274e7e749 100644
+--- a/dist/api/openai-responses.js
++++ b/dist/api/openai-responses.js
+@@ -316,6 +316,8 @@ function getServiceTierCostMultiplier(model, serviceTier) {
+         case "priority":
+         case "fast":
+             return model.id === "gpt-5.5" ? 2.5 : 2;
++        case "ultrafast":
++            return 6;
+         default:
+             return 1;
+     }
 diff --git a/dist/utils/google-quota.js b/dist/utils/google-quota.js
 new file mode 100644
-index 0000000..fad9819
+index 0000000000000000000000000000000000000000..fad981953ca82864d3f096e7d8e0d3c8206a007a
 --- /dev/null
 +++ b/dist/utils/google-quota.js
 @@ -0,0 +1,38 @@
@@ -262,7 +295,7 @@ index 0000000..fad9819
 +    return { kind: "wait", windows: [], receivedAt, ...(response.length <= 4000 ? { response } : {}) };
 +}
 diff --git a/dist/utils/provider-retry.js b/dist/utils/provider-retry.js
-index 5960cf7..0d7629d 100644
+index 5960cf7f5e992eef7d1b96530cea66c6f616a6d2..0d7629d77faffd0e407eeb5383d6a715fac91113 100644
 --- a/dist/utils/provider-retry.js
 +++ b/dist/utils/provider-retry.js
 @@ -7,6 +7,8 @@ function isProviderError(error) {
@@ -275,7 +308,7 @@ index 5960cf7..0d7629d 100644
      if (shouldRetry === "true")
          return true;
 diff --git a/dist/utils/retry.js b/dist/utils/retry.js
-index d33b806..05ae857 100644
+index d33b8069b80bc454b0db59a221aba9332d522bf3..05ae85768273f325410dec53245f5bdf6a7064a1 100644
 --- a/dist/utils/retry.js
 +++ b/dist/utils/retry.js
 @@ -205,7 +205,11 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {

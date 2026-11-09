@@ -6,7 +6,7 @@ export interface StoredAttachment {
 export interface BackgroundSendRecord {
   id: string; creationRequestId: string; messageRequestId: string; scope: string;
   createdAt: number; updatedAt: number;
-  settings: { project: number | null; model: { provider: string; modelId: string }; thinking: string; worker: number | null; cwd: string };
+  settings: { project: number | null; model: { provider: string; modelId: string }; thinking: string; speed?: "fast" | "ultrafast" | null; worker: number | null; cwd: string };
   payload: { text: string; attachments: StoredAttachment[]; isCommand: boolean } | null;
   sessionId: string | null;
   state: "persisted" | "creating_session" | "session_created" | "submitting" | "accepted" | "failed";

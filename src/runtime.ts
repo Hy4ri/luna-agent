@@ -71,6 +71,7 @@ import { TerminalService } from "./terminal/service.js";
 import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./workers.js";
 import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 import { resolveThinkingLevel, withUltraModels } from "./thinking.js";
+import { createSpeedExtension, withSpeedPricing } from "./speed.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
@@ -117,7 +118,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const uploadRoot = join(cfg.dataDir, "uploads");
   const uploads = new UploadStore(uploadRoot);
   const built = o.models ? { models: o.models, model: o.model! } : buildModels(cfg);
-  built.models = withUltraModels(withUploadModels(built.models, uploads));
+  built.models = withSpeedPricing(withUltraModels(withUploadModels(built.models, uploads)));
   // Register built-in and configured providers. File-backed runtimes share one settings store.
   const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch, settings });
   if (!o.models) {
@@ -293,6 +294,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const recall = on("recall") ? new RecallIndex(join(cfg.dataDir, "recall.db")) : undefined;
   if (recall) extensions.push(createRecallExtension(recall));
   if (on("goal")) extensions.push(createGoalExtension({ harness: () => harnessRef }));
+  extensions.push(createSpeedExtension());
   extensions.push(createFileMentionExtension({ home: (w) => w === null ? homedir() : workers.store.get(w)?.capabilities?.home }));
 
   const codemodeSandbox = on("codemode") ? new CodemodeSandbox({

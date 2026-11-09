@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { RouteCtx } from "./context.js";
 import { resolveThinkingLevel } from "../thinking.js";
 import type { ThinkingLevel } from "../session-create.js";
+import { SPEEDS, SpeedDoc, type Speed } from "../speed.js";
 
 const THINKING_LEVELS: readonly string[] = SESSION_THINKING_LEVELS;
 
@@ -132,6 +133,7 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
       model?: { provider: string; modelId: string } | null;
       thinkingLevel?: string | null;
       instructions?: string | null;
+      speed?: string | null;
     };
     // Thinking changes affect the next model request, not the in-flight request.
     // Keep model and instruction changes idle-only, including mixed patches.
@@ -142,6 +144,8 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
       return err(c, 400, "unknown model");
     if (b.thinkingLevel !== undefined && b.thinkingLevel !== null && !THINKING_LEVELS.includes(b.thinkingLevel))
       return err(c, 400, "invalid thinkingLevel");
+    if (b.speed !== undefined && b.speed !== null && !(SPEEDS as readonly string[]).includes(b.speed))
+      return err(c, 400, "invalid speed");
     if (b.model !== undefined) await opts.limitContinuer?.cancel(Number(conv.id), "Session model changed.");
     const changed = await serial(String(conv.id), () => harness.commit(async (tx) => {
       if (requiresIdle && await isRunning(tx, conv.id)) return false;
@@ -159,6 +163,8 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
         ...(thinkingLevel !== undefined && { thinkingLevel }),
         ...(b.instructions !== undefined && { instructions: b.instructions || null }),
       });
+      // Speed, like thinking, applies from the next model request.
+      if (b.speed !== undefined) (await tx.doc(SpeedDoc, conv.id)).speed = b.speed as Speed | null;
       const model = (await tx.doc(AgentDoc, conv.id)).model;
       if (b.model !== undefined && (previous?.provider !== model?.provider || previous?.modelId !== model?.modelId)) {
         const text = model ? `Model changed to ${model.provider}/${model.modelId}.` : "Session model cleared; no model is selected.";
@@ -172,7 +178,8 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
     }, context));
     if (!changed) return err(c, 409, "Cannot change the model or instructions while busy.");
     // Return the effective level so the client shows what the model will run.
-    return c.json({ ok: true, thinkingLevel: (await conv.agent(context)).thinkingLevel });
+    return c.json({ ok: true, thinkingLevel: (await conv.agent(context)).thinkingLevel,
+      speed: (await harness.snapshot(SpeedDoc, conv.id, context).catch(() => undefined))?.speed ?? null });
   });
 
   app.delete("/v1/sessions/:id/limit-wait", async (c) => {

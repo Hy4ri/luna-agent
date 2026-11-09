@@ -11,6 +11,7 @@ import { Children, DELEGATE_CHILD, readChildReport, type ChildRow } from "../del
 import { crewLead } from "../crew-state.js";
 import { readDelegationUsage } from "../delegate-usage.js";
 import { GoalDoc } from "../goal-doc.js";
+import { SpeedDoc } from "../speed.js";
 import { context, ProcessOwner } from "../luna.js";
 import { TodoDoc } from "../todo.js";
 import { AskDoc } from "../ask.js";
@@ -657,7 +658,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       ? { after: beforeId, order: "descending" as const }
       : undefined;
     // Independent reads. Issue them together so one slow read does not queue the others behind it.
-    const [page, a, usage, kids, todo, ask, goal] = await Promise.all([
+    const [page, a, usage, kids, todo, ask, goal, speed] = await Promise.all([
       conv.entries({ order: "descending" }, limit, cursor, context),
       conv.agent(context),
       harness.snapshot(UsageDoc, conv.id, context).catch(() => undefined),
@@ -665,6 +666,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       harness.snapshot(TodoDoc, conv.id, context).catch(() => undefined),
       harness.snapshot(AskDoc, conv.id, context).catch(() => undefined),
       harness.snapshot(GoalDoc, conv.id, context).catch(() => undefined),
+      harness.snapshot(SpeedDoc, conv.id, context).catch(() => undefined),
     ]);
     const { running, parentSessionId, ...sessionStatus } = await harness.commit(async (tx) => {
       const running = await isRunning(tx, conv.id);
@@ -709,6 +711,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       agent: {
         model: a.model ?? null,
         thinkingLevel: a.thinkingLevel,
+        speed: speed?.speed ?? null,
         cwd: a.cwd ?? null,
         instructions: a.instructions ?? null,
         tools: a.tools.map((t) => t.name),

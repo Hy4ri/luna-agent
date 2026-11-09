@@ -6,6 +6,8 @@ import { FALLBACK_LEVEL, LEVELS, clampTo, findModel, levelsOf, startLevel, type 
 import { addErr, chat } from "./chat";
 
 export { FALLBACK_LEVEL, LEVELS, type ModelRef };
+export type Speed = "fast" | "ultrafast";
+export const speedLabel = (s: Speed | null) => (s === "ultrafast" ? "Ultrafast" : s === "fast" ? "Fast" : "Standard");
 export const levelLabel = (l: string) => (l === "off" ? "Off" : l.charAt(0).toUpperCase() + l.slice(1));
 const PIN_KEY = "luna.pinnedModels";
 
@@ -22,7 +24,9 @@ export const models = reactive({
   selected: null as ModelRef | null,
   thinking: FALLBACK_LEVEL,
   defaultThinkingLevel: FALLBACK_LEVEL,
-  draft: {} as { model?: ModelRef; thinkingLevel?: string },
+  /** OpenAI service tier for the session: null is standard speed. */
+  speed: null as Speed | null,
+  draft: {} as { model?: ModelRef; thinkingLevel?: string; speed?: Speed | null },
   pins: [] as string[],
   loaded: false,
   refresh: null as { checkedAt: number | null; refreshing: boolean; intervalMs: number; errors: Record<string, string> } | null,
@@ -39,6 +43,15 @@ export const modelLabel = computed(() => {
 export const modelInfo = (ref: ModelRef | null | undefined) => findModel(models.list, ref);
 export const levelsFor = (ref: ModelRef | null | undefined) => levelsOf(modelInfo(ref));
 export const availableLevels = computed(() => levelsFor(models.selected));
+/** Speeds the selected model offers; empty hides the speed button. */
+export const availableSpeeds = computed<Speed[]>(() => (modelInfo(models.selected)?.speeds as Speed[] | undefined) ?? []);
+/** The speed requests run: Ultrafast falls back to Fast on models without it (the server applies the same rule). */
+export const effectiveSpeed = computed<Speed | null>(() => {
+  const s = models.speed, speeds = availableSpeeds.value;
+  if (!s) return null;
+  if (speeds.includes(s)) return s;
+  return s === "ultrafast" && speeds.includes("fast") ? "fast" : null;
+});
 export const clampLevel = (level: string, ref: ModelRef | null | undefined) => clampTo(levelsFor(ref), level);
 export const defaultLevelFor = (ref: ModelRef | null | undefined) => startLevel(modelInfo(ref), models.defaultThinkingLevel);
 const draftLevel = (ref: ModelRef | null | undefined) =>
@@ -152,6 +165,19 @@ export async function chooseModel(m: ModelInfo): Promise<boolean> {
     }
   } catch (e) { addErr((e as Error).message); }
   return false;
+}
+
+export async function setSpeed(speed: Speed | null) {
+  const previous = models.speed;
+  models.speed = speed;
+  const sid = chat.session, epoch = chat.epoch;
+  if (!sid) { models.draft.speed = speed; return; }
+  try {
+    const r = await post<{ speed?: Speed | null }>(`/v1/sessions/${sid}`, { speed }, "PATCH");
+    if (chat.session === sid && epoch === chat.epoch && r && "speed" in r) models.speed = r.speed ?? null;
+  } catch (e) {
+    if (epoch === chat.epoch) { models.speed = previous; addErr((e as Error).message); }
+  }
 }
 
 export async function setThinking(level: string) {

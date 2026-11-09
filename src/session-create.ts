@@ -5,6 +5,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { ExecTarget, type WorkerStore } from "./workers.js";
 import type { ProjectStore } from "./projects.js";
 import { resolveThinkingLevel, type ThinkingDefaults } from "./thinking.js";
+import { SPEEDS, SpeedDoc, type Speed } from "./speed.js";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -15,6 +16,8 @@ export interface SessionRequest {
   requestId?: string;
   model?: { provider: string; modelId: string };
   thinkingLevel?: string;
+  /** OpenAI service tier: "fast" or "ultrafast". */
+  speed?: string | null;
   instructions?: string;
   cwd?: string;
   project?: number | null;
@@ -31,7 +34,7 @@ export interface SessionDeps {
   /** Extensions added to sessions created in a project (the board). */
   projectExtensions?: readonly Extension[];
 }
-export interface SessionPlan { agent: AgentChange; worker: number | null; cwd: string | undefined; project: number | undefined }
+export interface SessionPlan { agent: AgentChange; worker: number | null; cwd: string | undefined; project: number | undefined; speed?: Speed }
 
 /** Validate a request and resolve its agent. Throws SessionCreateError for bad input. */
 export function planSession(deps: SessionDeps, b: SessionRequest): SessionPlan {
@@ -39,6 +42,7 @@ export function planSession(deps: SessionDeps, b: SessionRequest): SessionPlan {
   if (worker !== null && (!Number.isSafeInteger(worker) || !deps.workers?.get(worker))) throw new SessionCreateError(400, "unknown worker");
   if (b.model && deps.models && !deps.models.getModel(b.model.provider as never, b.model.modelId as never)) throw new SessionCreateError(400, "unknown model");
   if (b.thinkingLevel !== undefined && !(THINKING_LEVELS as readonly string[]).includes(b.thinkingLevel)) throw new SessionCreateError(400, "invalid thinkingLevel");
+  if (b.speed !== undefined && b.speed !== null && !(SPEEDS as readonly string[]).includes(b.speed)) throw new SessionCreateError(400, "invalid speed");
   // Named projects supply a cwd; General preserves the normal session default.
   let project;
   if (b.project !== undefined && b.project !== null) {
@@ -59,7 +63,7 @@ export function planSession(deps: SessionDeps, b: SessionRequest): SessionPlan {
   const agent: AgentChange = { ...base, ...(b.model && { model: b.model }), thinkingLevel,
     ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }),
     ...(project && deps.projectExtensions?.length && { extensions: { add: deps.projectExtensions } }) };
-  return { agent, worker, cwd, project: project?.id };
+  return { agent, worker, cwd, project: project?.id, ...(b.speed && { speed: b.speed as Speed }) };
 }
 
 /** Create the planned session in `tx`. Link the project with `linkProject` after the commit. */
@@ -67,6 +71,7 @@ export async function createPlannedSession(tx: Tx, plan: SessionPlan): Promise<C
   const id = (await tx.createConversation({ ownership: { kind: "ownerless" } })).id;
   await configure(tx, id, plan.agent);
   (await tx.doc(ExecTarget, id)).worker = plan.worker;
+  if (plan.speed) (await tx.doc(SpeedDoc, id)).speed = plan.speed;
   await tx.appendEntry(id, { kind: "luna.execution", data: { worker: plan.worker, cwd: plan.cwd ?? null } });
   return id;
 }

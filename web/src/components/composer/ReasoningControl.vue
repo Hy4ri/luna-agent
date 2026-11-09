@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from "vue";
-import { LEVELS, availableLevels, levelLabel, models, setThinking } from "@/stores/models";
+import { Zap } from "@lucide/vue";
+import { LEVELS, availableLevels, availableSpeeds, effectiveSpeed, levelLabel, models, setSpeed, setThinking, speedLabel, type Speed } from "@/stores/models";
 import { chat } from "@/stores/chat";
 
 const trigger = ref<HTMLButtonElement | null>(null);
@@ -40,6 +41,14 @@ const triggerSlices = LEVELS.map((level, i) => ({
   color: colors[i]!,
   y: 1 + (LEVELS.length - 1 - i) * 2.2,
 })).reverse();
+
+// OpenAI speed tiers: one lightning button cycles Standard, Fast, Ultrafast (where the model offers it).
+const speedColors: Record<Speed, string> = { fast: "#e6c27a", ultrafast: "#e86060" };
+const speedTitle = computed(() => `Speed: ${speedLabel(effectiveSpeed.value)}`);
+function cycleSpeed() {
+  const order: (Speed | null)[] = [null, ...availableSpeeds.value];
+  void setSpeed(order[(order.indexOf(effectiveSpeed.value) + 1) % order.length] ?? null);
+}
 
 function position() {
   if (!trigger.value || !picker.value) return;
@@ -173,6 +182,20 @@ onUnmounted(() => {
       />
     </svg>
     <span class="think-level-text">{{ label }}</span>
+  </button>
+
+  <button
+    v-if="availableSpeeds.length"
+    id="speed"
+    type="button"
+    :aria-pressed="!!effectiveSpeed"
+    :aria-label="speedTitle"
+    :title="speedTitle"
+    :data-speed="effectiveSpeed ?? 'standard'"
+    :style="effectiveSpeed ? { '--speed-color': speedColors[effectiveSpeed] } : undefined"
+    @click="cycleSpeed"
+  >
+    <Zap :size="14" aria-hidden="true" :fill="effectiveSpeed ? 'currentColor' : 'none'" />
   </button>
 
   <div
@@ -393,6 +416,36 @@ onUnmounted(() => {
 .eq-channel.active .eq-cap {
   color: var(--ch-color);
   font-weight: 700;
+}
+
+#speed {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 32px;
+  min-width: 28px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+#speed:hover {
+  background: var(--secondary);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+#speed[aria-pressed="true"] {
+  color: var(--speed-color);
+}
+
+#speed:focus-visible {
+  outline: 2px solid var(--speed-color, var(--muted-foreground));
+  outline-offset: 2px;
 }
 
 @media (max-width: 760px) {
