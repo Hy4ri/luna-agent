@@ -168,7 +168,7 @@ function imageInput(m: ModelEntry): boolean | undefined {
   return undefined;
 }
 
-type ThinkingLevelName = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+type ThinkingLevelName = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 /**
@@ -194,6 +194,8 @@ export function reasoningInfo(m: ModelEntry): Pick<CustomModelDef, "reasoning" |
   if (efforts?.length) {
     // Listed efforts map to themselves; every other level is unsupported and clamps to a listed one.
     for (const level of EFFORT_LEVELS) map[level] = efforts.includes(level) ? level : null;
+    // Ultra is a harness level: it sends the highest listed effort and turns on proactive delegation.
+    if (efforts.includes("ultra")) map.ultra = "max";
   }
   return Object.keys(map).length ? { reasoning, thinkingLevelMap: map } : { reasoning };
 }

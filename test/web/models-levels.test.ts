@@ -10,10 +10,13 @@ const list = [
 ];
 const limited = levelsOf(findModel(list, { provider: "p", modelId: "limited" }));
 
-test("levelsOf keeps LEVELS order and shows every level for an unknown model", () => {
+test("levelsOf keeps LEVELS order and shows every standard level for an unknown model; ultra needs a listing", () => {
+  const standard = LEVELS.filter(level => level !== "ultra");
   assert.deepEqual(limited, ["off", "low", "high"]);
-  assert.deepEqual(levelsOf(findModel(list, { provider: "p", modelId: "unknown" })), [...LEVELS]);
-  assert.deepEqual(levelsOf(findModel(list, null)), [...LEVELS]);
+  assert.deepEqual(levelsOf(findModel(list, { provider: "p", modelId: "unknown" })), standard);
+  assert.deepEqual(levelsOf(findModel(list, null)), standard);
+  assert.deepEqual(levelsOf({ provider: "p", id: "u", thinkingLevels: ["high", "max", "ultra"] }), ["high", "max", "ultra"]);
+  assert.equal(clampTo(["off", "high", "max"], "ultra"), "max");
 });
 
 test("clampTo picks the nearest supported level above, then below", () => {

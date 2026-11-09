@@ -18,6 +18,19 @@ function capacityLabel(tokens: number): string {
   return tokens % 1000 === 0 ? `${tokens / 1000}K` : String(tokens);
 }
 
+/**
+ * Ultra support from the catalog's `supported_reasoning_levels`: the request effort is
+ * `multi_agent_reasoning_effort` when set, else max (Codex rule). An entry without the list keeps the model.
+ */
+export function withUltra<T extends Model<Api>>(model: T, entry: Record<string, unknown>): T {
+  const levels = entry.supported_reasoning_levels;
+  if (!Array.isArray(levels) || !model.reasoning) return model;
+  const ultra = levels.some(level => record(level)?.effort === "ultra");
+  const delegated = entry.multi_agent_reasoning_effort;
+  const effort = !ultra ? null : typeof delegated === "string" && delegated !== "ultra" ? delegated : "max";
+  return { ...model, thinkingLevelMap: { ...model.thinkingLevelMap, ultra: effort } as T["thinkingLevelMap"] };
+}
+
 /** Add context variants from OpenAI's authenticated catalog, keeping built-in capabilities and auth. */
 export function openaiProvider(fetchImpl: typeof fetch = fetch): ReturnType<typeof baseOpenaiProvider> {
   const provider = baseOpenaiProvider();
@@ -56,7 +69,7 @@ export function openaiProvider(fetchImpl: typeof fetch = fetch): ReturnType<type
         if (!entry || entry.visibility === "hide" || entry.supported_in_api === false) return model;
         const contextWindow = contextLimit(entry.context_window);
         const maximum = contextLimit(entry.max_context_window);
-        const updated = contextWindow === undefined ? model : { ...model, contextWindow };
+        const updated = withUltra(contextWindow === undefined ? model : { ...model, contextWindow }, entry);
         // Never infer a larger limit from a model name, another model, or a missing field.
         // Keep native IDs that happen to use our suffix distinct from local variants.
         if (contextWindow !== undefined && maximum !== undefined && maximum > contextWindow

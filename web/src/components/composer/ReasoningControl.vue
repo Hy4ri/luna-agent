@@ -22,9 +22,10 @@ const colors = [
   "#e6c27a", // High
   "#f4a571", // Xhigh
   "#e86060", // Max
+  "#990000", // Ultra
 ];
 
-const shortLabels = ["OFF", "MIN", "LOW", "MED", "HIGH", "XHGH", "MAX"];
+const shortLabels = ["OFF", "MIN", "LOW", "MED", "HIGH", "XHGH", "MAX", "ULTRA"];
 
 const scale = (level: string | undefined) => Math.max(0, LEVELS.indexOf(level as (typeof LEVELS)[number]));
 const activeLevel = computed(() => levels.value[active.value] ?? levels.value[0] ?? "off");
@@ -32,12 +33,12 @@ const activeScale = computed(() => scale(activeLevel.value));
 const color = computed(() => colors[activeScale.value] ?? colors[0]);
 const label = computed(() => levelLabel(activeLevel.value));
 
-// Vertical stack of 7 LED segments for the small composer trigger (top = Max, bottom = Off)
+// Vertical stack of 8 LED segments for the small composer trigger (top = Max, bottom = Off)
 const triggerSlices = LEVELS.map((level, i) => ({
   level,
   index: i,
   color: colors[i]!,
-  y: 1 + (LEVELS.length - 1 - i) * 2.5,
+  y: 1 + (LEVELS.length - 1 - i) * 2.2,
 })).reverse();
 
 function position() {

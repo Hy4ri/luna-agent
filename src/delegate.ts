@@ -80,7 +80,7 @@ const blocked = (r: ChildReport) => r.state === "needs_input" || r.state === "ne
 
 export interface DelegateSettings {
   provider?: string; model?: string;
-  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   cwd?: string;
   maxTurns?: number;
   profiles?: Record<string, DelegateProfile>;

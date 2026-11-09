@@ -30,7 +30,7 @@ export const McpServerSchema = z.discriminatedUnion("transport", [
   z.strictObject({ ...common, transport: z.literal("http"), url: z.url(), headers }),
   z.strictObject({ ...common, transport: z.literal("sse"), url: z.url(), headers }),
 ]);
-const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 export const CustomProviderSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/), name: z.string().min(1),
   api: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]),
