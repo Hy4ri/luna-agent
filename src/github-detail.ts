@@ -393,6 +393,7 @@ export async function detail(owner: string, name: string, number: number): Promi
       can: {
         comment: canComment,
         close: !repoData.isArchived && node.viewerCanUpdate,
+        edit: !repoData.isArchived && node.viewerCanUpdate,
         merge: false,
         deleteBranch: false,
         delete: node.viewerCanDelete,
@@ -503,6 +504,7 @@ export async function detail(owner: string, name: string, number: number): Promi
       can: {
         comment: canComment,
         close: !repoData.isArchived && node.viewerCanUpdate && node.state !== "MERGED",
+        edit: !repoData.isArchived && node.viewerCanUpdate,
         merge: canMerge,
         deleteBranch: canDeleteBranch,
         delete: false,

@@ -19,12 +19,16 @@ const props = defineProps<{
   error: string | null;
   /** Room for the changed-file list beside the diff. */
   filesWide?: boolean;
+  /** The local clone is this repository, so a pull request can be checked out. */
+  canCheckout?: boolean;
 }>();
 const view = ref<"conversation" | "files">("conversation");
 
 const emit = defineEmits<{
   (e: "changed", detail?: Detail): void;
   (e: "deleted"): void;
+  (e: "checkout"): void;
+  (e: "start-session"): void;
 }>();
 
 const earlier = ref<Comment[]>([]), before = ref<string | null>(null), loadingEarlier = ref(false), commentsError = ref('');
@@ -114,6 +118,8 @@ function formatTime(iso: string): string {
             <span>Open on GitHub</span>
             <ExternalLink class="w-3.5 h-3.5" />
           </a>
+          <button v-if="detail.kind === 'pr' && canCheckout && detail.state === 'OPEN'" type="button" class="px-2 py-0.5 rounded border border-border hover:bg-accent text-foreground" @click="emit('checkout')">Check out</button>
+          <button type="button" class="px-2 py-0.5 rounded border border-border hover:bg-accent text-foreground" title="Open a new chat with this item in the composer" @click="emit('start-session')">Start session</button>
         </div>
         <h1 class="text-xl font-semibold">{{ detail.title }}</h1>
         <div class="flex items-center gap-2 text-xs text-muted-foreground">
