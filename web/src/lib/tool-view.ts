@@ -5,20 +5,27 @@ export type AnsiSpan = { text: string; cls: string };
 export type ToolView = "edit" | "bash" | "write" | "read" | "process" | "todo" | "web_search" | "web_extract" | "answers" | "skill" | "media" | "codemode" | "text" | "generic";
 
 const TEXT_TOOLS = new Set([
+  // cron_history stays for older transcripts; it is now cron runs/get_run/lessons.
   "board", "memory", "cron", "cron_history", "goal", "delegate_task", "session_search",
-  "tool_search", "session_handoff", "browser_tab", "browser_inspect", "browser_act",
+  "tool_search", "session_handoff", "browser", "browser_tab", "browser_inspect", "browser_act",
 ]);
 
-/** Which renderer a call uses. Unknown tools (MCP and others) keep the generic arguments/output card. */
-export function toolView(name: string): ToolView {
+/** Image and video analysis. vision_analyze and video_analyze are the retired names in older transcripts. */
+export const ANALYZE_TOOLS = new Set(["media_analyze", "vision_analyze", "video_analyze"]);
+
+/** Which renderer a call uses. Unknown tools (MCP and others) keep the generic arguments/output card.
+ * `web` picks its view from the action; web_search and web_extract are the retired names in older transcripts. */
+export function toolView(name: string, args?: unknown): ToolView {
   if (name === "codemode") return "codemode";
+  if (name === "web") return (args as { action?: unknown } | undefined)?.action === "read" ? "web_extract" : "web_search";
   if (["edit", "bash", "write", "read", "todo", "web_search", "web_extract"].includes(name)) return name as ToolView;
-  if (name === "process") return "process";
+  // process_manage manages background commands; `process` is its retired name in older transcripts (it also had start).
+  if (name === "process" || name === "process_manage") return "process";
   if (name === "ask_user_question") return "answers";
-  if (name === "skill_view") return "skill";
   // Content-carrying skill changes show the proposed SKILL.md; list and other actions stay plain text.
-  if (name === "skill_manage") return "skill";
-  if (name === "image_generate" || name === "vision_analyze") return "media";
+  // skill_view and skill_manage are the retired names in older transcripts.
+  if (name === "skill" || name === "skill_view" || name === "skill_manage") return "skill";
+  if (name === "image_generate" || ANALYZE_TOOLS.has(name)) return "media";
   return TEXT_TOOLS.has(name) ? "text" : "generic";
 }
 
@@ -39,15 +46,17 @@ export function toolSummary(name: string, args: unknown): string {
       const to = from !== undefined && typeof a.limit === "number" ? from + a.limit - 1 : undefined;
       return clip(a.path) + (from === undefined ? "" : to === undefined ? `:${from}` : `:${from}–${to}`);
     }
-    case "browser_tab": return [str(a.action), clip(str(a.url), 60) || str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
+    case "browser": case "browser_tab": return [str(a.action), clip(str(a.url), 60) || str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
     case "browser_inspect": return [str(a.action), str(a.tabId).slice(0, 8)].filter(Boolean).join(" ");
+    // `browser` replaced browser_tab and browser_inspect; the old names stay for older transcripts.
     case "browser_act": {
       const el = str(a.ref) ? "ref " + a.ref : str(a.selector);
       if (a.action === "type") return clip(`type "${str(a.text)}" → ${el}`);
       if (a.action === "scroll") return ["scroll", str(a.direction), typeof a.amount === "number" ? a.amount + "px" : ""].filter(Boolean).join(" ");
       return clip(["click", el].filter(Boolean).join(" "));
     }
-    case "process": return a.action === "start" ? clip("start " + str(a.command)) : [str(a.action), str(a.id).slice(0, 8)].filter(Boolean).join(" ");
+    case "bash": return clip((a.background === true ? "bg " : "") + str(a.command));
+    case "process": case "process_manage": return a.action === "start" ? clip("start " + str(a.command)) : [str(a.action), str(a.id).slice(0, 8)].filter(Boolean).join(" ");
     case "todo": return [str(a.action), typeof a.id === "number" ? "#" + a.id : "", str(a.subject) || str(a.status)].filter(Boolean).map(s => clip(s, 60)).join(" ");
     case "board": return [str(a.action), typeof a.id === "number" ? "#" + a.id : "", clip(str(a.subject), 60) || str(a.status)].filter(Boolean).join(" ");
     case "cron": {
@@ -63,10 +72,11 @@ export function toolSummary(name: string, args: unknown): string {
       if (a.action === "create") return clip("create " + str(a.objective));
       return str(a.action);
     }
-    case "skill_manage": return [str(a.action), str(a.name), str(a.file_path)].filter(Boolean).join(" ");
+    case "skill": case "skill_manage": return [str(a.action), str(a.name), str(a.file_path)].filter(Boolean).join(" ");
     case "ask_user_question": return Array.isArray(a.questions) && a.questions[0] ? clip(str(a.questions[0].question)) + (a.questions.length > 1 ? ` +${a.questions.length - 1}` : "") : "";
     case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
     case "codemode": return clip(str(a.code));
+    case "web": return [str(a.action), clip(str(a.action) === "read" ? str(a.url) : str(a.query), 70)].filter(Boolean).join(" ");
   }
   for (const key of ["path", "command", "query", "url", "objective", "prompt", "question", "name", "subject", "action"]) if (str(a[key])) return clip(a[key]);
   return "";
@@ -116,13 +126,13 @@ export function parseJson(text: string): any {
 }
 
 export type DockTarget = { pane: "browser" | "terminal"; id?: string };
-const BROWSER_TOOLS = new Set(["browser_tab", "browser_inspect", "browser_act"]);
+const BROWSER_TOOLS = new Set(["browser", "browser_tab", "browser_inspect", "browser_act"]);
 
 /** The dock pane a call worked in, and the tab or terminal it used when the arguments or output name one. */
 export function dockTarget(name: string, args: unknown, output: string): DockTarget | undefined {
   const a = args && typeof args === "object" ? args as Record<string, unknown> : {};
   if (BROWSER_TOOLS.has(name)) {
-    // browser_tab open returns the new handle; every other call names it.
+    // browser open returns the new handle; every other call names it.
     const id = str(a.tabId) || str(parseJson(output)?.tabId);
     return id ? { pane: "browser", id } : { pane: "browser" };
   }

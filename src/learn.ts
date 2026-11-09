@@ -95,7 +95,7 @@ export function detectSignals(msgs: ScanMessage[]): DetectedSignal[] {
     if (m.role === "assistant") {
       previous = m;
       for (const c of m.calls) if (c.id) callsById.set(c.id, c);
-      for (const c of m.calls) if (c.id && c.name === "skill_view" && typeof c.args.name === "string" && !c.args.file_path) pendingSkills.set(c.id, c.args.name);
+      for (const c of m.calls) if (c.id && isSkillLoad(c.name, c.args) && typeof c.args.name === "string" && !c.args.file_path) pendingSkills.set(c.id, c.args.name);
     } else if (m.role === "user") {
       const t = originalUserText(m);
       if (!t) continue;
@@ -125,11 +125,14 @@ export function detectSignals(msgs: ScanMessage[]): DetectedSignal[] {
   return out;
 }
 
-/** Skills a conversation loaded with skill_view. */
+/** A skill load: `skill action=view`, or `skill_view` in older transcripts. */
+const isSkillLoad = (name: string, args: Record<string, unknown>) => name === "skill_view" || (name === "skill" && args.action === "view");
+
+/** Skills a conversation loaded with skill action=view. */
 export function loadedSkills(msgs: ScanMessage[]): string[] {
   const loaded = new Set<string>(), pending = new Map<string, string>();
   for (const m of msgs) {
-    for (const c of m.calls) if (c.id && c.name === "skill_view" && typeof c.args.name === "string" && !c.args.file_path) pending.set(c.id, c.args.name);
+    for (const c of m.calls) if (c.id && isSkillLoad(c.name, c.args) && typeof c.args.name === "string" && !c.args.file_path) pending.set(c.id, c.args.name);
     if (m.role === "toolResult" && !m.isError && m.toolCallId && pending.has(m.toolCallId)) loaded.add(pending.get(m.toolCallId)!);
   }
   return [...loaded];

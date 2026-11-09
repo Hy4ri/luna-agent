@@ -7,7 +7,7 @@ import { sessionPane } from '@/lib/pane';
 import { chat, openSession, toolArgsText } from '@/stores/chat';
 import { json as fetchJson } from '@/lib/api';
 import { formatTime, formatDateIso } from '@/lib/message';
-import { dockTarget, toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits, parseCodemodeCalls } from '@/lib/tool-view';
+import { ANALYZE_TOOLS, dockTarget, toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits, parseCodemodeCalls } from '@/lib/tool-view';
 import Markdown from './Markdown.vue';
 import SessionImage from './SessionImage.vue';
 import DiffView from './tool/DiffView.vue';
@@ -92,7 +92,7 @@ const child = computed(() => /spawned child (\d+)/.exec(output.value)?.[1]);
 const timestamp = computed(() => result.value?.timestamp ?? chat.toolStarts[props.id]?.timestamp ?? props.timestamp);
 const fullDate = computed(() => formatDateIso(timestamp.value) ? new Date(timestamp.value).toLocaleString() : '');
 
-const view = computed(() => toolView(props.name));
+const view = computed(() => toolView(props.name, props.args));
 const a = computed(() => (props.args && typeof props.args === 'object' ? props.args : {}) as Record<string, any>);
 const summary = computed(() => toolSummary(props.name, props.args));
 const details = computed(() => { const d = result.value?.details; return typeof d === 'string' ? parseJson(d) : d; });
@@ -134,7 +134,7 @@ const answers = computed(() => view.value === 'answers' && Array.isArray(details
 const media = computed(() => {
   if (view.value !== 'media' || !json.value || typeof json.value !== 'object') return '';
   const j = json.value;
-  if (props.name === 'vision_analyze') return typeof j.width === 'number' ? `${j.width}×${j.height}` : '';
+  if (ANALYZE_TOOLS.has(props.name)) return typeof j.width === 'number' ? `${j.width}×${j.height}` : '';
   return [j.model, j.image].filter((x: unknown) => typeof x === 'string' && x).join(' · ');
 });
 // Browser and terminal calls open their tab in the dock. Split tiles have no dock.
@@ -177,8 +177,8 @@ const hasBody = computed(() => {
     case 'write': return writeLines.value > 0;
     case 'process': return !!proc.value?.output || (!proc.value && !!body.value);
     case 'todo': return tasks.value.length > 0 || !!body.value;
-    case 'media': return !!media.value || (props.name === 'vision_analyze' && typeof json.value?.analysis === 'string' && !!json.value.analysis);
-    case 'skill': return (props.name === 'skill_manage' && typeof a.value.content === 'string') || !!body.value;
+    case 'media': return !!media.value || (ANALYZE_TOOLS.has(props.name) && typeof json.value?.analysis === 'string' && !!json.value.analysis);
+    case 'skill': return (['skill', 'skill_manage'].includes(props.name) && typeof a.value.content === 'string') || !!body.value;
     case 'codemode': return !!codemodeCode.value || codemodeCalls.value.length > 0 || !!body.value;
     default: return !!body.value;
   }
@@ -260,7 +260,7 @@ const hasBody = computed(() => {
             <template v-for="(q, i) in answers" :key="i"><dt dir="auto">{{ q.question }}</dt><dd dir="auto">{{ q.answer }}</dd></template>
           </dl>
           <template v-else-if="view === 'skill'">
-            <template v-if="name === 'skill_manage' && typeof a.content === 'string'">
+            <template v-if="(name === 'skill' || name === 'skill_manage') && typeof a.content === 'string'">
               <span class="tool-section-label">Proposed content</span>
               <CodeView :text="a.content" />
               <pre v-if="body">{{ body }}</pre>
@@ -294,7 +294,7 @@ const hasBody = computed(() => {
             </template>
           </template>
           <template v-else-if="view === 'media'">
-            <Markdown v-if="name === 'vision_analyze' && typeof json?.analysis === 'string'" class="tool-md" :content="json.analysis" />
+            <Markdown v-if="ANALYZE_TOOLS.has(name) && typeof json?.analysis === 'string'" class="tool-md" :content="json.analysis" />
             <p v-else class="tool-line">{{ media }}</p>
           </template>
           <pre v-else>{{ body }}</pre>

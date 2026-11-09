@@ -1,14 +1,14 @@
-// Skill management tool: skill_manage (list with write authority, create, edit, benchmark-gated propose, rollback,
+// Skill tool: skill (view, list with write authority, create, edit, benchmark-gated propose, rollback,
 // delete, linked files, restore). Write authority: only skills under the managed dir (<dataDir>/skills) change; skills from
 // other configured skillDirs are read-only. SKILL.md writes go through SkillImprover.propose (lint + version backup,
-// rollback with skill_manage action=rollback). Deletes and replaced linked files move to <historyDir>/.trash and can be restored.
+// rollback with skill action=rollback). Deletes and replaced linked files move to <historyDir>/.trash and can be restored.
 // Everything is plain files rescanned on every use, so changes reach the catalog on the next model call.
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { proposeBenchmark, type ProposalResult, type ProposeOptions, type SkillImprover } from "./improve.js";
-import { linkedFiles, scanSkills, type Skill } from "./skills.js";
+import { linkedFiles, scanSkills, type Skill, type SkillViewer } from "./skills.js";
 
 export interface TrashEntry {
   id: string;
@@ -178,26 +178,35 @@ const text = (t: string, isError = false) => ({ output: [{ type: "text" as const
 const trashLine = (e: TrashEntry) =>
   `- ${e.id}: ${e.kind} ${e.skill}${e.file ? `/${e.file}` : ""} (${e.reason} ${new Date(e.deletedAt).toISOString()})`;
 
-/** Tool: skill_manage (list, create, edit, propose, rollback, delete, write_file, delete_file, restore). */
-export function createSkillManageExtension(mgr: SkillManager, imp: SkillImprover, o: ProposeOptions = {}) {
+/** Read-only actions; every other action changes the skills store. */
+const READ_ACTIONS = new Set(["view", "list"]);
+
+export interface SkillToolOptions extends ProposeOptions {
+  /** view and its catalog are on (the `skills` extension). Off: view is refused; improve keeps the write actions. */
+  view?: { load: SkillViewer; enabled: () => boolean };
+}
+
+/** Tool: skill (view, list, create, edit, propose, rollback, delete, write_file, delete_file, restore). */
+export function createSkillManageExtension(mgr: SkillManager, imp: SkillImprover, o: SkillToolOptions = {}) {
   const named = Object.keys(o.benchmarks ?? {});
   const manage = defineTool({
-    name: "skill_manage",
+    name: "skill",
     description:
-      "List and change skills. list: all skills with source and write authority (managed skills can change; external ones are read-only); include_deleted adds restorable trash entries. " +
+      "Load, list and change skills. view: load a skill by name (instructions and linked files); file_path reads one linked file; loading may enable the skill's tools within the conversation tool limits. " +
+      "list: all skills with source and write authority (managed skills can change; external ones are read-only); include_deleted adds restorable trash entries. " +
       "create: new skill from full SKILL.md content. edit: replace SKILL.md (content) or one exact old_text with new_text. create/edit are linted only and back up the previous SKILL.md. " +
       "propose: create or update a skill (full SKILL.md) gated by a benchmark: it is linted, scored, and installed only if it does not regress; " +
       "benchmark (named: " + (named.join(", ") || "none registered") + "), benchmark_command (shell, exit 0 = pass, $SKILL_PATH = candidate), or must_contain phrases; dry_run checks without installing. " +
       "rollback: restore a backed-up SKILL.md version (default: latest). " +
       "delete: move the skill to the trash. write_file / delete_file: a linked file (file_path relative to the skill dir); a replaced or deleted file goes to the trash. " +
-      "restore: bring a trash entry back by id (see list include_deleted).",
+      "restore: bring a trash entry back by id (see list include_deleted). Delegated children can only view and list.",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("list"), Type.Literal("create"), Type.Literal("edit"), Type.Literal("propose"), Type.Literal("rollback"), Type.Literal("delete"), Type.Literal("write_file"), Type.Literal("delete_file"), Type.Literal("restore")]),
+      action: Type.Union([Type.Literal("view"), Type.Literal("list"), Type.Literal("create"), Type.Literal("edit"), Type.Literal("propose"), Type.Literal("rollback"), Type.Literal("delete"), Type.Literal("write_file"), Type.Literal("delete_file"), Type.Literal("restore")]),
       name: Type.Optional(Type.String({ description: "Skill name (all actions except list and restore)." })),
       content: Type.Optional(Type.String({ description: "create/edit/propose: full SKILL.md including frontmatter. write_file: file content." })),
       old_text: Type.Optional(Type.String({ description: "edit: exact text in SKILL.md to replace (must match once)." })),
       new_text: Type.Optional(Type.String({ description: "edit: replacement for old_text." })),
-      file_path: Type.Optional(Type.String({ description: "write_file/delete_file: path relative to the skill directory." })),
+      file_path: Type.Optional(Type.String({ description: "view: linked file to read. write_file/delete_file: path relative to the skill directory." })),
       id: Type.Optional(Type.String({ description: "restore: trash entry id." })),
       include_deleted: Type.Optional(Type.Boolean({ description: "list: also list restorable trash entries." })),
       benchmark: Type.Optional(Type.String({ description: "propose: named benchmark." })),
@@ -207,11 +216,19 @@ export function createSkillManageExtension(mgr: SkillManager, imp: SkillImprover
       version: Type.Optional(Type.Number({ description: "rollback: version to restore (default: latest backup)." })),
     }),
     replay: "unsafe",
-    async execute(a) {
+    async execute(a, api, context) {
       try {
         const need = (v: string | undefined, what: string): string => { if (v === undefined || v === "") throw new Error(`${a.action} needs ${what}`); return v; };
+        // Delegated children (and goal auditors) only read skills, so read-only roles stay read-only.
+        const isChild = () => api.commit(async tx => (await tx.scanEntries({ conversationId: api.conversationId, order: "ascending" }, 30)).items.some(e => e.kind === "delegate.child"), context);
+        if (!READ_ACTIONS.has(a.action) && await isChild())
+          return text(`skill action=${a.action} is not available to delegated children. Use view or list, and report the change to the parent.`, true);
         const proposal = (r: ProposalResult) => ({ ...text(JSON.stringify(r, null, 2), !r.applied && r.reason !== "no change"), details: r as unknown as undefined });
         switch (a.action) {
+          case "view": {
+            if (!o.view?.enabled()) return text("skill action=view is off: enable the skills extension.", true);
+            return o.view.load(need(a.name, "name"), a.file_path, Number(api.conversationId)) as never;
+          }
           case "list": {
             const skills = mgr.list();
             let out = skills.length

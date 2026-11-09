@@ -110,12 +110,12 @@ test("tabs the tools open belong to the session and drop on close", async () => 
   const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
   const run = (name: string, args: Record<string, unknown>, conversationId = "7") =>
     (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)(args, { conversationId }, {});
-  await run("browser_tab", { action: "open", url: "https://x.test/" });
+  await run("browser", { action: "open", url: "https://x.test/" });
   assert.deepEqual(panel.list(7).map(t => [t.tabId, t.owner, t.controller]), [["t1", "agent", "agent"]]);
   assert.deepEqual(panel.list(8), []);
-  await run("browser_tab", { action: "navigate", tabId: "t1", url: "https://x.test/b" });
+  await run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/b" });
   assert.equal(panel.list(7)[0]!.url, "https://x.test/b");
-  await run("browser_tab", { action: "close", tabId: "t1" });
+  await run("browser", { action: "close", tabId: "t1" });
   assert.deepEqual(panel.list(7), []);
 });
 
@@ -125,13 +125,13 @@ test("while m57 holds a tab, Luna's actions on it fail and inspection still work
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
   const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
   const run = (name: string, args: Record<string, unknown>) => (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)(args, { conversationId: "7" }, {});
-  await run("browser_tab", { action: "open", url: "https://x.test/" });
+  await run("browser", { action: "open", url: "https://x.test/" });
   panel.control(7, "t1", "take");
   await assert.rejects(run("browser_act", { action: "click", tabId: "t1", selector: "a" }), new RegExp(LOCK_MESSAGE.slice(0, 20)));
-  await assert.rejects(run("browser_tab", { action: "navigate", tabId: "t1", url: "https://x.test/c" }), /m57 is using this tab/);
-  await assert.rejects(run("browser_tab", { action: "close", tabId: "t1" }), /m57 is using this tab/);
+  await assert.rejects(run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/c" }), /m57 is using this tab/);
+  await assert.rejects(run("browser", { action: "close", tabId: "t1" }), /m57 is using this tab/);
   assert.deepEqual(calls, ["open"]);
-  await run("browser_inspect", { action: "screenshot", tabId: "t1" });
+  await run("browser", { action: "screenshot", tabId: "t1" });
   panel.control(7, "t1", "give");
   await run("browser_act", { action: "click", tabId: "t1", selector: "a" });
   assert.deepEqual(calls, ["open", "screenshot", "click"]);
@@ -283,13 +283,13 @@ test("a closed tab tells the socket and ends the feed", async () => {
   } finally { await s.cleanup(); }
 });
 
-test("browser_tab list shows the session's tabs, including the ones m57 opens and closes", async () => {
+test("browser list shows the session's tabs, including the ones m57 opens and closes", async () => {
   const { provider } = fakeProvider();
   const panel = new BrowserPanel({ enabled: () => true, resolve: async () => provider });
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
   const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
   const run = async (args: Record<string, unknown>, conversationId = "7") =>
-    JSON.parse(((await (tools.get("browser_tab")!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text: string }[] }>)(args, { conversationId }, {})).output[0]!.text));
+    JSON.parse(((await (tools.get("browser")!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text: string }[] }>)(args, { conversationId }, {})).output[0]!.text));
   await run({ action: "open", url: "https://x.test/" });
   const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
@@ -299,10 +299,10 @@ test("browser_tab list shows the session's tabs, including the ones m57 opens an
   assert.deepEqual((await run({ action: "list" })).tabs.map((t: { tabId: string }) => t.tabId), ["t1"]);
 });
 
-test("browser_tab list without the panel says how to turn it on", async () => {
+test("browser list without the panel says how to turn it on", async () => {
   const { provider } = fakeProvider();
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]));
-  const tab = (ext.tools ?? []).find(t => t.name === "browser_tab")!;
+  const tab = (ext.tools ?? []).find(t => t.name === "browser")!;
   await assert.rejects((tab.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)({ action: "list" }, { conversationId: "7" }, {}), /browser\.panel/);
 });
 
@@ -313,14 +313,14 @@ test("what m57 does in the panel reaches Luna once, on her next browser call", a
   const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
   const run = async (name: string, args: Record<string, unknown>) =>
     (await (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text?: string }[] }>)(args, { conversationId: "7" }, {})).output.map(o => o.text ?? "").join("\n");
-  await run("browser_tab", { action: "open", url: "https://x.test/" });
+  await run("browser", { action: "open", url: "https://x.test/" });
   const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
   panel.control(7, "t1", "take");
   panel.control(7, "t1", "give");
   await panel.close(7, mine.tabId);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
-  const first = await run("browser_inspect", { action: "snapshot", tabId: "t1" });
+  const first = await run("browser", { action: "snapshot", tabId: "t1" });
   assert.match(first, new RegExp(`m57 opened ${mine.tabId} at https://m57.test/; m57 took over t1; m57 gave t1 back to you; m57 closed ${mine.tabId}`));
   assert.doesNotMatch(first, /other\.test/);
-  assert.doesNotMatch(await run("browser_inspect", { action: "snapshot", tabId: "t1" }), /in the panel/);
+  assert.doesNotMatch(await run("browser", { action: "snapshot", tabId: "t1" }), /in the panel/);
 });

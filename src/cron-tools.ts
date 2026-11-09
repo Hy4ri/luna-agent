@@ -1,4 +1,4 @@
-// Cron extensions: `cron` manages scheduled jobs (create/list/get/update/remove/run/stop) in cron.db, `cron_history` reads runs,
+// Cron extension: one `cron` tool manages scheduled jobs in cron.db and reads their runs and failure lessons,
 // plus result delivery to a notify URL (ntfy-compatible: plain-text POST with a Title header).
 import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
@@ -46,17 +46,26 @@ function jobDetail(store: CronStore, j: Job, active: number[]) {
   ].join("\n");
 }
 
+/** What `cron action=lessons` needs from the self-improvement engine. */
+export interface LessonSource { lessons(opts: { minCount?: number }): { count: number; signature: string; labels: string[]; example: string }[] }
+
 /**
- * Tool `cron`: create, list, get, update, remove, run, stop scheduled jobs. `changed` re-arms the scheduler;
- * `scheduler` is read per call because it starts after the harness.
+ * Tool `cron`: manage scheduled jobs (create, list, get, update, remove, run, stop) and read their history
+ * (runs, get_run, lessons). `changed` re-arms the scheduler; `scheduler` is read per call because it starts after the harness.
+ * `jobs` reports live whether the cron extension is on; when only improve is on, the tool keeps the history actions; `lessons` is undefined when improve is off.
  */
-export function createCronExtension(store: CronStore, changed: () => void = () => {}, scheduler: () => Scheduler | undefined = () => undefined) {
+export function createCronExtension(store: CronStore, changed: () => void = () => {}, scheduler: () => Scheduler | undefined = () => undefined,
+  options: { jobs?: () => boolean; lessons?: LessonSource } = {}) {
+  const jobsOn = options.jobs ?? (() => true);
+  type Action = "create" | "list" | "get" | "update" | "remove" | "run" | "stop" | "runs" | "get_run" | "lessons";
   type Args = {
-    action: "create" | "list" | "get" | "update" | "remove" | "run" | "stop";
+    action: Action;
     id?: number; runId?: number; name?: string; expr?: string; prompt?: string; enabled?: boolean;
     reportPolicy?: ReportPolicy; graceMs?: number | null; timeoutMs?: number | null; retries?: number;
+    status?: "running" | "ok" | "error" | "skipped"; limit?: number; offset?: number; min_count?: number;
   };
-  const actions: Record<Args["action"], (a: Args) => Promise<ReturnType<typeof text>> | ReturnType<typeof text>> = {
+  const JOB_ACTIONS = new Set<Action>(["create", "list", "get", "update", "remove", "run", "stop"]);
+  const actions: Record<Action, (a: Args) => Promise<ReturnType<typeof text>> | ReturnType<typeof text>> = {
     create({ name, expr, prompt }) {
       if (!name || !expr || prompt === undefined) return text("create needs name, expr and prompt", true);
       try { parseCron(expr); } catch (e) { return text(`invalid cron expression: ${(e as Error).message}`, true); }
@@ -112,7 +121,7 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
       if (!s) return text("the scheduler is not running", true);
       try {
         const r = s.runNow(id);
-        return text(`started run #${r.id} of job ${id}; check it with cron_history action=run runId=${r.id}`);
+        return text(`started run #${r.id} of job ${id}; check it with cron action=get_run runId=${r.id}`);
       } catch (e) { return text((e as Error).message, true); }
     },
     async stop({ runId, id }) {
@@ -133,24 +142,45 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
         case "finished": return text(`run #${r.id} finished on its own before the stop took effect: ${r.status}`);
         case "already_finished": return text(`run #${r.id} is not running (status ${r.status})`, true);
         case "not_tracked": return text(`run #${r.id} is marked running, but no executor in this process owns it; nothing was cancelled`, true);
-        case "still_running": return text(`cancellation of run #${r.id} was requested, but the run has not settled yet; check cron_history action=run runId=${r.id}`, true);
+        case "still_running": return text(`cancellation of run #${r.id} was requested, but the run has not settled yet; check cron action=get_run runId=${r.id}`, true);
       }
+    },
+    runs({ id, status, limit: max }) {
+      const limit = Math.min(max ?? 10, 100);
+      const rs = status ? store.queryRuns({ jobId: id, status, limit }) : store.runs(id, limit);
+      return text(rs.length ? rs.map((r) => `#${r.id} job=${r.jobId} (${r.jobName}) ${r.status} at ${when(r.startedAt)}: ${preview(r.error ?? r.output ?? "", 300, `cron action=get_run runId=${r.id} for the full result`)}`).join("\n") : "no runs");
+    },
+    get_run({ runId, offset }) {
+      if (runId === undefined) return text("get_run needs runId", true);
+      const r = store.getRun(runId);
+      if (!r) return text(`no run ${runId}`, true);
+      const o = offset ?? 0;
+      if (!Number.isSafeInteger(o) || o < 0) return text("offset must be a nonnegative integer", true);
+      return text(runDetail(r, o));
+    },
+    lessons({ min_count }) {
+      if (!options.lessons) return text("lessons need the improve extension, which is disabled", true);
+      const ls = options.lessons.lessons({ minCount: min_count ?? 2 });
+      return text(ls.length ? ls.map((l, i) => `${i + 1}. x${l.count} ${l.signature}\n   jobs: ${l.labels.join(", ")}\n   example: ${l.example.replace(/\s+/g, " ")}`).join("\n") : "No recurring failure patterns.");
     },
   };
   const cron = defineTool({
     name: "cron",
     description:
-      "Manage scheduled jobs. create: name, expr, prompt; each run is a fresh conversation that receives `prompt`, so make it self-contained. " +
+      "Manage scheduled jobs and read their runs. create: name, expr, prompt; each run is a fresh conversation that receives `prompt`, so make it self-contained. " +
       "expr: 5-field cron in local time (min hour dom mon dow) or @hourly/@daily/@weekly/@monthly/@yearly. list: all jobs. get: one job in full. " +
       "update: pass id and only the fields to change; enabled=true/false enables or disables; a new expr or enabling recomputes the next run. " +
       "remove: delete a job; reports and run history are kept; stop or wait for its active run first. " +
       "run: start a job now outside its schedule (also when disabled); fails if it already has an active run. " +
       "stop: cancel an active run (runId, or id for that job's active run) and report the real outcome; this does not disable the job. " +
-      "Use cron_history for past runs.",
+      "runs: recent runs newest first, optionally for one job (id) or one status, with output or error previews. " +
+      `get_run: one run in full (runId) with status, timing, conversation and the complete result; results over ${PAGE} chars come in pages, use offset. ` +
+      "lessons: group recent failed runs by normalized error signature and return recurring patterns (count, affected jobs, example); use these to decide which skill to draft or update.",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("create"), Type.Literal("list"), Type.Literal("get"), Type.Literal("update"), Type.Literal("remove"), Type.Literal("run"), Type.Literal("stop")]),
-      id: Type.Optional(Type.Number({ description: "Job id (get, update, remove, run; stop: alternative to runId)." })),
-      runId: Type.Optional(Type.Number({ description: "stop: run id." })),
+      action: Type.Union([Type.Literal("create"), Type.Literal("list"), Type.Literal("get"), Type.Literal("update"), Type.Literal("remove"), Type.Literal("run"), Type.Literal("stop"),
+        Type.Literal("runs"), Type.Literal("get_run"), Type.Literal("lessons")]),
+      id: Type.Optional(Type.Number({ description: "Job id (get, update, remove, run; stop: alternative to runId; runs: only this job)." })),
+      runId: Type.Optional(Type.Number({ description: "stop, get_run: run id." })),
       name: Type.Optional(Type.String({ description: "create: unique job name. update: new name." })),
       expr: Type.Optional(Type.String({ description: "create/update: 5-field cron in local time or @hourly/@daily/@weekly/@monthly/@yearly." })),
       prompt: Type.Optional(Type.String({ description: "create/update: self-contained prompt for each run." })),
@@ -159,62 +189,19 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
       graceMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "update: skip a slot that is later than this when it comes due (after downtime). null: always run late." })),
       timeoutMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "update: time limit for one run. null: the global limit." })),
       retries: Type.Optional(Type.Number({ description: "update: extra attempts after a failed run, 0 to 5, with backoff." })),
+      status: Type.Optional(Type.Union([Type.Literal("running"), Type.Literal("ok"), Type.Literal("error"), Type.Literal("skipped")], { description: "runs: keep only this status." })),
+      limit: Type.Optional(Type.Number({ description: "runs: default 10, max 100." })),
+      offset: Type.Optional(Type.Number({ description: "get_run: char offset into the result, default 0." })),
+      min_count: Type.Optional(Type.Number({ description: "lessons: minimum occurrences (default 2)." })),
     }),
     // run starts a new execution on replay; the duplicate-run guard refuses it only while the first is active.
     replay: "unsafe",
-    async execute(a) { return actions[a.action](a as Args); },
-  });
-  return defineExtension({ name: "cron", tools: [cron] });
-}
-
-/** What `cron_history action=lessons` needs from the self-improvement engine. */
-export interface LessonSource { lessons(opts: { minCount?: number }): { count: number; signature: string; labels: string[]; example: string }[] }
-
-/**
- * Tool `cron_history` (read-only): recent runs, one run in full, and recurring failure patterns.
- * `lessons` is undefined when self-improvement is disabled.
- */
-export function createCronHistoryExtension(store: CronStore, lessons?: LessonSource) {
-  const history = defineTool({
-    name: "cron_history",
-    description:
-      "Read past scheduled-job runs. runs: recent runs newest first, optionally for one job (id) or one status, with output or error previews. " +
-      `run: one run in full (runId) with status, timing, conversation and the complete result; results over ${PAGE} chars come in pages, use offset. ` +
-      "lessons: group recent failed runs by normalized error signature and return recurring patterns (count, affected jobs, example); use these to decide which skill to draft or update.",
-    parameters: Type.Object({
-      action: Type.Union([Type.Literal("runs"), Type.Literal("run"), Type.Literal("lessons")]),
-      id: Type.Optional(Type.Number({ description: "runs: only this job id." })),
-      status: Type.Optional(Type.Union([Type.Literal("running"), Type.Literal("ok"), Type.Literal("error"), Type.Literal("skipped")], { description: "runs: keep only this status." })),
-      limit: Type.Optional(Type.Number({ description: "runs: default 10, max 100." })),
-      runId: Type.Optional(Type.Number({ description: "run: run id." })),
-      offset: Type.Optional(Type.Number({ description: "run: char offset into the result, default 0." })),
-      min_count: Type.Optional(Type.Number({ description: "lessons: minimum occurrences (default 2)." })),
-    }),
-    replay: "safe",
     async execute(a) {
-      switch (a.action) {
-        case "runs": {
-          const limit = Math.min(a.limit ?? 10, 100);
-          const rs = a.status ? store.queryRuns({ jobId: a.id, status: a.status, limit }) : store.runs(a.id, limit);
-          return text(rs.length ? rs.map((r) => `#${r.id} job=${r.jobId} (${r.jobName}) ${r.status} at ${when(r.startedAt)}: ${preview(r.error ?? r.output ?? "", 300, `cron_history action=run runId=${r.id} for the full result`)}`).join("\n") : "no runs");
-        }
-        case "run": {
-          if (a.runId === undefined) return text("run needs runId", true);
-          const r = store.getRun(a.runId);
-          if (!r) return text(`no run ${a.runId}`, true);
-          const o = a.offset ?? 0;
-          if (!Number.isSafeInteger(o) || o < 0) return text("offset must be a nonnegative integer", true);
-          return text(runDetail(r, o));
-        }
-        case "lessons": {
-          if (!lessons) return text("lessons need the improve extension, which is disabled", true);
-          const ls = lessons.lessons({ minCount: a.min_count ?? 2 });
-          return text(ls.length ? ls.map((l, i) => `${i + 1}. x${l.count} ${l.signature}\n   jobs: ${l.labels.join(", ")}\n   example: ${l.example.replace(/\s+/g, " ")}`).join("\n") : "No recurring failure patterns.");
-        }
-      }
+      if (!jobsOn() && JOB_ACTIONS.has(a.action)) return text(`${a.action} needs the cron extension, which is disabled; only runs, get_run and lessons are available`, true);
+      return actions[a.action](a as Args);
     },
   });
-  return defineExtension({ name: "cron-history", tools: [history] });
+  return defineExtension({ name: "cron", tools: [cron] });
 }
 
 /** POST a finished run to `url` (ntfy-compatible). */

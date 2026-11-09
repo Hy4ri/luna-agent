@@ -10,7 +10,7 @@ import { defineExtension, defineTool, type Extension, type Registry } from "@ear
 import { Type } from "typebox";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { SettingsStore } from "./settings.js";
-import { McpServerSchema } from "./config.js";
+import { McpServerSchema, type LunaConfig } from "./config.js";
 
 type Common = { name: string; enabled?: boolean; timeoutMs?: number; /** Tools hidden until tool_search loads them. Default true. */ defer?: boolean };
 export type McpServerConfig = Common & (
@@ -93,6 +93,15 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
   }
 }
 
+/**
+ * MCP servers that back a selected native provider. DDGS sits behind the `web` tool;
+ * its own tools duplicate them, so the model does not get them while a web setting selects DDGS.
+ */
+export function providerBackedServers(cfg: Pick<LunaConfig, "web">): Set<string> {
+  const { web } = cfg;
+  return new Set([web.searchProvider, ...web.searchFallbacks, web.extractProvider].includes("ddgs") ? [web.providers.ddgs.mcpServer] : []);
+}
+
 // ---------------------------------------------------------------- runtime management (web UI)
 
 export interface McpServerInfo {
@@ -107,6 +116,8 @@ export interface McpServerInfo {
   status: "connected" | "failed" | "disabled";
   error?: string;
   tools: string[];
+  /** True when the server only backs a native provider; its tools are not given to the model. */
+  backend: boolean;
 }
 
 /**
@@ -117,8 +128,12 @@ export class McpManager {
   private conns = new Map<string, McpConnection>();
   private errors = new Map<string, string>();
   private web: McpServerConfig[] = [];
+  /** Servers whose tools are in the registry. A provider backend stays connected without model tools. */
+  private installed = new Set<string>();
 
-  constructor(private registry: Registry, private fixed: McpServerConfig[], private file?: string, private settings?: SettingsStore) {
+  /** `backends` names servers that only back a native provider, such as DDGS for the `web` tool. */
+  constructor(private registry: Registry, private fixed: McpServerConfig[], private file?: string, private settings?: SettingsStore,
+    private backends: () => ReadonlySet<string> = () => new Set()) {
     if (settings) { this.web = settings.resolved().mcpServers; this.fixed = []; return; }
     if (file && existsSync(file)) {
       try { this.web = (JSON.parse(readFileSync(file, "utf8")).servers ?? []).map((s: unknown) => McpServerSchema.parse(s)); }
@@ -134,6 +149,16 @@ export class McpManager {
     return conn.callTool(tool, args, signal);
   }
 
+  /** Install model tools for connected servers that are not provider backends; remove them from backends. */
+  syncExposure() {
+    const backends = this.backends();
+    for (const [name, c] of this.conns) {
+      const want = !backends.has(name);
+      if (want && !this.installed.has(name)) { this.registry.install(c.extension); this.installed.add(name); }
+      else if (!want && this.installed.delete(name)) this.registry.uninstall(c.extension);
+    }
+  }
+
   get connections() { return [...this.conns.values()]; }
   get failures() { return [...this.errors].map(([name, error]) => ({ name, error })); }
 
@@ -146,8 +171,8 @@ export class McpManager {
     if (cfg.enabled === false) return;
     try {
       const c = await connectMcpServer(cfg);
-      this.registry.install(c.extension);
       this.conns.set(cfg.name, c);
+      this.syncExposure();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.errors.set(cfg.name, msg);
@@ -160,7 +185,7 @@ export class McpManager {
     this.errors.delete(name);
     if (!c) return;
     this.conns.delete(name);
-    this.registry.uninstall(c.extension);
+    if (this.installed.delete(name)) this.registry.uninstall(c.extension);
     await c.close().catch(() => {});
   }
 
@@ -187,7 +212,7 @@ export class McpManager {
         name: cfg.name, source, transport: cfg.transport, target, secretKeys,
         enabled: cfg.enabled !== false, defer: cfg.defer ?? true,
         status: conn ? "connected" : error ? "failed" : "disabled",
-        ...(error ? { error } : {}), tools: conn?.toolNames ?? [],
+        ...(error ? { error } : {}), tools: conn?.toolNames ?? [], backend: this.backends().has(cfg.name),
       };
     });
   }

@@ -72,7 +72,7 @@ export function contentBlocks(content: NativeMessage["content"]): Block[] {
       const url = (block.image_url as { url: string }).url;
       if (/^https?:\/\//i.test(url)) {
         // The transport never fetches. A hint keeps the turn alive where an error would fail every retry.
-        return { type: "text", text: `[Image not attached: remote URL ${url}. Call vision_analyze with this URL to see it.]` };
+        return { type: "text", text: `[Image not attached: remote URL ${url}. Call media_analyze with this URL to see it.]` };
       }
       if (!url.startsWith("data:") || !url.includes(";base64,")) throw new Error("Only base64 data image_url inputs are supported");
       const split = url.indexOf(";base64,");

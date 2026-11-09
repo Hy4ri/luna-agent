@@ -416,7 +416,7 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
     }),
   );
 
-  // ---- skills (read-only; the model edits them through skill_manage) ----
+  // ---- skills (read-only; the model edits them through the skill tool) ----
   app.get("/v1/skills", (c) => {
     if (!opts.skillDirs) return err(c, 404, "skills disabled");
     const off = opts.settings?.read().disabledSkills ?? [];

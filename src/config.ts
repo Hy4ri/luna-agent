@@ -11,10 +11,13 @@ import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
 export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn", "codemode", "webhooks"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
-/** Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live. */
+/**
+ * Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live.
+ * The `cron` and `skill-manage` registry extensions also serve `improve`, so the runtime hides each only when both are off.
+ */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
-  coding: ["coding-tools", "busy-processes", "session-workspace"], memory: ["memory"], skills: ["skills", "skill-manage"], delegate: ["delegate", "delegate-results", "session-crew"],
-  cron: ["cron"], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
+  coding: ["coding-tools", "busy-processes", "session-workspace"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
+  cron: [], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
   recall: ["recall"], goal: ["goal"], learn: ["learn"], codemode: ["codemode"], webhooks: ["webhooks"],
 };
 
@@ -184,7 +187,7 @@ export const ConfigSchema = z
       memoryLimitBytes: z.number().int().positive().default(128 * 1024 * 1024),
       inlineBudget: z.number().int().positive().default(3000),
       pinned: z.array(z.string().min(1)).refine(names => new Set(names).size === names.length, "duplicate tool name")
-        .default(["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web_search", "web_extract", "browser_act", "browser_inspect", "delegate_task", "skill_view"]),
+        .default(["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process_manage", "web", "browser", "browser_act", "delegate_task", "skill"]),
     }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
@@ -199,7 +202,7 @@ export const ConfigSchema = z
     extensions: z.array(z.enum(BUILTIN_EXTENSIONS)).default([...BUILTIN_EXTENSIONS]),
     /** Tool names hidden from the model and refused when called. Applies to the next model request. */
     disabledTools: z.array(z.string().min(1)).default([]),
-    /** Skill names hidden from the catalog and from skill_view. Applies at once. */
+    /** Skill names hidden from the catalog and from skill action=view. Applies at once. */
     disabledSkills: z.array(z.string().min(1)).default([]),
     /** Extra skill dirs, scanned after <dataDir>/skills. */
     skillDirs: z.array(z.string()).default([]),
@@ -251,6 +254,21 @@ const expand = (p: string, base: string) => {
 };
 
 /** Parse and resolve a config object. `base` resolves relative paths (the config file's directory). */
+/** Tool names merged into one tool. Saved configs that still list an old name get the new one. */
+export const RETIRED_TOOL_NAMES: Readonly<Record<string, string>> = {
+  web_search: "web", web_extract: "web", skill_view: "skill", skill_manage: "skill",
+  cron_history: "cron", vision_analyze: "media_analyze", video_analyze: "media_analyze",
+  browser_tab: "browser", browser_inspect: "browser", process: "process_manage",
+};
+export const renameTools = (names: unknown) => Array.isArray(names) ? [...new Set(names.map(n => typeof n === "string" ? RETIRED_TOOL_NAMES[n] ?? n : n))] : names;
+
+/** Rewrites retired tool names in the tool lists of a raw config, in place. */
+function migrateToolNames(obj: Record<string, any>) {
+  if (obj.codemode?.pinned) obj.codemode.pinned = renameTools(obj.codemode.pinned);
+  if (obj.disabledTools) obj.disabledTools = renameTools(obj.disabledTools);
+  for (const profile of Object.values(obj.subagents?.profiles ?? {}) as any[]) if (profile?.tools) profile.tools = renameTools(profile.tools);
+}
+
 export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.ProcessEnv = process.env): LunaConfig {
   const obj: Record<string, any> = raw && typeof raw === "object" ? structuredClone(raw as object) : {};
   if (env.LUNA_DATA) obj.dataDir = env.LUNA_DATA;
@@ -262,6 +280,7 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
     if (env.LUNA_HOST) obj.server.host = env.LUNA_HOST;
     if (env.LUNA_PORT) obj.server.port = Number(env.LUNA_PORT);
   }
+  migrateToolNames(obj);
   const r = ConfigSchema.safeParse(obj);
   if (!r.success) throw new Error("invalid luna config:\n" + r.error.issues.map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n"));
   const c = r.data;

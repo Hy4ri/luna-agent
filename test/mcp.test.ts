@@ -34,3 +34,28 @@ test("tools are namespaced by a sanitized server name and deferred by default", 
   const tools = (connection.extension as unknown as { tools: { name: string; deferred?: boolean }[] }).tools;
   assert.deepEqual(tools.map(t => [t.name, t.deferred]), [["env_test__env", true]]);
 });
+
+test("a provider-backend server stays connected but its tools leave the registry, and come back when the provider changes", async () => {
+  const { createRegistry } = await import("@earendil-works/pi-durable");
+  const { McpManager, providerBackedServers } = await import("../src/mcp.js");
+  const { parseConfig } = await import("../src/config.js");
+  const installed: string[] = [];
+  const base = createRegistry();
+  const registry = { ...base, install: (e: { name: string }) => { installed.push(e.name); }, uninstall: (e: { name: string }) => { installed.splice(installed.indexOf(e.name), 1); } } as unknown as typeof base;
+  const server = { name: "ddgs", transport: "stdio" as const, command: process.execPath,
+    args: [fileURLToPath(new URL("./support/env-mcp-server.mjs", import.meta.url))] };
+  let cfg = parseConfig({ web: { extractProvider: "ddgs" } });
+  assert.deepEqual([...providerBackedServers(cfg)], ["ddgs"]);
+  const mcp = new McpManager(registry, [server], undefined, undefined, () => providerBackedServers(cfg));
+  try {
+    await mcp.start();
+    assert.equal(mcp.connections.length, 1, "backend server is connected");
+    assert.deepEqual(installed, [], "backend tools are not installed");
+    assert.equal(mcp.list()[0]!.backend, true);
+    cfg = parseConfig({ web: { searchProvider: "searxng", searchFallbacks: [], extractProvider: "disabled" } });
+    assert.deepEqual([...providerBackedServers(cfg)], []);
+    mcp.syncExposure();
+    assert.deepEqual(installed, ["mcp-ddgs"]);
+    assert.equal(mcp.list()[0]!.backend, false);
+  } finally { await mcp.close(); }
+});

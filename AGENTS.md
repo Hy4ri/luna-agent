@@ -124,9 +124,9 @@ luna-pi/
 │   ├── claude-cli.ts           # Claude CLI provider adapter
 │   ├── opencode-cli.ts         # OpenCode CLI provider adapter (free models; Luna tools via loopback MCP)
 │   ├── claude-native/          # Native Claude transport, history budgeting, and admission control
-│   ├── mcp.ts                  # McpManager: stdio/HTTP/SSE lifecycle and <dataDir>/mcp.json
+│   ├── mcp.ts                  # McpManager: stdio/HTTP/SSE lifecycle, <dataDir>/mcp.json, provider-backend hiding
 │   ├── scheduler.ts            # CronStore (SQLite) and Scheduler loop
-│   ├── cron-tools.ts           # Agent cron tools and ntfy-compatible run delivery
+│   ├── cron-tools.ts           # Agent cron tool (jobs, runs, lessons) and ntfy-compatible run delivery
 │   ├── delegate.ts             # Subagent spawning, forking, steering, and ownership checks
 │   ├── session-crew.ts         # session_crew: lead full top-level sessions, automatic member reports
 │   ├── session-create.ts       # Shared new-session rules (project, machine, model, thinking level)
@@ -142,13 +142,14 @@ luna-pi/
 │   ├── improve.ts              # Failure lesson extraction and benchmark-gated skill proposals
 │   ├── learn.ts                # Idle session scanning and lesson diagnosis
 │   ├── learn-command.ts        # /learn slash command handler
-│   ├── vision.ts               # vision_analyze tool and native/auxiliary image routing
+│   ├── media.ts                # media_analyze tool: routes images to vision.ts, videos to video.ts
+│   ├── vision.ts               # Native/auxiliary image analysis for media_analyze
 │   ├── image-gen.ts            # image_generate tool and provider manager
 │   ├── plugins/image_gen/      # Image generation provider adapters (e.g. openai-codex)
-│   ├── web-tools.ts            # Native web_search and web_extract tools + ddgs-web-provider.ts
+│   ├── web-tools.ts            # Native `web` tool (search, read) + ddgs-web-provider.ts
 │   ├── browser-tools.ts        # Native browser_* tools + camofox/moli/chromium providers
 │   ├── busy-input.ts           # Interrupt / queue / steer policies for active turns
-│   ├── busy-tools.ts           # Background process tools (process tool)
+│   ├── busy-tools.ts           # bash background flag and the process_manage tool
 │   ├── side-commands.ts        # Ephemeral side questions (/btw) without polluting main context
 │   └── limit-continue.ts       # Automatic turn continuation after rate/quota reset
 └── web/

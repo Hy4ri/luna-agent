@@ -73,7 +73,7 @@ export async function openLuna(opts: LunaOptions) {
     directory: opts.processDirectory ?? (opts.dbPath === ":memory:" ? undefined : join(dirname(opts.dbPath), "processes")),
     log: opts.log,
   });
-  if (opts.coding !== false) { registry.install(CodingTools); registry.install(busyTools.extension()); registry.install(SessionWorkspaceExtension); }
+  if (opts.coding !== false) { registry.install(busyTools.codingTools(CodingTools)); registry.install(busyTools.extension()); registry.install(SessionWorkspaceExtension); }
   registry.install(defineExtension({ name: "active-model", sections: [section("active-model", ({ agent }) =>
     agent.model
       ? `Active model for this session: ${agent.model.provider}/${agent.model.modelId}.`

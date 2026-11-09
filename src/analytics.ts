@@ -410,7 +410,7 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
                       if (block?.type === "toolCall" && typeof block.name === "string") {
                         const name = block.name;
                         callMap.set(name, (callMap.get(name) ?? 0) + 1);
-                        if (name === "skill_view" && block.arguments && typeof block.arguments.name === "string" && !block.arguments.file_path) {
+                        if ((name === "skill_view" || (name === "skill" && block.arguments?.action === "view")) && block.arguments && typeof block.arguments.name === "string" && !block.arguments.file_path) {
                           const sname = block.arguments.name as string;
                           skillMap.set(sname, (skillMap.get(sname) ?? 0) + 1);
                           const ts = (message as unknown as { timestamp?: number }).timestamp;

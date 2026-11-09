@@ -391,12 +391,12 @@ export function createWorkersExtension(hub: () => WorkerHub | undefined): Extens
       : " The session's working directory is unavailable; do not assume a directory on another machine.";
     const peers = hub()?.store.list().length ? ' The `machine_exec` tool runs shell commands (including ls and cat) on "main" or any worker, whichever machine this session uses.' : "";
     const authority = peers + " This is the authoritative execution location for Luna tools, not any provider or Claude CLI transport directory.";
-    if (!target?.worker) return `bash, read, write, edit, and process tools run on the main Luna host (hostname ${hostname()}).${workingDirectory}${authority}`;
+    if (!target?.worker) return `bash, read, write, edit, and process_manage tools run on the main Luna host (hostname ${hostname()}).${workingDirectory}${authority}`;
     // Stable text: last known capabilities only, never online state, so the prompt cache survives reconnects.
     const w = hub()?.store.get(target.worker);
-    if (!w) return `This session targets execution machine ${target.worker}, which no longer exists. bash, read, write, edit, and process tools fail until the session moves to another machine.`;
+    if (!w) return `This session targets execution machine ${target.worker}, which no longer exists. bash, read, write, edit, and process_manage tools fail until the session moves to another machine.`;
     const c = w.capabilities;
-    return `bash, read, write, edit, and process tools run on execution machine "${w.name}"` +
+    return `bash, read, write, edit, and process_manage tools run on execution machine "${w.name}"` +
       (c ? ` (hostname ${c.hostname}, ${c.platform}/${c.arch}, user ${c.user}, default directory ${c.cwd}).` : ".") +
       workingDirectory + authority +
       " All paths in those tools are paths on that machine." +

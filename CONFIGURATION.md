@@ -191,7 +191,7 @@ transactional submission API, not a host callback stored in a submission.
   New children omit the runtime's personal `identity` block (`SOUL.md`) and receive a neutral, task-focused role instruction.
   Parent and profile instructions still apply, including scope and approval requirements. Forked history remains task context, not the child's identity.
   This is a prompt-role boundary, not a file-access restriction. Existing children are not migrated; top-level sessions, including crew members, keep their identity.
-  The built-in profiles are `scout`, `reviewer`, and `worker`. Scout and reviewer can read files, list directories with `delegate_files`, load existing skills with `skill_view`, and hand off; they have no shell or write tools.
+  The built-in profiles are `scout`, `reviewer`, and `worker`. Scout and reviewer can read files, list directories with `delegate_files`, load existing skills with `skill` (`view` and `list` only; delegated children cannot change skills), and hand off; they have no shell or write tools.
   Worker can read, write, edit, run bash, load existing skills, and hand off. Profiles can select the parent's currently model-offered tools and enabled, model-callable deferred tools; profiles do not install tools or restore disabled tools.
   New children store their selected tools as a persistent ceiling. Skill loading and tool discovery cannot add tools outside it.
   The ceiling survives restart and forks, applies to nested tool calls, and is copied to background side tasks. Existing children are not migrated.
@@ -245,7 +245,7 @@ transactional submission API, not a host callback stored in a submission.
 - `mcpServers`: stdio, HTTP, or SSE connections. `enabled: false` prevents connection.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
 - `disabledTools`: tool names hidden from the model and refused if called. Applies to the next model request, including existing sessions.
-- `disabledSkills`: skill names hidden from the skills catalog and `skill_view`. Applies at once.
+- `disabledSkills`: skill names hidden from the skills catalog and `skill` `view`. Applies at once.
 - `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `learn`, `server`: runtime settings.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
@@ -306,11 +306,11 @@ A daemon document has its own CSP; `srcdoc` would inherit the parent's policy an
 
 ## Native web tools
 
-The agent calls `web_search` and `web_extract`. Their names and parameters do not depend on the provider.
+The agent calls one `web` tool with `action` `search` or `read`. Its name and parameters do not depend on the provider.
 
-- `web_search`: `query` and optional positive integer `count` (default `5`).
+- `web action=search`: `query` and optional positive integer `count` (default `5`).
   Returns `{"results":[{"title":"...","url":"...","snippet":"..."}]}`.
-- `web_extract`: an HTTP(S) `url` and optional `format` (`markdown` or `text`; default `markdown`).
+- `web action=read`: an HTTP(S) `url` and optional `format` (`markdown` or `text`; default `markdown`).
   Returns `{"url":"...","content":"...","format":"markdown"}`.
 
 Web results are untrusted data, not instructions. Provider failures return tool errors, not empty successful results.
@@ -370,6 +370,8 @@ For example, use the following entries with the rest of your configuration:
 ```
 
 Use an absolute command path if DDGS is not on the daemon's PATH.
+While a web setting (`searchProvider`, `searchFallbacks`, or `extractProvider`) selects DDGS, its MCP server stays connected as a provider backend only:
+its `ddgs__*` tools are not given to the model, which uses the `web` tool instead. The MCP panel labels such a server "backend only".
 DDGS options remain under `web.providers.ddgs`. Its proxy credentials, if needed, remain in the protected MCP environment (`DDGS_PROXY`).
 Connection timeouts use the existing MCP `timeoutMs`. Cancellation reaches the same managed connection.
 Saving applies web provider selection and option changes to the next tool call.
@@ -381,15 +383,19 @@ The live gate uses a scripted model; it verifies tool execution, not real-model 
 
 ## Skill management
 
-The `skills` extension gives the agent `skill_view` and `skill_manage`. `skill_manage` also loads with the `improve` extension.
+The `skills` extension gives the agent one `skill` tool and the skills catalog. The `skill` tool also loads with the `improve` extension; there `view` is refused until `skills` is on.
 
 - Only skills under `<dataDir>/skills` can change. Skills from `skillDirs` are read-only.
-- `skill_manage` actions: `list`, `create`, `edit` (full content, or one exact `old_text` → `new_text`), `propose`,
+- `skill` actions: `view` (`name`, optional `file_path` for a linked file), `list`, `create`, `edit` (full content, or one exact `old_text` → `new_text`), `propose`,
   `rollback`, `delete`, `write_file`, `delete_file` (linked files, relative to the skill directory), and `restore`.
 - `create` and `edit` are linted only. Use `propose` (`benchmark`, `benchmark_command`, or `must_contain`; optional `dry_run`)
   for a benchmark-gated change. Each edit backs up the previous `SKILL.md` for `rollback` (optional `version`).
 - `delete`, `delete_file`, and a replaced linked file move to `<dataDir>/skills/.history/.trash`.
   `list` with `include_deleted` shows the ids; `restore` never overwrites an existing path.
+- Delegated children and goal auditors can only `view` and `list`; every other action is refused there.
+- Saved configs that still name a retired tool (`skill_view`, `skill_manage`, `web_search`, `web_extract`, `cron_history`,
+  `vision_analyze`, `video_analyze`, `browser_tab`, `browser_inspect`, `process`) in `codemode.pinned`, `disabledTools`, or a subagent profile load with the new name.
+  A retired name in `disabledTools` disables the whole merged tool.
 - Linked-file paths stay in the skill's own directory: no `..`, no hidden parts, no symlinks,
   no `SKILL.md`, and no path inside a nested skill. A skill that contains nested skills cannot be deleted.
 - Changes reach the prompt catalog on the next model call.
@@ -447,7 +453,7 @@ Redaction is heuristic, not a guarantee that every secret format is detected. St
 
 `critical` (review explanation). It saves a before/after snapshot and waits for the user. `must_contain` checks
 text only; it is not behavioral verification. Proposals do not run shell commands or paid model benchmarks.
-Skill learning rollback uses the learning journal, not the separate `skill_manage` `rollback` version series.
+Skill learning rollback uses the learning journal, not the separate `skill` `rollback` version series.
 
 ### Review, concurrency, and recovery
 
@@ -511,9 +517,9 @@ Quote a source that contains spaces: `/learn "/docs/My Guide.pdf" the release st
 An empty argument returns usage.
 
 The command becomes a normal turn in the current chat. It queues, steers, and stops like any other message.
-The agent reads the source with its enabled tools (`web_extract`, browser, `read`, shell).
-It then creates or updates one managed skill with `skill_manage`, which lints and backs up the previous version.
-Use `skill_manage` `rollback` to undo an update. External skills stay read-only; the agent creates a managed skill instead.
+The agent reads the source with its enabled tools (`web`, browser, `read`, shell).
+It then creates or updates one managed skill with `skill`, which lints and backs up the previous version.
+Use `skill` `rollback` to undo an update. External skills stay read-only; the agent creates a managed skill instead.
 The skill lists its sources and marks each point as verified or assumed.
 Sending `/learn` authorizes this one skill write; there is no separate approval step.
 
@@ -532,10 +538,10 @@ It does not implement anything. When no decision remains, or you say stop, it wr
 ## Crafting a skill
 
 `/skillcraft <skill idea or existing skill name>` interviews you and then saves one managed skill. An empty argument returns usage.
-The command becomes a normal turn in the current chat. The agent runs `skill_manage` `list` first and plans an update if a managed skill already covers the topic.
+The command becomes a normal turn in the current chat. The agent runs `skill` `list` first and plans an update if a managed skill already covers the topic.
 It asks one question per turn with `ask_user_question`, in this order: trigger, scope and non-goals, procedure, gates, pitfalls, tools, reference files.
-It then shows the full draft `SKILL.md` and asks for approval. Only after you approve does it write with `skill_manage`, which lints and backs up the previous version.
-Use `skill_manage` `rollback` to undo an update. External skills stay read-only. Requires the `skills` extension.
+It then shows the full draft `SKILL.md` and asks for approval. Only after you approve does it write with `skill`, which lints and backs up the previous version.
+Use `skill` `rollback` to undo an update. External skills stay read-only. Requires the `skills` extension.
 
 ## Native browser tools
 
@@ -543,11 +549,11 @@ The agent uses these provider-neutral tools without `tool_search` discovery:
 
 | Tool | `action` | Parameters | Result |
 | --- | --- | --- | --- |
-| `browser_tab` | `open` | `url` | `tabId`, current `url` |
-| `browser_tab` | `navigate` | `tabId`, `url` | `tabId`, current `url` |
-| `browser_tab` | `close` | `tabId` | `tabId`, `closed: true` |
-| `browser_inspect` | `snapshot` | `tabId`, optional `offset` | `tabId`, `url`, `content`, `hasMore`, optional `nextOffset` and `totalChars`; image when available |
-| `browser_inspect` | `screenshot` | `tabId` | `tabId` and a viewport image block |
+| `browser` | `open` | `url` | `tabId`, current `url` |
+| `browser` | `navigate` | `tabId`, `url` | `tabId`, current `url` |
+| `browser` | `close` | `tabId` | `tabId`, `closed: true` |
+| `browser` | `snapshot` | `tabId`, optional `offset` | `tabId`, `url`, `content`, `hasMore`, optional `nextOffset` and `totalChars`; image when available |
+| `browser` | `screenshot` | `tabId` | `tabId` and a viewport image block |
 | `browser_act` | `click` | `tabId`, exactly one `ref` or `selector` | `tabId`, `ok: true` |
 | `browser_act` | `type` | `tabId`, exactly one `ref` or `selector`, `text`, optional `pressEnter` | `tabId`, `ok: true` |
 | `browser_act` | `scroll` | `tabId`, `direction`, optional `amount` | `tabId`, `ok: true` |
@@ -857,7 +863,7 @@ Acknowledgements name the accepted action: queued, steered, or redirected. They 
 Disable them with `acknowledgements: false`. A one-time tip explains each selected mode. Queue command responses are not acknowledgements.
 
 A redirected foreground shell command yields its wait. The same OS process continues in the background, without restart.
-The model receives its process ID and can use the `process` tool to list, read, wait for, or stop it. Handles belong to their chat session.
+The model receives its process ID and can use the `process_manage` tool to list, read, wait for, or stop it. Handles belong to their chat session.
 Completion returns as follow-up input. Arbitrary tools without a cooperative yield point finish normally; they are never killed by redirect.
 Background OS processes belong to the current daemon. A normal shutdown stops them; metadata and retained output survive restart.
 See **Native background processes** for crash handling and output retention.
@@ -979,11 +985,12 @@ Enable explicit background commands under **Settings → Tools → Background pr
 The `coding` extension must also be enabled. These tools have the same host access as `bash`; they are not a sandbox.
 Existing correction-detached commands remain supported when explicit background starts are disabled.
 
-- `process({action: "start", command, cwd?, timeoutSec?})` starts a shell command and immediately returns a managed process ID.
-  The default working directory belongs to the calling conversation. A relative `cwd` uses that directory.
-  An optional positive timeout limits command execution. Spawn failures become failed process results.
-- `process({action, id?, timeoutSec?, offset?, limit?})` with `list`, `read`, `wait`, or `stop` manages only the calling
-  conversation's processes. Every action except `list` requires an ID.
+- `bash({command, timeout?, background: true})` starts a shell command and immediately returns a managed process ID.
+  It runs in the calling conversation's working directory; use `cd dir && …` for another one.
+  An optional positive `timeout` limits command execution. Spawn failures become failed process results.
+  With the setting off, `background: true` is refused; foreground `bash` is unchanged.
+- `process_manage({action, id?, timeoutSec?, offset?, limit?})` with `list`, `read`, `wait`, or `stop` manages only the calling
+  conversation's processes, including foreground commands that moved to the background. Every action except `list` requires an ID.
   `read` returns current or final output, state, and exit code. Nonzero exits have state `failed` and retain their exact code.
   `wait` waits at most 10 seconds by default, or `timeoutSec` from 0 through 60. A timeout is not completion.
   Cancelling a wait does not stop the process. Use `stop` to stop it.
@@ -1009,7 +1016,7 @@ If `cron.notifyUrl` is set, an external completion notification carries status o
 Closing a viewer or stopping the conversation does not stop an admitted background process.
 
 On POSIX hosts, `stop` and normal daemon shutdown kill each running command's process group and wait for execution to settle.
-Execution completes when the launched command or shell exits. Do not append `&`; `process` `start` already runs in the background.
+Execution completes when the launched command or shell exits. Do not append `&`; `bash` with `background: true` already runs in the background.
 Children that outlive that shell are no longer managed after its completion.
 Descendants that create another process group or session can also escape this termination boundary.
 Normal shutdown retains stopped results. After an abrupt daemon failure, unfinished saved jobs become `interrupted`.
@@ -1088,7 +1095,7 @@ Enable or configure Code Mode under **Settings → Tools → Code Mode**:
   "timeoutMs": 300000,
   "memoryLimitBytes": 134217728,
   "inlineBudget": 3000,
-  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web_search", "web_extract", "browser_act", "browser_inspect", "delegate_task", "skill_view"]
+  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process_manage", "web", "browser", "browser_act", "delegate_task", "skill"]
 }
 ```
 
@@ -1338,9 +1345,14 @@ During a rebuild, requests can fail while Vite replaces the output files. Reload
 Run `bun run dev:web` for the Vite development server. It forwards API requests to Luna on port 8787.
 Use `bun run typecheck:web` to check Vue components. `bun test` runs the backend and runtime unit test suite.
 
-## Image analysis
+## Image and video analysis
 
-`vision_analyze(image_url, question, region?, use_active_model?)` accepts a local path, an HTTP(S) URL, or an image data URL.
+`media_analyze(source, question, region?, use_active_model?)` analyzes one image or one video.
+A source is a video when it is a `data:video/` URL or its path ends in `.mp4`, `.webm`, `.mov`, `.mpeg`, `.mpg`, `.avi`, or `.mkv`.
+Video sources use the whole-video route below; `region` and `use_active_model` are rejected for them. All other sources use the image route.
+The tool is offered when either the image route or the video route is available.
+
+The image route accepts a local path, an HTTP(S) URL, or an image data URL.
 Load the full image first. Then use `region` to inspect small text.
 `region` is `{ "x": 0, "y": 0, "width": 200, "height": 100 }` in original-image pixels.
 All values must be integers. Regions outside the image are rejected. Cropping occurs before resizing.
@@ -1567,7 +1579,7 @@ Legacy files under `<dataDir>/generated-images/` remain untouched.
 Success results include `success`, `image`, `model`, `prompt`, `aspect_ratio`, `modality`, `provider`, and `upscaled`.
 Errors include `success: false`, `error`, and `error_type`. Server error bodies and credentials are not exposed.
 The tool returns a bounded image preview for chat delivery. If preview delivery fails, the successful file path is retained.
-Use `vision_analyze` on the returned local path to inspect the original.
+Use `media_analyze` on the returned local path to inspect the original.
 Generated images in the session machine's generated `images/` directory can be edited directly without copying them into the project.
 
 ### Chat completions image models
@@ -1611,10 +1623,10 @@ The live check is excluded from the default suite and requires explicit permissi
 
 ## Whole-video analysis
 
-`video_analyze(video_url, question)` sends a complete video to an auxiliary provider and returns text only.
+`media_analyze` with a video source sends the complete video to an auxiliary provider and returns text only.
 It never attaches the video to the main conversation. It does not extract frames, resize, crop, or apply image history/call limits.
 
-The tool is offered only when an authenticated auxiliary vision client resolves.
+The video route is available only when an authenticated auxiliary vision client resolves.
 An explicit `auxiliary.vision` provider is authoritative. Without it, resolution tries the active provider, `openrouter`, then `nous`.
 Automatic selection prefers a Gemini catalog model within each provider, then the active model, then other image-capable models.
 An image-capable catalog entry is not proof of video support. Use a video-capable model such as Gemini.
@@ -1769,7 +1781,7 @@ Scheduled runs and delegated children do not receive the board tool.
 - `GET /v1/projects/:id/skills` returns `[{ name, description, global, override, effective }]`. `global` is the global state (not in `disabledSkills`). `override` is `true`, `false`, or `null` (inherit). `effective` is `override ?? global`.
 - `PUT /v1/projects/:id/skills/:name` with `{ "enabled": true | false | null }` sets the project override. `null` resets the skill to the global setting. It returns `404` for an unknown project or skill, and `409` for General (General uses the global setting only).
 - `GET /v1/projects/:id/skill-mode` returns `{ onlyChosen }`. `PUT` with `{ "onlyChosen": true | false }` switches the mode (`409` for General). In "only chosen" mode the global setting does not apply: only skills with an `on` override are active, so skills added later stay off in that project. Turning the mode on saves the currently active skills as `on` overrides and drops `off` overrides, so the active set does not change at the switch. While the mode is on, `enabled: false` removes the override. Turning the mode off keeps the `on` overrides; every other skill follows the global setting again. In this mode `effective` is `override === true`.
-- A skill disabled for a project is hidden from the skills list and cannot be loaded with `skill_view` in that project's conversations. Overrides are deleted with the project.
+- A skill disabled for a project is hidden from the skills list and cannot be loaded with `skill` `view` in that project's conversations. Overrides are deleted with the project.
 
 ### Background send (Ctrl+Enter / Cmd+Enter)
 
@@ -1825,7 +1837,7 @@ One main daemon owns sessions, history, agent execution, models, skills, memory,
 A worker runs file, shell, browser, and MCP operations for sessions that explicitly target it.
 Opening or sending instructions to a session never changes its execution machine.
 Web, image generation, vision, and video tools run on main. In a worker session, they read local file paths from the worker.
-`video_analyze` applies the credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
+`media_analyze` applies the video credential checks and `video.blocked_paths` on the worker. Paths resolve against the worker's directory.
 `image_generate` source images must be inside the worker's working directory, generated `images/`, or upload storage.
 The worker opens each protected file once. It checks the opened file and reads from it, so a symlink swap cannot redirect the read.
 These protected reads need a Linux worker at the same Luna version as main. Other workers refuse them.
