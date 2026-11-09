@@ -3,6 +3,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { createGitControl, GitError, type Workspace } from "../git-control.js";
 import { createGitStatusReader } from "../git-status.js";
 import { resolveProjectTarget } from "../git-target.js";
+import { draftCommitMessage } from "../commit-message.js";
 import { ExecTarget } from "../workers.js";
 import { context } from "../luna.js";
 import { z } from "zod";
@@ -100,11 +101,34 @@ export function registerGit(app: Hono, ctx: RouteCtx): void {
     }
   });
 
+  app.get('/v1/git/stashes', async c => {
+    try { return c.json({ stashes: await gitControl.stashes(await gitWorkspace(c)) }); } catch (e) { return gitFail(c, e); }
+  });
+  app.get('/v1/git/commit-message', c => c.json({ available: !!opts.titler?.available() }));
+  // A draft only: the model sees the staged diff and the reply fills the commit box. One paid call per request.
+  app.post('/v1/git/commit-message', async c => {
+    try {
+      const titler = opts.titler;
+      if (!titler?.available()) throw new GitError('No auxiliary model is configured', 400);
+      const staged = await gitControl.stagedDiff(await gitWorkspace(c));
+      const session = c.req.query('session');
+      const id = session && opts.conversations ? Number(session) : undefined;
+      return c.json({ message: await draftCommitMessage(staged, (system, input) => titler.draft(system, input, Number.isInteger(id) ? id : undefined)) });
+    } catch (e) { return gitFail(c, e); }
+  });
+
   const gitPaths = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).min(1).max(500) });
+  const gitAll = z.strictObject({ all: z.literal(true) });
   const gitSchemas = {
-    stage: gitPaths,
-    unstage: gitPaths,
-    commit: z.strictObject({ message: z.string().trim().min(1).max(10000) }),
+    discard: gitPaths,
+    'delete-branch': z.strictObject({ branch: z.string().min(1).max(255), force: z.boolean().optional() }),
+    'update-from-default': z.strictObject({}),
+    stash: z.strictObject({ message: z.string().trim().min(1).max(200).optional(), includeUntracked: z.boolean().optional() }),
+    'stash-pop': z.strictObject({ index: z.number().int().min(0).max(1000) }),
+    'stash-drop': z.strictObject({ index: z.number().int().min(0).max(1000) }),
+    stage: z.union([gitPaths, gitAll]),
+    unstage: z.union([gitPaths, gitAll]),
+    commit: z.strictObject({ message: z.string().trim().min(1).max(10000), amend: z.boolean().optional(), force: z.boolean().optional() }),
     switch: z.strictObject({
       branch: z.string().min(1).max(255),
       create: z.boolean().optional(),

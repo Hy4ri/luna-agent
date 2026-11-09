@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { serverUrl, token } from '@/lib/api';
-import { fetchChanges, fetchBranches, fetchDiff, mutateGit, isAbortError } from './client';
-import type { Changes, Branches, DiffResult, SelectorParams, ChangeFile } from './client';
+import { fetchChanges, fetchBranches, fetchStashes, fetchDiff, fetchCommit, draftCommitMessage, commitDraftAvailable, mutateGit, isAbortError } from './client';
+import { confirmAction } from '@/lib/confirm';
+import type { StashEntry, Changes, Branches, DiffResult, SelectorParams, ChangeFile } from './client';
 import ChangeList from './ChangeList.vue';
+import StashList from './StashList.vue';
 import DiffView from './DiffView.vue';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { GitBranch, RefreshCw, ArrowDown, ArrowUp, AlertCircle, Server, ChevronLeft } from '@lucide/vue';
@@ -15,6 +17,19 @@ const selector = computed<SelectorParams>(() => ({ session: props.session, proje
 const changes = ref<Changes | null>(null), branches = ref<Branches | null>(null), diff = ref<DiffResult | null>(null);
 const selectedPath = ref<string | null>(null), selectedStaged = ref(false), loadingDiff = ref(false), loadingState = ref(false);
 const error = ref<string | null>(null), notice = ref<string | null>(null), busyMessage = ref<string | null>(null);
+const amend = ref(false);
+const draftAvailable = ref(false), drafting = ref(false);
+void commitDraftAvailable().then(v => { draftAvailable.value = v; });
+async function handleDraft() {
+  if (drafting.value || !stagedCount.value) return;
+  const owner = { ...selector.value }, generation = epoch;
+  drafting.value = true; error.value = null;
+  try {
+    const message = await draftCommitMessage(owner);
+    if (!disposed && generation === epoch) commitMessage.value = message;
+  } catch (e) { if (!disposed && generation === epoch) error.value = (e as Error).message; }
+  finally { if (!disposed && generation === epoch) drafting.value = false; }
+}
 const commitMessage = ref(''), newBranchInput = ref(''), branchSelectValue = ref(''), showNewBranchInput = ref(false);
 const pushButton = ref<HTMLButtonElement | null>(null);
 const confirmDefaultModal = ref<{ open: boolean; branch?: string; head?: string | null; message?: string }>({ open: false });
@@ -99,7 +114,7 @@ async function loadState(keepSelection = true, clearError = true) {
   try {
     const [c, b] = await Promise.all([fetchChanges(owner, controller.signal), fetchBranches(owner, controller.signal)]);
     if (disposed || generation !== epoch || ticket !== stateTicket) return;
-    branches.value = b;
+    branches.value = b; void loadStashes();
     applyChanges(c, keepSelection);
   } catch (e) {
     if (!disposed && generation === epoch && ticket === stateTicket && !isAbortError(e)) {
@@ -113,6 +128,11 @@ async function loadState(keepSelection = true, clearError = true) {
   }
 }
 
+const stashes = ref<StashEntry[]>([]);
+async function loadStashes() {
+  const generation = epoch, owner = { ...selector.value };
+  try { const list = await fetchStashes(owner); if (!disposed && generation === epoch) stashes.value = list; } catch { /* stashes are optional */ }
+}
 async function loadBranches() {
   if (disposed) return;
   branchesController?.abort();
@@ -154,10 +174,11 @@ function closeDiff() {
   loadingDiff.value = false;
 }
 
-const BUSY: Record<string, string> = { stage: 'Staging…', unstage: 'Unstaging…', commit: 'Committing…', switch: 'Switching branch…', fetch: 'Fetching…', pull: 'Pulling…', push: 'Pushing…' };
+const BUSY: Record<string, string> = { discard: 'Discarding…', stash: 'Stashing…', 'stash-pop': 'Applying stash…', 'stash-drop': 'Dropping stash…', stage: 'Staging…', unstage: 'Unstaging…', commit: 'Committing…', switch: 'Switching branch…', fetch: 'Fetching…', pull: 'Pulling…', push: 'Pushing…' };
 /** Actions that can change branch names, upstreams, or ahead/behind counts. */
 const BRANCH_ACTIONS = new Set(['commit', 'switch', 'fetch', 'pull', 'push']);
 
+let pendingAmend = false;
 async function runMutation(action: string, body: Record<string, unknown>, confirmDefault = false) {
   if (loadingState.value || !changes.value) return;
   const generation = epoch, owner = { ...selector.value }, before = changes.value;
@@ -174,8 +195,9 @@ async function runMutation(action: string, body: Record<string, unknown>, confir
     ok = true;
     const after = result.changes;
     if (BRANCH_ACTIONS.has(action)) void loadBranches();
+    if (action.startsWith('stash')) void loadStashes();
     applyChanges(after, action !== 'switch');
-    if (action === 'commit') { commitMessage.value = ''; showNotice(`Committed ${result.sha?.slice(0, 7) ?? ''}`.trim()); }
+    if (action === 'commit') { commitMessage.value = ''; amend.value = false; showNotice(`Committed ${result.sha?.slice(0, 7) ?? ''}`.trim()); }
     else if (action === 'fetch') showNotice(after.upstream ? (after.behind ? `Fetched origin: ${after.behind} new commit${after.behind === 1 ? '' : 's'} on ${after.upstream}` : 'Fetched origin: up to date') : 'Fetched origin');
     else if (action === 'pull') showNotice(after.headOid === before.headOid ? 'Already up to date' : `Pulled ${before.upstream}`);
     else if (action === 'switch') showNotice(`Switched to ${after.branch}`);
@@ -191,20 +213,56 @@ async function runMutation(action: string, body: Record<string, unknown>, confir
     if (action === 'push' && marker >= 0) {
       confirmDefaultModal.value = { open: true, branch: before.branch, head: before.headOid, message: message.slice(marker + 16).trim() };
       void nextTick(() => cancelButton.value?.focus());
+    } else if (action === 'commit' && message.includes('confirm-amend:')) {
+      pendingAmend = true;
     } else error.value = message;
   } finally {
     if (!disposed && generation === epoch) {
       loadingState.value = false; busyMessage.value = null;
       // A failed write can still have partial effects: reload the real state.
       if (!ok) await loadState(true, false);
+      if (pendingAmend) { pendingAmend = false; void confirmAmend(); }
     }
   }
 }
 
-const handleStage = (paths: string[]) => runMutation('stage', { paths });
-const handleUnstage = (paths: string[]) => runMutation('unstage', { paths });
-function handleCommit() {
-  if (commitMessage.value.trim() && stagedCount.value && !hasConflicts.value) return runMutation('commit', { message: commitMessage.value.trim() });
+/** The server accepts 500 paths per request; a larger selection stages or unstages everything. */
+const MAX_PATHS = 500;
+const handleStage = (paths: string[]) => runMutation('stage', paths.length > MAX_PATHS ? { all: true } : { paths });
+const handleUnstage = (paths: string[]) => runMutation('unstage', paths.length > MAX_PATHS ? { all: true } : { paths });
+const canCommit = computed(() => !!commitMessage.value.trim() && !hasConflicts.value && (amend.value ? !!changes.value?.headOid : stagedCount.value > 0));
+async function toggleAmend() {
+  if (!amend.value) return;
+  const oid = changes.value?.headOid, owner = { ...selector.value }, generation = epoch;
+  if (!oid) { amend.value = false; return; }
+  // Start from the last message, but never overwrite one the user already typed.
+  if (commitMessage.value.trim()) return;
+  try {
+    const detail = await fetchCommit(owner, oid);
+    if (!disposed && generation === epoch && amend.value && !commitMessage.value.trim()) commitMessage.value = detail.message.trim();
+  } catch (e) { if (!disposed && generation === epoch) { error.value = (e as Error).message; amend.value = false; } }
+}
+async function handleDiscard(paths: string[]) {
+  const what = paths.length === 1 ? `'${paths[0]}'` : `${paths.length} files`;
+  if (!(await confirmAction({ title: `Discard changes to ${what}?`, message: 'This cannot be undone. Untracked files are deleted.', confirmLabel: 'Discard', danger: true }))) return;
+  await runMutation('discard', paths.length > MAX_PATHS ? { paths: paths.slice(0, MAX_PATHS) } : { paths });
+}
+const handleStash = () => runMutation('stash', { includeUntracked: true });
+const handleStashPop = (index: number) => runMutation('stash-pop', { index });
+async function handleStashDrop(index: number) {
+  if (await confirmAction({ title: 'Drop this stash?', message: 'The stashed changes are lost.', confirmLabel: 'Drop', danger: true })) await runMutation('stash-drop', { index });
+}
+async function handleCommit() {
+  if (!canCommit.value || loadingState.value) return;
+  const message = commitMessage.value.trim();
+  if (!amend.value) return runMutation('commit', { message });
+  await runMutation('commit', { message, amend: true });
+}
+/** Amending a commit origin already has needs a second, explicit yes. */
+async function confirmAmend() {
+  const message = commitMessage.value.trim();
+  if (!(await confirmAction({ title: 'Amend a pushed commit?', message: 'This commit is already on origin. Amending rewrites it, and the next push needs force.', confirmLabel: 'Amend', danger: true }))) return;
+  await runMutation('commit', { message, amend: true, force: true });
 }
 const handleFetch = () => runMutation('fetch', {});
 const handlePull = () => runMutation('pull', {});
@@ -253,7 +311,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
   cancelState();
   cancelDiff();
   branchesController?.abort();
-  changes.value = null; branches.value = null; diff.value = null; selectedPath.value = null; commitMessage.value = '';
+  changes.value = null; branches.value = null; diff.value = null; selectedPath.value = null; commitMessage.value = ''; amend.value = false;
   pushedBranch.value = null; notice.value = null; loadingDiff.value = false; confirmDefaultModal.value = { open: false }; cancelNewBranch();
   void loadState(false);
 }, { immediate: true });
@@ -383,9 +441,14 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
             @select="handleSelectFile"
             @stage="handleStage"
             @unstage="handleUnstage"
+            @discard="handleDiscard"
           />
         </div>
         <div class="p-2 border-t border-border bg-background shrink-0 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <StashList :stashes="stashes" :disabled="loadingState" @pop="handleStashPop" @drop="handleStashDrop" />
+            <button type="button" class="text-[11px] underline text-muted-foreground disabled:opacity-50 disabled:no-underline ml-auto" :disabled="loadingState || !(changes?.files.length) || changes?.unborn" title="Save all changes, including untracked files, and clean the tree" @click="handleStash">Stash changes</button>
+          </div>
           <textarea
             v-model="commitMessage"
             aria-label="Commit message"
@@ -396,14 +459,20 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
             @keydown="handleKeyDownCommit"
           ></textarea>
           <div class="flex items-center justify-between">
-            <span class="text-[11px] text-muted-foreground">{{ hasConflicts ? 'Resolve conflicts to commit' : `${stagedCount} staged` }}</span>
+            <div class="flex items-center gap-3 min-w-0">
+              <span class="text-[11px] text-muted-foreground">{{ hasConflicts ? 'Resolve conflicts to commit' : `${stagedCount} staged` }}</span>
+              <button v-if="draftAvailable" type="button" class="text-[11px] underline text-muted-foreground disabled:opacity-50 disabled:no-underline" :disabled="loadingState || drafting || !stagedCount" :title="stagedCount ? 'Ask the auxiliary model for a message. Uses one model call.' : 'Stage changes first'" @click="handleDraft">{{ drafting ? 'Drafting…' : 'Draft message' }}</button>
+              <label v-if="changes?.headOid" class="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer">
+                <input v-model="amend" type="checkbox" :disabled="loadingState" @change="toggleAmend" /> Amend last commit
+              </label>
+            </div>
             <button
               type="button"
               class="px-3 py-1 bg-primary text-primary-foreground text-xs rounded hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:hover:bg-primary"
-              :disabled="loadingState || !commitMessage.trim() || !stagedCount || hasConflicts"
+              :disabled="loadingState || !canCommit"
               @click="handleCommit"
             >
-              Commit
+              {{ amend ? 'Amend' : stagedCount ? `Commit ${stagedCount} file${stagedCount === 1 ? '' : 's'}` : 'Commit' }}
             </button>
           </div>
         </div>
