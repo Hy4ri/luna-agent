@@ -132,6 +132,7 @@ export function claudeCliProvider() {
         forceAdaptiveThinking: known.compat.forceAdaptiveThinking,
         supportsMidConvoSystemMessages: known.compat.supportsMidConvoSystemMessages,
         supportsMidConvoToolChanges: known.compat.supportsMidConvoToolChanges,
+        supportsMidConvoEffort: known.compat.supportsMidConvoEffort,
       } } : {}),
       // Same table the transport routes by, so the reported window is the one the CLI runs at.
       // Unknown/plain native routes stay 200K. Never copy a larger API-only window.

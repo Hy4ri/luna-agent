@@ -4,6 +4,7 @@ import { configure, type AgentChange, type ConversationId, type Extension, type 
 import type { Models } from "@earendil-works/pi-ai";
 import { ExecTarget, type WorkerStore } from "./workers.js";
 import type { ProjectStore } from "./projects.js";
+import { resolveThinkingLevel, type ThinkingDefaults } from "./thinking.js";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -23,6 +24,8 @@ export interface SessionDeps {
   /** Default agent for a new session (default model, thinking level, instructions). */
   base: () => AgentChange;
   models?: Pick<Models, "getModel">;
+  /** Global and per-model thinking defaults. The level is resolved for the session's final model. */
+  thinking?: () => ThinkingDefaults;
   projects?: ProjectStore;
   workers?: Pick<WorkerStore, "get">;
   /** Extensions added to sessions created in a project (the board). */
@@ -46,7 +49,14 @@ export function planSession(deps: SessionDeps, b: SessionRequest): SessionPlan {
   const projectCwd = project ? deps.projects?.dirFor(project.id, worker) : undefined;
   if (project && !project.general && !projectCwd) throw new SessionCreateError(400, "project is not linked to this machine");
   const cwd = b.cwd || projectCwd;
-  const agent: AgentChange = { ...deps.base(), ...(b.model && { model: b.model }), ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as ThinkingLevel }),
+  const base = deps.base();
+  const model = b.model ?? base.model ?? undefined;
+  // Store the level the model will run: request, model default, global default, then medium; clamped to the model.
+  // The base level was resolved for the default model, so it is only a fallback when no defaults are given.
+  const defaults = deps.thinking?.();
+  const thinkingLevel = resolveThinkingLevel(deps.models, model, defaults, b.thinkingLevel as ThinkingLevel | undefined,
+    defaults ? undefined : base.thinkingLevel ?? undefined);
+  const agent: AgentChange = { ...base, ...(b.model && { model: b.model }), thinkingLevel,
     ...(b.instructions && { instructions: b.instructions }), ...(cwd && { cwd }),
     ...(project && deps.projectExtensions?.length && { extensions: { add: deps.projectExtensions } }) };
   return { agent, worker, cwd, project: project?.id };

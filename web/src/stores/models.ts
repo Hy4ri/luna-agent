@@ -2,10 +2,10 @@
 import { computed, reactive } from "vue";
 import { json, post, serverUrl, token } from "@/lib/api";
 import type { ModelInfo } from "@/lib/types";
+import { FALLBACK_LEVEL, LEVELS, clampTo, findModel, levelsOf, startLevel, type ModelRef } from "@/lib/thinking-levels";
 import { addErr, chat } from "./chat";
 
-export interface ModelRef { provider: string; modelId: string }
-export const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export { FALLBACK_LEVEL, LEVELS, type ModelRef };
 export const levelLabel = (l: string) => (l === "off" ? "Off" : l.charAt(0).toUpperCase() + l.slice(1));
 const PIN_KEY = "luna.pinnedModels";
 
@@ -20,8 +20,8 @@ export const models = reactive({
   list: [] as ModelInfo[],
   defaultModel: null as ModelRef | null,
   selected: null as ModelRef | null,
-  thinking: "off",
-  defaultThinkingLevel: "off",
+  thinking: FALLBACK_LEVEL,
+  defaultThinkingLevel: FALLBACK_LEVEL,
   draft: {} as { model?: ModelRef; thinkingLevel?: string },
   pins: [] as string[],
   loaded: false,
@@ -35,6 +35,14 @@ export const modelLabel = computed(() => {
   const m = models.list.find(m => modelKey(m) === key);
   return m ? m.provider + " · " + (m.name || m.id) : key || "Choose model";
 });
+
+export const modelInfo = (ref: ModelRef | null | undefined) => findModel(models.list, ref);
+export const levelsFor = (ref: ModelRef | null | undefined) => levelsOf(modelInfo(ref));
+export const availableLevels = computed(() => levelsFor(models.selected));
+export const clampLevel = (level: string, ref: ModelRef | null | undefined) => clampTo(levelsFor(ref), level);
+export const defaultLevelFor = (ref: ModelRef | null | undefined) => startLevel(modelInfo(ref), models.defaultThinkingLevel);
+const draftLevel = (ref: ModelRef | null | undefined) =>
+  models.draft.thinkingLevel ? clampLevel(models.draft.thinkingLevel, ref) : defaultLevelFor(ref);
 
 export function setSelectedModel(m: ModelRef | null | undefined) { models.selected = m ? { provider: m.provider, modelId: m.modelId } : null; }
 
@@ -101,7 +109,7 @@ export async function loadModels(options?: LoadModelsOptions): Promise<boolean> 
       const r = await json<{ models: ModelInfo[]; default: ModelRef | null; defaultThinkingLevel?: string; refresh: typeof models.refresh }>("/v1/models");
       if (generation !== modelsRequest || origin !== serverUrl.value || credential !== token.value) return false;
       models.list = r.models; models.defaultModel = r.default; models.refresh = r.refresh;
-      models.defaultThinkingLevel = r.defaultThinkingLevel ?? "off";
+      models.defaultThinkingLevel = r.defaultThinkingLevel ?? FALLBACK_LEVEL;
       catalogFresh = { origin, credential, expires: Date.now() + 30_000 };
     } catch {
       // Keep the last usable catalog when the server is unavailable.
@@ -113,7 +121,7 @@ export async function loadModels(options?: LoadModelsOptions): Promise<boolean> 
     models.loaded = true;
     if (!chat.session) {
       setSelectedModel(models.draft.model ?? models.defaultModel);
-      models.thinking = models.draft.thinkingLevel ?? models.defaultThinkingLevel;
+      models.thinking = draftLevel(models.selected);
     }
     return true;
   })();
@@ -132,17 +140,26 @@ export async function chooseModel(m: ModelInfo): Promise<boolean> {
     if (!target) {
       models.draft.model = { provider: m.provider, modelId: m.id };
       setSelectedModel(models.draft.model);
+      models.thinking = draftLevel(models.draft.model);
       return true;
     }
-    await post(`/v1/sessions/${target}`, { model: { provider: m.provider, modelId: m.id } }, "PATCH");
-    if (chat.session === target) { setSelectedModel({ provider: m.provider, modelId: m.id }); return true; }
+    const r = await post<{ thinkingLevel?: string }>(`/v1/sessions/${target}`, { model: { provider: m.provider, modelId: m.id } }, "PATCH");
+    if (chat.session === target) {
+      setSelectedModel({ provider: m.provider, modelId: m.id });
+      // The server keeps or clamps the level for the new model and returns the stored one.
+      if (r?.thinkingLevel) models.thinking = r.thinkingLevel;
+      return true;
+    }
   } catch (e) { addErr((e as Error).message); }
   return false;
 }
 
 export async function setThinking(level: string) {
-  models.thinking = level;
+  models.thinking = clampLevel(level, models.selected);
   const sid = chat.session, epoch = chat.epoch;
-  if (!sid) { models.draft.thinkingLevel = level; return; }
-  await post(`/v1/sessions/${sid}`, { thinkingLevel: level }, "PATCH").catch(e => { if (epoch === chat.epoch) addErr((e as Error).message); });
+  if (!sid) { models.draft.thinkingLevel = models.thinking; return; }
+  try {
+    const r = await post<{ thinkingLevel?: string }>(`/v1/sessions/${sid}`, { thinkingLevel: level }, "PATCH");
+    if (chat.session === sid && epoch === chat.epoch && r?.thinkingLevel) models.thinking = r.thinkingLevel;
+  } catch (e) { if (epoch === chat.epoch) addErr((e as Error).message); }
 }

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // Snap tool (#437): select a region of the UI, then start a new session with a screenshot and the DOM of that region.
-import { ref, computed, nextTick, onUnmounted } from "vue";
+import { ref, computed, nextTick, onUnmounted, watch } from "vue";
 import { Crop, X, Send, Loader2 } from "@lucide/vue";
 import { domToCanvas } from "modern-screenshot";
 import { chat, newSession, addErr } from "@/stores/chat";
 import { composer, addAttachment, send } from "@/stores/composer";
 import { history, loadProjects } from "@/stores/sessions";
-import { models, selectedKey, setSelectedModel, LEVELS, levelLabel, loadModels } from "@/stores/models";
+import { models, selectedKey, setSelectedModel, levelsFor, clampLevel, levelLabel, loadModels } from "@/stores/models";
 import { SNAP_PROJECT_KEY, resolveSnapProject } from "@/lib/projects";
 import ModelCombobox from "@/components/ModelCombobox.vue";
 
@@ -19,10 +19,17 @@ const busy = ref(false);
 const note = ref("");
 const preview = ref("");
 const model = ref<string | undefined>();
-const thinking = ref("off");
+const thinking = ref(models.thinking);
 const project = ref<number | null>(null);
 let shot: { png: Blob; html: string; rect: Rect; target: string } | null = null;
 
+const snapRef = computed(() => {
+  if (!model.value) return models.defaultModel;
+  const [provider, ...rest] = model.value.split("/");
+  return { provider: provider!, modelId: rest.join("/") };
+});
+const snapLevels = computed(() => levelsFor(snapRef.value));
+watch(snapRef, ref => { thinking.value = clampLevel(thinking.value, ref); });
 const box = computed(() => rect.value && ({ left: rect.value.x + "px", top: rect.value.y + "px", width: rect.value.w + "px", height: rect.value.h + "px" }));
 const inUi = (el: Element | null) => !!el?.closest("[data-snap-ui]");
 
@@ -38,7 +45,7 @@ function saveProject(id: number | null) {
 
 function begin() {
   mode.value = "select"; rect.value = null; start.value = null; shot = null; note.value = ""; preview.value = "";
-  model.value = selectedKey.value || undefined; thinking.value = models.thinking || "off";
+  model.value = selectedKey.value || undefined; thinking.value = models.thinking;
   project.value = resolveSnapProject(history.projects, readSavedProject(), chat.project);
   void loadModels();
   void loadProjects().then(() => {
@@ -194,7 +201,7 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
         </select>
         <ModelCombobox v-model="model" empty-label="Default model" aria-label="Snap session model" content-class="z-[2147483002]" />
         <select v-model="thinking" class="snap-select snap-think" aria-label="Reasoning level" title="Reasoning level">
-          <option v-for="l in LEVELS" :key="l" :value="l">{{ levelLabel(l) }}</option>
+          <option v-for="l in snapLevels" :key="l" :value="l">{{ levelLabel(l) }}</option>
         </select>
       </div>
       <div class="snap-actions">

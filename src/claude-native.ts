@@ -92,6 +92,9 @@ function mapThinkingLevelToEffort(model: { thinkingLevelMap?: Record<string, str
 }
 
 const INLINE_TOOLS_BETA = "inline-tools-2026-09-15";
+const MID_CONVERSATION_OUTPUT_CONFIG_BETA = "mid-conversation-output-config-2026-07-01";
+const THINKING_BINDING_CONTROLS_BETA = "thinking-binding-controls-2026-08-01";
+const ANTHROPIC_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 /** Convert only model-visible content. Luna remains the sole transcript owner. */
 export function prepareNativeRequest(
@@ -105,6 +108,7 @@ export function prepareNativeRequest(
       forceAdaptiveThinking?: boolean;
       supportsMidConvoSystemMessages?: boolean;
       supportsMidConvoToolChanges?: boolean;
+      supportsMidConvoEffort?: boolean;
     };
   },
   maxTokens?: number,
@@ -128,6 +132,8 @@ export function prepareNativeRequest(
 
   const systemInjections: NativeSystemInjection[] = [];
   let pendingSystemBlocks: Block[] = [];
+  // Per-message effort markers keep the top-level effort, and so the cached prefix, fixed when the level changes.
+  const effortMarkers = Boolean(model.reasoning && reasoning && model.compat?.supportsMidConvoEffort === true);
 
   for (const message of context.messages) {
     if (message.role === "system") {
@@ -171,10 +177,15 @@ export function prepareNativeRequest(
       messages.push({ role: "tool", tool_call_id: toolIds.get(message.toolCallId) ?? message.toolCallId,
         is_error: message.isError, content: blocks(message.content) });
     } else {
+      const assistantIdx = messages.filter(m => m.role === "assistant").length;
       if (supportsNativeToolChanges && pendingSystemBlocks.length > 0) {
-        const assistantIdx = messages.filter(m => m.role === "assistant").length;
         systemInjections.push({ beforeAssistant: assistantIdx, content: pendingSystemBlocks });
         pendingSystemBlocks = [];
+      }
+      // Replay the effort each earlier reply ran at, directly before that reply.
+      if (effortMarkers && message.provider === "claude-cli" && message.api === "anthropic-messages"
+        && typeof message.providerThinkingLevel === "string" && ANTHROPIC_EFFORTS.has(message.providerThinkingLevel)) {
+        systemInjections.push({ beforeAssistant: assistantIdx, content: [], output_config: { effort: message.providerThinkingLevel } });
       }
       const text = message.content.filter(b => b.type === "text");
       const calls: NativeToolCall[] = message.content.filter(b => b.type === "toolCall").map(b => ({
@@ -215,7 +226,14 @@ export function prepareNativeRequest(
   }
 
   if (model.reasoning && reasoning) {
-    if (model.compat?.forceAdaptiveThinking === true) {
+    if (effortMarkers) {
+      const effort = mapThinkingLevelToEffort(model, reasoning);
+      request.providerThinkingLevel = effort;
+      request.thinking = { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } };
+      // Fixed and low: organizations can cap effort and reject any request that names a higher level.
+      request.output_config = { effort: "low" };
+      systemInjections.push({ beforeAssistant: null, content: [], output_config: { effort } });
+    } else if (model.compat?.forceAdaptiveThinking === true) {
       const effort = mapThinkingLevelToEffort(model, reasoning);
       request.providerThinkingLevel = effort;
       request.thinking = { type: "adaptive", display: "summarized" };
@@ -243,6 +261,11 @@ export function prepareNativeRequest(
       systemInjections,
       betas: [INLINE_TOOLS_BETA],
     };
+  }
+  if (effortMarkers) {
+    request.replayMetadata ??= { systemInjections };
+    request.replayMetadata.betas = [...(request.replayMetadata.betas ?? []),
+      MID_CONVERSATION_OUTPUT_CONFIG_BETA, THINKING_BINDING_CONTROLS_BETA];
   }
 
   if (request.thinking?.type === "enabled") {

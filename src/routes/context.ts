@@ -11,6 +11,7 @@ import { uploadWriter } from "../worker-protocol.js";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import { context } from "../luna.js";
 import { readLimitWait } from "../limit-continue.js";
+import { resolveThinkingLevel, type ThinkingDefaults } from "../thinking.js";
 
 export type Harness = ServerOptions["harness"];
 export type ActiveConversation = NonNullable<Awaited<ReturnType<Harness["conversation"]>>>;
@@ -28,6 +29,8 @@ export interface RouteCtx {
   err: ErrFn;
   getConv: (id: string) => Promise<ActiveConversation | undefined>;
   baseAgent: () => AgentChange;
+  /** Global and per-model thinking defaults for new sessions and model switches. */
+  thinkingDefaults: () => ThinkingDefaults;
   resumeAt: (tx: Tx, id: ConversationId, running: boolean) => Promise<number | null>;
   serial: <T>(id: string, fn: () => Promise<T>) => Promise<T>;
   stop: (conv: ActiveConversation) => Promise<void>;
@@ -106,12 +109,19 @@ export function createRouteCtx(
     return harness.conversation(numericId as ConversationId, context);
   };
 
+  const thinkingDefaults = (): ThinkingDefaults => {
+    const c = opts.settings?.resolved();
+    const thinkingLevel = c?.thinkingLevel ?? opts.agent?.thinkingLevel;
+    return { ...(thinkingLevel && { thinkingLevel }), ...(c?.modelThinkingLevels && { modelThinkingLevels: c.modelThinkingLevels }) };
+  };
+
   const baseAgent = () => {
     const c = opts.settings?.resolved();
+    const model = opts.providers?.defaultModel() ?? opts.agent?.model;
     return {
       ...(opts.agent ?? {}),
       ...(opts.providers && { model: opts.providers.defaultModel() }),
-      ...(c?.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}),
+      thinkingLevel: resolveThinkingLevel(opts.models, model, thinkingDefaults()),
       ...(c?.maxTurns ? { maxTurns: c.maxTurns } : {}),
       ...(c?.instructions ? { instructions: c.instructions } : {}),
     };
@@ -169,6 +179,7 @@ export function createRouteCtx(
     err,
     getConv,
     baseAgent,
+    thinkingDefaults,
     resumeAt,
     serial,
     stop,

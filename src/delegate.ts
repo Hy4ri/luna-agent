@@ -17,6 +17,7 @@ import { compileResultSchema, delegateResultTool, RECEIPT_SCHEMA } from "./deleg
 import { prepareDelegateWorktree } from "./delegate-worktree.js";
 import { readDelegationUsage } from "./delegate-usage.js";
 import type { DelegateProfile } from "./delegate-profiles.js";
+import { resolveThinkingLevel } from "./thinking.js";
 export { Children } from "./delegate-state.js";
 
 /** Added to every spawn brief. Statuses and summaries must agree, and claims must be checkable. */
@@ -230,7 +231,9 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
               }
               const maxTurns = profile?.maxTurns ?? defaults.maxTurns ?? parent.maxTurns;
               const agent: AgentChange = {
-                ...(model ? { model } : {}), thinkingLevel: profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel,
+                ...(model ? { model } : {}),
+                // Clamp to the child's model: a profile level can exceed what that model supports.
+                thinkingLevel: resolveThinkingLevel(api.models, model ?? parent.model, undefined, profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel),
                 ...(maxTurns === undefined ? {} : { maxTurns }),
                 // Children keep task policy, but never the runtime's personal identity block.
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "identity" || e.name === "board" || e.name === "ask-user")] },

@@ -11,7 +11,7 @@ import { boardChanged, focusInput, leavePages } from "./app";
 import { agentTerminalActivity } from "./terminal";
 import { agentBrowserActivity } from "./browser";
 import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, retirePendingEntries, refreshPending } from "./composer";
-import { models, setSelectedModel } from "./models";
+import { defaultLevelFor, models, setSelectedModel } from "./models";
 import { history, loadSessions, loadFocusedSession, resetHistoryView } from "./sessions";
 
 export interface Notice { id: number; text: string; kind: "err" | "muted"; scope: "session" | "run" }
@@ -299,12 +299,13 @@ export function clearConversation() {
   saveDraft(); detachView(); setSession(null);
   chat.title = "New conversation";
   models.draft = {};
-  setSelectedModel(models.defaultModel); models.thinking = models.defaultThinkingLevel; chat.usage = null;
+  setSelectedModel(models.defaultModel); models.thinking = defaultLevelFor(models.defaultModel); chat.usage = null;
   restoreDraft();
 }
 function applyAgent(agent: any) {
   chat.cwd = agent?.cwd ?? null;
-  setSelectedModel(agent?.model || models.defaultModel); models.thinking = agent?.thinkingLevel || "off";
+  setSelectedModel(agent?.model || models.defaultModel);
+  models.thinking = agent?.thinkingLevel || defaultLevelFor(agent?.model || models.defaultModel);
 }
 function syncLive() {
   chat.liveText = textBlocks(liveMessage?.content);

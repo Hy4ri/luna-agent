@@ -32,6 +32,8 @@ export interface NativeSystemInjection {
   /** Insert immediately before this zero-based assistant message, or at the request tail. */
   beforeAssistant: number | null;
   content: Array<Record<string, unknown>>;
+  /** Mid-conversation effort marker: the effort for the next assistant reply. */
+  output_config?: { effort: string };
 }
 
 export interface NativeReplayMetadata {
@@ -47,7 +49,10 @@ export interface NativeRequest {
   tools: NativeTool[];
   stream: true;
   max_tokens?: number;
-  thinking?: { type: "adaptive" | "enabled" | "disabled"; budget_tokens?: number; display?: string };
+  thinking?: {
+    type: "adaptive" | "enabled" | "disabled"; budget_tokens?: number; display?: string;
+    block_binding?: { prefix_mismatch_behavior: "drop_block" };
+  };
   output_config?: { effort: string };
   context_management?: { edits: unknown[] };
   providerThinkingLevel?: string;

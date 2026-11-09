@@ -99,7 +99,8 @@ test("session creation requestId idempotency, lookup, deletion persistence, and 
       // Create session 1 with requestId
       const payload1 = {
         requestId: req1,
-        model: { provider: "faux", modelId: "gpt-4o-mini" },
+        // A reasoning model, so the requested level is stored unclamped.
+        model: { provider: "faux", modelId: "o3-mini" },
         thinkingLevel: "low",
         project: proj.id,
       };
@@ -196,7 +197,7 @@ test("session creation requestId idempotency, lookup, deletion persistence, and 
       assert.deepEqual(await lookupReopen.json(), { id: s1Id });
       const replayAfterRestart = await app.request("/v1/sessions", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestId: req1, model: { provider: "faux", modelId: "gpt-4o-mini" }, thinkingLevel: "low", project: conversations.projects.projectOf(s1Id) }),
+        body: JSON.stringify({ requestId: req1, model: { provider: "faux", modelId: "o3-mini" }, thinkingLevel: "low", project: conversations.projects.projectOf(s1Id) }),
       });
       assert.ok(replayAfterRestart.ok);
       assert.deepEqual(await replayAfterRestart.json(), { id: s1Id });

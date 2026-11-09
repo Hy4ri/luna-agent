@@ -4,6 +4,7 @@
 import { Database } from "bun:sqlite";
 import { context } from "./luna.js";
 import { nextRun, parseCron } from "./cron-expr.js";
+import type { ThinkingLevel } from "./session-create.js";
 import type { Conversation, ConversationId, EntryId, Extension, Harness, Submission, SubmissionId } from "@earendil-works/pi-durable";
 
 export interface ModelRef { provider: string; modelId: string }
@@ -593,6 +594,8 @@ export interface SchedulerOptions {
   store: CronStore;
   /** Model for jobs without their own; a function is read at each run (the UI can change it). */
   defaultModel: ModelRef | (() => ModelRef);
+  /** Thinking level for a run on `model`. Unset: the harness default. */
+  thinkingLevel?: (model: ModelRef) => ThinkingLevel;
   /** Max time one run may take before it is aborted and logged as error. Default 30 min. */
   runTimeoutMs?: number | (() => number);
   log?: (msg: string) => void;
@@ -622,7 +625,7 @@ export class Scheduler {
   private active = new Map<number, ActiveRun>();
   private wakers = new Set<() => void>();
   private stopped = true;
-  private o: Required<SchedulerOptions>;
+  private o: Required<Omit<SchedulerOptions, "thinkingLevel">> & Pick<SchedulerOptions, "thinkingLevel">;
   constructor(o: SchedulerOptions) { this.o = { ...o, runTimeoutMs: o.runTimeoutMs ?? 30 * 60_000, log: o.log ?? (() => {}), onFinish: o.onFinish ?? (() => {}), exclude: o.exclude ?? [] }; }
 
   /** Re-arm the timer after jobs change (e.g. the model added a job). */
@@ -826,7 +829,7 @@ export class Scheduler {
     this.guard(a);
     const d = this.o.defaultModel;
     const model = job.model ?? (typeof d === "function" ? d() : d);
-    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) } }, context);
+    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.thinkingLevel ? { thinkingLevel: this.o.thinkingLevel(model) } : {}), ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) } }, context);
     store.attachConversation(run.id, String(conv.id));
     this.guard(a);
     const sub = await conv.submit({ type: "input", content: job.prompt, requestId: this.requestId(run, n) }, context);

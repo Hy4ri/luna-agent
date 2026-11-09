@@ -224,16 +224,18 @@ function withoutCacheControl(content: unknown): unknown {
   return content;
 }
 
-function setCacheBreakpoint(message: Record<string, unknown>): void {
+/** Marks the last cacheable block. Returns false when the message has none, such as an effort marker. */
+function setCacheBreakpoint(message: Record<string, unknown>): boolean {
   const content = message.content;
-  if (!Array.isArray(content)) return;
+  if (!Array.isArray(content)) return false;
   for (let k = content.length - 1; k >= 0; k--) {
     const block = content[k];
     if (block && typeof block === 'object' && !Array.isArray(block) && !UNCACHEABLE.includes(block.type)) {
       block.cache_control = { type: 'ephemeral', ttl: '1h' };
-      return;
+      return true;
     }
   }
+  return false;
 }
 
 function setReplayCacheBreakpoints(messages: Array<Record<string, unknown>>): void {
@@ -246,8 +248,8 @@ function setReplayCacheBreakpoints(messages: Array<Record<string, unknown>>): vo
     .map((msg, idx) => (msg.role === 'user' ? idx : -1))
     .filter(idx => idx >= 0);
   if (userIndexes.length >= 2) setCacheBreakpoint(messages[userIndexes.at(-2)!]!);
-  const final = messages.at(-1);
-  if (final) setCacheBreakpoint(final);
+  // An empty tail effort marker cannot hold the breakpoint; the newest cacheable message takes it.
+  for (let i = messages.length - 1; i >= 0; i--) if (setCacheBreakpoint(messages[i]!)) break;
 }
 
 function injectNativeSystemMessages(
@@ -257,7 +259,8 @@ function injectNativeSystemMessages(
   const byAssistant = new Map<number, Array<Record<string, unknown>>>();
   const trailing: Array<Record<string, unknown>> = [];
   for (const injection of injections) {
-    const message = { role: 'system', content: structuredClone(injection.content) };
+    const message: Record<string, unknown> = { role: 'system', content: structuredClone(injection.content) };
+    if (injection.output_config) message.output_config = { ...injection.output_config };
     if (injection.beforeAssistant === null) trailing.push(message);
     else {
       const pending = byAssistant.get(injection.beforeAssistant) ?? [];
