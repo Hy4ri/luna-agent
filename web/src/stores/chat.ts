@@ -590,13 +590,6 @@ export async function continueCronRun(run: any) {
   saveDraft(); focusInput.value++;
 }
 
-/** Starts a new conversation about a GitHub item and leaves the prompt in the composer. Never submits it. */
-export async function startItemSession(prompt: string, project?: number | null, worker?: number | null) {
-  if (!await newSession(project, worker) || chat.session) throw new Error("Conversation changed. Try again.");
-  composer.text = prompt; composer.attachments = [];
-  saveDraft(); focusInput.value++;
-}
-
 export function stopFeeds() { activeFeed?.stop(); listFeed?.stop(); }
 // A running session emits sessions_changed for every committed entry. Keep one list request in flight and
 // fold any events that arrive meanwhile into a single trailing reload.

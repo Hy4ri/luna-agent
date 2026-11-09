@@ -2259,7 +2259,7 @@ All routes below use normal Luna API authentication. `:owner` and `:name` are re
 | GET | `/v1/github/status` | CLI/login status, authenticated GitHub login |
 | GET | `/v1/github/repos` | Repositories grouped with matching project ids and names |
 | GET | `/v1/github/repos/:owner/:name` | Repository permissions and allowed merge methods |
-| GET | `/v1/github/repos/:owner/:name/items` | `kind=pr\|issue`, `state=open\|closed\|all`, optional `q` (256 characters), `after` cursor, filters `author` (`@me` or a login), `label`, and for PRs `draft=true\|false`, `review=approved\|changes_requested\|required`; 30 items/page. Filters become search qualifiers, so a filtered list uses GitHub search |
+| GET | `/v1/github/repos/:owner/:name/items` | `kind=pr\|issue`, `state=open\|closed\|all`, optional `q` (256 characters), `after` cursor; 30 items/page |
 | GET | `/v1/github/repos/:owner/:name/items/:number` | Description, latest 30 comments, `commentTotal`, `commentsBefore` cursor (or null), PR checks and recent reviews, action capabilities |
 | GET | `/v1/github/repos/:owner/:name/pulls/:number/files` | `page=1`–`30`; 100 changed files per page with status, +/- counts, and `patch` (null when GitHub omits it for binary or very large files); `more` flag |
 | GET | `/v1/github/repos/:owner/:name/items/:number/comments` | Required `before` cursor (max 1000 characters); returns earlier 30 comments and `before` cursor (or null) |
@@ -2267,14 +2267,6 @@ All routes below use normal Luna API authentication. `:owner` and `:name` are re
 | POST | `/v1/github/repos/:owner/:name/items/:number/state` | `{ "kind": "issue", "state": "closed", "reason": "completed" }`; reason optional, `completed` or `not_planned`; state `open` or `closed` |
 | POST | `/v1/github/repos/:owner/:name/pulls/:number/merge` | `{ "method": "squash", "sha": "<40-character head SHA>" }`; method `merge`, `squash`, or `rebase` |
 | POST | `/v1/github/repos/:owner/:name/pulls/:number/delete-branch` | `{ "sha": "<40-character head SHA>" }` |
-| GET | `/v1/github/repos/:owner/:name/labels` | Up to 100 repository labels (name, color) |
-| GET | `/v1/github/repos/:owner/:name/assignees` | Up to 100 users who can be assigned |
-| POST | `/v1/github/repos/:owner/:name/issues` | `{ "title", "body"?, "labels"?, "assignees"? }`; returns `{ number, url }` |
-| POST | `/v1/github/repos/:owner/:name/pulls` | `{ "title", "head", "base", "body"?, "draft"? }`; returns `{ number, url }` |
-| PATCH | `/v1/github/repos/:owner/:name/items/:number` | `{ "kind", "title"?, "body"?, "labels"?, "assignees"? }`; only the given fields change; returns the fresh detail |
-| POST | `/v1/github/repos/:owner/:name/pulls/:number/review` | `{ "event": "APPROVE\|REQUEST_CHANGES\|COMMENT", "body"?, "sha" }`; the body is required unless approving; a changed head returns 409 |
-| POST | `/v1/github/repos/:owner/:name/pulls/:number/draft` | `{ "draft": true }`; converts to draft or marks ready |
-| POST | `/v1/github/repos/:owner/:name/pulls/:number/update-branch` | `{ "sha" }`; asks GitHub to merge the base branch into the head; a changed head returns 409 |
 | DELETE | `/v1/github/repos/:owner/:name/issues/:number` | `{ "confirm": 12 }`; must equal the issue number; permanent, requires GitHub deletion permission |
 | GET | `/v1/github/repos/:owner/:name/items/:number/cards` | Required `kind=pr\|issue`; matching projects and linked active/archived board cards; no GitHub detail request |
 | POST | `/v1/github/repos/:owner/:name/items/:number/card` | `{ "project": 1 }`; creates a todo/medium card (201), or returns an existing linked card (200) |
@@ -2324,12 +2316,6 @@ the repository root. The GitHub tabs follow the workspace's github.com `origin` 
 Every `/v1/git/*` request requires exactly one query selector: `session=<id>` or `project=<id>`.
 It uses the normal Luna API authentication. Offline workers return 503. Project selection runs on the
 main host; General and projects without a host directory are rejected.
-Add `machine=<worker id>` or `machine=main` to a `project` selector to run on that execution machine's
-directory for the project. The context bar at the top of the page sets project, machine, and repository.
-
-The page remembers its tab, state filter, and layout choices in the browser. Deep links such as
-`#source-control/pr/12` open an item. Keys: `r` refresh, `/` search, `Esc` back, `j`/`k` move in a list.
-**Start session** on a PR or issue opens a new chat with the item in the composer; it never sends.
 
 | Method | Route | Body / extra query |
 |---|---|---|
@@ -2340,16 +2326,9 @@ The page remembers its tab, state filter, and layout choices in the browser. Dee
 | GET | `/v1/git/commit` | `oid=<4–64 hex>`; full message, author, committer, parents, refs, `base` (first parent or the empty tree), changed files with status and +/- counts (up to 3000) |
 | GET | `/v1/git/compare` | `base=<rev>&head=<rev>`; three-dot comparison: resolved oids, `mergeBase`, ahead/behind, up to 250 commits, changed files since the merge base |
 | GET | `/v1/git/range-diff` | `base=<oid>&head=<oid>&path=<path>`, optional `original=<old path>` for renames; one file's diff between two commits (512 KB limit) |
-| POST | `/v1/git/stage`, `/v1/git/unstage` | `{ "paths": [...] }` or `{ "all": true }` |
-| POST | `/v1/git/discard` | `{ "paths": [...] }`; permanent. Staged and conflicted files are refused (409) |
-| POST | `/v1/git/stash` | `{ "message"?, "includeUntracked"? }` |
-| POST | `/v1/git/stash-pop`, `/v1/git/stash-drop` | `{ "index": 0 }`; a stash that changed since listing returns 409 |
-| GET | `/v1/git/stashes` | `{ stashes: [{ index, date, subject }] }` |
-| POST | `/v1/git/delete-branch` | `{ "branch", "force"? }`; the current and default branch are refused; an unmerged branch returns 409 `confirm-force:` until `force` is true |
-| POST | `/v1/git/update-from-default` | `{}`; needs a clean tree; merges `origin/<default>` and aborts the merge on conflict (409) |
-| POST | `/v1/git/checkout-pr` | `{ "number" }`; needs a clean tree; fetches `pull/<n>/head`, creates or fast-forwards local `pr-<n>`; a diverged local branch is left alone (409) |
-| GET, POST | `/v1/git/commit-message` | GET: `{ available }`. POST: drafts a message from the staged diff with the title model; only on request, never automatic |
-| POST | `/v1/git/commit` | `{ "message": "Commit message", "amend"?, "force"? }`; amending a commit that origin already has returns 409 `confirm-amend:` until `force` is true |
+| POST | `/v1/git/stage` | `{ "paths": ["file.txt"] }` |
+| POST | `/v1/git/unstage` | `{ "paths": ["file.txt"] }` |
+| POST | `/v1/git/commit` | `{ "message": "Commit message" }` |
 | POST | `/v1/git/switch` | `{ "branch": "feature" }`, or `{ "branch": "feature", "create": true, "from": "HEAD" }`; remote branch: `origin/feature` |
 | POST | `/v1/git/fetch` | `{}`; fetches and prunes origin |
 | POST | `/v1/git/pull` | `{}`; requires an upstream and uses `--ff-only` |

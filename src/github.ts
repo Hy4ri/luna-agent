@@ -183,7 +183,6 @@ export type Detail = {
   can: {
     comment: boolean;
     close: boolean;
-    edit: boolean;
     merge: boolean;
     deleteBranch: boolean;
     delete: boolean;

@@ -6,19 +6,19 @@ import { filterQualifiers } from "../src/github-list.js";
 import { createIssue, createPull, editItem, review, setDraft, updatePullBranch } from "../src/github-write.js";
 
 type Call = { url: string; method: string; body: any };
-let calls: Call[] = [], realFetch: typeof fetch, headOid = "a".repeat(40), isDraft = false, merged = false, prState = "OPEN";
+let calls: Call[] = [], realFetch: typeof fetch, headOid = "a".repeat(40), isDraft = false, prState = "OPEN";
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status });
 
 function detailNode(kind: "pr" | "issue") {
   const base = { id: "NODE", number: 7, title: "t", state: prState, url: "u", createdAt: "2026-01-01T00:00:00Z", body: "", author: { login: "me" }, viewerCanUpdate: true, locked: false,
     labels: { nodes: [{ name: "bug", color: "ff0000" }] }, assignees: { nodes: [{ login: "me" }] }, comments: { totalCount: 0, pageInfo: { hasPreviousPage: false, startCursor: null }, nodes: [] } };
   return kind === "issue" ? { __typename: "Issue", ...base, viewerCanDelete: false }
-    : { __typename: "PullRequest", ...base, isDraft, merged, baseRefName: "main", headRefName: "f", headRefOid: headOid, isCrossRepository: false,
+    : { __typename: "PullRequest", ...base, isDraft, merged: false, baseRefName: "main", headRefName: "f", headRefOid: headOid, isCrossRepository: false,
       headRepository: { nameWithOwner: "o/r", viewerPermission: "WRITE", defaultBranchRef: { name: "main" } }, headRef: { name: "f" }, additions: 1, deletions: 0, changedFiles: 1,
       mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: null, reviews: { nodes: [] }, commits: { nodes: [] } };
 }
 beforeEach(() => {
-  calls = []; headOid = "a".repeat(40); isDraft = false; merged = false; prState = "OPEN";
+  calls = []; headOid = "a".repeat(40); isDraft = false; prState = "OPEN";
   process.env.GH_TOKEN = "test-token"; realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: any, init: any) => {
     const url = String(input), body = init?.body ? JSON.parse(init.body) : undefined;
@@ -90,13 +90,4 @@ test("list filters become search qualifiers and cannot inject others", () => {
   assert.throws(() => filterQualifiers("pr", { author: "x is:open" }), GhError);
   assert.throws(() => filterQualifiers("pr", { label: 'a" repo:other/x' }), GhError);
   assert.throws(() => filterQualifiers("pr", { review: "all" as never }), GhError);
-});
-
-test("a merged pull request stays editable though it cannot be closed", async () => {
-  kindOf = "pr"; prState = "MERGED"; merged = true;
-  const { detail } = await import("../src/github-detail.js");
-  const d = await detail("o", "r", 7);
-  assert.equal(d.state, "MERGED");
-  assert.equal(d.can.close, false);
-  assert.equal(d.can.edit, true);
 });
