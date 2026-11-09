@@ -30,6 +30,7 @@ export const McpServerSchema = z.discriminatedUnion("transport", [
   z.strictObject({ ...common, transport: z.literal("http"), url: z.url(), headers }),
   z.strictObject({ ...common, transport: z.literal("sse"), url: z.url(), headers }),
 ]);
+const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export const CustomProviderSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/), name: z.string().min(1),
   api: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]),
@@ -37,6 +38,8 @@ export const CustomProviderSchema = z.strictObject({
   models: z.array(z.strictObject({ id: z.string().min(1), name: z.string().optional(),
     contextWindow: z.number().int().min(1000).optional(), maxTokens: z.number().int().min(1000).optional(),
     reasoning: z.boolean().optional(), vision: z.boolean().optional(),
+    /** Provider effort value per Luna level; null marks a level the model rejects. Filled from the endpoint's model list. */
+    thinkingLevelMap: z.partialRecord(thinking, z.string().nullable()).optional(),
   })).min(1),
   /** pi-ai compatibility overrides that keep the prompt cache prefix stable. Applied to every model of the provider. */
   compat: z.strictObject({
@@ -46,7 +49,6 @@ export const CustomProviderSchema = z.strictObject({
     stableTools: z.boolean().optional(),
   }).optional(),
 });
-const thinking = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const cronExpr = z.string().refine((e) => { try { parseCron(e); return true; } catch { return false; } }, "invalid cron expression");
 
 /** Absolute input thresholds; stock model-capacity safety limits still apply. */

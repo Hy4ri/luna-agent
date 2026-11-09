@@ -74,6 +74,8 @@ export function labelFor(path: (string | number)[]): string {
   if (full.startsWith('subagents.profiles.') && key === 'context') return 'Starting context'
   if (full === 'thinkingLevel') return 'Main thinking level'
   if (full === 'subagents.thinkingLevel') return 'Subagent thinking level'
+  if (/providers\.\d+\.models\.\d+\.reasoning$/.test(full)) return 'Supports reasoning'
+  if (/providers\.\d+\.models\.\d+\.thinkingLevelMap$/.test(full)) return 'Reasoning effort per level'
   if (full === 'providers' || /providers\.\d+\.models\.\d+\.vision$/.test(full)) return full === 'providers' ? fieldTitles.providers! : 'Supports images'
   if (full === 'auxiliary.video') return 'Video analysis model'
   if (full === 'auxiliary.video.model') return 'Video analysis model ID'
