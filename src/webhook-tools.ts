@@ -2,10 +2,11 @@
 import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { OUT_EVENTS, WebhookError, type Webhooks } from "./webhooks.js";
+import { StringEnum } from "./string-enum.js";
 
 const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 const when = (ms: number | null) => (ms === null ? "never" : new Date(ms).toISOString());
-const KIND = Type.Union([Type.Literal("inbound"), Type.Literal("outbound")]);
+const KIND = StringEnum(["inbound", "outbound"]);
 
 async function guard(fn: () => Promise<ReturnType<typeof text>> | ReturnType<typeof text>) {
   try { return await fn(); } catch (e) {
@@ -46,11 +47,11 @@ export function createWebhookExtension(get: () => Webhooks | undefined) {
     parameters: Type.Object({
       kind: KIND,
       name: Type.String(),
-      target: Type.Optional(Type.Object({ kind: Type.Union([Type.Literal("session"), Type.Literal("project"), Type.Literal("cron")]), id: Type.Number() })),
-      verify: Type.Optional(Type.Union([Type.Literal("hmac"), Type.Literal("token")])),
+      target: Type.Optional(Type.Object({ kind: StringEnum(["session", "project", "cron"]), id: Type.Number() })),
+      verify: Type.Optional(StringEnum(["hmac", "token"])),
       template: Type.Optional(Type.String()),
       url: Type.Optional(Type.String()),
-      format: Type.Optional(Type.Union([Type.Literal("json"), Type.Literal("ntfy"), Type.Literal("discord"), Type.Literal("slack")])),
+      format: Type.Optional(StringEnum(["json", "ntfy", "discord", "slack"])),
       events: Type.Optional(Type.Array(Type.String())),
     }),
     // A replay would create a second hook with a new secret.
@@ -79,10 +80,10 @@ export function createWebhookExtension(get: () => Webhooks | undefined) {
     parameters: Type.Object({
       kind: KIND, id: Type.Number(),
       name: Type.Optional(Type.String()), enabled: Type.Optional(Type.Boolean()), events: Type.Optional(Type.Array(Type.String())),
-      target: Type.Optional(Type.Object({ kind: Type.Union([Type.Literal("session"), Type.Literal("project"), Type.Literal("cron")]), id: Type.Number() })),
-      verify: Type.Optional(Type.Union([Type.Literal("hmac"), Type.Literal("token")])), template: Type.Optional(Type.String()),
+      target: Type.Optional(Type.Object({ kind: StringEnum(["session", "project", "cron"]), id: Type.Number() })),
+      verify: Type.Optional(StringEnum(["hmac", "token"])), template: Type.Optional(Type.String()),
       url: Type.Optional(Type.String()),
-      format: Type.Optional(Type.Union([Type.Literal("json"), Type.Literal("ntfy"), Type.Literal("discord"), Type.Literal("slack")])),
+      format: Type.Optional(StringEnum(["json", "ntfy", "discord", "slack"])),
     }),
     replay: "safe",
     async execute({ kind, id, ...patch }) {

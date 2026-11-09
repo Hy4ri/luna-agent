@@ -4,6 +4,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 import { Type } from "typebox";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
+import { StringEnum } from "./string-enum.js";
 
 export type Kind = "fact" | "note" | "digest";
 export interface MemoryRow {
@@ -302,12 +303,12 @@ export function createMemoryExtension(store: MemoryStore) {
       "search: saved facts and notes (all terms must match content, key or tags); empty query lists the most recent; archived also searches notes folded into the digest. " +
       "forget: delete a fact or note by its #id (from search or the memory section).",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("save"), Type.Literal("search"), Type.Literal("forget")]),
+      action: StringEnum(["save", "search", "forget"]),
       content: Type.Optional(Type.String({ description: "save: what to remember." })),
       key: Type.Optional(Type.String({ description: "save: stable dotted key for a fact; reuse it to update the fact." })),
       tags: Type.Optional(Type.Array(Type.String(), { description: "save: tags." })),
       query: Type.Optional(Type.String({ description: "search: terms." })),
-      kind: Type.Optional(Type.Union([Type.Literal("fact"), Type.Literal("note")], { description: "search: only this kind." })),
+      kind: Type.Optional(StringEnum(["fact", "note"], { description: "search: only this kind." })),
       limit: Type.Optional(Type.Number({ description: "search: default 10, max 50." })),
       archived: Type.Optional(Type.Boolean({ description: "search: include archived notes." })),
       id: Type.Optional(Type.Number({ description: "forget: memory #id." })),

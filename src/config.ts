@@ -17,7 +17,7 @@ export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
  */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
   coding: ["coding-tools", "busy-processes", "session-workspace"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
-  cron: [], improve: ["improve"], "tool-search": ["tool-search"], todo: ["todo"], "ask-user": ["ask-user"],
+  cron: [], improve: ["improve"], "tool-search": ["tool-search", "deferred-tools"], todo: ["todo"], "ask-user": ["ask-user"],
   recall: ["recall"], goal: ["goal"], learn: ["learn"], codemode: ["codemode"], webhooks: ["webhooks"],
 };
 

@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { nextRun, parseCron } from "./cron-expr.js";
 import type { CronStore, Job, JobOptions, ReportPolicy, Run, Scheduler } from "./scheduler.js";
+import { StringEnum } from "./string-enum.js";
 
 const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 const when = (ms: number | null) => (ms === null ? "never" : new Date(ms).toISOString());
@@ -177,19 +178,18 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
       `get_run: one run in full (runId) with status, timing, conversation and the complete result; results over ${PAGE} chars come in pages, use offset. ` +
       "lessons: group recent failed runs by normalized error signature and return recurring patterns (count, affected jobs, example); use these to decide which skill to draft or update.",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("create"), Type.Literal("list"), Type.Literal("get"), Type.Literal("update"), Type.Literal("remove"), Type.Literal("run"), Type.Literal("stop"),
-        Type.Literal("runs"), Type.Literal("get_run"), Type.Literal("lessons")]),
+      action: StringEnum(["create", "list", "get", "update", "remove", "run", "stop", "runs", "get_run", "lessons"]),
       id: Type.Optional(Type.Number({ description: "Job id (get, update, remove, run; stop: alternative to runId; runs: only this job)." })),
       runId: Type.Optional(Type.Number({ description: "stop, get_run: run id." })),
       name: Type.Optional(Type.String({ description: "create: unique job name. update: new name." })),
       expr: Type.Optional(Type.String({ description: "create/update: 5-field cron in local time or @hourly/@daily/@weekly/@monthly/@yearly." })),
       prompt: Type.Optional(Type.String({ description: "create/update: self-contained prompt for each run." })),
       enabled: Type.Optional(Type.Boolean({ description: "update: enable or disable." })),
-      reportPolicy: Type.Optional(Type.Union([Type.Literal("always"), Type.Literal("changes"), Type.Literal("failures")])),
+      reportPolicy: Type.Optional(StringEnum(["always", "changes", "failures"])),
       graceMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "update: skip a slot that is later than this when it comes due (after downtime). null: always run late." })),
       timeoutMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "update: time limit for one run. null: the global limit." })),
       retries: Type.Optional(Type.Number({ description: "update: extra attempts after a failed run, 0 to 5, with backoff." })),
-      status: Type.Optional(Type.Union([Type.Literal("running"), Type.Literal("ok"), Type.Literal("error"), Type.Literal("skipped")], { description: "runs: keep only this status." })),
+      status: Type.Optional(StringEnum(["running", "ok", "error", "skipped"], { description: "runs: keep only this status." })),
       limit: Type.Optional(Type.Number({ description: "runs: default 10, max 100." })),
       offset: Type.Optional(Type.Number({ description: "get_run: char offset into the result, default 0." })),
       min_count: Type.Optional(Type.Number({ description: "lessons: minimum occurrences (default 2)." })),

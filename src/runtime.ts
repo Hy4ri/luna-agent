@@ -28,6 +28,7 @@ import { createLunaCodemodeExtension } from "./codemode.js";
 import { createAgentTerminalExtension } from "./terminal/agent-tools.js";
 import { loadVt } from "./terminal/vt-model.js";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
+import { createDeferredToolsExtension } from "./deferred-tools.js";
 import { SettingsStore } from "./settings.js";
 import { BUILTIN_EXTENSIONS, BUILTIN_REGISTRY_NAMES, type LunaConfig } from "./config.js";
 import { createToggleExtension } from "./toggles.js";
@@ -260,7 +261,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     files: new LearnFiles(cfg.dataDir, () => live().learn.files),
     skip: id => !!store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1").get(String(id)),
   }) : undefined;
-  if (on("tool-search")) extensions.push(createToolSearchExtension());
+  if (on("tool-search")) extensions.push(createToolSearchExtension(), createDeferredToolsExtension());
   if (on("todo")) extensions.push(Todo);
   // All chat sessions get a board. Unlinked sessions use General. The store exists once the harness is open.
   let conversationsRef: ConversationStore | undefined;

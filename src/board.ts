@@ -7,6 +7,7 @@ import { defineExtension, defineTool, section } from "@earendil-works/pi-durable
 import { detectCycle } from "./todo.js";
 import { deliverCardEvents, ownerSession, wakeEvents } from "./board-events.js";
 import type { UploadStore } from "./uploads.js";
+import { StringEnum } from "./string-enum.js";
 
 export const STATUSES = ["backlog", "todo", "in_progress", "review", "done"] as const;
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
@@ -266,12 +267,12 @@ export class BoardStore {
 }
 
 const Params = Type.Object({
-  action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("create"), Type.Literal("update"), Type.Literal("archive")]),
+  action: StringEnum(["list", "get", "create", "update", "archive"]),
   id: Type.Optional(Type.Number({ description: "Card id (get, update, archive)" })),
   subject: Type.Optional(Type.String({ description: "Card name (required for create)" })),
   description: Type.Optional(Type.String({ description: "Long-form description" })),
-  priority: Type.Optional(Type.Union(PRIORITIES.map(p => Type.Literal(p)), { description: "low, medium (default), high, or urgent" })),
-  status: Type.Optional(Type.Union(STATUSES.map(s => Type.Literal(s)), { description: "Column: backlog (default), todo, in_progress, review, done. With list it filters." })),
+  priority: Type.Optional(StringEnum(PRIORITIES, { description: "low, medium (default), high, or urgent" })),
+  status: Type.Optional(StringEnum(STATUSES, { description: "Column: backlog (default), todo, in_progress, review, done. With list it filters." })),
   owner: Type.Optional(Type.String({ description: "Who works on the card. Moving a card to in_progress sets it to this session when empty." })),
   blocked: Type.Optional(Type.String({ description: "update: you cannot continue without the user. Short reason, e.g. 'needs your decision on X'. The board shows it; the user's answer arrives as a message. Empty string clears it." })),
   labels: Type.Optional(Type.Array(Type.String(), { description: "Replace the card's labels" })),

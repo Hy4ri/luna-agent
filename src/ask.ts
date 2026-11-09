@@ -4,6 +4,7 @@
 // The tool call waits durably (replay-safe: after a restart it waits again for the same question).
 import { Type, type Static } from "typebox";
 import { defineDoc, defineExtension, defineTool } from "@earendil-works/pi-durable";
+import { StringEnum } from "./string-enum.js";
 
 export const MAX_QUESTIONS = 4, MIN_OPTIONS = 2, MAX_OPTIONS = 4, MAX_HEADER = 16, MAX_LABEL = 60;
 const RESERVED = new Set(["Other", "Type something.", "Next"]);
@@ -19,7 +20,7 @@ const Question = Type.Object({
   options: Type.Array(Option, { minItems: MIN_OPTIONS, maxItems: MAX_OPTIONS, description: "2-4 distinct choices. A free-text answer row is appended automatically; do NOT author it." }),
   multiSelect: Type.Optional(Type.Boolean({ default: false, description: "Allow selecting several options." })),
 });
-export const AskParams = Type.Object({ purpose: Type.Optional(Type.Union([Type.Literal("input"), Type.Literal("approval")], { description: "Use approval when requesting permission; otherwise input (default)." })), questions: Type.Array(Question, { minItems: 1, maxItems: MAX_QUESTIONS, description: "Questions to ask the user (1-4)" }) });
+export const AskParams = Type.Object({ purpose: Type.Optional(StringEnum(["input", "approval"], { description: "Use approval when requesting permission; otherwise input (default)." })), questions: Type.Array(Question, { minItems: 1, maxItems: MAX_QUESTIONS, description: "Questions to ask the user (1-4)" }) });
 export type AskArgs = Static<typeof AskParams>;
 
 export type QuestionAnswer = {

@@ -18,6 +18,7 @@ import { createPlannedSession, linkProject, planSession, SessionCreateError, THI
 import { isRunning, readSessionStatus } from "./session-status.js";
 import { XSESSION_MSG, type XSessionMarker } from "./session-talk.js";
 import type { WorkerView } from "./workers.js";
+import { StringEnum } from "./string-enum.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 const clean = (s: string) => s.replace(/["\\\r\n\]]/g, "'");
@@ -47,7 +48,7 @@ export interface CrewDeps {
 }
 
 const parameters = Type.Object({
-  action: Type.Union(["options", "create", "send", "wait", "show", "list", "stop"].map(a => Type.Literal(a)), {
+  action: StringEnum(["options", "create", "send", "wait", "show", "list", "stop"], {
     description: "options: projects, machines, thinking levels, default model; create: new crew session; send: task, review, or correction to members; " +
       "wait: block until members finish; show: full answer and pending request; list: your crew; stop: abort members",
   }),
@@ -57,7 +58,7 @@ const parameters = Type.Object({
   project: Type.Optional(Type.Integer({ minimum: 0, description: "create: project id from options (0 = General). Sets the working directory for the machine." })),
   machine: Type.Optional(Type.Integer({ minimum: 1, description: "create: execution worker id from options. Absent: this host." })),
   model: Type.Optional(Type.String({ description: "create/send: provider/modelId, e.g. anthropic/claude-sonnet-4-5. create absent: default model. send: switch the member to this model (e.g. after a quota error)." })),
-  thinkingLevel: Type.Optional(Type.Union(THINKING_LEVELS.map(l => Type.Literal(l)), { description: "create/send: thinking level. create absent: default. send: change the member's level." })),
+  thinkingLevel: Type.Optional(StringEnum(THINKING_LEVELS, { description: "create/send: thinking level. create absent: default. send: change the member's level." })),
   worktree: Type.Optional(Type.String({ description: "create: new git branch name; the member works in its own worktree of the project directory (main host only)" })),
   base: Type.Optional(Type.String({ description: "create+worktree: start point, e.g. origin/main (default HEAD). origin is fetched first" })),
   notes: Type.Optional(Type.String({ description: "create: path of a notes file on this host; its text (first 8000 chars) goes before the task" })),

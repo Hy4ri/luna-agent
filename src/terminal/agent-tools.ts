@@ -8,6 +8,7 @@ import { ExecTarget } from "../workers.js";
 import { filterHiddenTools } from "../tool-visibility.js";
 import { TerminalError, type TerminalInfo, type TerminalRegistry } from "./registry.js";
 import type { VtScreen } from "./vt-model.js";
+import { StringEnum } from "../string-enum.js";
 
 export const TERMINAL_TOOL = "terminal";
 const OFF = "Luna's terminal tool is off. m57 can turn on Settings > Tools > Terminal (terminal.agent). Use bash for commands that do not need a TTY.";
@@ -261,7 +262,7 @@ export function createAgentTerminalExtension(o: AgentTerminalOptions) {
     name: TERMINAL_TOOL, deferred: true, executionMode: "sequential",
     description: DESCRIPTION,
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("start"), Type.Literal("send"), Type.Literal("read"), Type.Literal("wait"), Type.Literal("resize"), Type.Literal("list"), Type.Literal("stop")]),
+      action: StringEnum(["start", "send", "read", "wait", "resize", "list", "stop"]),
       id: Type.Optional(Type.String({ minLength: 1, description: "send, read, wait, resize, stop: terminal ID." })),
       command: Type.Optional(Type.String({ minLength: 1, description: "start: the interactive program and its arguments, e.g. `vim notes.md` or `python3`. Not a bare shell." })),
       cwd: Type.Optional(Type.String({ minLength: 1, description: "start: working directory. Default: the session's." })),

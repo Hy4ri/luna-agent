@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite";
 import { Type } from "typebox";
 import { defineExtension, defineTool, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
 import { isRunning, readSessionStatus, type SessionState, type SessionStatus } from "./session-status.js";
+import { StringEnum } from "./string-enum.js";
 
 const HEAD = 6000, TAIL = 2000, PAGE = 200;
 const STATUSES = ["ready", "running", "reviewing", "review_finished", "finished", "needs_approval", "needs_input", "limit_reached", "failed", "stopped"] as const;
@@ -213,7 +214,7 @@ export function createRecallExtension(index: RecallIndex) {
           aroundMessageId: Type.Optional(Type.Number({ description: "Message id from a discovery hit to scroll around." })),
           window: Type.Optional(Type.Number({ description: "Messages each side when scrolling (1-20, default 5)." })),
           limit: Type.Optional(Type.Number({ description: "Results for discovery/browse (1-10, default 5; up to 50 when status is set)." })),
-          status: Type.Optional(Type.Union([Type.Union(STATUSES.map((v) => Type.Literal(v))), Type.Array(Type.Union(STATUSES.map((v) => Type.Literal(v))), { minItems: 1 })], { description: "Only sessions with this live status, or any status in the list." })),
+          status: Type.Optional(Type.Union([StringEnum(STATUSES), Type.Array(StringEnum(STATUSES), { minItems: 1 })], { description: "Only sessions with this live status, or any status in the list." })),
         }),
         replay: "safe",
         execute: async (args, api, context) => {
