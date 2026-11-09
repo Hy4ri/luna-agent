@@ -439,7 +439,7 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
     </div>
 
       <p v-if="!filtered.length && !loading && (!error || query.trim())" class="ms-empty" role="status">
-        <template v-if="query.trim()">No models match “{{ query }}”.</template>
+        <template v-if="query.trim()">No models match "{{ query }}".</template>
         <template v-else>No models available.<span v-if="emptyHint"> {{ emptyHint }}</span></template>
       </p>
     </div>

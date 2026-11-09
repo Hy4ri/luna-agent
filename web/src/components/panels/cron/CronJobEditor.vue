@@ -47,7 +47,7 @@ const emit = defineEmits<{
       </select>
     </label>
     <p class="cron-help">
-      A failure always creates a report. “Output changes” compares the exact text after trimming outer spaces.
+      A failure always creates a report. "Output changes" compares the exact text after trimming outer spaces.
     </p>
     <div class="cron-form-actions">
       <button type="submit" class="cron-btn primary" :disabled="busy">Save job</button>

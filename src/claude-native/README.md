@@ -16,7 +16,7 @@ One generation is one CLI process group and one admitted upstream Messages reque
 
 ## Upstream provenance
 
-Ported from Nous Research’s `claude-subscription-directsdk` plugin,
+Ported from Nous Research's `claude-subscription-directsdk` plugin,
 pinned commit `f98c0999c6dd4e59680addc8f3480208018ab5b0`. License: `UPSTREAM_LICENSE` (MIT, Nous Research and contributors).
 Windows support, the upstream client API, and request fields Luna never sends were dropped.
 

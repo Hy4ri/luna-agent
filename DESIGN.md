@@ -15,8 +15,8 @@ This document defines visual, layout, interaction, and accessibility requirement
 
 - **Tone:** Technical, focused, high-density, utilitarian, and dark-first (`color-scheme: dark`).
 - **State-Honest UI:** Every chip, dot, badge, meter, and toggle must reflect real backend state. Avoid decorative chrome, fake controls, or speculative placeholders.
-- **Flat Surface Hierarchy:** Distinguish layers using subtle surface luminance steps (`--background` → `--sidebar` → `--card` → `--secondary`) and `1px solid var(--border)` hairlines—never multi-color gradients on chat canvases or message bubbles.
-- **Direct Discoverability:** Prefer dropdowns, popovers, and inline disclosure cards (`<details class="card">`) over blind cycle buttons. Anchor primary actions in top headers or fixed composer docks—never use Floating Action Buttons (FABs).
+- **Flat Surface Hierarchy:** Distinguish layers using subtle surface luminance steps (`--background` → `--sidebar` → `--card` → `--secondary`) and `1px solid var(--border)` hairlines, never multi-color gradients on chat canvases or message bubbles.
+- **Direct Discoverability:** Prefer dropdowns, popovers, and inline disclosure cards (`<details class="card">`) over blind cycle buttons. Anchor primary actions in top headers or fixed composer docks; do not use Floating Action Buttons (FABs).
 
 ---
 
@@ -203,7 +203,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 - **DO** use `@lucide/vue` vector icons for all application controls, navigation items, and status indicators.
 - **DO** use semantic CSS variables (`var(--card)`, `var(--border)`, `var(--muted-foreground)`, etc.) so surfaces and contrast stay consistent.
 - **DO** keep secondary row actions (such as model pin `.model-pin` or item delete/remove buttons) as **sibling `<button>` elements** beside the primary selection button so disabled items remain removable and HTML remains valid.
-- **DO** refresh shared picker/panel state (`ModelPicker`, `ProvidersPanel`, `McpPanel`, `BoardPanel`, `#mention-menu`) whenever the dialog or popover opens, not only on initial component mount.
+- **DO** refresh shared picker/panel state (`ModelPicker`, `ProvidersPanel`, `McpPanel`, `BoardPanel`, `#mention-menu`) whenever the dialog or popover opens, not just on initial component mount.
 - **DO** provide a `crypto.getRandomValues()` or timestamp/hex fallback whenever generating client-side IDs (never call `crypto.randomUUID()` unconditionally, as plain HTTP LAN origins disable it).
 - **DO** pair status colors with text labels, icons, or `data-status` / `aria-label` attributes so state is never communicated by color alone.
 
@@ -243,15 +243,6 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 Every UI change must be verified before opening a PR:
 
 ```bash
-pnpm run typecheck:web              # Vue SFC + TypeScript check
-pnpm run build:web                  # Compile web/ assets to dist/web/ (required before verify:*-ui)
-pnpm run verify:web-ui              # Core shell, sidebar, and layout verification
-pnpm run verify:chat-view-ui        # Transcript, tool renderers, and message actions
-pnpm run verify:mobile-viewport-ui  # Mobile drawer, responsive header, and visualViewport tracking
-pnpm run verify:settings-page-ui    # Settings tabs, drafts, and inline managers
-pnpm run verify:board-ui            # Kanban board window and # mention autocomplete
-pnpm run verify:projects-ui         # Projects floating window
-pnpm run verify:analytics-ui        # Usage analytics page
+bun run typecheck:web
+bun run build:web
 ```
-
-Also run any feature-specific Playwright suite (`verify:model-picker-ui`, `verify:reasoning-ui`, `verify:compaction-ui`, `verify:busy-input-ui`, `verify:limit-continue-ui`, `verify:copy-ui`, `verify:image-gen-ui`, `verify:browser-image-ui`, `verify:learn-ui`, `verify:conversations-ui`, `verify:conversation-sync-ui`).
