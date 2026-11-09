@@ -78,7 +78,11 @@ export class FileCredentialStore implements CredentialStore {
 
 export const CUSTOM_APIS = ["openai-completions", "openai-responses", "anthropic-messages"] as const;
 export type CustomApi = (typeof CUSTOM_APIS)[number];
-export interface CustomModelDef { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean; vision?: boolean }
+export interface CustomModelDef {
+  id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean; vision?: boolean;
+  /** Provider effort value per level; null marks a level the model rejects. */
+  thinkingLevelMap?: Partial<Record<ThinkingLevelName, string | null>>;
+}
 export interface CustomProviderCompat { supportsMidConvoSystemMessages?: boolean; sendSessionAffinityHeaders?: boolean; stableTools?: boolean }
 export interface CustomProviderDef { id: string; name: string; api: CustomApi; baseUrl: string; models: CustomModelDef[]; compat?: CustomProviderCompat }
 
@@ -97,6 +101,7 @@ export function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch =
   const toModel = (m: CustomModelDef): Model<CustomApi> => ({
     id: m.id, name: m.name || m.id, api: def.api, provider: def.id, baseUrl,
     input: m.vision ? ["text", "image"] : ["text"], reasoning: m.reasoning ?? false,
+    ...(m.reasoning && m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
     contextWindow: m.contextWindow ?? 128_000, maxTokens: m.maxTokens ?? 16_384,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     // Mid-conversation system messages keep the leading prompt fixed; affinity headers keep a session on one upstream account.
@@ -163,6 +168,38 @@ function imageInput(m: ModelEntry): boolean | undefined {
   return undefined;
 }
 
+type ThinkingLevelName = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+/**
+ * Read reported reasoning support. Formats:
+ * OpenRouter and Nous: `reasoning: { mandatory, supported_efforts }` and `supported_parameters`;
+ * ZenMux: `capabilities.reasoning`; others: `supports_reasoning` or `reasoning: true`.
+ * Missing metadata stays unknown.
+ */
+export function reasoningInfo(m: ModelEntry): Pick<CustomModelDef, "reasoning" | "thinkingLevelMap"> {
+  const caps = m.capabilities as { reasoning?: unknown } | undefined;
+  const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : undefined;
+  const meta = m.reasoning && typeof m.reasoning === "object" ? m.reasoning as { mandatory?: unknown; supported_efforts?: unknown } : undefined;
+  let reasoning: boolean | undefined;
+  if (typeof m.reasoning === "boolean") reasoning = m.reasoning;
+  else if (typeof m.supports_reasoning === "boolean") reasoning = m.supports_reasoning;
+  else if (typeof caps?.reasoning === "boolean") reasoning = caps.reasoning;
+  else if (meta) reasoning = true;
+  else if (params) reasoning = params.includes("reasoning") || params.includes("reasoning_effort");
+  if (!reasoning) return reasoning === undefined ? {} : { reasoning };
+  const map: Partial<Record<ThinkingLevelName, string | null>> = {};
+  if (meta?.mandatory === true) map.off = null;
+  const efforts = Array.isArray(meta?.supported_efforts) ? meta.supported_efforts.filter((e): e is string => typeof e === "string") : undefined;
+  if (efforts?.length) {
+    // Listed efforts map to themselves; every other level is unsupported and clamps to a listed one.
+    for (const level of EFFORT_LEVELS) map[level] = efforts.includes(level) ? level : null;
+    // Ultra is a harness level: it sends the highest listed effort and turns on proactive delegation.
+    if (efforts.includes("ultra")) map.ultra = "max";
+  }
+  return Object.keys(map).length ? { reasoning, thinkingLevelMap: map } : { reasoning };
+}
+
 /** Ask an OpenAI-compatible endpoint for its models, reported limits, and image input support. */
 export async function detectModels(baseUrl: string, key: string | undefined, fetchImpl: typeof fetch = fetch, signal?: AbortSignal): Promise<CustomModelDef[]> {
   const auth: Record<string, string> = key && key !== "none" ? { authorization: `Bearer ${key}` } : {};
@@ -174,6 +211,7 @@ export async function detectModels(baseUrl: string, key: string | undefined, fet
     if (mt !== undefined && (cw === undefined || mt <= cw)) def.maxTokens = mt;
     const vision = imageInput(m);
     if (vision !== undefined && def.vision === undefined) def.vision = vision;
+    if (def.reasoning === undefined) Object.assign(def, reasoningInfo(m));
   };
   for (const m of entries) {
     const id = entryId(m);

@@ -2,7 +2,7 @@
 import type { ModelInfo } from "./types";
 
 export interface ModelRef { provider: string; modelId: string }
-export const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 /** Matches the server default when neither the model nor the settings name a level. */
 export const FALLBACK_LEVEL = "medium";
 
@@ -10,10 +10,10 @@ export function findModel(list: readonly ModelInfo[], ref: ModelRef | null | und
   return ref ? list.find(m => m.provider === ref.provider && m.id === ref.modelId) : undefined;
 }
 
-/** Levels the model accepts, in LEVELS order. An unknown model shows every level; the server clamps. */
+/** Levels the model accepts, in LEVELS order. An unknown model shows every standard level; the server clamps. Ultra needs a model that lists it. */
 export function levelsOf(model: ModelInfo | undefined): string[] {
   const supported = model?.thinkingLevels;
-  if (!Array.isArray(supported) || supported.length === 0) return [...LEVELS];
+  if (!Array.isArray(supported) || supported.length === 0) return LEVELS.filter(level => level !== "ultra");
   return LEVELS.filter(level => supported.includes(level));
 }
 

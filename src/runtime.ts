@@ -70,7 +70,7 @@ import { localLauncher } from "./terminal/pty-host.js";
 import { TerminalService } from "./terminal/service.js";
 import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./workers.js";
 import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
-import { resolveThinkingLevel } from "./thinking.js";
+import { resolveThinkingLevel, withUltraModels } from "./thinking.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
@@ -117,7 +117,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const uploadRoot = join(cfg.dataDir, "uploads");
   const uploads = new UploadStore(uploadRoot);
   const built = o.models ? { models: o.models, model: o.model! } : buildModels(cfg);
-  built.models = withUploadModels(built.models, uploads);
+  built.models = withUltraModels(withUploadModels(built.models, uploads));
   // Register built-in and configured providers. File-backed runtimes share one settings store.
   const providers = new ProviderManager({ dataDir: cfg.dataDir, models: built.models, fallbackModel: built.model, fetch: o.fetch, settings });
   if (!o.models) {

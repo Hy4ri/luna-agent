@@ -12,6 +12,7 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
 import { SessionStatusExtension } from "./session-status.js";
+import { ULTRA_SECTION } from "./thinking.js";
 import { GenUiExtension } from "./genui.js";
 import { MessageTimeExtension } from "./message-time.js";
 import { ExecTarget } from "./workers.js";
@@ -79,6 +80,8 @@ export async function openLuna(opts: LunaOptions) {
       ? `Active model for this session: ${agent.model.provider}/${agent.model.modelId}.`
       : "No model is selected for this session.",
   )] }));
+  registry.install(defineExtension({ name: "ultra", sections: [section("ultra", ({ agent }) =>
+    (agent.thinkingLevel as string) === "ultra" ? ULTRA_SECTION : undefined)] }));
   registry.install(SessionStatusExtension);
   registry.install(GenUiExtension);
   registry.install(MessageTimeExtension);

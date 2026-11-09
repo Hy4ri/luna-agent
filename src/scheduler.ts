@@ -4,7 +4,7 @@
 import { Database } from "bun:sqlite";
 import { context } from "./luna.js";
 import { nextRun, parseCron } from "./cron-expr.js";
-import type { ThinkingLevel } from "./session-create.js";
+import type { StoredThinkingLevel } from "./thinking.js";
 import type { Conversation, ConversationId, EntryId, Extension, Harness, Submission, SubmissionId } from "@earendil-works/pi-durable";
 
 export interface ModelRef { provider: string; modelId: string }
@@ -595,7 +595,7 @@ export interface SchedulerOptions {
   /** Model for jobs without their own; a function is read at each run (the UI can change it). */
   defaultModel: ModelRef | (() => ModelRef);
   /** Thinking level for a run on `model`. Unset: the harness default. */
-  thinkingLevel?: (model: ModelRef) => ThinkingLevel;
+  thinkingLevel?: (model: ModelRef) => StoredThinkingLevel;
   /** Max time one run may take before it is aborted and logged as error. Default 30 min. */
   runTimeoutMs?: number | (() => number);
   log?: (msg: string) => void;

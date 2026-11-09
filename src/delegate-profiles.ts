@@ -1,7 +1,7 @@
 // Role defaults are explicit tool allowlists. They do not install tools or grant new authority.
 export interface DelegateProfile {
   provider?: string; model?: string;
-  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
   maxTurns?: number;
   context?: "fresh" | "fork";
   tools: string[];
