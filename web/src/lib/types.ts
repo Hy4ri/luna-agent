@@ -59,5 +59,9 @@ export interface ModelInfo {
   provider: string;
   id: string;
   name?: string;
+  /** Levels the model accepts; absent for unknown models. */
+  thinkingLevels?: string[];
+  /** Level a new session with this model starts at. */
+  defaultThinkingLevel?: string;
   [key: string]: any;
 }

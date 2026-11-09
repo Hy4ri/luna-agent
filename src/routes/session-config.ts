@@ -10,6 +10,8 @@ import { THINKING_LEVELS as SESSION_THINKING_LEVELS } from "../session-create.js
 import { DEFAULT_SESSION_TALK, XSESSION_APPROVED, extendSessionExchange, readSessionExchange } from "../session-talk.js";
 import { z } from "zod";
 import type { RouteCtx } from "./context.js";
+import { resolveThinkingLevel } from "../thinking.js";
+import type { ThinkingLevel } from "../session-create.js";
 
 const THINKING_LEVELS: readonly string[] = SESSION_THINKING_LEVELS;
 
@@ -122,6 +124,7 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
   });
 
   // Change a session's model, thinking level or instructions. null resets a field to the default.
+  // The stored thinking level is always the level the session's model supports (see resolveThinkingLevel).
   app.patch("/v1/sessions/:id", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
@@ -142,10 +145,18 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
     if (b.model !== undefined) await opts.limitContinuer?.cancel(Number(conv.id), "Session model changed.");
     const changed = await serial(String(conv.id), () => harness.commit(async (tx) => {
       if (requiresIdle && await isRunning(tx, conv.id)) return false;
-      const previous = (await tx.doc(AgentDoc, conv.id)).model;
+      const doc = await tx.doc(AgentDoc, conv.id);
+      const previous = doc.model;
+      const target = b.model === undefined ? previous : b.model ?? ctx.baseAgent().model;
+      // An explicit level is clamped. A model switch keeps the current level unless the new model has its own default.
+      // null resets to the default for the model.
+      const thinkingLevel = b.thinkingLevel !== undefined || b.model !== undefined
+        ? resolveThinkingLevel(opts.models, target, ctx.thinkingDefaults(), (b.thinkingLevel ?? undefined) as ThinkingLevel | undefined,
+          b.thinkingLevel === null ? undefined : doc.thinkingLevel as ThinkingLevel | undefined)
+        : undefined;
       await configure(tx, conv.id, {
         ...(b.model !== undefined && { model: b.model }),
-        ...(b.thinkingLevel !== undefined && { thinkingLevel: b.thinkingLevel as never }),
+        ...(thinkingLevel !== undefined && { thinkingLevel }),
         ...(b.instructions !== undefined && { instructions: b.instructions || null }),
       });
       const model = (await tx.doc(AgentDoc, conv.id)).model;
@@ -160,7 +171,8 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
       return true;
     }, context));
     if (!changed) return err(c, 409, "Cannot change the model or instructions while busy.");
-    return c.json({ ok: true });
+    // Return the effective level so the client shows what the model will run.
+    return c.json({ ok: true, thinkingLevel: (await conv.agent(context)).thinkingLevel });
   });
 
   app.delete("/v1/sessions/:id/limit-wait", async (c) => {

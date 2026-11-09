@@ -446,6 +446,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       plan = planSession(
         {
           base: baseAgent,
+          thinking: ctx.thinkingDefaults,
           models: opts.models,
           projects: opts.conversations?.projects,
           workers: opts.workers?.store,

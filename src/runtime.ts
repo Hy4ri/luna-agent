@@ -70,6 +70,7 @@ import { localLauncher } from "./terminal/pty-host.js";
 import { TerminalService } from "./terminal/service.js";
 import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./workers.js";
 import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
+import { resolveThinkingLevel } from "./thinking.js";
 
 /** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
 export const IMPROVE_JOB = "luna-self-improve";
@@ -225,11 +226,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let projectExtensions: Extension[] = [];
   const newSessionAgent = () => {
     const c = live();
-    return { model: providers.defaultModel(), ...(c.thinkingLevel ? { thinkingLevel: c.thinkingLevel } : {}), ...(c.maxTurns ? { maxTurns: c.maxTurns } : {}), ...(c.instructions ? { instructions: c.instructions } : {}) };
+    const model = providers.defaultModel();
+    return { model, thinkingLevel: resolveThinkingLevel(built.models, model, c), ...(c.maxTurns ? { maxTurns: c.maxTurns } : {}), ...(c.instructions ? { instructions: c.instructions } : {}) };
   };
   if (on("delegate")) extensions.push(createSessionCrewExtension({
     harness: () => harnessRef,
-    session: () => conversationsRef && { base: newSessionAgent, models: built.models, projects: conversationsRef.projects, workers: workers.store, projectExtensions },
+    session: () => conversationsRef && { base: newSessionAgent, thinking: live, models: built.models, projects: conversationsRef.projects, workers: workers.store, projectExtensions },
     projects: () => conversationsRef?.projects,
     workers: () => workers.list(),
     title: id => conversationsRef?.get(id).title ?? null,
@@ -377,6 +379,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   if (on("cron")) {
     scheduler = new Scheduler({
       harness, store: store!, defaultModel: () => providers.defaultModel(), log,
+      thinkingLevel: model => resolveThinkingLevel(built.models, model, live()),
       runTimeoutMs: () => { const m = live().cron.runTimeoutMinutes; return m ? m * 60_000 : 30 * 60_000; },
       onFinish: (job, run) => {
         if (run.status === "ok" || run.status === "error") {
@@ -405,7 +408,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       return true;
     },
     async newSession(project, title, content, requestId) {
-      const plan = planSession({ base: newSessionAgent, models: built.models, projects: conversations.projects, workers: workers.store, projectExtensions },
+      const plan = planSession({ base: newSessionAgent, thinking: live, models: built.models, projects: conversations.projects, workers: workers.store, projectExtensions },
         { project: project || null });
       const id = Number(await harness.commit(tx => createPlannedSession(tx, plan), context));
       linkProject(conversations.projects, id, plan);

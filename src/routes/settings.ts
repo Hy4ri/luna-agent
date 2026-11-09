@@ -2,9 +2,10 @@ import type { Hono, Context as HonoContext } from "hono";
 import type { RouteCtx } from "./context.js";
 import { invalidateOpencodeStatus } from "../opencode-cli.js";
 import { invalidateClaudeLoginStatus } from "../claude-native/status.js";
+import { DEFAULT_THINKING_LEVEL, resolveThinkingLevel, supportedThinkingLevels } from "../thinking.js";
 
 export function registerSettings(app: Hono, ctx: RouteCtx): void {
-  const { opts, err, baseAgent } = ctx;
+  const { opts, err, baseAgent, thinkingDefaults } = ctx;
 
   app.get("/v1/settings", (c) =>
     opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"),
@@ -94,6 +95,7 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
       const m = opts.models.getModel(cur.provider, cur.modelId);
       if (m) avail.unshift(m);
     }
+    const defaults = thinkingDefaults();
     const list = avail.map((m) => ({
       provider: m.provider,
       id: m.id,
@@ -101,8 +103,11 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
       reasoning: m.reasoning,
       input: m.input,
       contextWindow: m.contextWindow,
+      // The picker shows only these levels. A new session on this model starts at defaultThinkingLevel.
+      thinkingLevels: supportedThinkingLevels(m),
+      defaultThinkingLevel: resolveThinkingLevel(opts.models, { provider: m.provider, modelId: m.id }, defaults),
     }));
-    return c.json({ default: cur, defaultThinkingLevel: baseAgent().thinkingLevel ?? "off", models: list, refresh: opts.providers?.catalogStatus() ?? null });
+    return c.json({ default: cur, defaultThinkingLevel: baseAgent().thinkingLevel ?? DEFAULT_THINKING_LEVEL, models: list, refresh: opts.providers?.catalogStatus() ?? null });
   });
 
   app.post("/v1/models/refresh", async (c) => {

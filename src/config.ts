@@ -66,6 +66,8 @@ export const ConfigSchema = z
     provider: z.string().regex(/^[a-z0-9-]{1,40}$/).default("faux"),
     model: z.string().optional(),
     thinkingLevel: thinking.optional(),
+    /** Per-model default thinking levels keyed `provider/modelId`. They take priority over `thinkingLevel`. */
+    modelThinkingLevels: z.record(z.string().regex(/^[^/\s]+\/\S+$/), thinking).optional(),
     /** Tool rounds one run may take before it ends unanswered (`turn_limit`). Unset: no limit. */
     maxTurns: z.number().int().min(1).optional(),
     instructions: z.string().optional(),

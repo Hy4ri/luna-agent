@@ -9,7 +9,7 @@ import { terminal, toggleTerminal } from '@/stores/terminal';
 import { sessionPane } from '@/lib/pane';
 import { history, sessionTitle, projectName, querySessions } from '@/stores/sessions';
 import type { SessionMeta } from '@/lib/types';
-import { models, modelKey, selectedKey, chooseModel, LEVELS, levelLabel, setThinking } from '@/stores/models';
+import { models, modelKey, selectedKey, chooseModel, availableLevels, levelLabel, setThinking } from '@/stores/models';
 import { PANELS } from '@/components/panels';
 import { sections, labelFor, isVisibleSetting, settingRoute } from '@/pages/settings/catalog';
 import { fieldLocation } from '@/pages/settings/settingsSearch';
@@ -158,7 +158,7 @@ const items = computed<Item[]>(() => {
     const key = modelKey(m);
     add({ id: 'model:' + key, group: 'Model', label: `${m.provider} · ${m.name || m.id}`, current: key === selectedKey.value, run: () => chooseModel(m) });
   }
-  for (const level of LEVELS) add({ id: 'thinking:' + level, group: 'Thinking', label: 'Thinking: ' + levelLabel(level), current: models.thinking === level, keep: true, run: () => setThinking(level) });
+  for (const level of availableLevels.value) add({ id: 'thinking:' + level, group: 'Thinking', label: 'Thinking: ' + levelLabel(level), current: models.thinking === level, keep: true, run: () => setThinking(level) });
 
   const view = settings.value;
   if (view) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from "vue";
-import { LEVELS, levelLabel, models, setThinking } from "@/stores/models";
+import { LEVELS, availableLevels, levelLabel, models, setThinking } from "@/stores/models";
 import { chat } from "@/stores/chat";
 
 const trigger = ref<HTMLButtonElement | null>(null);
@@ -8,7 +8,9 @@ const picker = ref<HTMLElement | null>(null);
 const open = ref(false);
 const scrubbing = ref(false);
 
-const index = computed(() => Math.max(0, LEVELS.findIndex(level => level === models.thinking)));
+// Only the selected model's levels are offered; colors and LED heights keep their place on the full scale.
+const levels = availableLevels;
+const index = computed(() => Math.max(0, levels.value.indexOf(models.thinking)));
 const preview = ref(index.value);
 const active = computed(() => (open.value ? preview.value : index.value));
 
@@ -24,8 +26,11 @@ const colors = [
 
 const shortLabels = ["OFF", "MIN", "LOW", "MED", "HIGH", "XHGH", "MAX"];
 
-const color = computed(() => colors[active.value] ?? colors[0]);
-const label = computed(() => levelLabel(LEVELS[active.value]!));
+const scale = (level: string | undefined) => Math.max(0, LEVELS.indexOf(level as (typeof LEVELS)[number]));
+const activeLevel = computed(() => levels.value[active.value] ?? levels.value[0] ?? "off");
+const activeScale = computed(() => scale(activeLevel.value));
+const color = computed(() => colors[activeScale.value] ?? colors[0]);
+const label = computed(() => levelLabel(activeLevel.value));
 
 // Vertical stack of 7 LED segments for the small composer trigger (top = Max, bottom = Off)
 const triggerSlices = LEVELS.map((level, i) => ({
@@ -64,9 +69,9 @@ function toggle(event: Event) {
 }
 
 function selectLevel(i: number) {
-  const clamped = Math.max(0, Math.min(LEVELS.length - 1, i));
+  const clamped = Math.max(0, Math.min(levels.value.length - 1, i));
   preview.value = clamped;
-  void setThinking(LEVELS[clamped]!);
+  void setThinking(levels.value[clamped]!);
 }
 
 function handlePointerDown(i: number, event: PointerEvent) {
@@ -96,7 +101,7 @@ function handleWheel(event: WheelEvent) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key >= "1" && event.key <= "7") {
+  if (event.key >= "1" && event.key <= String(levels.value.length)) {
     event.preventDefault();
     selectLevel(Number(event.key) - 1);
     return;
@@ -118,7 +123,7 @@ function handleKeydown(event: KeyboardEvent) {
   }
   if (event.key === "End") {
     event.preventDefault();
-    selectLevel(LEVELS.length - 1);
+    selectLevel(levels.value.length - 1);
   }
 }
 
@@ -156,14 +161,14 @@ onUnmounted(() => {
         v-for="item in triggerSlices"
         :key="item.level"
         :data-level="item.level"
-        :data-active="item.index <= active"
+        :data-active="item.index <= activeScale"
         x="1"
         :y="item.y"
         width="10"
         height="1.6"
         rx="0.4"
-        :fill="item.index <= active ? item.color : 'var(--muted-foreground)'"
-        :opacity="item.index <= active ? 1 : 0.24"
+        :fill="item.index <= activeScale ? item.color : 'var(--muted-foreground)'"
+        :opacity="item.index <= activeScale ? 1 : 0.24"
       />
     </svg>
     <span class="think-level-text">{{ label }}</span>
@@ -186,9 +191,9 @@ onUnmounted(() => {
       <output class="reasoning-output">{{ label }}</output>
     </div>
 
-    <div class="eq-fader-rack" role="radiogroup" aria-label="Reasoning level">
+    <div class="eq-fader-rack" role="radiogroup" aria-label="Reasoning level" :style="{ '--channels': levels.length }">
       <button
-        v-for="(level, i) in LEVELS"
+        v-for="(level, i) in levels"
         :key="level"
         type="button"
         role="radio"
@@ -197,7 +202,7 @@ onUnmounted(() => {
         :aria-checked="i === active"
         :aria-label="levelLabel(level)"
         :title="levelLabel(level)"
-        :style="{ '--ch-color': colors[i] }"
+        :style="{ '--ch-color': colors[scale(level)] }"
         :autofocus="i === active"
         @pointerdown="handlePointerDown(i, $event)"
         @pointerenter="handlePointerEnter(i)"
@@ -209,13 +214,13 @@ onUnmounted(() => {
             :key="seg"
             class="eq-led"
             :class="{
-              lit: 8 - seg <= i + 1 && i <= active,
-              dim: 8 - seg <= i + 1 && i > active,
-              peak: 8 - seg === i + 1,
+              lit: 8 - seg <= scale(level) + 1 && i <= active,
+              dim: 8 - seg <= scale(level) + 1 && i > active,
+              peak: 8 - seg === scale(level) + 1,
             }"
           ></span>
         </span>
-        <span class="eq-cap">{{ shortLabels[i] }}</span>
+        <span class="eq-cap">{{ shortLabels[scale(level)] }}</span>
       </button>
     </div>
   </div>
@@ -301,7 +306,7 @@ onUnmounted(() => {
 
 .eq-fader-rack {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--channels, 7), minmax(0, 1fr));
   gap: 5px;
 }
 

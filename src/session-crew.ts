@@ -6,7 +6,8 @@
 import { REPORT_WHEN_BUSY } from "./report-delivery.js";
 import { Type } from "typebox";
 import { readFileSync } from "node:fs";
-import { configure, defineExtension, defineTool, section, type ConversationId, type TaskId, type Tx } from "@earendil-works/pi-durable";
+import { AgentDoc, configure, defineExtension, defineTool, section, type ConversationId, type TaskId, type Tx } from "@earendil-works/pi-durable";
+import { resolveThinkingLevel } from "./thinking.js";
 import { prepareDelegateWorktree } from "./delegate-worktree.js";
 import { AskDoc } from "./ask.js";
 import { Crew, CrewLead, crewLead, crewNoticeId, crewUnseen, readCrewReport, type CrewReport, type CrewRow } from "./crew-state.js";
@@ -201,7 +202,13 @@ export function createSessionCrewExtension(o: CrewDeps) {
                     row.requests.push(requestId);
                     delete row.stopped;
                     // The new model or level applies from the member's next model request.
-                    if (Object.keys(change).length) await configure(tx, id as ConversationId, change);
+                    // Store the level the member's model supports, as the session PATCH route does.
+                    if (Object.keys(change).length) {
+                      const doc = await tx.doc(AgentDoc, id as ConversationId);
+                      const deps = o.session();
+                      await configure(tx, id as ConversationId, { ...change, thinkingLevel: resolveThinkingLevel(deps?.models, change.model ?? doc.model,
+                        deps?.thinking?.(), change.thinkingLevel, doc.thinkingLevel) });
+                    }
                   }, ctx);
                   await submit(id, args.task!, requestId, args.interrupt ? "steer" : "followUp");
                 });
