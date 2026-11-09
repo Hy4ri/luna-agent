@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { serverUrl, token } from '@/lib/api';
-import { fetchChanges, fetchBranches, fetchDiff, fetchCommit, mutateGit, isAbortError } from './client';
+import { fetchChanges, fetchBranches, fetchDiff, fetchCommit, draftCommitMessage, commitDraftAvailable, mutateGit, isAbortError } from './client';
 import { confirmAction } from '@/lib/confirm';
 import type { Changes, Branches, DiffResult, SelectorParams, ChangeFile } from './client';
 import ChangeList from './ChangeList.vue';
@@ -17,6 +17,18 @@ const changes = ref<Changes | null>(null), branches = ref<Branches | null>(null)
 const selectedPath = ref<string | null>(null), selectedStaged = ref(false), loadingDiff = ref(false), loadingState = ref(false);
 const error = ref<string | null>(null), notice = ref<string | null>(null), busyMessage = ref<string | null>(null);
 const amend = ref(false);
+const draftAvailable = ref(false), drafting = ref(false);
+void commitDraftAvailable().then(v => { draftAvailable.value = v; });
+async function handleDraft() {
+  if (drafting.value || !stagedCount.value) return;
+  const owner = { ...selector.value }, generation = epoch;
+  drafting.value = true; error.value = null;
+  try {
+    const message = await draftCommitMessage(owner);
+    if (!disposed && generation === epoch) commitMessage.value = message;
+  } catch (e) { if (!disposed && generation === epoch) error.value = (e as Error).message; }
+  finally { if (!disposed && generation === epoch) drafting.value = false; }
+}
 const commitMessage = ref(''), newBranchInput = ref(''), branchSelectValue = ref(''), showNewBranchInput = ref(false);
 const pushButton = ref<HTMLButtonElement | null>(null);
 const confirmDefaultModal = ref<{ open: boolean; branch?: string; head?: string | null; message?: string }>({ open: false });
@@ -427,6 +439,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 min-w-0">
               <span class="text-[11px] text-muted-foreground">{{ hasConflicts ? 'Resolve conflicts to commit' : `${stagedCount} staged` }}</span>
+              <button v-if="draftAvailable" type="button" class="text-[11px] underline text-muted-foreground disabled:opacity-50 disabled:no-underline" :disabled="loadingState || drafting || !stagedCount" :title="stagedCount ? 'Ask the auxiliary model for a message. Uses one model call.' : 'Stage changes first'" @click="handleDraft">{{ drafting ? 'Drafting…' : 'Draft message' }}</button>
               <label v-if="changes?.headOid" class="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer">
                 <input v-model="amend" type="checkbox" :disabled="loadingState" @change="toggleAmend" /> Amend last commit
               </label>
