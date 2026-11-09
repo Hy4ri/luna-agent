@@ -74,9 +74,11 @@ function closeSettings(force = false): boolean {
 function closePage(view: "analytics" | "source-control") {
   if (ui.view !== view) return;
   ui.view = "chat";
-  if (location.hash === "#" + view) clearHash();
+  if (isPageHash(view)) clearHash();
   setDrawer(false);
 }
+/** The page's own hash, including deep links such as `#source-control/pr/148`. */
+const isPageHash = (view: string) => location.hash === "#" + view || (view === "source-control" && location.hash.startsWith("#source-control/"));
 function openSettings(route?: string) {
   if (ui.login) return;
   if (ui.view === "settings" && guard?.canChangeTab?.() === false) {
@@ -107,7 +109,7 @@ function openPage(view: "analytics" | "source-control") {
   if (ui.login) return;
   closePanel(); setDrawer(false);
   ui.view = view;
-  if (location.hash !== "#" + view) location.hash = view;
+  if (!isPageHash(view)) location.hash = view;
 }
 export const openAnalytics = () => openPage("analytics");
 export function openBoardCard(projectId: number, cardId: number) {
@@ -378,7 +380,7 @@ function applyHash() {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) openSettings();
   else if (h === "#analytics") { if (ui.view !== "analytics") openAnalytics(); }
-  else if (h === "#source-control") { if (ui.view !== "source-control") openSourceControl(); }
+  else if (h === "#source-control" || h.startsWith("#source-control/")) { if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#cron") { history.replaceState(null, "", location.pathname + location.search); openPanel("cron"); }
 }
@@ -386,7 +388,7 @@ window.addEventListener("hashchange", () => {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) { openSettings(); return; }
   if (!closeSettings()) return;
-  if (h === "#analytics" || h === "#source-control" || h === "#cron") applyHash();
+  if (h === "#analytics" || h === "#source-control" || h.startsWith("#source-control/") || h === "#cron") applyHash();
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else { closePage("analytics"); closePage("source-control"); }
 });

@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { GitBranch, RefreshCw, ArrowDown, ArrowUp, AlertCircle, Server, ChevronLeft } from '@lucide/vue';
 
 const props = defineProps<{ session?: string; project?: number; machine?: string; runActive?: boolean }>();
-const emit = defineEmits<{ repo: [repo: string | null] }>();
+const emit = defineEmits<{ repo: [repo: string | null]; count: [files: number] }>();
 const selector = computed<SelectorParams>(() => ({ session: props.session, project: props.project, machine: props.machine }));
 
 const changes = ref<Changes | null>(null), branches = ref<Branches | null>(null), diff = ref<DiffResult | null>(null);
@@ -76,7 +76,7 @@ function reconcileSelection(files: ChangeFile[]): boolean {
 function applyChanges(c: Changes, keepSelection: boolean) {
   changes.value = c;
   branchSelectValue.value = c.branch;
-  emit('repo', c.repo);
+  emit('repo', c.repo); emit('count', c.files.length);
   if (pushedBranch.value && pushedBranch.value !== c.branch) pushedBranch.value = null;
   if (!keepSelection) {
     selectedPath.value = null;
