@@ -149,7 +149,7 @@ luna-pi/
 │   ├── web-tools.ts            # Native `web` tool (search, read) + ddgs-web-provider.ts
 │   ├── browser-tools.ts        # Native browser_* tools + camofox/moli/chromium providers
 │   ├── busy-input.ts           # Interrupt / queue / steer policies for active turns
-│   ├── busy-tools.ts           # Background process tools (process tool)
+│   ├── busy-tools.ts           # bash background flag and the process_manage tool
 │   ├── side-commands.ts        # Ephemeral side questions (/btw) without polluting main context
 │   └── limit-continue.ts       # Automatic turn continuation after rate/quota reset
 └── web/

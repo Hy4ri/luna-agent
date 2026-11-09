@@ -9,7 +9,7 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCal
 import { parseConfig } from "../src/config.js";
 import { startRuntime } from "../src/runtime.js";
 
-const OLD = /^(browser_tab|browser_inspect|skill_view|skill_manage|web_search|web_extract|cron_history|vision_analyze|video_analyze|cron_(create|list|get|update|toggle|remove|run|stop|runs|run_get)|inspect_runs|extract_lessons|create_goal|get_goal|update_goal|set_goal_tasks|update_goal_task|learn_review|lesson_(capture|record|assess|propose|observe|dismiss)|skill_(list|propose|rollback)|process_(start|manage)|browser_(open|navigate|close|snapshot|screenshot|click|type|scroll)|remember|recall|forget)$/;
+const OLD = /^(browser_tab|browser_inspect|skill_view|skill_manage|web_search|web_extract|cron_history|vision_analyze|video_analyze|cron_(create|list|get|update|toggle|remove|run|stop|runs|run_get)|inspect_runs|extract_lessons|create_goal|get_goal|update_goal|set_goal_tasks|update_goal_task|learn_review|lesson_(capture|record|assess|propose|observe|dismiss)|skill_(list|propose|rollback)|process|process_start|browser_(open|navigate|close|snapshot|screenshot|click|type|scroll)|remember|recall|forget)$/;
 
 test("merged action tools register and execute through startRuntime", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-merged-tools-"));
@@ -46,7 +46,7 @@ test("merged action tools register and execute through startRuntime", async () =
     const run = await (await session.submit({ type: "input", content: "exercise merged tools" }, context)).wait(context);
     assert.equal(run.status, "done");
 
-    for (const name of ["memory", "goal", "cron", "skill", "web", "process"]) assert.ok(toolNames.includes(name), `${name} missing from ${toolNames.join(",")}`);
+    for (const name of ["memory", "goal", "cron", "skill", "web", "process_manage"]) assert.ok(toolNames.includes(name), `${name} missing from ${toolNames.join(",")}`);
     assert.deepEqual(toolNames.filter(n => OLD.test(n)), []);
 
     const results = (await session.entries({}, 200, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult");

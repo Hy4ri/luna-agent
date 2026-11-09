@@ -394,7 +394,7 @@ The `skills` extension gives the agent one `skill` tool and the skills catalog. 
   `list` with `include_deleted` shows the ids; `restore` never overwrites an existing path.
 - Delegated children and goal auditors can only `view` and `list`; every other action is refused there.
 - Saved configs that still name a retired tool (`skill_view`, `skill_manage`, `web_search`, `web_extract`, `cron_history`,
-  `vision_analyze`, `video_analyze`, `browser_tab`, `browser_inspect`) in `codemode.pinned`, `disabledTools`, or a subagent profile load with the new name.
+  `vision_analyze`, `video_analyze`, `browser_tab`, `browser_inspect`, `process`) in `codemode.pinned`, `disabledTools`, or a subagent profile load with the new name.
   A retired name in `disabledTools` disables the whole merged tool.
 - Linked-file paths stay in the skill's own directory: no `..`, no hidden parts, no symlinks,
   no `SKILL.md`, and no path inside a nested skill. A skill that contains nested skills cannot be deleted.
@@ -863,7 +863,7 @@ Acknowledgements name the accepted action: queued, steered, or redirected. They 
 Disable them with `acknowledgements: false`. A one-time tip explains each selected mode. Queue command responses are not acknowledgements.
 
 A redirected foreground shell command yields its wait. The same OS process continues in the background, without restart.
-The model receives its process ID and can use the `process` tool to list, read, wait for, or stop it. Handles belong to their chat session.
+The model receives its process ID and can use the `process_manage` tool to list, read, wait for, or stop it. Handles belong to their chat session.
 Completion returns as follow-up input. Arbitrary tools without a cooperative yield point finish normally; they are never killed by redirect.
 Background OS processes belong to the current daemon. A normal shutdown stops them; metadata and retained output survive restart.
 See **Native background processes** for crash handling and output retention.
@@ -985,11 +985,12 @@ Enable explicit background commands under **Settings → Tools → Background pr
 The `coding` extension must also be enabled. These tools have the same host access as `bash`; they are not a sandbox.
 Existing correction-detached commands remain supported when explicit background starts are disabled.
 
-- `process({action: "start", command, cwd?, timeoutSec?})` starts a shell command and immediately returns a managed process ID.
-  The default working directory belongs to the calling conversation. A relative `cwd` uses that directory.
-  An optional positive timeout limits command execution. Spawn failures become failed process results.
-- `process({action, id?, timeoutSec?, offset?, limit?})` with `list`, `read`, `wait`, or `stop` manages only the calling
-  conversation's processes. Every action except `list` requires an ID.
+- `bash({command, timeout?, background: true})` starts a shell command and immediately returns a managed process ID.
+  It runs in the calling conversation's working directory; use `cd dir && …` for another one.
+  An optional positive `timeout` limits command execution. Spawn failures become failed process results.
+  With the setting off, `background: true` is refused; foreground `bash` is unchanged.
+- `process_manage({action, id?, timeoutSec?, offset?, limit?})` with `list`, `read`, `wait`, or `stop` manages only the calling
+  conversation's processes, including foreground commands that moved to the background. Every action except `list` requires an ID.
   `read` returns current or final output, state, and exit code. Nonzero exits have state `failed` and retain their exact code.
   `wait` waits at most 10 seconds by default, or `timeoutSec` from 0 through 60. A timeout is not completion.
   Cancelling a wait does not stop the process. Use `stop` to stop it.
@@ -1015,7 +1016,7 @@ If `cron.notifyUrl` is set, an external completion notification carries status o
 Closing a viewer or stopping the conversation does not stop an admitted background process.
 
 On POSIX hosts, `stop` and normal daemon shutdown kill each running command's process group and wait for execution to settle.
-Execution completes when the launched command or shell exits. Do not append `&`; `process` `start` already runs in the background.
+Execution completes when the launched command or shell exits. Do not append `&`; `bash` with `background: true` already runs in the background.
 Children that outlive that shell are no longer managed after its completion.
 Descendants that create another process group or session can also escape this termination boundary.
 Normal shutdown retains stopped results. After an abrupt daemon failure, unfinished saved jobs become `interrupted`.
@@ -1094,7 +1095,7 @@ Enable or configure Code Mode under **Settings → Tools → Code Mode**:
   "timeoutMs": 300000,
   "memoryLimitBytes": 134217728,
   "inlineBudget": 3000,
-  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web", "browser", "browser_act", "delegate_task", "skill"]
+  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process_manage", "web", "browser", "browser_act", "delegate_task", "skill"]
 }
 ```
 

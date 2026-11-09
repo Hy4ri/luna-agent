@@ -19,7 +19,8 @@ export function toolView(name: string, args?: unknown): ToolView {
   if (name === "codemode") return "codemode";
   if (name === "web") return (args as { action?: unknown } | undefined)?.action === "read" ? "web_extract" : "web_search";
   if (["edit", "bash", "write", "read", "todo", "web_search", "web_extract"].includes(name)) return name as ToolView;
-  if (name === "process") return "process";
+  // process_manage manages background commands; `process` is its retired name in older transcripts (it also had start).
+  if (name === "process" || name === "process_manage") return "process";
   if (name === "ask_user_question") return "answers";
   // Content-carrying skill changes show the proposed SKILL.md; list and other actions stay plain text.
   // skill_view and skill_manage are the retired names in older transcripts.
@@ -54,7 +55,8 @@ export function toolSummary(name: string, args: unknown): string {
       if (a.action === "scroll") return ["scroll", str(a.direction), typeof a.amount === "number" ? a.amount + "px" : ""].filter(Boolean).join(" ");
       return clip(["click", el].filter(Boolean).join(" "));
     }
-    case "process": return a.action === "start" ? clip("start " + str(a.command)) : [str(a.action), str(a.id).slice(0, 8)].filter(Boolean).join(" ");
+    case "bash": return clip((a.background === true ? "bg " : "") + str(a.command));
+    case "process": case "process_manage": return a.action === "start" ? clip("start " + str(a.command)) : [str(a.action), str(a.id).slice(0, 8)].filter(Boolean).join(" ");
     case "todo": return [str(a.action), typeof a.id === "number" ? "#" + a.id : "", str(a.subject) || str(a.status)].filter(Boolean).map(s => clip(s, 60)).join(" ");
     case "board": return [str(a.action), typeof a.id === "number" ? "#" + a.id : "", clip(str(a.subject), 60) || str(a.status)].filter(Boolean).join(" ");
     case "cron": {
