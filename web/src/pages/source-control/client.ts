@@ -105,6 +105,11 @@ export async function mutateGit(
   return post<GitMutationResult>(`/v1/git/${action}${queryParams(selector)}`, body);
 }
 
+export type StashEntry = { index: number; date: string; subject: string };
+export async function fetchStashes(selector: SelectorParams, signal?: AbortSignal): Promise<StashEntry[]> {
+  return (await json<{ stashes: StashEntry[] }>(`/v1/git/stashes${queryParams(selector)}`, signal ? { signal } : undefined)).stashes;
+}
+
 /** One paid auxiliary-model call. Returns a draft only; nothing is committed. */
 export async function draftCommitMessage(selector: SelectorParams): Promise<string> {
   return (await post<{ message: string }>(`/v1/git/commit-message${queryParams(selector)}`, {})).message;
