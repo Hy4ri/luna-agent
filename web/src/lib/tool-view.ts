@@ -13,9 +13,11 @@ const TEXT_TOOLS = new Set([
 /** Image and video analysis. vision_analyze and video_analyze are the retired names in older transcripts. */
 export const ANALYZE_TOOLS = new Set(["media_analyze", "vision_analyze", "video_analyze"]);
 
-/** Which renderer a call uses. Unknown tools (MCP and others) keep the generic arguments/output card. */
-export function toolView(name: string): ToolView {
+/** Which renderer a call uses. Unknown tools (MCP and others) keep the generic arguments/output card.
+ * `web` picks its view from the action; web_search and web_extract are the retired names in older transcripts. */
+export function toolView(name: string, args?: unknown): ToolView {
   if (name === "codemode") return "codemode";
+  if (name === "web") return (args as { action?: unknown } | undefined)?.action === "read" ? "web_extract" : "web_search";
   if (["edit", "bash", "write", "read", "todo", "web_search", "web_extract"].includes(name)) return name as ToolView;
   if (name === "process") return "process";
   if (name === "ask_user_question") return "answers";
@@ -71,6 +73,7 @@ export function toolSummary(name: string, args: unknown): string {
     case "ask_user_question": return Array.isArray(a.questions) && a.questions[0] ? clip(str(a.questions[0].question)) + (a.questions.length > 1 ? ` +${a.questions.length - 1}` : "") : "";
     case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
     case "codemode": return clip(str(a.code));
+    case "web": return [str(a.action), clip(str(a.action) === "read" ? str(a.url) : str(a.query), 70)].filter(Boolean).join(" ");
   }
   for (const key of ["path", "command", "query", "url", "objective", "prompt", "question", "name", "subject", "action"]) if (str(a[key])) return clip(a[key]);
   return "";

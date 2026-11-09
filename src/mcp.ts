@@ -94,7 +94,7 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnect
 }
 
 /**
- * MCP servers that back a selected native provider. DDGS sits behind web_search and web_extract;
+ * MCP servers that back a selected native provider. DDGS sits behind the `web` tool;
  * its own tools duplicate them, so the model does not get them while a web setting selects DDGS.
  */
 export function providerBackedServers(cfg: Pick<LunaConfig, "web">): Set<string> {
@@ -131,7 +131,7 @@ export class McpManager {
   /** Servers whose tools are in the registry. A provider backend stays connected without model tools. */
   private installed = new Set<string>();
 
-  /** `backends` names servers that only back a native provider, such as DDGS for web_search and web_extract. */
+  /** `backends` names servers that only back a native provider, such as DDGS for the `web` tool. */
   constructor(private registry: Registry, private fixed: McpServerConfig[], private file?: string, private settings?: SettingsStore,
     private backends: () => ReadonlySet<string> = () => new Set()) {
     if (settings) { this.web = settings.resolved().mcpServers; this.fixed = []; return; }

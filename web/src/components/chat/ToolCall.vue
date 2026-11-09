@@ -92,7 +92,7 @@ const child = computed(() => /spawned child (\d+)/.exec(output.value)?.[1]);
 const timestamp = computed(() => result.value?.timestamp ?? chat.toolStarts[props.id]?.timestamp ?? props.timestamp);
 const fullDate = computed(() => formatDateIso(timestamp.value) ? new Date(timestamp.value).toLocaleString() : '');
 
-const view = computed(() => toolView(props.name));
+const view = computed(() => toolView(props.name, props.args));
 const a = computed(() => (props.args && typeof props.args === 'object' ? props.args : {}) as Record<string, any>);
 const summary = computed(() => toolSummary(props.name, props.args));
 const details = computed(() => { const d = result.value?.details; return typeof d === 'string' ? parseJson(d) : d; });

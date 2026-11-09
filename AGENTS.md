@@ -146,7 +146,7 @@ luna-pi/
 │   ├── vision.ts               # Native/auxiliary image analysis for media_analyze
 │   ├── image-gen.ts            # image_generate tool and provider manager
 │   ├── plugins/image_gen/      # Image generation provider adapters (e.g. openai-codex)
-│   ├── web-tools.ts            # Native web_search and web_extract tools + ddgs-web-provider.ts
+│   ├── web-tools.ts            # Native `web` tool (search, read) + ddgs-web-provider.ts
 │   ├── browser-tools.ts        # Native browser_* tools + camofox/moli/chromium providers
 │   ├── busy-input.ts           # Interrupt / queue / steer policies for active turns
 │   ├── busy-tools.ts           # Background process tools (process tool)

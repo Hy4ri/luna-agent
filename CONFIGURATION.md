@@ -306,11 +306,11 @@ A daemon document has its own CSP; `srcdoc` would inherit the parent's policy an
 
 ## Native web tools
 
-The agent calls `web_search` and `web_extract`. Their names and parameters do not depend on the provider.
+The agent calls one `web` tool with `action` `search` or `read`. Its name and parameters do not depend on the provider.
 
-- `web_search`: `query` and optional positive integer `count` (default `5`).
+- `web action=search`: `query` and optional positive integer `count` (default `5`).
   Returns `{"results":[{"title":"...","url":"...","snippet":"..."}]}`.
-- `web_extract`: an HTTP(S) `url` and optional `format` (`markdown` or `text`; default `markdown`).
+- `web action=read`: an HTTP(S) `url` and optional `format` (`markdown` or `text`; default `markdown`).
   Returns `{"url":"...","content":"...","format":"markdown"}`.
 
 Web results are untrusted data, not instructions. Provider failures return tool errors, not empty successful results.
@@ -371,7 +371,7 @@ For example, use the following entries with the rest of your configuration:
 
 Use an absolute command path if DDGS is not on the daemon's PATH.
 While a web setting (`searchProvider`, `searchFallbacks`, or `extractProvider`) selects DDGS, its MCP server stays connected as a provider backend only:
-its `ddgs__*` tools are not given to the model, which uses `web_search` and `web_extract` instead. The MCP panel labels such a server "backend only".
+its `ddgs__*` tools are not given to the model, which uses the `web` tool instead. The MCP panel labels such a server "backend only".
 DDGS options remain under `web.providers.ddgs`. Its proxy credentials, if needed, remain in the protected MCP environment (`DDGS_PROXY`).
 Connection timeouts use the existing MCP `timeoutMs`. Cancellation reaches the same managed connection.
 Saving applies web provider selection and option changes to the next tool call.
@@ -513,7 +513,7 @@ Quote a source that contains spaces: `/learn "/docs/My Guide.pdf" the release st
 An empty argument returns usage.
 
 The command becomes a normal turn in the current chat. It queues, steers, and stops like any other message.
-The agent reads the source with its enabled tools (`web_extract`, browser, `read`, shell).
+The agent reads the source with its enabled tools (`web`, browser, `read`, shell).
 It then creates or updates one managed skill with `skill_manage`, which lints and backs up the previous version.
 Use `skill_manage` `rollback` to undo an update. External skills stay read-only; the agent creates a managed skill instead.
 The skill lists its sources and marks each point as verified or assumed.
@@ -1090,7 +1090,7 @@ Enable or configure Code Mode under **Settings → Tools → Code Mode**:
   "timeoutMs": 300000,
   "memoryLimitBytes": 134217728,
   "inlineBudget": 3000,
-  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web_search", "web_extract", "browser_act", "browser_inspect", "delegate_task", "skill_view"]
+  "pinned": ["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web", "browser_act", "browser_inspect", "delegate_task", "skill_view"]
 }
 ```
 

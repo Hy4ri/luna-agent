@@ -185,7 +185,7 @@ export const ConfigSchema = z
       memoryLimitBytes: z.number().int().positive().default(128 * 1024 * 1024),
       inlineBudget: z.number().int().positive().default(3000),
       pinned: z.array(z.string().min(1)).refine(names => new Set(names).size === names.length, "duplicate tool name")
-        .default(["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web_search", "web_extract", "browser_act", "browser_inspect", "delegate_task", "skill_view"]),
+        .default(["bash", "read", "edit", "write", "todo", "board", "machine_exec", "process", "web", "browser_act", "browser_inspect", "delegate_task", "skill_view"]),
     }).prefault({}),
     subagents: z.strictObject({
       provider: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(), model: z.string().min(1).optional(),
