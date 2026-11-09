@@ -73,8 +73,8 @@ function scratch() {
   writeFileSync(`${SCRATCH}/notes.txt`, "line one\nline two\nline three\nline four\nline five\n");
   writeFileSync(`${SCRATCH}/edit-me.txt`, "first alpha line\nsecond line\n");
   writeFileSync(`${SCRATCH}/a.txt`, "1\n2\n"); writeFileSync(`${SCRATCH}/b.txt`, "1\n2\n3\n"); writeFileSync(`${SCRATCH}/c.txt`, "gamma\n");
-  // 2x2 red PNG.
-  writeFileSync(`${SCRATCH}/pic.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DAwMDAxMDAwAAAHAMDAWgrW3cAAAAASUVORK5CYII=", "base64"));
+  // 16x16 solid red PNG.
+  writeFileSync(`${SCRATCH}/pic.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mM4w8BAEmIY1TCqYfhqAABBZ8wBpACLEwAAAABJRU5ErkJggg==", "base64"));
 }
 
 /** Tool calls in entry order, with codemode scripts expanded to the tools they name. */
