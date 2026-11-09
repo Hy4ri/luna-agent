@@ -1110,7 +1110,9 @@ Changes to `codemode` require a daemon restart.
 - `inlineBudget`: Estimated token budget (default `3000`) for tool declarations rendered in the `codemode` prompt section.
 - `pinned`: Tools whose declarations the `codemode` section always lists first, in this order, when the session can call them. Their cost counts against `inlineBudget`; the rest of the budget lists the cheapest other tools. Scripts find unlisted tools with `searchTools()`. Without pins, the cheapest declarations fill the budget and long core tools such as `bash` and `read` drop out.
 
-The `codemode` section also tells the model when to choose Code Mode: 3 or more tool calls, loops, parallel independent reads, or large output to filter. A single call, or an edit the model must see before the next step, stays a direct call.
+The `codemode` section also tells the model when to choose Code Mode: when it can write the complete plan before it sees a result (a chain where each call feeds the next, the same call for many inputs, or large output to filter). A single call, an edit, or a step that depends on reading a result stays a direct call, and an unknown output shape gets one direct call first. When the session can call both `bash` and `read`, the section also shows one short example script.
+
+Luna writes the `codemode` tool description itself (`codemodeToolDescription` in `src/codemode.ts`) instead of using Pi's text. It states the effective `timeoutMs`, the rule that `store()` writes are saved only when the script succeeds, and that scripts can call deferred and unlisted tools. It does not mention namespaces or `models.*`, which Luna does not configure.
 
 Direct tools remain available. Code Mode is useful for multi-step tool workflows and filtering intermediate results before sending a summary to the model. For example:
 

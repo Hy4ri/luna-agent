@@ -8,7 +8,7 @@ import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { parseConfig } from "../src/config.js";
 import { startRuntime } from "../src/runtime.js";
-import { codemodeCatalog } from "../src/codemode.js";
+import { codemodeCatalog, codemodeToolDescription, createLunaCodemodeExtension } from "../src/codemode.js";
 
 async function runCode(code: string, disabledTools: string[] = [], toolAllowlist?: string[], timeoutMs = 5000) {
   const dir = mkdtempSync(join(tmpdir(), "luna-codemode-"));
@@ -77,4 +77,22 @@ test("pinned tools stay in the codemode catalog when cheaper tools fill the budg
   assert.match(section, /^### `bash`/m);
   assert.ok(section.indexOf("### `bash`") < section.indexOf("### `cheap_0`"));
   assert.match(section, /searchTools\(\)/);
+  assert.doesNotMatch(section, /^Example:/m);
+});
+
+test("the codemode section shows its example only when the session can call the tools it names", () => {
+  const params = { type: "object", properties: {} };
+  const tools = ["bash", "read"].map(name => ({ name, description: "x", parameters: params }));
+  const section = codemodeCatalog(tools, [], 400)!;
+  assert.match(section, /^Example:\n```js\n/m);
+  assert.match(section, /split\("\\n"\)/);
+  assert.ok(section.indexOf("Example:") < section.indexOf("### `bash`"));
+});
+
+test("the codemode tool description states Luna's deadline and omits Pi features Luna does not have", () => {
+  const extension = createLunaCodemodeExtension({ sandbox: {} as never, models: false }, 120_000, []);
+  const description = extension.tools.find(tool => tool.name === "codemode")!.description;
+  assert.equal(description, codemodeToolDescription(120_000));
+  assert.match(description, /time limit is 120000 ms/);
+  assert.doesNotMatch(description, /namespace|models\./i);
 });
