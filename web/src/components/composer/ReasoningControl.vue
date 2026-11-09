@@ -42,18 +42,13 @@ const triggerSlices = LEVELS.map((level, i) => ({
   y: 1 + (LEVELS.length - 1 - i) * 2.2,
 })).reverse();
 
-// OpenAI speed tiers. The lightning button turns the last chosen speed on or off; the picker chooses which speed.
+// OpenAI speed tiers: one lightning button cycles Standard, Fast, Ultrafast (where the model offers it).
 const speedColors: Record<Speed, string> = { fast: "#e6c27a", ultrafast: "#e86060" };
-const lastSpeed = ref<Speed>("fast");
-watch(() => models.speed, s => { if (s) lastSpeed.value = s; }, { immediate: true });
-const speedOptions = computed<(Speed | null)[]>(() => [null, ...availableSpeeds.value]);
-const speedTitle = computed(() => {
-  const s = effectiveSpeed.value;
-  if (!s) return `Speed: Standard. Turn on ${speedLabel(toggleTarget.value)}`;
-  return `Speed: ${speedLabel(s)}. Turn off`;
-});
-const toggleTarget = computed<Speed>(() => availableSpeeds.value.includes(lastSpeed.value) ? lastSpeed.value : "fast");
-function toggleSpeed() { void setSpeed(effectiveSpeed.value ? null : toggleTarget.value); }
+const speedTitle = computed(() => `Speed: ${speedLabel(effectiveSpeed.value)}`);
+function cycleSpeed() {
+  const order: (Speed | null)[] = [null, ...availableSpeeds.value];
+  void setSpeed(order[(order.indexOf(effectiveSpeed.value) + 1) % order.length] ?? null);
+}
 
 function position() {
   if (!trigger.value || !picker.value) return;
@@ -198,10 +193,9 @@ onUnmounted(() => {
     :title="speedTitle"
     :data-speed="effectiveSpeed ?? 'standard'"
     :style="effectiveSpeed ? { '--speed-color': speedColors[effectiveSpeed] } : undefined"
-    @click="toggleSpeed"
+    @click="cycleSpeed"
   >
     <Zap :size="14" aria-hidden="true" :fill="effectiveSpeed ? 'currentColor' : 'none'" />
-    <span v-if="effectiveSpeed === 'ultrafast'" class="speed-tag">ULTRA</span>
   </button>
 
   <div
@@ -252,25 +246,6 @@ onUnmounted(() => {
         </span>
         <span class="eq-cap">{{ shortLabels[scale(level)] }}</span>
       </button>
-    </div>
-
-    <div v-if="availableSpeeds.length" class="speed-row">
-      <span class="reasoning-title">Speed</span>
-      <div class="speed-options" role="radiogroup" aria-label="Speed">
-        <button
-          v-for="option in speedOptions"
-          :key="option ?? 'standard'"
-          type="button"
-          role="radio"
-          class="speed-option"
-          :aria-checked="effectiveSpeed === option"
-          :style="option ? { '--speed-color': speedColors[option] } : undefined"
-          @click="setSpeed(option)"
-        >
-          <Zap v-if="option" :size="11" aria-hidden="true" :fill="effectiveSpeed === option ? 'currentColor' : 'none'" />
-          {{ speedLabel(option) }}
-        </button>
-      </div>
     </div>
   </div>
 </template>
@@ -471,52 +446,6 @@ onUnmounted(() => {
 #speed:focus-visible {
   outline: 2px solid var(--speed-color, var(--muted-foreground));
   outline-offset: 2px;
-}
-
-.speed-tag {
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.speed-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  font-size: 13px;
-}
-
-.speed-options {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.speed-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.speed-option:hover {
-  background: var(--secondary);
-  color: var(--foreground);
-}
-
-.speed-option[aria-checked="true"] {
-  border-color: var(--speed-color, var(--foreground));
-  color: var(--speed-color, var(--foreground));
-  background: color-mix(in srgb, var(--speed-color, var(--foreground)) 12%, var(--background));
-  font-weight: 600;
 }
 
 @media (max-width: 760px) {
