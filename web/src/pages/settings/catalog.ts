@@ -110,8 +110,8 @@ const fieldHelp: Record<string, string> = {
   'provider': 'Provider ID from the catalog or a custom definition in Accounts & connections.',
   'model': 'Exact model ID. Keep any slashes that are part of the ID. New defaults must be available in the catalog or defined in Accounts & connections.',
   'thinkingLevel': 'Applies to new sessions. The selected model can restrict the supported levels.',
-  'modelThinkingLevels': 'Sets the main thinking level for specific models. These take priority over the main thinking level; the model’s supported levels still clamp the value.',
-  'subagents.cwd': 'Leave blank to use the parent conversation’s working directory.',
+  'modelThinkingLevels': 'Sets the main thinking level for specific models. These take priority over the main thinking level; the model\'s supported levels still clamp the value.',
+  'subagents.cwd': 'Leave blank to use the parent conversation\'s working directory.',
   'subagents.profiles': 'Named child roles with exact tool allowlists, context defaults, and optional model overrides. Changes affect new children only. Supplying a map replaces the built-ins.',
   'auxiliary.side_question': 'Override the model used for /btw side questions. Leave unset to use the normal default.',
   'auxiliary.review': 'Model used by /review. Required: /review does not fall back to the session model. It reads code and cannot run tests.',
@@ -168,7 +168,7 @@ const fieldHelp: Record<string, string> = {
   'learn.files': 'Explicitly enrolled project files: absolute path and non-global domain. Writes still need approval.',
   'improve.schedule': 'Optional five-field cron expression. Requires the cron and improve built-in tools.',
   'improve.allowCommandBenchmarks': 'Allow skill benchmarks to run shell commands on this host. Enable only for trusted benchmarks.',
-  'dataDir': 'Stores Luna databases and managed skills. Relative paths use the configuration file’s directory.',
+  'dataDir': 'Stores Luna databases and managed skills. Relative paths use the configuration file\'s directory.',
   'cwd': 'Default working directory for tools. Projects and conversations can override it.',
   'server.host': '127.0.0.1 accepts local connections only. 0.0.0.0 listens on all IPv4 interfaces. Protect network access with a server token.',
   'server.port': 'HTTP port used after restarting Luna.',
@@ -179,7 +179,7 @@ export function helpFor(path: (string | number)[]): string {
   const last = String(path.at(-1))
   if (last === 'defer') return 'Load tool definitions through tool_search instead of adding every tool to each prompt.'
   if (last === 'timeoutMs') return 'Maximum duration for an MCP tool call, in milliseconds.'
-  if (last === 'contextWindow') return 'Use the model’s actual context capacity. An oversized value can delay context summarization.'
+  if (last === 'contextWindow') return 'Use the model\'s actual context capacity. An oversized value can delay context summarization.'
   if (last === 'maxTokens') return 'Maximum generated tokens per response. Leave blank to use the provider default.'
   if (last === 'tool_result_images') return 'Allow native images from tools for this profile. This cannot add image support to a text-only model.'
   if (last === 'headers' || last === 'env') return 'Saved values stay hidden. Leave secret markers unchanged to keep existing values.'
@@ -198,7 +198,7 @@ export const summaries: Record<string, string> = {
   sessionTalk: 'Let a session send messages to other sessions. Mention a session with @ in the chat box.',
   instructions: 'Set the instructions shared by new conversations.',
   subagents: 'Delegated workers inherit the parent model and thinking level unless you set an override.',
-  modelThinkingLevels: 'Set the main thinking level for specific models. These take priority over the main thinking level; the model’s supported levels still clamp the value.',
+  modelThinkingLevels: 'Set the main thinking level for specific models. These take priority over the main thinking level; the model\'s supported levels still clamp the value.',
   auxiliary: 'Use a different model for a specific task without changing the main chat model.',
   providers: 'Define custom APIs and their model capabilities. Account credentials are managed separately.',
   vision: 'Control the analysis route, image size, and per-turn call limits.',

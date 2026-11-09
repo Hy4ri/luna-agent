@@ -92,7 +92,7 @@ function close() { if (!busy.value) emit("close"); }
         </label>
         <label v-if="project" class="flex items-center gap-2 text-sm">
           <input v-model="onlyProject" type="checkbox" :disabled="busy" class="accent-primary" />
-          Only in project “{{ project.name }}”
+          Only in project "{{ project.name }}"
         </label>
         <p class="text-sm text-muted-foreground">Pinned sessions, open sessions, and sessions with running work are kept. Recent forks protect their parent sessions. Deletion is permanent and cannot be undone.</p>
         <div v-if="sessions.length" class="flex flex-col gap-1 min-w-0 min-h-24 flex-1" :class="{ 'opacity-60': loading }">

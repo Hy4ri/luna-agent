@@ -273,7 +273,7 @@ function runNow(job: CronJob | null) {
   if (!job) return;
   void guard(async () => {
     await post(`/v1/cron/${job.id}/run`, {});
-    message(`Started “${job.name}”.`);
+    message(`Started "${job.name}".`);
     await loadJobs();
   });
 }
@@ -284,7 +284,7 @@ function toggleJob(job: CronJob) {
   });
 }
 async function deleteJob(job: CronJob) {
-  if (!(await confirmAction({ title: `Delete job “${job.name}”?`, message: 'Reports and run history will be kept.', confirmLabel: 'Delete', danger: true }))) return;
+  if (!(await confirmAction({ title: `Delete job "${job.name}"?`, message: 'Reports and run history will be kept.', confirmLabel: 'Delete', danger: true }))) return;
   void guard(async () => {
     await post(`/v1/cron/${job.id}`, {}, "DELETE");
     if (panel.jobId === job.id) panel.jobId = null;

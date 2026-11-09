@@ -672,7 +672,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       const running = await isRunning(tx, conv.id);
       const status = await readSessionStatus(tx, conv.id, running);
       const record = await tx.conversation(conv.id);
-      // Fork ancestry alone is not delegation. Read only this session’s own creation entries.
+      // Fork ancestry alone is not delegation. Read only this session's own creation entries.
       const head = await tx.scanEntries({ conversationId: conv.id, order: "ascending",
         ...(record?.parent ? { minEntryId: (Number(record.parent.at) + 1) as EntryId } : {}),
       }, 30);
