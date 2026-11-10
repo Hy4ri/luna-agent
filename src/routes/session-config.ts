@@ -146,7 +146,9 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
       return err(c, 400, "invalid thinkingLevel");
     if (b.speed !== undefined && b.speed !== null && !(SPEEDS as readonly string[]).includes(b.speed))
       return err(c, 400, "invalid speed");
-    if (b.model !== undefined) await opts.limitContinuer?.cancel(Number(conv.id), "Session model changed.");
+    if (b.model !== undefined) {
+      await opts.scheduledMessages?.cancelForConversation(Number(conv.id), "limit_recovery", "Session model changed.");
+    }
     const changed = await serial(String(conv.id), () => harness.commit(async (tx) => {
       if (requiresIdle && await isRunning(tx, conv.id)) return false;
       const doc = await tx.doc(AgentDoc, conv.id);
@@ -183,10 +185,10 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
   });
 
   app.delete("/v1/sessions/:id/limit-wait", async (c) => {
-    if (!opts.limitContinuer) return err(c, 404, "auto-continue disabled");
+    if (!opts.scheduledMessages) return err(c, 404, "scheduled messages disabled");
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
-    return c.json({ cancelled: await opts.limitContinuer.cancel(Number(conv.id)) });
+    return c.json({ cancelled: !!(await opts.scheduledMessages.cancelForConversation(Number(conv.id), "limit_recovery", "Cancelled by the user.")) });
   });
 
   const sessionTalkPolicy = () =>

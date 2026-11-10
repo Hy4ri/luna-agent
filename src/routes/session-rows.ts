@@ -1,6 +1,6 @@
 import type { ConversationId, ConversationRecord, Tx } from "@earendil-works/pi-durable";
 import { isRunning, readSessionStatus, type SessionState } from "../session-status.js";
-import { readLimitWait, type RecoverySummary } from "../limit-continue.js";
+import type { RecoverySummary } from "../scheduled-messages.js";
 import { newestMessageTime, SessionCreated } from "../session-activity.js";
 import { ExecTarget } from "../workers.js";
 import { context } from "../luna.js";
@@ -13,6 +13,7 @@ export type SessionRow = SessionState & {
   running: boolean;
   wait: number | null;
   recovery: RecoverySummary | null;
+  scheduled?: { count: number; version: string };
   lastActivity: number | null;
   createdAt: number | null;
   worker: number | null;
@@ -55,7 +56,7 @@ export function createSessionRows(ctx: RouteCtx) {
 
   const buildRow = async (tx: Tx, r: Pick<ConversationRecord, "id" | "parent">): Promise<SessionRow> => {
     const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
-    const firstUser = textOf(head.find((e) => e.kind === "pi.user"))
+    const firstUser = textOf(head.find((e) => (e.kind === "pi.user" || e.kind === "luna.scheduled-message")))
       .replace(/\s+/g, " ")
       .slice(0, 60);
     const ownHead = r.parent
@@ -81,14 +82,17 @@ export function createSessionRows(ctx: RouteCtx) {
         worker: null,
       };
     const running = await isRunning(tx, r.id);
+    const recovery = running ? null : ((await opts.scheduledMessages?.recovery(tx, r.id)) ?? null);
+    const scheduled = await opts.scheduledMessages?.summary(tx, Number(r.id));
     return {
       hidden: false,
       parent: r.parent ?? null,
       firstUser,
       running,
       ...(await readSessionStatus(tx, r.id, running)),
-      wait: running ? null : (await readLimitWait(tx, r.id))?.resumeAt ?? null,
-      recovery: running ? null : ((await opts.limitContinuer?.recovery(tx, r.id)) ?? null),
+      wait: recovery?.resumeAt ?? null,
+      recovery,
+      scheduled,
       lastActivity: await newestMessageTime(tx, r.id),
       createdAt: (await tx.doc(SessionCreated, r.id)).at ?? null,
       worker: (await tx.doc(ExecTarget, r.id)).worker,

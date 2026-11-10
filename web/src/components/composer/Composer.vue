@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { ArrowUp, Square, Camera, ChevronDown } from "@lucide/vue";
-import { json, post } from "@/lib/api";
+import { json, post, serverUrl, token } from "@/lib/api";
 import { composer, removeAttachment, saveDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history } from "@/stores/sessions";
 import { modelLabel } from "@/stores/models";
 import { captureBackgroundSend } from "@/stores/background-send";
 import BackgroundSendStatus from "./BackgroundSendStatus.vue";
+import ScheduledMessages from "./ScheduledMessages.vue";
 import ModelPicker from "./ModelPicker.vue";
 import ReasoningControl from "./ReasoningControl.vue";
 import ComposerAttachments from "./ComposerAttachments.vue";
@@ -133,9 +134,62 @@ function handleInput() {
   updateAtState();
 }
 
-/** Run client-side commands (/compact, /models); returns true when handled. */
+const schedulePickerOpen = ref(false);
+const scheduleDialog = ref<HTMLDialogElement | null>(null);
+const scheduleList = ref<InstanceType<typeof ScheduledMessages> | null>(null);
+const scheduleRevision = ref(0);
+const scheduleError = ref("");
+let scheduleAttempt: { session: string; draft: string; content: string; dueAt: number; requestId: string; origin: string } | null = null;
+watch(schedulePickerOpen, async open => {
+  await nextTick();
+  if (open) scheduleDialog.value?.showModal(); else scheduleDialog.value?.close();
+});
+watch(() => [chat.session, serverUrl.value, token.value], () => {
+  schedulePickerOpen.value = false; scheduleAttempt = null; scheduleError.value = "";
+});
+const scheduleMessageText = ref("");
+const scheduleDateTime = ref("");
+const scheduleSubmitting = ref(false);
+const scheduleTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+function localScheduleTime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function defaultScheduleDateTime(): string { return localScheduleTime(new Date(Date.now() + 15 * 60_000)); }
+const resolvedScheduleDate = computed(() => {
+  const date = new Date(scheduleDateTime.value);
+  // Date normalizes nonexistent DST times; never silently change the requested wall-clock time.
+  return Number.isFinite(date.getTime()) && localScheduleTime(date) === scheduleDateTime.value ? date : null;
+});
+const resolvedScheduleLabel = computed(() => {
+  const date = resolvedScheduleDate.value;
+  if (!date) return "Invalid or nonexistent local time.";
+  const offset = -date.getTimezoneOffset(), pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.toISOString()} · UTC${offset < 0 ? "−" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+});
+
+/** Run client-side commands (/compact, /models, /schedule <message>); returns true when handled. */
 function runLocalCommand(): boolean {
-  const cmd = /^\/(compact|compress|models?)$/.exec(composer.text.trim())?.[1];
+  const trimmed = composer.text.trim();
+  const schedMatch = /^\/schedule\s+([\s\S]+)$/.exec(trimmed);
+  if (trimmed === "/schedule list") { scheduleList.value?.show(); return true; }
+  if (trimmed === "/schedule") { addErr("Usage: /schedule <message>, /schedule list, or /schedule cancel <id>."); return true; }
+  if (schedMatch && schedMatch[1] !== "list" && !/^cancel\s+\S+$/.test(schedMatch[1])) {
+    if (!chat.session) {
+      addErr("/schedule needs an open session.");
+      return true;
+    }
+    if (composer.attachments.length) { addErr("Scheduled messages are text only. Remove attachments first."); return true; }
+    scheduleMessageText.value = schedMatch[1].trim();
+    if (!scheduleAttempt || scheduleAttempt.session !== chat.session || scheduleAttempt.draft !== composer.text || scheduleAttempt.origin !== serverUrl.value) {
+      scheduleAttempt = null; scheduleDateTime.value = defaultScheduleDateTime();
+    }
+    scheduleError.value = "";
+    schedulePickerOpen.value = true;
+    return true;
+  }
+  const cmd = /^\/(compact|compress|models?)$/.exec(trimmed)?.[1];
   if (!cmd) return false;
   composer.text = ""; saveDraft();
   if (cmd.startsWith("model")) {
@@ -150,8 +204,41 @@ function runLocalCommand(): boolean {
   return true;
 }
 
+async function confirmSchedule() {
+  const sid = chat.session;
+  if (!sid || scheduleSubmitting.value) return;
+  if (composer.attachments.length) { scheduleError.value = "Scheduled messages are text only. Remove attachments first."; return; }
+  const dueAt = resolvedScheduleDate.value?.getTime() ?? NaN;
+  if (!scheduleAttempt && (!Number.isFinite(dueAt) || dueAt <= Date.now())) {
+    scheduleError.value = "Choose a valid future local time (not a skipped daylight-saving time)."; return;
+  }
+  // Freeze the request before I/O. Retry reuses it even after its due time or a lost response.
+  scheduleAttempt ??= { session: sid, draft: composer.text, origin: serverUrl.value,
+    content: scheduleMessageText.value, dueAt,
+    requestId: `schedule-${Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16)).join("-")}` };
+  const attempt = scheduleAttempt;
+  scheduleSubmitting.value = true; scheduleError.value = "";
+  try {
+    await post(`/v1/sessions/${attempt.session}/scheduled-messages`, {
+      content: attempt.content, dueAt: attempt.dueAt, requestId: attempt.requestId,
+    });
+    if (scheduleAttempt !== attempt || chat.session !== attempt.session || serverUrl.value !== attempt.origin) return;
+    schedulePickerOpen.value = false; scheduleMessageText.value = ""; scheduleAttempt = null;
+    if (composer.text === attempt.draft) { composer.text = ""; saveDraft(); grow(); }
+    scheduleRevision.value++; scheduleList.value?.show();
+  } catch (error) {
+    if (scheduleAttempt === attempt) {
+      const status = (error as Error & { status?: number }).status;
+      if (status === 400 || status === 404 || status === 409) {
+        scheduleAttempt = null; // Definitive rejection: safe to correct and submit anew.
+        scheduleError.value = (error as Error).message;
+      } else scheduleError.value = `Not confirmed: ${(error as Error).message}. Retry uses the same request.`;
+    }
+  } finally { scheduleSubmitting.value = false; }
+}
+
 function submit() {
-  if (composer.capturingBackground) return;
+  if (composer.capturingBackground || schedulePickerOpen.value) return;
   if (!runLocalCommand()) submitDraft();
 }
 
@@ -402,6 +489,46 @@ async function handleSubmit(e?: Event) {
       </div>
     </form>
 
+    <ScheduledMessages ref="scheduleList" :revision="scheduleRevision" />
     <ModelPicker @open="pickerOpen = true" @close="pickerOpen = false" />
+    <dialog ref="scheduleDialog" class="schedule-picker" aria-labelledby="schedule-title" @cancel="scheduleSubmitting ? $event.preventDefault() : schedulePickerOpen = false" @close="schedulePickerOpen = false">
+      <div class="schedule-picker__header">
+        <h2 id="schedule-title">Schedule message</h2><span>{{ scheduleTimezone }}</span>
+      </div>
+      <p class="schedule-picker__preview">{{ scheduleMessageText }}</p>
+      <label for="schedule-date">Date and time (local)</label>
+      <input
+        id="schedule-date"
+        autofocus
+        :disabled="scheduleSubmitting || !!scheduleAttempt"
+        v-model="scheduleDateTime"
+        type="datetime-local"
+        class="schedule-picker__input"
+        aria-label="Scheduled date and time"
+      />
+      <p class="schedule-picker__resolved">{{ resolvedScheduleLabel }}</p>
+      <p v-if="scheduleError" role="alert">{{ scheduleError }}</p>
+      <div class="schedule-picker__actions">
+        <button type="button" class="schedule-picker__btn" :disabled="scheduleSubmitting" @click="schedulePickerOpen = false">Cancel</button>
+        <button type="button" class="schedule-picker__btn schedule-picker__btn--primary" :disabled="scheduleSubmitting" @click="confirmSchedule">
+          {{ scheduleSubmitting ? "Scheduling…" : scheduleAttempt ? "Retry" : "Schedule" }}
+        </button>
+      </div>
+    </dialog>
   </div>
 </template>
+
+<style scoped>
+.schedule-picker { width: min(400px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; padding: 16px; border: 1px solid var(--border); border-radius: 2px; color: var(--foreground); background: var(--card); }
+.schedule-picker::backdrop { background: #0009; }
+.schedule-picker__header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.schedule-picker__preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow-y: auto; margin-bottom: 12px; }
+.schedule-picker__input { display: block; width: 100%; padding: 8px; min-height: 44px; border: 1px solid var(--border); border-radius: 2px; color: var(--foreground); background: var(--secondary); margin: 8px 0; }
+.schedule-picker__input:focus-visible { outline: 1px solid var(--ring); outline-offset: 2px; }
+.schedule-picker__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.schedule-picker__btn { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 2px; }
+.schedule-picker__resolved { font-size: 12px; overflow-wrap: anywhere; color: var(--muted-foreground); }
+.schedule-picker__btn--primary { background: var(--primary); color: var(--primary-foreground); }
+.schedule-picker__btn:disabled, .schedule-picker__input:disabled { opacity: .5; }
+.schedule-picker__btn:focus-visible { outline: 1px solid var(--ring); outline-offset: 2px; }
+</style>

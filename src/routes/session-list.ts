@@ -1,5 +1,5 @@
 import type { SessionState } from "../session-status.js";
-import type { RecoverySummary } from "../limit-continue.js";
+import type { RecoverySummary } from "../scheduled-messages.js";
 
 export type SessionItem = SessionState & {
   id: unknown;

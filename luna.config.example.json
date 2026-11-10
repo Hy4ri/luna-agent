@@ -135,7 +135,7 @@
   "autoContinue": {
     "enabled": false,
     "maxWaitHours": 168,
-    "maxAttempts": 5
+    "resetGraceSeconds": 60
   },
   "sessionTalk": { "enabled": true, "maxHops": 3 },
   "busyInput": {

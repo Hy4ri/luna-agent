@@ -34,7 +34,7 @@ export async function undoCommand(tx: Tx, id: ConversationId, count: number, req
     const edit = overrides.get(entry.id);
     return edit?.action === "omit" ? [] : edit?.action === "replace" ? edit.messages : entry.model ?? [];
   };
-  const users = entries.filter(entry => entry.head === undefined && entry.kind === "pi.user" &&
+  const users = entries.filter(entry => entry.head === undefined && (entry.kind === "pi.user" || entry.kind === "luna.scheduled-message") &&
     messages(entry).some(message => message.role === "user") &&
     !messages(entry).some(message => message.role === "user" && /^Background process [a-f0-9-]+ finished:/.test(typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.type === "text" ? block.text : "").join("\n"))));
   if (count > users.length) throw new BusyCommandError(`Only ${users.length} user messages remain in active context. Earlier compacted or reset messages cannot be undone.`);

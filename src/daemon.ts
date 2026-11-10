@@ -27,7 +27,7 @@ const rt = await startRuntime(cfg);
 const appConnection = daemonConnection(cfg.dataDir, host, port, publicUrls);
 const app = createApp({
   connection: appConnection,
-  harness: rt.harness, sideCommands: rt.sideCommands, titler: rt.titler, limitContinuer: rt.limitContinuer, push: rt.push, token, agent: { model: rt.model },
+  harness: rt.harness, sideCommands: rt.sideCommands, titler: rt.titler, scheduledMessages: rt.scheduledMessages, push: rt.push, token, agent: { model: rt.model },
   settings: rt.settings, busyInput: rt.busyInput, sessionTalk: rt.sessionTalk, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
   workers: rt.workers, terminals: rt.terminals, browserPanel: rt.browserPanel, uploads: rt.uploads, webhooks: rt.webhooks, cwd: cfg.cwd,

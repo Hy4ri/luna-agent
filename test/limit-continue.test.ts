@@ -1,110 +1,178 @@
-// Contract: after a usage limit resets, recovery resumes the stored run with Pi's native continue. It adds no
-// synthetic user message, uses a stable request ID, and a repeated delivery cannot admit a second run.
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
-import type { ConversationId } from "@earendil-works/pi-durable";
+import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { openLuna } from "../src/luna.js";
-import { LimitContinuer, readLimitWait } from "../src/limit-continue.js";
+import { ScheduledMessagesService } from "../src/scheduled-messages.js";
+import { LimitWaitsDoc, migrateLimitWaits } from "../src/limit-continue.js";
+import { RecoveryStateDoc } from "../src/recovery-state.js";
+import { readTurnFailure } from "../src/session-status.js";
 
-async function until<T>(read: () => Promise<T | undefined>, what: string): Promise<T> {
-  const deadline = Date.now() + 5000;
-  for (;;) {
-    const value = await read();
-    if (value !== undefined) return value;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise<void>(resolve => setImmediate(resolve));
-  }
-}
-
-test("a reset quota resumes with a native continue, once, without a synthetic user message", async () => {
+test("migrateLimitWaits: valid first legacy wait migrates once at max(resumeAt, nextDeliveryAt) without doubled grace", async () => {
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Please try again in 1s." }),
-    fauxAssistantMessage([fauxText("recovered")]),
+    fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Try again in 60s." }),
   ]);
   const models = createModels();
   models.setProvider(faux.provider);
   const harness = await openLuna({ dbPath: ":memory:", models, memory: false, coding: false });
-  const model = faux.getModel(), ref = { provider: model.provider, modelId: model.id };
-  let skew = 0;
-  const continuer = new LimitContinuer({
-    harness, log: () => {}, defaultModel: () => ref, now: () => Date.now() + skew, graceMs: 0, backoffMs: [1000],
-    policy: () => ({ enabled: true, maxWaitHours: 168, maxAttempts: 5 }),
-  });
+  const model = faux.getModel();
+  const ref = { provider: model.provider, modelId: model.id };
+  const now = 1_700_000_000_000;
+
+  const scheduledMessages = new ScheduledMessagesService({ harness, log: () => {}, now: () => now });
+  await scheduledMessages.start();
+
   try {
-    await continuer.start();
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    const sid = Number(conv.id);
     const failed = await (await conv.submit({ type: "input", content: "work" }, context)).wait(context);
     assert.equal(failed.status, "unanswered");
 
-    const wait = await until(() => harness.commit(tx => readLimitWait(tx, conv.id as ConversationId), context), "the recovery wait");
-    skew = 2 * 86_400_000; // the reset time has passed
-    assert.equal(await continuer.fire(Number(conv.id), wait.boundary), true);
+    const failure = await harness.commit(tx => readTurnFailure(tx, conv.id), context);
+    assert.ok(failure, "turn failure recorded");
 
-    const requestId = `limit-continue-${Number(conv.id)}-${wait.boundary}-${wait.generation}`;
-    const continued = await until(async () => {
-      const record = await harness.commit(tx => tx.submissionByRequest(conv.id, requestId), context);
-      return record?.status === "done" ? record : undefined;
-    }, "the continue run");
-    assert.equal(continued.type, "continue", "recovery uses the native continue, not an input");
-    assert.equal(faux.getPendingResponseCount(), 0, "the second model response was consumed");
+    const resumeAt = now + 60_000;
+    const nextDeliveryAt = now + 90_000;
 
-    const entries = (await conv.entries({}, 50, undefined, context)).items;
-    assert.equal(entries.filter(entry => entry.kind === "pi.user").length, 1, "no synthetic recovery message was added");
-    const answer = entries.find(entry => entry.id === continued.answer)?.model?.[0];
-    assert.equal(answer?.role === "assistant" && answer.content.some(block => block.type === "text" && block.text === "recovered"), true);
+    await harness.commit(async tx => {
+      const legacy = await tx.doc(LimitWaitsDoc);
+      legacy.waits[String(sid)] = {
+        boundary: failure.boundary,
+        resumeAt,
+        nextDeliveryAt,
+        attempt: 1,
+        exact: true,
+        generation: failure.generation,
+        provider: failure.provider ?? ref.provider,
+        model: failure.model ?? ref.modelId,
+        resetSource: "provider_evidence",
+        deadline: now + 3600_000,
+      };
+      legacy.chains = {
+        [String(sid)]: {
+          boundary: failure.boundary,
+          generation: failure.generation,
+          provider: failure.provider ?? ref.provider,
+          model: failure.model ?? ref.modelId,
+          requestId: `limit-continue-${sid}-${failure.boundary}-${failure.generation}`,
+          attemptsAdmitted: 0,
+        },
+      };
+    }, context);
 
-    assert.equal(await continuer.fire(Number(conv.id), wait.boundary), false, "a repeated delivery admits nothing");
-    assert.equal(await harness.commit(tx => continuer.recovery(tx, conv.id as ConversationId), context), undefined, "no stale recovery state remains");
+    const policy = { enabled: true, maxWaitHours: 24, resetGraceSeconds: 60 };
+    await migrateLimitWaits(harness, scheduledMessages, policy, ref, now);
+
+    // Verify scheduled message created with exact dueAt = max(resumeAt, nextDeliveryAt)
+    const list = await harness.commit(tx => scheduledMessages.list(tx, sid), context);
+    const migrated = list.find(s => s.source.kind === "limit_recovery");
+    assert.ok(migrated, "migrated schedule created");
+    assert.equal(migrated.dueAt, nextDeliveryAt, "dueAt must be max(resumeAt, nextDeliveryAt) with no added grace");
+    assert.equal(migrated.content, "Continue");
+    assert.equal(migrated.status, "scheduled");
+    assert.equal(migrated.source.kind, "limit_recovery");
+
+    // Verify recovery state recorded
+    const state = await harness.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(RecoveryStateDoc))), context);
+    assert.equal(state.legacyMigrated, true);
+    const attempt = state.attempts[`${sid}:${failure.boundary}`];
+    assert.ok(attempt);
+    assert.equal(attempt.status, "scheduled");
+
+    // Verify legacy store emptied
+    const legacyAfter = await harness.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(LimitWaitsDoc))), context);
+    assert.deepEqual(legacyAfter.waits, {});
+    assert.deepEqual(legacyAfter.chains, {});
+
+    // Idempotent migration call must not create another schedule or re-process
+    await migrateLimitWaits(harness, scheduledMessages, policy, ref, now);
+    const listAfter = await harness.commit(tx => scheduledMessages.list(tx, sid), context);
+    assert.equal(listAfter.filter(s => s.source.kind === "limit_recovery").length, 1);
   } finally {
-    await continuer.close();
+    await scheduledMessages.close();
     await harness.close(context);
   }
 });
 
-test("a continued run that hits the limit again counts as the next attempt in the same chain", async () => {
-  const limit = () => fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Please try again in 1s." });
+test("migrateLimitWaits: already admitted, cancelled, stale, or attempt>1 legacy waits ledger durable stopped/consumed and never schedule", async () => {
   const faux = fauxProvider();
-  faux.setResponses([limit(), limit(), fauxAssistantMessage([fauxText("recovered")])]);
+  faux.setResponses([
+    fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Try again in 60s." }),
+    fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Try again in 60s." }),
+    fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Try again in 60s." }),
+    fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Try again in 60s." }),
+  ]);
   const models = createModels();
   models.setProvider(faux.provider);
   const harness = await openLuna({ dbPath: ":memory:", models, memory: false, coding: false });
-  const model = faux.getModel(), ref = { provider: model.provider, modelId: model.id };
-  let skew = 0;
-  const continuer = new LimitContinuer({
-    harness, log: () => {}, defaultModel: () => ref, now: () => Date.now() + skew, graceMs: 0, backoffMs: [1000],
-    policy: () => ({ enabled: true, maxWaitHours: 10_000, maxAttempts: 5 }),
-  });
+  const model = faux.getModel();
+  const ref = { provider: model.provider, modelId: model.id };
+  const now = 1_700_000_000_000;
+
+  const scheduledMessages = new ScheduledMessagesService({ harness, log: () => {}, now: () => now });
+  await scheduledMessages.start();
+
   try {
-    await continuer.start();
-    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
-    await (await conv.submit({ type: "input", content: "work" }, context)).wait(context);
-    const first = await until(() => harness.commit(tx => readLimitWait(tx, conv.id as ConversationId), context), "the first wait");
-    assert.equal(first.attempt, 1);
-    skew += 2 * 86_400_000;
-    assert.equal(await continuer.fire(Number(conv.id), first.boundary), true);
+    // Conv 1: already admitted in chain (attemptsAdmitted: 1)
+    const c1 = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    const sid1 = Number(c1.id);
+    await (await c1.submit({ type: "input", content: "work 1" }, context)).wait(context);
+    const f1 = (await harness.commit(tx => readTurnFailure(tx, c1.id), context))!;
 
-    // The continued run fails again at the SAME input boundary. It must continue the chain, not start a new one.
-    const second = await until(async () => {
-      const wait = await harness.commit(tx => readLimitWait(tx, conv.id as ConversationId), context);
-      return wait && wait.generation !== first.generation ? wait : undefined;
-    }, "the second wait");
-    assert.equal(second.boundary, first.boundary, "a continue does not move the input boundary");
-    assert.equal(second.attempt, 2, "the second failure is attempt 2 of the same chain");
-    assert.equal(second.firstFailedAt, first.firstFailedAt, "the recovery lifetime is not reset");
+    // Conv 2: cancelled chain
+    const c2 = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    const sid2 = Number(c2.id);
+    await (await c2.submit({ type: "input", content: "work 2" }, context)).wait(context);
+    const f2 = (await harness.commit(tx => readTurnFailure(tx, c2.id), context))!;
 
-    skew += 2 * 86_400_000;
-    assert.equal(await continuer.fire(Number(conv.id), second.boundary), true);
-    await until(async () => {
-      const entries = (await conv.entries({}, 50, undefined, context)).items;
-      return entries.some(entry => entry.model?.[0]?.role === "assistant" && entry.model[0].stopReason === "stop") ? true : undefined;
-    }, "the recovered answer");
-    const users = (await conv.entries({}, 50, undefined, context)).items.filter(entry => entry.kind === "pi.user");
-    assert.equal(users.length, 1);
+    // Conv 3: attempt > 1
+    const c3 = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    const sid3 = Number(c3.id);
+    await (await c3.submit({ type: "input", content: "work 3" }, context)).wait(context);
+    const f3 = (await harness.commit(tx => readTurnFailure(tx, c3.id), context))!;
+
+    // Conv 4: stale deadline passed (now > deadline)
+    const c4 = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    const sid4 = Number(c4.id);
+    await (await c4.submit({ type: "input", content: "work 4" }, context)).wait(context);
+    const f4 = (await harness.commit(tx => readTurnFailure(tx, c4.id), context))!;
+
+    await harness.commit(async tx => {
+      const legacy = await tx.doc(LimitWaitsDoc);
+      // Case 1: admitted
+      legacy.waits[String(sid1)] = { boundary: f1.boundary, resumeAt: now + 10_000, attempt: 1, exact: true, generation: f1.generation, provider: ref.provider, model: ref.modelId };
+      legacy.chains = {
+        [String(sid1)]: { boundary: f1.boundary, generation: f1.generation, provider: ref.provider, model: ref.modelId, requestId: `r1`, attemptsAdmitted: 1 },
+        // Case 2: cancelled
+        [String(sid2)]: { boundary: f2.boundary, generation: f2.generation, provider: ref.provider, model: ref.modelId, requestId: `r2`, attemptsAdmitted: 0, cancelled: true },
+        // Case 3: attempt 2
+        [String(sid3)]: { boundary: f3.boundary, generation: f3.generation, provider: ref.provider, model: ref.modelId, requestId: `r3`, attemptsAdmitted: 0 },
+        // Case 4: stale deadline
+        [String(sid4)]: { boundary: f4.boundary, generation: f4.generation, provider: ref.provider, model: ref.modelId, requestId: `r4`, attemptsAdmitted: 0 },
+      };
+      legacy.waits[String(sid2)] = { boundary: f2.boundary, resumeAt: now + 10_000, attempt: 1, exact: true, generation: f2.generation, provider: ref.provider, model: ref.modelId };
+      legacy.waits[String(sid3)] = { boundary: f3.boundary, resumeAt: now + 10_000, attempt: 2, exact: true, generation: f3.generation, provider: ref.provider, model: ref.modelId };
+      legacy.waits[String(sid4)] = { boundary: f4.boundary, resumeAt: now + 10_000, attempt: 1, exact: true, generation: f4.generation, provider: ref.provider, model: ref.modelId, deadline: now - 5000 };
+    }, context);
+
+    const policy = { enabled: true, maxWaitHours: 24 };
+    await migrateLimitWaits(harness, scheduledMessages, policy, ref, now);
+
+    // No scheduled messages created for any of sid1..sid4
+    for (const sid of [sid1, sid2, sid3, sid4]) {
+      const list = await harness.commit(tx => scheduledMessages.list(tx, sid), context);
+      assert.equal(list.filter(s => s.source.kind === "limit_recovery").length, 0, `session ${sid} must have no scheduled recovery`);
+    }
+
+    // Ledger checks
+    const state = await harness.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(RecoveryStateDoc))), context);
+    assert.equal(state.attempts[`${sid1}:${f1.boundary}`]?.status, "consumed", "already admitted attempt ledgered as consumed");
+    assert.equal(state.attempts[`${sid2}:${f2.boundary}`]?.status, "stopped", "cancelled must be stopped");
+    assert.equal(state.attempts[`${sid3}:${f3.boundary}`]?.status, "stopped", "attempt > 1 must be stopped");
+    assert.equal(state.attempts[`${sid4}:${f4.boundary}`]?.status, "stopped", "stale must be stopped");
   } finally {
-    await continuer.close();
+    await scheduledMessages.close();
     await harness.close(context);
   }
 });

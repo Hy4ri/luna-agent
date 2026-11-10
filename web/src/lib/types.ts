@@ -22,11 +22,11 @@ export interface SessionMeta {
   statusReason?: string | null;
   /** Epoch ms when Luna continues after a usage limit; null when nothing is scheduled. */
   resumeAt?: number | null;
+  /** Real pending schedule state; changes independently of streamed message history. */
+  scheduled?: { count: number; version: string };
   recovery?: {
     active: boolean;
     resumeAt?: number;
-    attempt: number;
-    maxAttempts: number;
     exact: boolean;
     source?: string;
     pausedReason?: string;
