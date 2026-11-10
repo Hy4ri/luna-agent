@@ -9,6 +9,11 @@ export const isWorkerEnv = (env: { id: string } | undefined): boolean => !!env &
 
 export const PROTOCOL_VERSION = 1;
 
+/** Largest JSON frame either side sends. Main accepts 256 MiB per frame; base64 and JSON overhead need headroom. */
+export const MAX_FRAME_BYTES = 128 * 1024 * 1024;
+/** Calls that touch only files or readers fail after this long. Exec, browser and MCP calls bring their own limits. */
+export const FILE_CALL_TIMEOUT_MS = 120_000;
+
 export const BROWSER_METHODS = ["open", "navigate", "close", "snapshot", "click", "type", "scroll", "screenshot",
   "history", "press", "pointer", "hover", "select", "check", "upload", "dialog", "wait", "logs", "dialogs", "evaluate"] as const;
 export type BrowserMethod = typeof BROWSER_METHODS[number];
