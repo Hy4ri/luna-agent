@@ -1,5 +1,5 @@
 // Shared delegation state. Documents own identity; transcript scans are for legacy rows only.
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { defineDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
 import { newestInputBoundary, readCommonSessionReport } from "./session-status.js";
 

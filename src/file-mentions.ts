@@ -3,7 +3,7 @@
 // block with path, kind and size only. The model reads the content with `read`.
 import { defineExtension, section, type ConversationId } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { ExecTarget } from "./workers.js";
 
 export interface FileMentionEntry { name: string; path: string; kind: "file" | "directory"; size: number }

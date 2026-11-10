@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { JsonObject } from "@earendil-works/pi-durable";
 import type { AssistantMessage, Message, Usage } from "@earendil-works/pi-ai";
 import type {

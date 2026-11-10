@@ -1,6 +1,5 @@
 import { REPORT_WHEN_BUSY } from "./report-delivery.js";
 import { ConfigSchema, type LunaConfig } from "./config.js";
-import { ChildResult } from "./delegate-state.js";
 import { BusyExecutions } from "./busy-tools.js";
 import { SessionCreated } from "./session-activity.js";
 import { dirname, join } from "node:path";
@@ -113,14 +112,9 @@ export async function openLuna(opts: LunaOptions) {
           return hidden?.size ? all.filter(e => !hidden.has(e.name)) : all;
         },
         get afterFailedRun() { return opts.afterFailedRun?.(); },
-        compaction: {
-          resolve: async ({ conversationId, read }, ctx) => {
-            const limits = opts.compaction?.() ?? defaultCompaction;
-            // Delegate identity lives in a document, not history that compaction can replace.
-            const child = await read.snapshot(ChildResult, conversationId, ctx);
-            return child?.schema ? limits.subagents : limits.sessions;
-          },
-        },
+        // Native harness-wide policy, read on each use so config edits reach open sessions. Delegate children store
+        // the subagent limits in their own agent state (see delegate.ts).
+        get compaction() { return (opts.compaction?.() ?? defaultCompaction).sessions; },
         steeringMode: "all",
         followUpMode: "one-at-a-time",
       },

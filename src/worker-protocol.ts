@@ -15,14 +15,14 @@ export type BrowserMethod = typeof BROWSER_METHODS[number];
 
 /** Worker-only operation: open once, check the policy on the opened file, read from it. Not an ExecutionEnv method. */
 export interface ConfinedReader {
-  readConfined(path: string, policy: import("./confined-read.js").ConfinedReadPolicy, context: import("@earendil-works/chord").Context): Promise<Result<Uint8Array, Error>>;
+  readConfined(path: string, policy: import("./confined-read.js").ConfinedReadPolicy, context: import("@earendil-works/chord/context").Context): Promise<Result<Uint8Array, Error>>;
 }
 export const confinedReader = (env: unknown): ConfinedReader | undefined =>
   isWorkerEnv(env as { id: string }) && typeof (env as Partial<ConfinedReader>).readConfined === "function" ? env as ConfinedReader : undefined;
 
 /** Worker-only operation: write a generated image into worker-managed generated storage. Not an ExecutionEnv method. */
 export interface GeneratedImageWriter {
-  writeGeneratedImage(bytes: Uint8Array, context: import("@earendil-works/chord").Context): Promise<Result<string, Error>>;
+  writeGeneratedImage(bytes: Uint8Array, context: import("@earendil-works/chord/context").Context): Promise<Result<string, Error>>;
 }
 export const generatedImageWriter = (env: unknown): GeneratedImageWriter | undefined =>
   isWorkerEnv(env as { id: string }) && typeof (env as Partial<GeneratedImageWriter>).writeGeneratedImage === "function" ? env as GeneratedImageWriter : undefined;
@@ -31,7 +31,7 @@ export const generatedImageWriter = (env: unknown): GeneratedImageWriter | undef
 export interface UploadWriter {
   writeUpload(
     file: { data: Uint8Array; name: string; mimeType: string },
-    context: import("@earendil-works/chord").Context,
+    context: import("@earendil-works/chord/context").Context,
   ): Promise<Result<import("./uploads.js").UploadMetadata, Error>>;
 }
 export const uploadWriter = (env: unknown): UploadWriter | undefined =>

@@ -1,5 +1,5 @@
 // Structured child reports are validated data, not proof of correct work or user approval.
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { Type } from "typebox";
 import { Compile, Meta } from "typebox/schema";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";

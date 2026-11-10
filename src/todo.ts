@@ -2,7 +2,7 @@
 // Same tool contract: actions, 4-state machine, blockedBy graph with cycle checks, response text. State lives in a
 // rewindable conversation document, so it follows the branch: a fork starts with the todos it had at the fork entry.
 import { Type, type Static } from "typebox";
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { defineDoc, defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { StringEnum } from "./string-enum.js";
 

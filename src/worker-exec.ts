@@ -1,7 +1,7 @@
 // `worker_exec`: run a shell command on any registered machine ("main" or a worker), from any session.
 // Tools run in the main daemon, so a worker target goes through the existing WorkerHub exec call. No protocol change.
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { Type } from "typebox";
 import { expandHome } from "./file-mentions.js";
 import { homedir } from "node:os";

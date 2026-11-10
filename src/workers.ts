@@ -4,7 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import type { Server, ServerWebSocket } from "bun";
 import { Database } from "bun:sqlite";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import type { PtyProcess } from "./terminal/pty-host.js";
