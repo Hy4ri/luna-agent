@@ -392,6 +392,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       harness, store: store!, defaultModel: () => providers.defaultModel(), log,
       thinkingLevel: model => resolveThinkingLevel(built.models, model, live()),
       runTimeoutMs: () => { const m = live().cron.runTimeoutMinutes; return m ? m * 60_000 : 30 * 60_000; },
+      retention: () => live().cron.retention,
       onFinish: (job, run) => {
         if (run.status === "ok" || run.status === "error") {
           const ok = run.status === "ok", name = job?.name ?? `job ${run.jobId}`;

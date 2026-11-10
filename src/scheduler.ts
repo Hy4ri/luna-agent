@@ -108,21 +108,64 @@ export interface Run {
 }
 
 /**
- * The newest report for each job. A newer report replaces an older unread one; the older one is superseded
- * and lives in history. Empty output is not a report.
+ * A run counts as a report when it carries output or an error and is not still running. Empty output is not a
+ * report. The partial index below repeats these exact terms, so the index and the queries always agree.
  */
-const newestPerJob = `
-  SELECT MAX(id) FROM runs
-  WHERE report=1 AND status != 'running'
-    AND (TRIM(COALESCE(output, '')) != '' OR TRIM(COALESCE(error, '')) != '')
-  GROUP BY job_id
-`;
+export const reportPredicate = `report=1 AND status != 'running' AND (TRIM(COALESCE(output, '')) != '' OR TRIM(COALESCE(error, '')) != '')`;
 
-/** Inbox rows: the newest report per job, only while it is unread. */
-const inboxIds = `SELECT id FROM runs WHERE id IN (${newestPerJob}) AND read_at IS NULL`;
+/**
+ * A finished run that is not a report: it never reached the inbox, so it only needs the short retention window.
+ * Together with the report predicate it covers every run row that is not running.
+ */
+export const nonReportPredicate = `status != 'running' AND NOT (report=1 AND (TRIM(COALESCE(output, '')) != '' OR TRIM(COALESCE(error, '')) != ''))`;
+
+/** How long the cron run log is kept. Windows are in days, plus the number of reports kept per job. */
+export interface RetentionPolicy {
+  /** Master switch. When off, nothing is removed. */
+  enabled: boolean;
+  /** Days a finished run without a report stays in the log. */
+  emptyRunDays: number;
+  /** Days a report stays in the log. */
+  reportDays: number;
+  /** Newest reports kept per job, however old they are. */
+  reportsPerJob: number;
+  /** Days the runs of a deleted job stay in the log. */
+  deletedJobDays: number;
+}
+
+export const defaultRetention: RetentionPolicy = { enabled: true, emptyRunDays: 7, reportDays: 90, reportsPerJob: 50, deletedJobDays: 30 };
+
+/** Jobs a cleanup round visits, so a round stays bounded even with many jobs. */
+export const PRUNE_MAX_JOBS = 100;
+/** Run rows one job may contribute per round, so a noisy job cannot starve the others. */
+export const PRUNE_PER_JOB = 5_000;
+/** Run rows one round removes in total. */
+export const PRUNE_MAX_ROWS = 10_000;
+/** How often the run log is cleaned. */
+export const PRUNE_INTERVAL_MS = 60_000;
+/** How long one cleanup round may take. The daemon never stalls on the run log. */
+export const PRUNE_BUDGET_MS = 30;
+
+/**
+ * Inbox rows: the newest report for each job, only while it is unread. A newer report replaces an older unread
+ * one; the older one is superseded and lives in history.
+ *
+ * The lookup starts from the job list and takes one index seek per job, so its cost follows the number of jobs
+ * and not the size of the history. Grouping the newest report per job over the whole run table grows with every
+ * run ever kept, which is what made the inbox and the badge slow on long-lived databases.
+ */
+export const inboxIds = `
+  SELECT ir.id FROM jobs j
+  JOIN runs ir ON ir.id = (SELECT MAX(id) FROM runs WHERE job_id = j.id AND ${reportPredicate})
+  WHERE ir.read_at IS NULL
+`;
 
 export class CronStore {
   readonly db: Database;
+  /** The inbox query, exposed so callers and tests can check how it is planned. */
+  readonly inboxSql = inboxIds;
+  /** Where the next cleanup round starts in the job list, so every job is reached over time. */
+  private pruneCursor = 0;
   constructor(path: string) {
     this.db = new Database(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
@@ -188,7 +231,16 @@ export class CronStore {
           'unknown'
         ) WHERE job_name = '' OR job_name IS NULL;
       `);
-      this.db.exec("CREATE INDEX IF NOT EXISTS runs_job_status ON runs(job_id,status,id); CREATE INDEX IF NOT EXISTS runs_reports ON runs(report,id); UPDATE runs SET report=0 WHERE report=1 AND status='ok' AND TRIM(COALESCE(output,''))=''; COMMIT");
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS runs_job_status ON runs(job_id,status,id);
+        CREATE INDEX IF NOT EXISTS runs_reports ON runs(report,id);
+        UPDATE runs SET report=0 WHERE report=1 AND status='ok' AND TRIM(COALESCE(output,''))='';
+        -- Partial index over report rows only: the newest report of a job is one seek per job, not a scan of the history.
+        CREATE INDEX IF NOT EXISTS runs_report_pred ON runs(job_id,id) WHERE ${reportPredicate};
+        -- Age lookups for the cleanup: it seeks straight to the rows that fell out of the window.
+        CREATE INDEX IF NOT EXISTS runs_report_age ON runs(job_id,started_at) WHERE ${reportPredicate};
+        CREATE INDEX IF NOT EXISTS runs_nonreport_age ON runs(job_id,started_at) WHERE ${nonReportPredicate};
+        COMMIT`);
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 
@@ -586,6 +638,69 @@ export class CronStore {
     return (this.db.prepare("SELECT * FROM runs WHERE status='running' ORDER BY id").all() as unknown as RunDbRow[]).map((r) => this.run(r));
   }
 
+  /**
+   * Remove the run rows that fell out of the retention windows.
+   *
+   * The work is bounded: a round visits at most PRUNE_MAX_JOBS jobs, takes at most PRUNE_PER_JOB rows from
+   * each of them, removes at most PRUNE_MAX_ROWS rows in total, and stops when its time budget runs out. A
+   * running run is never removed, and the newest reports of a job stay however old they are.
+   */
+  pruneRuns(policy: RetentionPolicy, now = Date.now()): { deleted: number } {
+    if (!policy.enabled) return { deleted: 0 };
+    const DAY = 86_400_000;
+    const perJob = Math.min(1000, Math.max(1, Math.trunc(policy.reportsPerJob)));
+    const noiseCutoff = now - Math.max(0, policy.emptyRunDays) * DAY;
+    const reportCutoff = now - Math.max(0, policy.reportDays) * DAY;
+    const deletedCutoff = now - Math.max(0, policy.deletedJobDays) * DAY;
+
+    const jobs = this.db.prepare("SELECT id, deleted_at FROM jobs ORDER BY id").all() as { id: number; deleted_at: number | null }[];
+    if (!jobs.length) return { deleted: 0 };
+    // The round starts where the last one stopped, so a job that the time budget cut off is reached next time.
+    let cursor = this.pruneCursor % jobs.length;
+    const limit = Math.min(PRUNE_MAX_JOBS, jobs.length);
+
+    // The keep list holds the newest reports of the job being cleaned, so they outlive the age window.
+    this.db.exec("CREATE TEMP TABLE IF NOT EXISTS prune_keep(id INTEGER PRIMARY KEY); DELETE FROM prune_keep; CREATE TEMP TABLE IF NOT EXISTS prune_batch(id INTEGER PRIMARY KEY); DELETE FROM prune_batch;");
+    const keep = this.db.prepare(`INSERT OR IGNORE INTO prune_keep(id) SELECT id FROM runs WHERE job_id=? AND ${reportPredicate} ORDER BY id DESC LIMIT ?`);
+    const noise = this.db.prepare(`INSERT OR IGNORE INTO prune_batch(id) SELECT id FROM runs WHERE job_id=? AND started_at<? AND ${nonReportPredicate} ORDER BY started_at LIMIT ?`);
+    const oldReports = this.db.prepare(`INSERT OR IGNORE INTO prune_batch(id) SELECT id FROM runs WHERE job_id=? AND started_at<? AND ${reportPredicate} AND id NOT IN (SELECT id FROM prune_keep) ORDER BY started_at LIMIT ?`);
+    const goneReports = this.db.prepare(`INSERT OR IGNORE INTO prune_batch(id) SELECT id FROM runs WHERE job_id=? AND started_at<? AND ${reportPredicate} ORDER BY started_at LIMIT ?`);
+
+    const deadline = Date.now() + PRUNE_BUDGET_MS;
+    let queued = 0;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (let i = 0; i < limit; i++) {
+        if (queued >= PRUNE_MAX_ROWS || Date.now() > deadline) break;
+        const job = jobs[cursor]!;
+        cursor = (cursor + 1) % jobs.length;
+        const gone = job.deleted_at != null;
+        const room = PRUNE_MAX_ROWS - queued;
+        // The runs of a deleted job go as a block; a live job keeps its newest reports.
+        if (!gone) keep.run(job.id, perJob);
+        queued += Number(noise.run(job.id, gone ? deletedCutoff : noiseCutoff, Math.min(PRUNE_PER_JOB, room)).changes);
+        if (queued >= PRUNE_MAX_ROWS || Date.now() > deadline) break;
+        const insert = gone ? goneReports : oldReports;
+        queued += Number(insert.run(job.id, gone ? deletedCutoff : reportCutoff, Math.min(PRUNE_PER_JOB, PRUNE_MAX_ROWS - queued)).changes);
+        if (queued >= PRUNE_MAX_ROWS || Date.now() > deadline) break;
+      }
+      this.pruneCursor = cursor;
+      // Remove the batch in small chunks, so a round never holds the daemon up on one big delete.
+      let deleted = 0;
+      for (;;) {
+        const info = this.db.prepare("DELETE FROM runs WHERE id IN (SELECT id FROM prune_batch LIMIT 2000)").run();
+        deleted += Number(info.changes);
+        this.db.prepare("DELETE FROM prune_batch WHERE id IN (SELECT id FROM prune_batch LIMIT 2000)").run();
+        if (!info.changes || Date.now() > deadline) break;
+      }
+      this.db.exec("COMMIT");
+      return { deleted };
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
   close() { this.db.close(); }
 }
 
@@ -598,6 +713,8 @@ export interface SchedulerOptions {
   thinkingLevel?: (model: ModelRef) => StoredThinkingLevel;
   /** Max time one run may take before it is aborted and logged as error. Default 30 min. */
   runTimeoutMs?: number | (() => number);
+  /** How long the run log is kept. Read at each cleanup round, so a saved setting applies live. */
+  retention?: () => RetentionPolicy;
   log?: (msg: string) => void;
   /** Called once per finished run (ok or error), e.g. to deliver the result. Errors are logged, never thrown. */
   onFinish?: (job: Job | undefined, run: Run) => void | Promise<void>;
@@ -621,12 +738,13 @@ export type StopOutcome =
 
 export class Scheduler {
   private timer: NodeJS.Timeout | undefined;
+  private pruneTimer: NodeJS.Timeout | undefined;
   private inflight = new Set<Promise<void>>();
   private active = new Map<number, ActiveRun>();
   private wakers = new Set<() => void>();
   private stopped = true;
   private o: Required<Omit<SchedulerOptions, "thinkingLevel">> & Pick<SchedulerOptions, "thinkingLevel">;
-  constructor(o: SchedulerOptions) { this.o = { ...o, runTimeoutMs: o.runTimeoutMs ?? 30 * 60_000, log: o.log ?? (() => {}), onFinish: o.onFinish ?? (() => {}), exclude: o.exclude ?? [] }; }
+  constructor(o: SchedulerOptions) { this.o = { ...o, runTimeoutMs: o.runTimeoutMs ?? 30 * 60_000, retention: o.retention ?? (() => defaultRetention), log: o.log ?? (() => {}), onFinish: o.onFinish ?? (() => {}), exclude: o.exclude ?? [] }; }
 
   /** Re-arm the timer after jobs change (e.g. the model added a job). */
   rearm() { this.arm(); }
@@ -644,13 +762,26 @@ export class Scheduler {
     this.o.harness.resume();
     for (const r of this.o.store.unfinished()) this.launch(r, (a) => this.recover(r, a));
     this.arm();
+    this.pruneTimer = setInterval(() => this.prune(), PRUNE_INTERVAL_MS);
+    this.pruneTimer.unref?.();
+    this.prune();
   }
 
   async stop() {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    if (this.pruneTimer) clearInterval(this.pruneTimer);
     for (const w of [...this.wakers]) w();
     await Promise.allSettled([...this.inflight]);
+  }
+
+  /** Clean the run log. The round is bounded, so it never holds the daemon up. */
+  private prune() {
+    if (this.stopped) return;
+    try {
+      const { deleted } = this.o.store.pruneRuns(this.o.retention());
+      if (deleted) this.o.log(`cron: pruned ${deleted} old run rows`);
+    } catch (e) { this.o.log(`cron prune failed: ${errText(e)}`); }
   }
 
   /** Wait until every in-flight run has settled (used by tests). */

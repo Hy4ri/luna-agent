@@ -248,6 +248,12 @@ transactional submission API, not a host callback stored in a submission.
   `defer` defaults to true. `timeoutMs` sets the tool-call timeout; the default is 600000 ms.
 - `disabledTools`: tool names hidden from the model and refused if called. Applies to the next model request, including existing sessions.
 - `disabledSkills`: skill names hidden from the skills catalog and `skill` `view`. Applies at once.
+- `cron`: scheduled-run settings. `notifyUrl` posts run notifications to an external endpoint. `runTimeoutMinutes` sets the time limit for one
+  run. `retention` sets how long the run log is kept: `enabled` (default `true`), `emptyRunDays` (default seven days) for finished runs without
+  a report, `reportDays` (default ninety days) for reports, `reportsPerJob` (default fifty) newest reports kept per job whatever their age, and
+  `deletedJobDays` (default thirty days) for the runs of a deleted job. The cleanup runs in the background in small batches and never holds the
+  daemon up. It never removes a running run or the report waiting in the inbox. Edit it under **Settings → Automation → Scheduled runs**.
+  Changes apply live.
 - `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `learn`, `server`: runtime settings.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
@@ -261,6 +267,10 @@ Use **Mark unread** to restore the latest report, or **Mark all read** to clear 
 Older, superseded reports remain in History, even when marked unread. History is newest first and supports a job filter.
 The sidebar badge counts unread inbox entries and is hidden at zero. Job health stays separate in Jobs.
 Closing the panel preserves unfinished job edits. A successful run is not labeled as proof that an earlier problem was resolved.
+
+The run log is cleaned in the background. A finished run without a report leaves after `cron.retention.emptyRunDays`, an old report after
+`cron.retention.reportDays`, and the runs of a deleted job after `cron.retention.deletedJobDays`. The newest `cron.retention.reportsPerJob`
+reports of every job stay, and so does the report waiting in the inbox.
 
 #### Cron endpoints
 
