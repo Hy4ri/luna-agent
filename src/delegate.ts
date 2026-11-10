@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { ExecTarget } from "./workers.js";
 import { AskDoc } from "./ask.js";
 import { readSessionHandoff } from "./session-status.js";
+import { catalogModels, nativeCompaction, type CompactionLimits } from "./compaction-limits.js";
 import { Type } from "typebox";
 import { configure, defineExtension, defineTool, type AgentChange, type ConversationId, type Extension, type TaskId } from "@earendil-works/pi-durable";
 import { Children, ChildResult, childRequests, childNotificationId, readChildReport, DELEGATE_CHILD, DELEGATE_MESSAGE, type ChildRow, type ChildReport } from "./delegate-state.js";
@@ -85,7 +86,7 @@ export interface DelegateSettings {
   maxTurns?: number;
   profiles?: Record<string, DelegateProfile>;
 }
-export function createDelegateExtension(settings: () => DelegateSettings = () => ({}), compaction?: () => AgentChange["compaction"]): Extension {
+export function createDelegateExtension(settings: () => DelegateSettings = () => ({}), compaction?: () => CompactionLimits): Extension {
   const extension: Extension = defineExtension({
     name: "delegate",
     tasks: [DelegateDeadline],
@@ -236,8 +237,8 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
                 // Clamp to the child's model: a profile level can exceed what that model supports.
                 thinkingLevel: resolveThinkingLevel(api.models, model ?? parent.model, undefined, profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel),
                 ...(maxTurns === undefined ? {} : { maxTurns }),
-                // Subagent limits live in the child's agent state; sessions use the harness-wide policy.
-                ...(compaction ? { compaction: compaction() } : {}),
+                // Subagent limits live in the child's agent state as per-model overrides; sessions use the harness-wide policy.
+                ...(compaction ? { compaction: nativeCompaction(compaction(), catalogModels(api.models)) } : {}),
                 // Children keep task policy, but never the runtime's personal identity block.
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "identity" || e.name === "board" || e.name === "ask-user")] },
                 tools, modelTools: tools,
