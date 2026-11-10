@@ -9,11 +9,11 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight, Paperclip, Download } from '@lucide/vue';
 import { api, json, post, serverUrl, token } from '@/lib/api';
 import { saveFile } from '@/lib/platform';
-import { history, loadProjects } from '@/stores/sessions';
+import { history, loadProjects, querySessions } from '@/stores/sessions';
 import { chat } from '@/stores/chat';
 import { boardChanged, openPanel, ui } from '@/stores/app';
 import BoardImage from './BoardImage.vue';
-import type { Project } from '@/lib/types';
+import type { Project, SessionMeta } from '@/lib/types';
 
 type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
@@ -63,7 +63,36 @@ const depOptions = computed(() => {
   return cards.value.filter(c => !form.blockedBy.includes(c.id) && (String(c.id).startsWith(q) || c.subject.toLowerCase().includes(q)))
     .sort((a, b) => Number(String(b.id) === q) - Number(String(a.id) === q) || a.id - b.id).slice(0, 8);
 });
-const ownerOptions = computed(() => [...new Set(cards.value.map(c => c.owner).filter((o): o is string => !!o))].sort());
+const ownerSessions = ref<SessionMeta[]>([]), ownersLoading = ref(false), ownersError = ref(''), customOwner = ref(false);
+let ownersController: AbortController | undefined;
+const ownerOptions = computed(() => [...new Set([initial.owner, form.owner, ...cards.value.map(c => c.owner)])]
+  .filter((o): o is string => !!o && o !== 'user' && !ownerSessions.value.some(s => o === `session ${s.id}`)).sort());
+const ownerSelection = computed({
+  get: () => customOwner.value ? 'custom' : `owner:${form.owner}`,
+  set: (value: string) => {
+    customOwner.value = value === 'custom';
+    if (!customOwner.value) form.owner = value.slice('owner:'.length);
+    ownerTouched.value = true;
+  },
+});
+async function loadOwners() {
+  ownersController?.abort();
+  const request = new AbortController(); ownersController = request;
+  ownerSessions.value = []; ownersLoading.value = true; ownersError.value = '';
+  try {
+    const sessions: SessionMeta[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await querySessions({ project: Number(form.project), archived: '0', limit: 100, cursor }, request.signal);
+      sessions.push(...page.sessions); cursor = page.nextCursor;
+    } while (cursor && !request.signal.aborted);
+    if (!request.signal.aborted) ownerSessions.value = sessions;
+  } catch (e) {
+    if (!request.signal.aborted) ownersError.value = message(e);
+  } finally {
+    if (!request.signal.aborted) ownersLoading.value = false;
+  }
+}
 // The server releases the owner on Done or archive unless the same change sets one.
 const ownerHint = computed(() => {
   if (editingId.value === null || form.status !== 'done' || initial.status === 'done') return '';
@@ -182,7 +211,7 @@ function openEditor(c?: Card, status: Status = 'backlog') {
   Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: [...(c?.labels ?? [])], blockedBy: [...(c?.blockedBy ?? [])], project: String(c?.project ?? selectedPid.value) });
   initial = { ...form, labels: [...form.labels], blockedBy: [...form.blockedBy] };
   Object.assign(fieldErrors, { subject: '', description: '', labels: '', blockedBy: '' });
-  ownerTouched.value = false; discardAsk.value = false; formBanner.value = ''; labelDraft.value = ''; depQuery.value = ''; labelOpen.value = false; depOpen.value = false;
+  ownerTouched.value = false; customOwner.value = false; void loadOwners(); discardAsk.value = false; formBanner.value = ''; labelDraft.value = ''; depQuery.value = ''; labelOpen.value = false; depOpen.value = false;
   answer.value = ''; activity.value = [];
   if (c) void json<{ activity: typeof activity.value }>(`/v1/projects/${selectedPid.value}/cards/${c.id}/activity`).then(d => { if (editingId.value === c.id) activity.value = d.activity; }).catch(() => {});
   error.value = ''; editing.value = true; ui.boardEditing = true;
@@ -495,7 +524,10 @@ function escapeEditor(event: KeyboardEvent) {
   if (document.querySelector('[data-dismissable-layer][data-state="open"], :popover-open') || (event.target as HTMLElement | null)?.closest('select, [aria-expanded="true"]')) return;
   if (drag.value || editing.value) { event.preventDefault(); event.stopImmediatePropagation(); if (drag.value) cancelDrag(); else if (discardAsk.value) { discardAsk.value = false; editorTitle.value?.focus(); } else closeEditor(); }
 }
+watch(() => form.project, () => { if (editing.value) void loadOwners(); }, { flush: 'sync' });
+watch(editing, open => { if (!open) ownersController?.abort(); });
 watch([serverUrl, token], () => {
+  ownersController?.abort(); ownerSessions.value = [];
   generation++; controller?.abort(); boardSnapshots.clear(); boardCacheContext = '';
   cards.value = []; selectedPid.value = ''; editing.value = false; ui.boardEditing = false; busy.value = false;
   void loadBoard(true);
@@ -523,7 +555,7 @@ onMounted(() => {
   if (selectedPid.value) rememberProject();
   void loadBoard(true);
 });
-onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDrag(); ui.boardEditing = false; document.removeEventListener('keydown', escapeEditor, true); document.removeEventListener('keydown', newCardKey); });
+onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersController?.abort(); cancelDrag(); ui.boardEditing = false; document.removeEventListener('keydown', escapeEditor, true); document.removeEventListener('keydown', newCardKey); });
 </script>
 
 <template>
@@ -652,11 +684,24 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); cancelDr
               <legend>Priority</legend>
               <label v-for="p in priorities" :key="p" class="kb-priority-chip" :data-priority="p" :class="{ 'kb-checked': form.priority === p }"><input type="radio" name="kb-priority" :value="p" v-model="form.priority" /><ChevronsUp v-if="p === 'urgent'" :size="12" /><ArrowUp v-else-if="p === 'high'" :size="12" /><ArrowDown v-else-if="p === 'low'" :size="12" /><Minus v-else :size="12" />{{ p }}</label>
             </fieldset>
-            <label class="kb-field">Owner
-              <input dir="auto" v-model="form.owner" list="kb-owner-list" aria-label="Owner" maxlength="100" placeholder="Unassigned" :disabled="readOnly" aria-describedby="kb-owner-hint" @input="ownerTouched = true" />
-              <datalist id="kb-owner-list"><option v-for="o in ownerOptions" :key="o" :value="o" /></datalist>
+            <div class="kb-field">
+              <label for="kb-owner">Owner</label>
+              <select id="kb-owner" v-model="ownerSelection" aria-label="Owner" :disabled="readOnly" aria-describedby="kb-owner-status kb-owner-hint">
+                <option value="owner:">Unassigned</option>
+                <option value="owner:user">User</option>
+                <optgroup v-if="ownerSessions.length" label="Agent sessions">
+                  <option v-for="s in ownerSessions" :key="s.id" :value="`owner:session ${s.id}`">Agent · {{ s.title || 'Untitled' }} (#{{ s.id }})</option>
+                </optgroup>
+                <optgroup v-if="ownerOptions.length" label="Other owners">
+                  <option v-for="o in ownerOptions" :key="o" :value="`owner:${o}`">{{ o }}</option>
+                </optgroup>
+                <option value="custom">Custom owner…</option>
+              </select>
+              <input v-if="customOwner" dir="auto" v-model="form.owner" aria-label="Custom owner" maxlength="100" placeholder="Owner name" :disabled="readOnly" @input="ownerTouched = true" />
+              <small id="kb-owner-status" role="status">{{ ownersLoading ? 'Loading agent sessions…' : ownersError ? `Could not load agent sessions: ${ownersError}` : !ownerSessions.length ? 'No agent sessions in this project.' : '' }}</small>
+              <button v-if="ownersError" type="button" class="kb-button" :disabled="readOnly" @click="loadOwners">Retry agent sessions</button>
               <small id="kb-owner-hint" :class="{ 'kb-hint': ownerHint }" aria-live="polite"><template v-if="ownerHint"><CircleAlert :size="12" />{{ ownerHint }}</template></small>
-            </label>
+            </div>
             <label v-if="editingId !== null && history.projects.length > 1" class="kb-field">Project<select v-model="form.project" aria-label="Project" :disabled="readOnly" @change="moveDraft"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select><small>Moving drops this project's dependencies and releases the session owner.</small></label>
             <p v-if="editingCard" class="kb-timestamp"><span class="kb-card-id">#{{ editingCard.id }}</span> · created {{ new Date(editingCard.created).toLocaleString() }}<br />updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
           </div>
