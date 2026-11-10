@@ -9,10 +9,11 @@ import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
-  createProvider, createAssistantMessageEventStream, getCurrentTools, getCurrentSystemPrompt,
+  calculateCost, createProvider, createAssistantMessageEventStream, getCurrentTools, getCurrentSystemPrompt,
   type ProviderStreams, type AssistantMessage, type TextContent, type ToolCall, type Message, type Tool, type ImageContent,
 } from "@earendil-works/pi-ai";
 import { createStreamDeltas } from "./cli-stream.js";
+import { costFor, type ModelCost } from "./model-pricing.js";
 
 async function runCli(cmd: string, args: string[], options: { timeout?: number } = {}): Promise<{ stdout: string; stderr: string }> {
   const proc = Bun.spawn([cmd, ...args], {
@@ -513,6 +514,8 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       }
       clearTimeout(flushTimer);
       message.usage.totalTokens = message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite;
+      // Rates come from the model entry: OpenCode's listed price, a catalog estimate by name, or zero.
+      calculateCost(model, message.usage);
 
       const thinking = getThinking();
       const text = getText();
@@ -550,6 +553,15 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
 
 // ------------------------------------------------------------------ provider
 
+/** OpenCode's own base price ($ per million tokens, first entry of `cost`), when it lists one. */
+export function listedCost(cost: unknown): ModelCost | undefined {
+  const base = Array.isArray(cost) ? cost[0] : undefined;
+  const rate = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+  const input = rate(base?.input), output = rate(base?.output);
+  if (input === undefined || output === undefined) return undefined;
+  return { input, output, cacheRead: rate(base.cache?.read) ?? 0, cacheWrite: rate(base.cache?.write) ?? 0 };
+}
+
 async function listModels() {
   const res = await api("GET", "/api/model");
   return (res.data as any[]).filter(m => m.enabled !== false && m.capabilities?.tools !== false).map(m => ({
@@ -558,7 +570,7 @@ async function listModels() {
     input: (m.capabilities?.input?.includes("image") ? ["text", "image"] : ["text"]) as ("text" | "image")[],
     ...variantLevels(m.variants),
     contextWindow: m.limit?.context ?? 128_000, maxTokens: m.limit?.output ?? 32_000,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost: listedCost(m.cost) ?? costFor(`${m.providerID}/${m.modelID}`),
   }));
 }
 
@@ -594,7 +606,7 @@ export function opencodeCliProvider() {
     models: FALLBACK.map(id => ({
       id: `opencode/${id}`, name: `${id} (opencode)`, api: PROVIDER_ID as string, provider: PROVIDER_ID, baseUrl: "",
       input: (FALLBACK_VISION.has(id) ? ["text", "image"] : ["text"]) as ("text" | "image")[], reasoning: false, contextWindow: 200_000, maxTokens: 32_000,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      cost: costFor(id),
     })),
     fetchModels: async ({ allowNetwork }) => (allowNetwork ? listModels() : []),
     api: { stream, streamSimple: stream },
