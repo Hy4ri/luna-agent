@@ -1,28 +1,8 @@
 diff --git a/dist/harness/agent.js b/dist/harness/agent.js
-index dbae2ff3bd5ded4db56c1fa3f5c4a58eee2af315..4c14831bd77dd86f0d98c065a16e631f24b805c6 100644
+index dbae2ff3bd5ded4db56c1fa3f5c4a58eee2af315..02b4887f9e84d2e2ea4249a22f4c7975ab9dca20 100644
 --- a/dist/harness/agent.js
 +++ b/dist/harness/agent.js
-@@ -75,6 +75,10 @@ export async function configure(tx, conversationId, change) {
-  */
- export async function addTools(tx, conversationId, added) {
-     const state = await tx.doc(AgentDoc, conversationId);
-+    if (state.toolAllowlist !== undefined) {
-+        const allowed = new Set(state.toolAllowlist);
-+        added = added.filter((name) => allowed.has(name));
-+    }
-     const tools = state.tools;
-     if (Array.isArray(tools)) {
-         for (const name of added)
-@@ -119,6 +123,8 @@ function applyChange(state, change) {
-                 ...(extensions.add === undefined ? {} : { add: names(extensions.add) }),
-                 ...(extensions.remove === undefined ? {} : { remove: names(extensions.remove) }),
-             });
-+    set("toolAllowlist", change.toolAllowlist === undefined || change.toolAllowlist === null
-+        ? change.toolAllowlist : [...change.toolAllowlist]);
-     const tools = change.tools;
-     set("tools", tools === undefined || tools === null ? tools : isList(tools) ? names(tools) : { remove: names(tools.remove) });
-     const modelTools = change.modelTools;
-@@ -148,7 +154,7 @@ function compactionSettings(settings) {
+@@ -148,7 +148,7 @@ function compactionSettings(settings) {
      const overrides = Object.entries(modelOverrides).map(([key, override]) => [key, compactionFields(override)]);
      return { ...compactionFields(policy), modelOverrides: Object.fromEntries(overrides) };
  }
@@ -31,18 +11,6 @@ index dbae2ff3bd5ded4db56c1fa3f5c4a58eee2af315..4c14831bd77dd86f0d98c065a16e631f
  /** The set fields of `policy`; throws a `RangeError` for a token count that is not an integer `0` or more. */
  function compactionFields(policy) {
      const fields = policy.enabled === undefined ? {} : { enabled: policy.enabled };
-@@ -242,7 +248,10 @@ report) {
-                 applyWrap(sections, wrap.section, (section) => wrap.wrap(section), (section) => section.key, wrapReport);
-         }
-     }
--    const enabled = filterTools([...composed.values()], state?.tools);
-+    // Apply the persistent ceiling before selecting model-callable or tool-callable tools.
-+    const allowed = state?.toolAllowlist === undefined ? undefined : new Set(state.toolAllowlist);
-+    const enabled = filterTools([...composed.values()], state?.tools)
-+        .filter((tool) => allowed === undefined || allowed.has(tool.name));
-     const callableBy = (caller) => (tool) => tool.callers === undefined || tool.callers.includes(caller);
-     const modelCallable = enabled.filter(callableBy("model"));
-     const tools = offeredTools(modelCallable, state?.modelTools);
 diff --git a/dist/harness/compaction.js b/dist/harness/compaction.js
 index 54f3ef34ddf1bf85e3ad9c41bdbd216c081a476f..c0a3cfa27986fa36e2c11c2f4734184f6455fb3c 100644
 --- a/dist/harness/compaction.js
@@ -390,7 +358,7 @@ index 512b2477c29b83c03a1c239ee427d928ce553caa..410b01b0c1bc825bcae0267802191288
          this.#submissions = submissions;
      }
 diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
-index 7f4a0ba59df6d5870248c60c055dd188fdab51c4..5ee4a38669746f4b76ba10ce23d66aeac10b1f8c 100644
+index 7f4a0ba59df6d5870248c60c055dd188fdab51c4..15de2d3034eca8337c09b50962cdcb9e5037243e 100644
 --- a/dist/harness/types.d.ts
 +++ b/dist/harness/types.d.ts
 @@ -33,7 +33,7 @@ export type SubmissionDraft = {
@@ -410,25 +378,7 @@ index 7f4a0ba59df6d5870248c60c055dd188fdab51c4..5ee4a38669746f4b76ba10ce23d66aea
      readonly id: SubmissionId;
      status(context: Context): Promise<SubmissionRecord>;
      wait(context: Context): Promise<SettledSubmissionRecord>;
-@@ -399,6 +400,8 @@ export type AgentState = {
-         add?: string[];
-         remove?: string[];
-     };
-+    /** Persistent ceiling for all enabled tools, including dynamic discovery. Unset means unrestricted. */
-+    toolAllowlist?: string[];
-     /** Filters the selected extensions' tools: the enabled tools. An array enables exactly these, in order. */
-     tools?: string[] | {
-         remove: string[];
-@@ -440,6 +443,8 @@ export type AgentChange = {
-         readonly add?: readonly Extension[];
-         readonly remove?: readonly Extension[];
-     } | null;
-+    /** Replaces the persistent tool ceiling; null clears it. Names survive replay and forks. */
-+    readonly toolAllowlist?: readonly string[] | null;
-     readonly tools?: readonly ToolRegistration[] | {
-         readonly remove: readonly ToolRegistration[];
-     } | null;
-@@ -516,6 +521,9 @@ export type ConversationRetryPolicy = {
+@@ -516,6 +517,9 @@ export type ConversationRetryPolicy = {
  };
  /** Automatic compaction thresholds (spec §8.7); manual compaction ignores `enabled`. */
  export type CompactionPolicy = {

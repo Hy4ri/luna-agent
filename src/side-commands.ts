@@ -241,12 +241,11 @@ export class SideCommands {
       model: { provider: model.provider, modelId: model.id }, thinkingLevel: agent.thinkingLevel,
       cwd: agent.cwd, instructions: agent.instructions, extensions: agent.extensions,
     }, init: async (tx, id) => {
-      // Copy stored filters, not tool implementations, and never widen the parent's enabled tool set.
+      // Copy the parent's stored tool filters, not tool implementations.
       const worker = (await tx.doc(ExecTarget, source.id)).worker;
       (await tx.doc(ExecTarget, id)).worker = worker;
       await tx.appendEntry(id, { kind: "luna.execution", data: { worker, cwd: agent.cwd ?? null } });
       const doc = await tx.doc(AgentDoc, id);
-      if (state?.toolAllowlist !== undefined) doc.toolAllowlist = [...state.toolAllowlist];
       if (state?.tools !== undefined) doc.tools = structuredClone(state.tools);
       if (state?.modelTools !== undefined) doc.modelTools = structuredClone(state.modelTools);
       await tx.appendEntry(id, { kind: "delegate.child", data: { task: job.prompt, parent: source.id, backgroundTask: job.id } });

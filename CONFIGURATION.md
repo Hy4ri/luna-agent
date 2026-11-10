@@ -114,7 +114,7 @@ safely reopen all upgraded state. Rollback requires stopping the new daemon and 
 compiled assets, and the pre-upgrade state snapshot. Work created after that snapshot is not present in the restored state.
 Do not start two writing daemons against the same data directory.
 
-Dependency patches retain Luna's persistent tool ceilings, redirect/grouped-steering behavior, submission receipts,
+Dependency patches retain Luna's redirect/grouped-steering behavior, submission receipts,
 selected model identity in failures, and provider quota diagnostics/retry ownership. Guarded server admissions use Pi's
 transactional submission API, not a host callback stored in a submission.
 
@@ -195,8 +195,7 @@ transactional submission API, not a host callback stored in a submission.
   This is a prompt-role boundary, not a file-access restriction. Existing children are not migrated; top-level sessions, including crew members, keep their identity.
   The built-in profiles are `scout`, `reviewer`, and `worker`. Scout and reviewer can read files, list directories with `delegate_files`, load existing skills with `skill` (`view` and `list` only; delegated children cannot change skills), and hand off; they have no shell or write tools.
   Worker can read, write, edit, run bash, load existing skills, and hand off. Profiles can select the parent's currently model-offered tools and enabled, model-callable deferred tools; profiles do not install tools or restore disabled tools.
-  New children store their selected tools as a persistent ceiling. Skill loading and tool discovery cannot add tools outside it.
-  The ceiling survives restart and forks, applies to nested tool calls, and is copied to background side tasks. Existing children are not migrated.
+  The selection sets the child's starting tools. Skill loading and tool discovery can add tools later through Pi's normal tool selection; there is no persistent ceiling.
   Every selected tool is offered directly to the child, including deferred tools. The parent does not need to load `delegate_files` or other selected deferred tools first.
   The runtime adds `delegate_result` to every new child for result reporting. Tool restrictions are enforced by the native agent tool selection, not just instructions; they are not an operating-system sandbox.
   Supplying `profiles` replaces the profile map; omit it to keep the built-ins. Unknown profiles, duplicate tool names, incomplete model pairs, and unavailable selected tools fail explicitly.
