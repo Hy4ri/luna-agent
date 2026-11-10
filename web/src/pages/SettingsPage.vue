@@ -2,7 +2,7 @@
 import { computed, ref, provide, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { ui, setSettingsGuard, setDrawer, navigate, openPanel, setSettingsTab, settingsChanged } from '@/stores/app'
 import { scheduleContext } from '@/stores/chat'
-import { loadModels, models } from '@/stores/models'
+import { loadModels, models, refreshCatalog } from '@/stores/models'
 import { json, post } from '@/lib/api'
 import { useMobile } from '@/lib/dom'
 import ConnectionRoutes from '@/components/ConnectionRoutes.vue'
@@ -224,12 +224,11 @@ async function refreshModels() {
   isRefreshingModels.value = true
   modelRefreshMessage.value = ''
   try {
-    const result = await post('/v1/models/refresh')
-    if (!await loadModels({ force: true })) throw new Error('Refresh finished, but the updated catalog could not be loaded. Try again.')
-    const errors = Object.entries(result.refresh.errors).map(([id, message]) => `${id}: ${message}`)
-    modelRefreshMessage.value = errors.length ? `Refresh incomplete. ${errors.join('; ')}` : 'Model catalog refreshed.'
-  } catch (e: any) { modelRefreshMessage.value = e.message || 'Model refresh failed. Existing models are kept.' }
-  finally { isRefreshingModels.value = false }
+    const result = await refreshCatalog()
+    const errors = Object.entries(result.errors).map(([id, message]) => `${id}: ${message}`)
+    if (!result.ok) modelRefreshMessage.value = `${result.error || 'Model refresh failed.'} Existing models are kept.`
+    else modelRefreshMessage.value = errors.length ? `Refresh incomplete. ${errors.join('; ')}` : 'Model catalog refreshed.'
+  } finally { isRefreshingModels.value = false }
 }
 function getVal(path: (string | number)[]) {
   return path.reduce<any>((value, key) => value?.[key], draft.value)

@@ -146,6 +146,40 @@ export async function loadModels(options?: LoadModelsOptions): Promise<boolean> 
   return task;
 }
 
+export interface CatalogRefreshResult {
+  /** The updated catalog loaded. */
+  ok: boolean;
+  /** Provider id to error message for providers that could not refresh. */
+  errors: Record<string, string>;
+  /** Set when the refresh request or the reload failed. */
+  error?: string;
+}
+
+let inFlightCatalog: Promise<CatalogRefreshResult> | null = null;
+
+/** Asks the server to re-check every provider, then reloads the list. Shared by the pickers and Settings. */
+export function refreshCatalog(): Promise<CatalogRefreshResult> {
+  if (inFlightCatalog) return inFlightCatalog;
+  const task = (async (): Promise<CatalogRefreshResult> => {
+    let errors: Record<string, string> = {};
+    try {
+      // The server allows each provider up to 30 s, so the default 15 s client limit is too short.
+      const r = await post<{ refresh?: { errors?: Record<string, string> } }>("/v1/models/refresh", undefined, "POST", { timeoutMs: 60_000 });
+      errors = r?.refresh?.errors ?? {};
+    } catch (e) {
+      return { ok: false, errors, error: (e as Error).message || "Model refresh failed." };
+    }
+    if (!await loadModels({ force: true })) {
+      return { ok: false, errors, error: "Refresh finished, but the updated catalog could not be loaded." };
+    }
+    return { ok: true, errors };
+  })();
+  inFlightCatalog = task;
+  const cleanup = () => { if (inFlightCatalog === task) inFlightCatalog = null; };
+  task.then(cleanup, cleanup);
+  return task;
+}
+
 /** Selects a draft model, or updates the open server conversation. */
 export async function chooseModel(m: ModelInfo): Promise<boolean> {
   try {

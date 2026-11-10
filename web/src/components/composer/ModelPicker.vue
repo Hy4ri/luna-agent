@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { models, chooseModel, selectedKey } from "@/stores/models";
 import { useModelRefresh } from "@/lib/use-model-refresh";
 import ModelSelector from "@/components/ModelSelector.vue";
+import ModelRefreshButton from "@/components/ModelRefreshButton.vue";
 import type { ModelInfo } from "@/lib/types";
 
 const searchTarget = ref<HTMLElement>();
@@ -13,7 +14,7 @@ let openGeneration = 0;
 const emit = defineEmits(["open", "close"]);
 const pickerRef = ref<HTMLElement | null>(null);
 const selectorRef = ref<InstanceType<typeof ModelSelector> | null>(null);
-const { loading, errorText, refreshModels, begin, cancel, markInteracted } = useModelRefresh(selectorRef, () => !!pickerRef.value?.matches(":popover-open"));
+const { loading, errorText, retry, refreshAll, begin, cancel, markInteracted } = useModelRefresh(selectorRef, () => !!pickerRef.value?.matches(":popover-open"));
 
 function position() {
   const btn = document.getElementById("model");
@@ -170,7 +171,10 @@ onUnmounted(() => {
     @toggle="handleToggle"
   >
     <div class="mp-head">
-      <h3>Choose model</h3>
+      <div class="mp-title">
+        <h3>Choose model</h3>
+        <ModelRefreshButton :loading="loading" @refresh="refreshAll" />
+      </div>
       <div ref="searchTarget" class="mp-search-slot"></div>
     </div>
 
@@ -185,7 +189,7 @@ onUnmounted(() => {
       placeholder="Search by provider, model, or name…"
       empty-label=""
       empty-hint="Add a provider in Settings → Accounts & connections."
-      @retry="refreshModels"
+      @retry="retry"
       @select="handleSelect"
       @close="closePicker"
     />
@@ -226,6 +230,7 @@ onUnmounted(() => {
 #model-picker :deep(.ms-provider) { background: var(--secondary); }
 #model-picker :deep(.ms-provider:hover) { background: var(--accent); }
 #model-picker :deep(.ms-entry:not(.ms-entry-pinned)) { border-left: 1px solid var(--border); }
+.mp-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .mp-head h3 { font-size: 14px; font-weight: 650; letter-spacing: -.015em; }
 .mp-search-slot { flex: none; min-width: 0; }
 .mp-error { flex: none; font-size: 13px; color: var(--destructive); text-align: center; padding: 8px; }
