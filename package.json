@@ -45,6 +45,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
     "@lucide/vue": "^1.66.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "^1.4.4",
@@ -54,6 +55,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.17",
+    "happy-dom": "^21.0.4",
     "katex": "^0.18.10",
     "mermaid": "^12.3.0",
     "reka-ui": "^2.11.0",
