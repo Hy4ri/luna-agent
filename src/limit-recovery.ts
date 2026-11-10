@@ -41,14 +41,14 @@ export class LimitRecoveryService {
     await migrateLimitWaits(this.o.harness, this.o.scheduledMessages, this.o.policy(), this.o.defaultModel(), this.now(), this.o.skip);
     this.observation = this.o.harness.observeCommits({
       advance: p => {
-        const ids = new Set<number>();
+        const failures = new Map<number, number>();
         for (const ch of p.changes) {
-          if (ch.type === "submission" && ch.value.status === "unanswered" ||
-            ch.type === "task" && ch.value.kind === "pi.generation" && ch.value.state.status === "terminal") {
-            ids.add(Number(ch.value.conversationId));
+          if (ch.type === "task" && ch.value.kind === "pi.generation" && ch.value.state.status === "terminal") {
+            failures.set(Number(ch.value.conversationId), Number(ch.value.id));
           }
         }
-        for (const id of ids) queueMicrotask(() => { void this.enqueue(() => this.check(id)).catch(() => {}); });
+        // An aborted queued submission must not reawaken an older failed generation.
+        for (const [id, generation] of failures) queueMicrotask(() => { void this.enqueue(() => this.check(id, generation)).catch(() => {}); });
       },
       end: () => { queueMicrotask(() => void this.close()); },
     });
@@ -58,13 +58,8 @@ export class LimitRecoveryService {
         Object.values((await tx.doc(RecoveryStateDoc)).attempts).filter(a => a.status === "parsing"),
       )) as RecoveryAttempt[], context);
       for (const claim of claims) await this.finish(claim, undefined);
-      const ids = await this.o.harness.commit(async tx => {
-        const ids: number[] = [];
-        let cursor;
-        do { const page = await tx.scanConversations({}, 100, cursor); ids.push(...page.items.map(c => Number(c.id))); cursor = page.next; } while (cursor);
-        return ids;
-      }, context);
-      for (const id of ids) await this.check(id);
+      // Only persisted claims/schedules resume at boot. Historical failures without a
+      // claim require new user intent, not a new paid interpretation of old error text.
     });
     await this.o.scheduledMessages.scheduleChanged();
   }
@@ -76,13 +71,13 @@ export class LimitRecoveryService {
     await this.work.catch(() => {});
   }
 
-  private async check(id: number): Promise<void> {
+  private async check(id: number, generation: number): Promise<void> {
     if (this.closed || !this.o.policy().enabled || this.o.skip?.(id)) return;
     const cid = id as ConversationId;
     const now = this.now();
     const claim = await this.o.harness.commit(async tx => {
       const failure = await recoveryCandidate(tx, cid, this.o.defaultModel());
-      if (!failure) return;
+      if (!failure || failure.generation !== generation) return;
       const state = await tx.doc(RecoveryStateDoc);
       const key = recoveryKey(id, failure.boundary);
       if (state.attempts[key]) return;
@@ -102,12 +97,15 @@ export class LimitRecoveryService {
       const provider = failure.provider ?? this.o.defaultModel().provider;
       const model = failure.model ?? this.o.defaultModel().modelId;
       const ownEvidence = knownResets.length ? Math.max(...knownResets) : 0;
+      const staleReason = now - failedAt > this.o.policy().maxWaitHours * 3_600_000
+        ? "Failure is older than maxWaitHours. Retry or schedule manually."
+        : ownEvidence > 0 && ownEvidence <= now ? "Known reset time already passed. Retry or schedule manually." : undefined;
       const evidenceAt = Math.max(ownEvidence, recoveryResetFloor(state.attempts, provider, model)) || undefined;
       const attempt: RecoveryAttempt = {
         conversationId: id, boundary: failure.boundary, generation: failure.generation,
         provider, model,
-        status: recursive ? "consumed" : "parsing",
-        ...(recursive ? { reason: "Automatic recovery already attempted. Retry or schedule manually." } : {}),
+        status: recursive ? "consumed" : staleReason ? "stopped" : "parsing",
+        ...(recursive ? { reason: "Automatic recovery already attempted. Retry or schedule manually." } : staleReason ? { reason: staleReason } : {}),
         ...(evidenceAt !== undefined ? { evidenceAt } : {}),
         exact: evidenceAt !== undefined && evidenceAt === ownEvidence && !windows.some(w => w.resetAt === null) && (windows.length > 0 || (cls.kind === "wait" && !!cls.exact)),
       };

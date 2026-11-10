@@ -725,3 +725,106 @@ test("shared provider evidence floor postpones same-route schedule without seria
     await harness.close(context);
   }
 });
+
+test("recovery startup does not wait for a parser or revive unclaimed historical failures", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-rec-boot-"));
+  const dbPath = join(dir, "luna.db");
+  const faux = fauxProvider(), models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached. Resets at 3pm." })]);
+  const model = faux.getModel(), ref = { provider: model.provider, modelId: model.id };
+  const h1 = await openLuna({ dbPath, models, memory: false, coding: false });
+  let sid: number, claimedId: number;
+  try {
+    const conv = await h1.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    sid = Number(conv.id);
+    assert.equal((await (await conv.submit({ type: "input", content: "old work" }, context)).wait(context)).status, "unanswered");
+    // Persist the crash window after claim admission but before any parse result.
+    faux.appendResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached." })]);
+    const claimed = await h1.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+    claimedId = Number(claimed.id);
+    await (await claimed.submit({ type: "input", content: "claimed work" }, context)).wait(context);
+    const { RecoveryStateDoc, recoveryKey } = await import("../src/recovery-state.js");
+    const { readTurnFailure } = await import("../src/session-status.js");
+    await h1.commit(async tx => {
+      const failure = await readTurnFailure(tx, claimed.id);
+      assert.ok(failure);
+      (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(claimedId, failure.boundary)] = {
+        conversationId: claimedId, boundary: failure.boundary, generation: failure.generation,
+        provider: ref.provider, model: ref.modelId, status: "parsing", evidenceAt: Date.now() + 120_000, exact: true,
+      };
+    }, context);
+  } finally { await h1.close(context); }
+  const harness = await openLuna({ dbPath, models, memory: false, coding: false });
+  const scheduledMessages = new ScheduledMessagesService({ harness, log: () => {} });
+  await scheduledMessages.start();
+  let parserCalls = 0;
+  let parserEntered!: () => void;
+  const parsing = new Promise<"parser">(resolve => { parserEntered = () => resolve("parser"); });
+  const recovery = new LimitRecoveryService({ harness, scheduledMessages, log: () => {},
+    policy: () => ({ enabled: true, maxWaitHours: 168 }), defaultModel: () => ref,
+    parseResetTime: async ({ signal }) => {
+      parserCalls++;
+      parserEntered();
+      // A slow provider must not become part of the boot critical path.
+      await new Promise<void>(resolve => { if (signal.aborted) resolve(); else signal.addEventListener("abort", () => resolve(), { once: true }); });
+      return { resetAt: Date.now() + 3_600_000 };
+    },
+  });
+  const starting = recovery.start();
+  try {
+    const first = await Promise.race([starting.then(() => "started"), parsing]);
+    assert.equal(first, "started", "startup must not await a parser for a stored failure");
+    assert.equal(parserCalls, 0, "boot must not reinterpret even a recent unclaimed historical error");
+    assert.deepEqual(await harness.commit(tx => scheduledMessages.list(tx, sid), context), []);
+    const restored = await harness.commit(tx => scheduledMessages.list(tx, claimedId), context);
+    assert.equal(restored.length, 1, "a persisted interrupted claim still restores using captured evidence");
+    assert.ok(restored[0]);
+    assert.equal(restored[0].status, "scheduled");
+    assert.equal(restored[0].content, "Continue");
+  } finally {
+    await recovery.close(); await starting;
+    await scheduledMessages.close(); await harness.close(context);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("live recovery rejects stale failure/reset evidence before parsing but still parses fresh exact evidence once", async () => {
+  const { RecoveryStateDoc } = await import("../src/recovery-state.js");
+  const now = Date.now(), faux = fauxProvider(), models = createModels();
+  models.setProvider(faux.provider);
+  const evidence: [number, number][] = [
+    [now - 25 * 3_600_000, now + 60_000],
+    [now, now - 60_000],
+    [now, now + 60_000],
+  ];
+  faux.setResponses(evidence.map(([receivedAt, resetAt]) => ({
+    ...fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached." }),
+    diagnostics: [{ type: "luna.usage-limit", timestamp: receivedAt, details: { kind: "wait", receivedAt, windows: [{ id: "tokens", resetAt }] } }],
+  })));
+  const model = faux.getModel(), ref = { provider: model.provider, modelId: model.id };
+  const harness = await openLuna({ dbPath: ":memory:", models, memory: false, coding: false });
+  const scheduledMessages = new ScheduledMessagesService({ harness, log: () => {}, now: () => now });
+  await scheduledMessages.start();
+  let parserCalls = 0;
+  const recovery = new LimitRecoveryService({ harness, scheduledMessages, log: () => {}, now: () => now,
+    policy: () => ({ enabled: true, maxWaitHours: 24, resetGraceSeconds: 60 }), defaultModel: () => ref,
+    parseResetTime: async () => { parserCalls++; return { resetAt: now + 60_000 }; },
+  });
+  await recovery.start();
+  try {
+    for (let i = 0; i < 3; i++) {
+      const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
+      assert.equal((await (await conv.submit({ type: "input", content: `work ${i}` }, context)).wait(context)).status, "unanswered");
+      const attempt = await until(async () => harness.commit(async tx => {
+        const attempts = Object.values((await tx.doc(RecoveryStateDoc)).attempts);
+        const value = attempts.find(a => a.conversationId === Number(conv.id) && a.status !== "parsing");
+        return value ? JSON.parse(JSON.stringify(value)) as typeof value : undefined;
+      }, context), "terminal recovery eligibility");
+      assert.equal(attempt.status, i < 2 ? "stopped" : "scheduled");
+      assert.equal(parserCalls, i < 2 ? 0 : 1);
+      if (i === 0) assert.match(attempt.reason!, /older than maxWaitHours/);
+      if (i === 1) assert.match(attempt.reason!, /reset.*passed/i);
+    }
+  } finally { await recovery.close(); await scheduledMessages.close(); await harness.close(context); }
+});
