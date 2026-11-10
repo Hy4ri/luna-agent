@@ -9,7 +9,7 @@ import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import type { PtyProcess } from "./terminal/pty-host.js";
 import { ExecutionError, FileError, type ExecutionEnv, type Result, type ShellExecOptions } from "@earendil-works/pi-durable/env";
-import { CONNECT_PATH, FILE_CALL_TIMEOUT_MS, MAX_FRAME_BYTES, PROTOCOL_VERSION, decodeResult, encode,
+import { CONNECT_PATH, FILE_CALL_TIMEOUT_MS, maxFrameBytes, PROTOCOL_VERSION, decodeResult, encode,
   type BrowserMethod, type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type PtyFrame, type WorkerMessage } from "./worker-protocol.js";
 
 /** Where a session's file and shell tools run. `worker: null` is the main host. Forks keep their source's machine. */
@@ -108,7 +108,7 @@ class Link {
     if (signal?.aborted) return Promise.resolve(failure(method, "aborted", "aborted"));
     const id = this.next++;
     const frame = JSON.stringify(message(id));
-    if (frame.length > MAX_FRAME_BYTES) return Promise.resolve(failure(method, "unknown", `Request is ${frame.length} bytes, over the ${MAX_FRAME_BYTES} byte frame limit. Nothing ran.`));
+    if (frame.length > maxFrameBytes()) return Promise.resolve(failure(method, "unknown", `Request is ${frame.length} bytes, over the ${maxFrameBytes()} byte frame limit. Nothing ran.`));
     const limited = method !== "exec" && method !== "browser" && method !== "mcp";
     return new Promise(resolve => {
       let timer: ReturnType<typeof setTimeout> | undefined;

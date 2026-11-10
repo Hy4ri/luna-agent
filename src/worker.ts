@@ -7,7 +7,7 @@ import { defaultShell, programInvocation, shellEnvironment, spawnBunPty, type Pt
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError } from "@earendil-works/pi-durable/env";
-import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, MAX_FRAME_BYTES, PROTOCOL_VERSION, decode, encodeResult,
+import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, maxFrameBytes, PROTOCOL_VERSION, decode, encodeResult,
   type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 import { WorkerServices } from "./worker-services.js";
 import { ensureGeneratedDirectories, saveGeneratedImage, workerGeneratedRoot } from "./generated-files.js";
@@ -209,10 +209,10 @@ export function startWorker(o: WorkerOptions) {
           if (m.op === "close") { handles.delete(m.handle); result = { ok: true, value: undefined }; }
         }
         const frame = JSON.stringify({ t: "result", id: m.id, result: encodeResult(result as never) } satisfies WorkerMessage);
-        if (frame.length > MAX_FRAME_BYTES) {
+        if (frame.length > maxFrameBytes()) {
           // Fail this call only. An oversized frame would close the whole link and kill every other command.
           const kind = m.t === "call" && m.method === "exec" ? "exec" : "file";
-          send({ t: "result", id: m.id, result: { ok: false, error: { kind, code: "unknown", message: `Result is ${frame.length} bytes, over the ${MAX_FRAME_BYTES} byte frame limit. Read it in smaller parts.` } } });
+          send({ t: "result", id: m.id, result: { ok: false, error: { kind, code: "unknown", message: `Result is ${frame.length} bytes, over the ${maxFrameBytes()} byte frame limit. Read it in smaller parts.` } } });
         } else if (ws.readyState === WebSocket.OPEN) ws.send(frame);
       } catch (error) {
         send({ t: "result", id: m.id, result: { ok: false, error: { kind: m.t === "call" && m.method === "exec" ? "exec" : "file", code: "unknown", message: String(error instanceof Error ? error.message : error) } } });

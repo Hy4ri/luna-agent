@@ -10,7 +10,9 @@ export const isWorkerEnv = (env: { id: string } | undefined): boolean => !!env &
 export const PROTOCOL_VERSION = 1;
 
 /** Largest JSON frame either side sends. Main accepts 256 MiB per frame; base64 and JSON overhead need headroom. */
-export const MAX_FRAME_BYTES = 128 * 1024 * 1024;
+export const DEFAULT_MAX_FRAME_BYTES = 128 * 1024 * 1024;
+/** Read per call so tests can lower it with LUNA_WORKER_MAX_FRAME_BYTES. */
+export const maxFrameBytes = (): number => Number(process.env.LUNA_WORKER_MAX_FRAME_BYTES) || DEFAULT_MAX_FRAME_BYTES;
 /** Calls that touch only files or readers fail after this long. Exec, browser and MCP calls bring their own limits. */
 export const FILE_CALL_TIMEOUT_MS = 120_000;
 

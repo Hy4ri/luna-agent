@@ -10,7 +10,8 @@ import { WorkerHub, WorkerStore, type WorkerWsData } from "../src/workers.js";
 const dir = mkdtempSync(join(tmpdir(), "luna-hardening-"));
 const home = join(dir, "home"); mkdirSync(home);
 const config = join(dir, "c.json"); writeFileSync(config, "{}");
-const saved = { LUNA_CONFIG: process.env.LUNA_CONFIG, HOME: process.env.HOME };
+const saved = { LUNA_CONFIG: process.env.LUNA_CONFIG, HOME: process.env.HOME, LUNA_WORKER_MAX_FRAME_BYTES: process.env.LUNA_WORKER_MAX_FRAME_BYTES };
+process.env.LUNA_WORKER_MAX_FRAME_BYTES = String(1024 * 1024);
 process.env.LUNA_CONFIG = config;
 const hub = new WorkerHub(new WorkerStore(join(dir, "w.db")), () => {});
 const server = Bun.serve<WorkerWsData>({
@@ -61,7 +62,7 @@ test("an oversized result fails that call only; other commands survive", async (
   try {
     await w.ready;
     const big = join(dir, "big.bin");
-    writeFileSync(big, Buffer.alloc(110 * 1024 * 1024, 1));
+    writeFileSync(big, Buffer.alloc(2 * 1024 * 1024, 1));
     const env = hub.env(worker.id, dir) as any;
     const running = env.exec("sleep 2; echo alive", {}, BACKGROUND_CONTEXT);
     const r = await env.readBinaryFile(big, BACKGROUND_CONTEXT);
