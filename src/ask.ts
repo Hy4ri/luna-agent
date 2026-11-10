@@ -6,7 +6,7 @@ import { Type, type Static } from "typebox";
 import { defineDoc, defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { StringEnum } from "./string-enum.js";
 
-export const MAX_QUESTIONS = 4, MIN_OPTIONS = 2, MAX_OPTIONS = 4, MAX_HEADER = 16, MAX_LABEL = 60;
+export const MAX_QUESTIONS = 4, MIN_OPTIONS = 2, MAX_OPTIONS = 4, MAX_HEADER = 16, MAX_LABEL = 60, MAX_CONTEXT = 600;
 const RESERVED = new Set(["Other", "Type something.", "Next"]);
 
 const Option = Type.Object({
@@ -16,6 +16,7 @@ const Option = Type.Object({
 });
 const Question = Type.Object({
   question: Type.String({ description: "The complete question, ending with a question mark." }),
+  context: Type.Optional(Type.String({ maxLength: MAX_CONTEXT, description: `MAX ${MAX_CONTEXT} CHARACTERS. Optional markdown shown under the question: why you ask, constraints, and your recommendation. Keep the question itself to one line.` })),
   header: Type.String({ maxLength: MAX_HEADER, description: `MAX ${MAX_HEADER} CHARACTERS. Very short chip shown next to the question, e.g. "Auth method".` }),
   options: Type.Array(Option, { minItems: MIN_OPTIONS, maxItems: MAX_OPTIONS, description: "2-4 distinct choices. A free-text answer row is appended automatically; do NOT author it." }),
   multiSelect: Type.Optional(Type.Boolean({ default: false, description: "Allow selecting several options." })),
@@ -33,7 +34,7 @@ export type QuestionAnswer = {
   preview?: string;
 };
 export type AskResult = { answers: QuestionAnswer[]; cancelled: boolean; globalNote?: string };
-type Q = { question: string; header: string; options: { label: string; description: string; preview?: string }[]; multiSelect?: boolean };
+type Q = { question: string; context?: string; header: string; options: { label: string; description: string; preview?: string }[]; multiSelect?: boolean };
 export type PendingAsk = { purpose?: "input" | "approval"; callId: string; questions: Q[]; at: number };
 
 /** Open questionnaires and their answers, per conversation. Answers are removed once the tool reads them. */
@@ -118,6 +119,7 @@ export function envelope(r: AskResult, questions: AskArgs["questions"]): string 
 const DESCRIPTION = [
   "Ask the user one or more structured questions during execution: preferences, ambiguous instructions, implementation choices, direction. The user answers in the Luna web UI; the call waits until they do.",
   `- Up to ${MAX_QUESTIONS} questions per call, each with ${MIN_OPTIONS}-${MAX_OPTIONS} options (concise label + description). The user can always type their own answer or decline; do NOT author "Other" or "Type something." labels.`,
+  "- context: optional short markdown under one question that says why you ask and what you recommend. Use it instead of a long question.",
   "- multiSelect: true when several answers are valid. options[].preview adds markdown to compare concrete artifacts (single-select only).",
   "- If you recommend an option, put it first and append \"(Recommended)\" to its label.",
   "- Group all clarifying questions into one call. Do not use it in unattended (cron) runs.",

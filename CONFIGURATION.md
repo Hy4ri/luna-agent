@@ -539,6 +539,12 @@ Source content is untrusted data. The instruction tells the agent to ignore any 
 This is a prompt rule, not a sandbox: the agent keeps its normal tool permissions during the turn.
 Requires the `skills` extension. `bun test` checks it with a scripted model only.
 
+## Structured questions
+
+`ask_user_question` asks 1 to 4 questions. Each question has `question` (one line), `header` (a chip, max 16 characters), 2 to 4 `options` (`label`, `description`, optional `preview`), and optional `multiSelect`.
+The optional `context` field (markdown, max 600 characters) explains why the agent asks, the constraints, and its recommendation. The web UI shows it under the question. It is display-only and does not change the answer format.
+The web UI answers through `POST /v1/sessions/:id/questions/:callId`. Cron runs and subagents do not get this tool.
+
 ## Planning interview
 
 `/grill <plan, design, or topic>` interviews you about a plan until every decision is resolved. An empty argument returns usage.
