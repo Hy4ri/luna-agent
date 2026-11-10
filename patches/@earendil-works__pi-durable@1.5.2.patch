@@ -1,8 +1,8 @@
 diff --git a/dist/harness/agent.js b/dist/harness/agent.js
-index dbae2ff3bd5ded4db56c1fa3f5c4a58eee2af315..02b4887f9e84d2e2ea4249a22f4c7975ab9dca20 100644
+index 5a97712ca36ae51680f4ce9d67aa2bc5a82b4ddd..4c14831bd77dd86f0d98c065a16e631f24b805c6 100644
 --- a/dist/harness/agent.js
 +++ b/dist/harness/agent.js
-@@ -148,7 +148,7 @@ function compactionSettings(settings) {
+@@ -154,7 +154,7 @@ function compactionSettings(settings) {
      const overrides = Object.entries(modelOverrides).map(([key, override]) => [key, compactionFields(override)]);
      return { ...compactionFields(policy), modelOverrides: Object.fromEntries(overrides) };
  }
@@ -25,56 +25,10 @@ index 54f3ef34ddf1bf85e3ad9c41bdbd216c081a476f..c0a3cfa27986fa36e2c11c2f4734184f
  }
  /**
 diff --git a/dist/harness/generation.js b/dist/harness/generation.js
-index 27e60bb9b479b5600a7314f13bba25177a5e47d9..3647efab150c4669fd2aaae3e0e48798d2c62fcb 100644
+index 27e60bb9b479b5600a7314f13bba25177a5e47d9..b0de262af4d044cb6e79075942affdfa4cc400a1 100644
 --- a/dist/harness/generation.js
 +++ b/dist/harness/generation.js
-@@ -6,7 +6,7 @@ import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.j
- import { defineTask } from "../tasks.js";
- import { addTools, agentHooks, sectionExtension } from "./agent.js";
- import { compactionPolicy, createCompaction, estimateContext, selectCut } from "./compaction.js";
--import { applyBoundary, hasQueuedReset, prepareBoundary, withdrawQueuedInputs } from "./inbox.js";
-+import { applyBoundary, hasQueuedReset, InboxDoc, prepareBoundary, withdrawQueuedInputs } from "./inbox.js";
- import { cutOffCount, cutOffTooOften, endRun, LiveDoc, PROGRESS_COMMIT, salvageable, } from "./live.js";
- import { PartialChanges } from "./partial-changes.js";
- import { planSystemEntries, renderSections, replaySections } from "./prompt.js";
-@@ -119,6 +119,13 @@ export const GenerationTask = defineTask({
-             }, context);
-         },
-         request: async (task, runtime, context) => {
-+            // Recovery: an admitted correction must be placed before replaying a crashed request.
-+            const pending = await runtime.snapshot(InboxDoc, runtime.conversationId, context);
-+            if (pending?.items.some(item => item.mode === "steer" && item.redirect)) {
-+                const live = await runtime.snapshot(LiveDoc, runtime.conversationId, context);
-+                await continueRedirect(runtime, live?.generation?.message, context);
-+                return;
-+            }
-             // Charging the attempt may itself be what keeps failing, such as converting a huge partial: the limit ends it.
-             if (cutOffTooOften(task, runtime))
-                 return endCutOff(runtime, task, context);
-@@ -145,15 +152,20 @@ export const GenerationTask = defineTask({
-                 if (replaced !== undefined)
-                     messages = replaced.messages;
-             });
-+            const controller = new AbortController();
-+            const active = { controller, signal: runtime.signal, taskId: runtime.taskId };
-             const options = {
-                 ...streamOptions,
--                signal: runtime.signal,
-+                signal: AbortSignal.any([runtime.signal, controller.signal]),
-                 telemetry: context.telemetry,
-                 sessionId: await ensureProviderSessionId(runtime, context),
-                 ...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
-                 onPayload: (payload) => providerPayload(runtime, model, payload, context),
-             };
--            const message = await streamResponse(runtime, model, messages, options, attempt, context);
-+            let message;
-+            runtime.busyRequests.set(conversationId, active);
-+            try { message = await streamResponse(runtime, model, messages, options, attempt, context); }
-+            finally { if (runtime.busyRequests.get(conversationId) === active) runtime.busyRequests.delete(conversationId); }
-             const request = { attempt, compacted, model: ref, thinkingLevel, cutoff, messages: view.messages };
-             await classify(runtime, request, message, context);
-         },
-@@ -307,9 +319,10 @@ function thresholdCompaction(view, planned, contextWindow, policy) {
+@@ -307,9 +307,10 @@ function thresholdCompaction(view, planned, contextWindow, policy) {
      if (!policy.enabled || contextWindow <= 0)
          return undefined;
      const tokens = estimateContext(view, planned.flatMap((entry) => entry.model ?? []));
@@ -88,73 +42,7 @@ index 27e60bb9b479b5600a7314f13bba25177a5e47d9..3647efab150c4669fd2aaae3e0e48798
      if (over === undefined || selectCut(view, policy.keepRecentTokens) === undefined)
          return undefined;
      return over;
-@@ -506,6 +519,7 @@ async function providerPayload(runtime, model, payload, context) {
- async function streamResponse(runtime, model, messages, options, attempt, context) {
-     const interval = runtime.settings.progress.partialIntervalMs;
-     let pending;
-+    let latest;
-     let timer;
-     let inFlight;
-     let stopped = false;
-@@ -553,24 +567,57 @@ async function streamResponse(runtime, model, messages, options, attempt, contex
-             if (event.type === "done" || event.type === "error" || event.partial.content.length === 0)
-                 continue;
-             changes.observe(event);
-+            latest = event.partial;
-             pending = event.partial;
-             if (timer === undefined && inFlight === undefined)
-                 timer = runtime.setTimer(flush, interval);
-         }
-         return await events.result();
-     }
-+    catch (error) {
-+        if (!options.signal?.aborted || runtime.signal.aborted) throw error;
-+        const partial = latest ?? pending ?? (await runtime.snapshot(LiveDoc, runtime.conversationId, context))?.generation?.message;
-+        if (partial) return { ...partial, stopReason: "aborted" };
-+        return { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, timestamp: runtime.now(), stopReason: "aborted", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
-+    }
-     finally {
-         stopped = true;
-         timer?.();
-         await inFlight;
-     }
- }
-+// A redirect is a continuation, not a failed or completed original submission.
-+async function continueRedirect(runtime, message, context) {
-+    const conversationId = runtime.conversationId;
-+    await runtime.commit(async (tx) => {
-+        const boundary = await prepareBoundary(tx, conversationId, runtime.settings);
-+        const live = await tx.doc(LiveDoc, conversationId);
-+        const content = (message?.content ?? []).filter(block => block.type === "text" || block.type === "thinking");
-+        if (content.length) {
-+            const partial = { ...message, content, stopReason: "stop" };
-+            delete partial.errorMessage;
-+            await appendAssistant(tx, conversationId, partial);
-+        } else if (message) {
-+            await recordUsage(tx, conversationId, "models", `${message.provider}/${message.model}`, message.usage);
-+        }
-+        const { users } = await applyBoundary(tx, boundary, "postTools", runtime.now());
-+        if (live.run?.taskId === runtime.taskId) live.run.inputs.push(...users);
-+        delete live.generation;
-+        return { status: "running", checkpoint: { phase: "prepare", attempt: 1 } };
-+    }, context);
-+}
- /** Classify a terminal provider message in one commit that also clears the partial. */
- async function classify(runtime, request, message, context) {
-     // An abort mark or close: the abort invocation or the reopened run handles the committed state.
-     runtime.signal.throwIfAborted();
-     const conversationId = runtime.conversationId;
-     const { attempt, compacted, model: ref, thinkingLevel, cutoff } = request;
-+    // The correction is durable before the independent model signal is cancelled. A hard abort wins at commit.
-+    const inbox = await runtime.snapshot(InboxDoc, conversationId, context);
-+    if (inbox?.items.some(item => item.mode === "steer" && item.redirect)) {
-+        await continueRedirect(runtime, message, context);
-+        return;
-+    }
-     // Record the requested level, as pi-agent-core's agent loop does.
-     if (thinkingLevel !== undefined)
-         message.thinkingLevel = thinkingLevel;
-@@ -649,7 +696,8 @@ async function classify(runtime, request, message, context) {
+@@ -649,7 +650,8 @@ async function classify(runtime, request, message, context) {
          await endFailedRun(tx, runtime, live, failure, { status: "unanswered", reason: "model_error", detail: text });
          return {
              status: "terminal",
@@ -164,221 +52,11 @@ index 27e60bb9b479b5600a7314f13bba25177a5e47d9..3647efab150c4669fd2aaae3e0e48798
          };
      }, context);
  }
-@@ -680,7 +728,13 @@ async function answer(runtime, message, context) {
-             if (held !== undefined)
-                 return held;
-         }
--        const { users, first } = await applyBoundary(tx, boundary, "final", runtime.now());
-+        const { users, first, reset, steered } = await applyBoundary(tx, boundary, "final", runtime.now());
-+        if (steered && !reset) {
-+            if (live.run?.taskId === runtime.taskId) live.run.inputs.push(...users);
-+            handOver(live, runtime.taskId, await createGeneration(tx, conversationId));
-+            delete live.generation;
-+            return result;
-+        }
-         if (continues !== undefined) {
-             const user = { role: "user", content: continues, timestamp: runtime.now() };
-             await tx.appendEntry(UserEntry, conversationId, { model: [user] });
-diff --git a/dist/harness/harness.js b/dist/harness/harness.js
-index e286f00f872ebec79367a594938040c6a37a879f..215969ce33479e6738b616be1c82b5992ab93bd7 100644
---- a/dist/harness/harness.js
-+++ b/dist/harness/harness.js
-@@ -118,7 +118,9 @@ class HarnessImpl extends SessionImpl {
-         this.#report = report;
-         this.#hostSettings = hostSettings;
-         const settings = () => resolveSettings(hostSettings());
-+        const busyRequests = new Map();
-         this.#tasks = new TaskScheduler({
-+            busyRequests,
-             telemetry: options.telemetry,
-             session: this,
-             storage,
-@@ -142,7 +144,7 @@ class HarnessImpl extends SessionImpl {
-             context: withoutAbortSignal(context),
-             readOnly: options.readOnly === true,
-         });
--        this.#submissions = new Submissions(this, now, settings, () => this.#tasks.resume(), options.telemetry);
-+        this.#submissions = new Submissions(this, now, settings, () => this.#tasks.resume(), options.telemetry, busyRequests);
-         this.#taskGraph = new TaskGraphView(this, {
-             blocked: (record) => this.#tasks.blockedReason(record),
-             subscribeBlocked: (listener) => this.#tasks.subscribeBlocked(listener),
-diff --git a/dist/harness/inbox.d.ts b/dist/harness/inbox.d.ts
-index 59d3598da52544b00f7a4abd306d82b26b749103..2d9ff3ede789a3b0054a64051265e4d2105f8abd 100644
---- a/dist/harness/inbox.d.ts
-+++ b/dist/harness/inbox.d.ts
-@@ -7,6 +7,7 @@ export type InboxItem = {
-     id: SubmissionId;
-     mode: "steer" | "followUp";
-     content: JsonRepresentation<UserInput>;
-+    redirect?: boolean;
-     entry?: JsonRepresentation<InputEntry>;
- }
- /** `entry` is an `EntryDraft`, stored as plain JSON. */
-@@ -39,6 +40,7 @@ export type BoundaryResult = {
-     readonly users: SubmissionId[];
-     readonly first: EntryId | undefined;
-     readonly reset: boolean;
-+    readonly steered: boolean;
- };
- /**
-  * Read what a boundary needs. Table reads must precede the commit's first table write, so callers prepare the
-diff --git a/dist/harness/inbox.js b/dist/harness/inbox.js
-index 415ef367aa3c964f00f6b11c376ba5a97fe8bb1d..75a964df62f3974ff1feb3b6943ec706c2900f54 100644
---- a/dist/harness/inbox.js
-+++ b/dist/harness/inbox.js
-@@ -42,7 +42,8 @@ export async function applyBoundary(tx, boundary, at, now) {
-         return queueMode === "all" ? indexes : indexes.slice(0, 1);
-     };
-     const writes = items.flatMap((item, index) => (item.mode === "write" ? [index] : []));
--    const users = [...pick("steer", boundary.steeringMode), ...(final ? pick("followUp", boundary.followUpMode) : [])];
-+    const steers = pick("steer", boundary.steeringMode);
-+    const users = [...steers, ...(final && (reset || steers.length === 0) ? pick("followUp", boundary.followUpMode) : [])];
-     users.sort((a, b) => a - b);
-     // `appendEntry()` copies the drafts' values; the items are removed only afterwards.
-     let first;
-@@ -60,17 +61,22 @@ export async function applyBoundary(tx, boundary, at, now) {
-         first ??= entry.id;
-     }
-     const placed = [];
-+    const grouped = new Set();
-     for (const index of users) {
-+        if (grouped.has(index)) continue;
-         const item = items[index];
--        const entry = await appendInput(tx, conversationId, item.content, item.entry, now);
--        tx.placeSubmission(item.id, entry.id);
--        placed.push(item.id);
-+        const group = item.mode === "steer" && typeof item.content === "string" && item.entry === undefined
-+            ? users.filter(i => items[i].mode === "steer" && items[i].redirect === item.redirect && typeof items[i].content === "string" && items[i].entry === undefined)
-+            : [index];
-+        const content = group.length > 1 ? group.map(i => items[i].content).join(item.redirect ? "\n[Additional user correction]\n\n" : "\n") : item.content;
-+        const entry = await appendInput(tx, conversationId, content, item.entry, now);
-+        for (const i of group) { grouped.add(i); tx.placeSubmission(items[i].id, entry.id); placed.push(items[i].id); }
-         first ??= entry.id;
-     }
-     const removed = [...writes, ...users].sort((a, b) => b - a);
-     for (const index of removed)
-         items.splice(index, 1);
--    return { users: placed, first, reset };
-+    return { users: placed, first, reset, steered: steers.length > 0 };
- }
- /** Append the entry an input is placed as: `entry`'s kind and data, or `pi.user`, with the user message of `content`. */
- export function appendInput(tx, conversationId, content, entry, now) {
-diff --git a/dist/harness/scheduler.js b/dist/harness/scheduler.js
-index df651a4f8f0769d10daee02292ea91380b158d5e..7e431fcf2c63eeac322383c343b4429bf304ab17 100644
---- a/dist/harness/scheduler.js
-+++ b/dist/harness/scheduler.js
-@@ -98,6 +98,7 @@ export class TaskScheduler {
-      * first idle check after `settings.contextRetentionMs` of idleness, and at close.
-      */
-     #contexts = new Map();
-+    #busyRequests;
-     /**
-      * The idle kept contexts by `idleSince`, oldest first: the expiry order, so neither an expiry nor finding the next one
-      * scans `#contexts`. Kept sorted also when the Harness clock goes back (see `#markIdle`).
-@@ -198,6 +199,7 @@ export class TaskScheduler {
-         this.#storage = options.storage;
-         this.#registry = options.registry;
-         this.#models = options.models;
-+        this.#busyRequests = options.busyRequests ?? new Map();
-         this.#agent = options.agent;
-         this.#settings = options.settings;
-         this.#env = options.env;
-@@ -2504,6 +2506,7 @@ export class TaskScheduler {
-             get models() {
-                 return models();
-             },
-+            busyRequests: this.#busyRequests,
-             agent: (context) => invocation.ended ? Promise.reject(endedError(invocation)) : awaitWithContext(agent(), context),
-             get settings() {
-                 return settings();
-diff --git a/dist/harness/submissions.js b/dist/harness/submissions.js
-index 512b2477c29b83c03a1c239ee427d928ce553caa..410b01b0c1bc825bcae0267802191288505b6928 100644
---- a/dist/harness/submissions.js
-+++ b/dist/harness/submissions.js
-@@ -18,7 +18,9 @@ export class Submissions {
-     #resume;
-     #waiters = new Waiters();
-     #closed = false;
--    constructor(session, now, queueModes, resume, telemetry = NOOP_TELEMETRY_CONTEXT) {
-+    #busyRequests;
-+    constructor(session, now, queueModes, resume, telemetry = NOOP_TELEMETRY_CONTEXT, busyRequests = new Map()) {
-+        this.#busyRequests = busyRequests;
-         this.#telemetry = telemetry;
-         this.#session = session;
-         this.#now = now;
-@@ -32,8 +34,37 @@ export class Submissions {
-     }
-     /** Admit a submission in one commit; see `admitSubmission()`. */
-     async submit(conversationId, draft, context) {
--        const { id } = await this.#traced(conversationId, draft, context, (span) => this.#session.commitWith((tx) => admitSubmission(tx, conversationId, draft, this.#now(), this.#queueModes(), span), withTelemetry(span, context)));
--        return new SubmissionHandle(id, this);
-+        let action, redirect;
-+        const { id } = await this.#traced(conversationId, draft, context, async (span) => {
-+            const admitted = await this.#session.commitWith(async (tx) => {
-+                const live = await tx.doc(LiveDoc, conversationId);
-+                const run = live.run === undefined ? undefined : await tx.task(live.run.taskId);
-+                const existing = draft.requestId === undefined ? undefined : await tx.submissionByRequest(conversationId, draft.requestId);
-+                let submitted = draft;
-+                action = live.run === undefined ? "started" : "queued";
-+                if (!existing && draft.type === "input" && live.run !== undefined && !run?.abortRequested) {
-+                    const plain = typeof draft.content === "string" || (Array.isArray(draft.content) && draft.content.every(b => b.type === "text"));
-+                    const text = typeof draft.content === "string" ? draft.content.trim() : plain ? draft.content.map(b => b.text).join("\n").trim() : undefined;
-+                    if (plain && !text) throw new Error("content is empty");
-+                    if (draft.whenBusy === "steer" && plain) { submitted = { ...draft, content: text }; action = "steered"; }
-+                    else if (draft.whenBusy === "redirect" && plain && !live.compactions?.length) {
-+                        const active = this.#busyRequests.get(conversationId);
-+                        if (live.tools?.length) { submitted = { ...draft, content: text, whenBusy: "steer" }; action = "steered"; }
-+                        else if (active && !active.signal.aborted && active.taskId === live.run.taskId) {
-+                            submitted = { ...draft, content: text, whenBusy: "steer" }; action = "redirected"; redirect = active;
-+                        } else submitted = { ...draft, whenBusy: "followUp" };
-+                    } else if (draft.whenBusy === "redirect" || (draft.whenBusy === "steer" && !plain)) submitted = { ...draft, whenBusy: "followUp" };
-+                } else if (draft.type === "input" && run?.abortRequested) submitted = { ...draft, whenBusy: "followUp" };
-+                const res = await admitSubmission(tx, conversationId, submitted, this.#now(), this.#queueModes(), span);
-+                const item = (await tx.doc(InboxDoc, conversationId)).items.find(item => item.id === res.id);
-+                if (redirect && item?.mode === "steer") item.redirect = true;
-+                if (existing) action = item?.mode === "steer" ? item.redirect ? "redirected" : "steered" : item?.mode === "followUp" ? "queued" : "started";
-+                return res;
-+            }, withTelemetry(span, context));
-+            if (redirect) redirect.controller.abort();
-+            return admitted;
-+        });
-+        return new SubmissionHandle(id, this, action);
-     }
-     /**
-      * Admit a submission inside the caller's commit `tx`, with the rules of `submit()`. The admission is stored or lost
-@@ -128,7 +159,9 @@ export class Submissions {
- class SubmissionHandle {
-     id;
-     #submissions;
--    constructor(id, submissions) {
-+    action;
-+    constructor(id, submissions, action) {
-+        this.action = action;
-         this.id = id;
-         this.#submissions = submissions;
-     }
 diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
-index 7f4a0ba59df6d5870248c60c055dd188fdab51c4..15de2d3034eca8337c09b50962cdcb9e5037243e 100644
+index 3849e54fe2ffdd95ef6e8a0e6f96100183a99662..df0fc37b39789a09c66271cd6a929fcb42c9cbfe 100644
 --- a/dist/harness/types.d.ts
 +++ b/dist/harness/types.d.ts
-@@ -33,7 +33,7 @@ export type SubmissionDraft = {
- } & ({
-     readonly type: "input";
-     readonly content: UserInput;
--    readonly whenBusy?: "steer" | "followUp" | "reject";
-+    readonly whenBusy?: "steer" | "followUp" | "reject" | "redirect";
-     /**
-      * `reject`: an idle conversation (no run) rejects the input with `ConversationIdle` and writes nothing, so the input
-      * never starts a run of its own. With `whenBusy: "steer"` it steers the current run or is refused; a run that
-@@ -70,6 +70,7 @@ export type SettledSubmissionRecord = SubmissionRecord & {
- };
- /** Awaitable host object for one durably admitted submission. */
- export interface Submission {
-+    readonly action?: "started" | "queued" | "steered" | "redirected";
-     readonly id: SubmissionId;
-     status(context: Context): Promise<SubmissionRecord>;
-     wait(context: Context): Promise<SettledSubmissionRecord>;
-@@ -516,6 +517,9 @@ export type ConversationRetryPolicy = {
+@@ -520,6 +520,9 @@ export type ConversationRetryPolicy = {
  };
  /** Automatic compaction thresholds (spec §8.7); manual compaction ignores `enabled`. */
  export type CompactionPolicy = {

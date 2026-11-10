@@ -1,21 +1,24 @@
 // Busy chat policy uses the harness inbox. There is no second message queue.
-import { defineDoc, InboxDoc, LiveDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
-import { Children } from "./delegate.js";
+import { defineDoc, InboxDoc, type ConversationId, type SubmissionId, type Tx } from "@earendil-works/pi-durable";
 
-export type BusyMode = "interrupt" | "queue" | "steer";
-export type BusyAction = "started" | "queued" | "steered" | "redirected";
+export type BusyMode = "queue" | "steer";
+export type BusyAction = "started" | "queued" | "steered";
 export interface BusyPolicy { mode: BusyMode; acknowledgements: boolean }
-export const DEFAULT_BUSY_INPUT: BusyPolicy = { mode: "interrupt", acknowledgements: true };
+export const DEFAULT_BUSY_INPUT: BusyPolicy = { mode: "steer", acknowledgements: true };
 export const BusyFeedback = defineDoc<{ lastAck: number; tips: string[] }>({
   checkpointWhen: () => false,
   kind: "luna.busy.feedback", version: 1, scope: "conversation", history: "latest", fork: "initial",
   initial: () => ({ lastAck: 0, tips: [] }),
 });
 const tips: Record<BusyMode, string> = {
-  interrupt: "Busy input: redirect the current model request; during tools, add the message after the tool batch. Use /queue, /steer, or /redirect to override.",
-  queue: "Busy input: run each message later as a separate turn. Use /steer or /redirect to override.",
-  steer: "Busy input: add messages after the current tool batch or final answer. Use /queue or /redirect to override.",
+  queue: "Busy input: run each message later as a separate turn. Use /steer to override.",
+  steer: "Busy input: add the message at the next boundary, after the current tool batch or answer. The current response is not stopped. Use /queue to override.",
 };
+/** How the harness admitted `id`, read in the admitting commit: a steer or follow-up in the inbox, else started. */
+export async function admittedAction(tx: Tx, conversationId: ConversationId, id: SubmissionId): Promise<BusyAction> {
+  const item = (await tx.doc(InboxDoc, conversationId)).items.find(row => row.id === id);
+  return item?.mode === "steer" ? "steered" : item ? "queued" : "started";
+}
 export async function feedback(tx: Tx, id: ConversationId, policy: BusyPolicy, action: BusyAction, now = Date.now()) {
   const doc = await tx.doc(BusyFeedback, id);
   let tip: string | undefined, notice: string | undefined;
@@ -24,22 +27,6 @@ export async function feedback(tx: Tx, id: ConversationId, policy: BusyPolicy, a
     doc.lastAck = now; notice = action[0]!.toUpperCase() + action.slice(1) + ".";
   }
   return { ...(notice ? { notice } : {}), ...(tip ? { tip } : {}) };
-}
-export async function interruptBlocked(tx: Tx, id: ConversationId) {
-  const live = await tx.doc(LiveDoc, id);
-  if (live.compactions?.length) return true;
-  // Redirects during tools become steering inputs. They do not cancel the
-  // generation or its children, so an active child must not force a requeue.
-  if (live.tools?.length) return false;
-  const children = await tx.doc(Children, id);
-  for (const child of children.children) {
-    const liveChild = await tx.doc(LiveDoc, child.id as ConversationId);
-    if (liveChild.run) return true;
-    for (const status of ["pending", "running", "waiting", "completing"] as const) {
-      if ((await tx.scanTasks({ conversationId: child.id as ConversationId, status }, 1)).items.length) return true;
-    }
-  }
-  return false;
 }
 export class BusyCommandError extends Error { constructor(message: string, readonly status: 400 | 409 = 400) { super(message); } }
 export type QueueCommand = { action: "list" | "clear" } | { action: "remove"; index: number } | { action: "edit"; index: number; content: string } | { action: "move"; index: number; to: number };

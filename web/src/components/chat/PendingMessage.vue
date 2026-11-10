@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { chat } from "@/stores/chat";
-import { composer, canRecoverPending, sendPendingNow, retryPending, dismissPending } from "@/stores/composer";
+import { composer, canRecoverPending, steerPending, retryPending, dismissPending } from "@/stores/composer";
 import ReportContext from "./ReportContext.vue";
 import UploadAttachment from "./UploadAttachment.vue";
 import SessionImage from "./SessionImage.vue";
@@ -33,7 +33,7 @@ function blocks(content: unknown): any[] {
     </div>
     <div class="message-footer pending-message-footer">
       <span role="status">{{ message.status }}</span>
-      <button v-if="message.status === 'Queued' && message.submissionId" type="button" class="send-now" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="sendPendingNow(message.requestId)">Send now</button>
+      <button v-if="message.status === 'Queued' && message.submissionId" type="button" class="steer-now" title="Add this message to the current turn at its next boundary" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="steerPending(message.requestId)">Steer</button>
       <template v-if="canRecoverPending(message)">
         <button type="button" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="retryPending(message.requestId)">Retry send</button>
         <button type="button" :disabled="!!message.session && composer.submitting.has(message.session)" title="Remove local message; this does not cancel delivery" @click="dismissPending(message.requestId)">Dismiss</button>
@@ -43,6 +43,6 @@ function blocks(content: unknown): any[] {
 </template>
 
 <style scoped>
-.send-now { border: 1px solid var(--border); padding: 3px 8px; border-radius: 1px; cursor: pointer; }
-.send-now:disabled { opacity: 0.5; cursor: default; }
+.steer-now { border: 1px solid var(--border); padding: 3px 8px; border-radius: 1px; cursor: pointer; }
+.steer-now:disabled { opacity: 0.5; cursor: default; }
 </style>

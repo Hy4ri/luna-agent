@@ -139,7 +139,7 @@
   },
   "sessionTalk": { "enabled": true, "maxHops": 3 },
   "busyInput": {
-    "mode": "interrupt",
+    "mode": "steer",
     "acknowledgements": true
   },
   "web": {

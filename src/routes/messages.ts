@@ -4,7 +4,7 @@ import { bodyLimit } from "hono/body-limit";
 import { UsageDoc, type Submission } from "@earendil-works/pi-durable";
 import { openSessionFeed } from "../session-feed.js";
 import type { AgentEvent } from "../session-feed-types.js";
-import { BusyCommandError, DEFAULT_BUSY_INPUT, feedback, interruptBlocked, parseQueueCommand, queueCommand, type BusyMode } from "../busy-input.js";
+import { admittedAction, BusyCommandError, DEFAULT_BUSY_INPUT, feedback, parseQueueCommand, queueCommand, type BusyMode } from "../busy-input.js";
 import { readClaudeUsage, usageNotice } from "../claude-usage.js";
 import { undoCommand } from "../undo.js";
 import { REVIEW_DEFAULT_PROMPT } from "../review.js";
@@ -47,13 +47,13 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
   let send!: (
     c: HonoContext,
     sessionId: string,
-    body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" | "redirect" },
+    body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" },
     asyncMode?: boolean,
   ) => Promise<Response>;
   send = ctx.send = async (
     c: HonoContext,
     sessionId: string,
-    body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" | "redirect" },
+    body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" },
     asyncMode = false,
   ) => {
     const conv = await getConv(sessionId);
@@ -65,7 +65,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
 
     if (body.requestId !== undefined && (typeof body.requestId !== "string" || !body.requestId.trim()))
       return err(c, 400, "requestId must be a nonempty string");
-    if (body.whenBusy !== undefined && !["steer", "followUp", "reject", "redirect"].includes(body.whenBusy))
+    if (body.whenBusy !== undefined && !["steer", "followUp", "reject"].includes(body.whenBusy))
       return err(c, 400, "invalid whenBusy");
     const commandText =
       typeof content === "string"
@@ -109,7 +109,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
     const slash =
       plain === undefined
         ? null
-        : /^\/(usage|cost|queue|steer|redirect|stop|model|compress|compact|retry|undo)(?:\s+([\s\S]*))?$/.exec(
+        : /^\/(usage|cost|queue|steer|stop|model|compress|compact|retry|undo)(?:\s+([\s\S]*))?$/.exec(
             plain.trim(),
           );
     let input = content as UploadInput;
@@ -184,40 +184,28 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
       }
       if (!args) return err(c, 400, `/${command} needs a message.`);
       input = args;
-      override = command === "redirect" ? "interrupt" : (command as "queue" | "steer");
+      override = command as BusyMode;
     }
     const submit = () =>
       serial(String(conv.id), async () => {
         if (draining.has(String(conv.id)))
           throw new BusyCommandError("The current turn is stopping. Send the message again after it stops.", 409);
         const policy = opts.settings?.read().busyInput ?? opts.busyInput?.() ?? DEFAULT_BUSY_INPUT;
-        let mode =
-          override ??
-          (body.whenBusy === "steer"
-            ? "steer"
-            : body.whenBusy === "followUp"
-              ? "queue"
-              : body.whenBusy === "redirect"
-                ? "interrupt"
-                : policy.mode);
-        if (mode === "interrupt" && (await harness.commit((tx) => interruptBlocked(tx, conv.id), context)))
-          mode = "queue";
-        const textOnly = typeof input === "string" || input.every((block) => block.type === "text");
-        const whenBusy =
-          body.whenBusy === "reject" && !override
-            ? "reject"
-            : !textOnly || mode === "queue"
-              ? "followUp"
-              : mode === "steer"
-                ? "steer"
-                : "redirect";
+        const mode: BusyMode =
+          override ?? (body.whenBusy === "steer" ? "steer" : body.whenBusy === "followUp" ? "queue" : policy.mode);
+        const whenBusy = body.whenBusy === "reject" && !override ? "reject" : mode === "queue" ? "followUp" : "steer";
         const prepared = await prepareAttachments(input, conv, c.req.raw.signal);
         await opts.limitContinuer?.cancel(Number(conv.id), "New input replaced automatic recovery.");
-        const sub = await conv.submit({ type: "input", content: prepared, requestId: body.requestId, whenBusy }, context);
-        if (sub.action === "steered" && mode === "interrupt") harness.busyTools.yield(conv.id);
-        const action = sub.action ?? ((await sub.status(context)).status === "queued" ? "queued" : "started");
-        const notices = await harness.commit((tx) => feedback(tx, conv.id, policy, action), context);
-        return { sub, action, ...notices };
+        // Admit and read the inbox in one commit, so the receipt names what the harness did.
+        const admitted = await conv.commit(async (tx) => {
+          const id = await conv.submit(tx, { type: "input", content: prepared, requestId: body.requestId, whenBusy });
+          const action = await admittedAction(tx, conv.id, id);
+          return { id, action, ...(await feedback(tx, conv.id, policy, action)) };
+        }, context);
+        const sub = await harness.submission(admitted.id, context);
+        if (!sub) throw new Error(`Admitted submission ${admitted.id} is missing.`);
+        const { id: _id, ...receipt } = admitted;
+        return { sub, ...receipt };
       });
     if (asyncMode) {
       const { sub, ...receipt } = await submit();
@@ -336,7 +324,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
       message?: string;
       sessionId?: string;
       requestId?: string;
-      whenBusy?: "steer" | "followUp" | "reject" | "redirect";
+      whenBusy?: "steer" | "followUp" | "reject";
     };
     let id = b.sessionId;
     if (!id)

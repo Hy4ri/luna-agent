@@ -107,12 +107,18 @@ test("live settings: external edits, saves, and invalid files apply on the next 
     const copy = settings.resolved();
     copy.busyInput.mode = "steer";
     assert.equal(settings.resolved().busyInput.mode, "queue");
-    settings.update(c => { c.busyInput.mode = "interrupt"; });
-    assert.equal(settings.resolved().busyInput.mode, "interrupt");
-    const raw = JSON.parse(readFileSync(path, "utf8"));
-    raw.busyInput.mode = "steer";
-    writeFileSync(path, JSON.stringify(raw)); // in place: same inode
+    settings.update(c => { c.busyInput.mode = "steer"; });
     assert.equal(settings.resolved().busyInput.mode, "steer");
+    const raw = JSON.parse(readFileSync(path, "utf8"));
+    raw.busyInput.mode = "queue";
+    writeFileSync(path, JSON.stringify(raw)); // in place: same inode
+    assert.equal(settings.resolved().busyInput.mode, "queue");
+    // The retired redirect mode loads as steer instead of failing strict validation.
+    raw.busyInput.mode = "interrupt";
+    writeFileSync(path, JSON.stringify(raw));
+    assert.equal(settings.resolved().busyInput.mode, "steer");
+    raw.busyInput.mode = "queue";
+    writeFileSync(path, JSON.stringify(raw));
     assert.equal(settings.resolved({ ...process.env, LUNA_MODEL: "other" }).model, "other");
     assert.equal(settings.resolved().model, "faux");
     writeFileSync(path, "{");

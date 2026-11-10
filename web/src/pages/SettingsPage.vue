@@ -76,7 +76,7 @@ function groupStatus(key: string): string {
   if (key === 'models-refresh') return `${models.list.length} models available`
   if (key === 'modelThinkingLevels') return Object.keys(value || {}).length ? `${Object.keys(value).length} model overrides` : 'Main level for every model'
   if (Array.isArray(value)) return `${value.length} ${key === 'extensions' ? 'enabled' : 'configured'}`
-  if (key === 'busyInput') return `${value?.mode || 'interrupt'} mode`
+  if (key === 'busyInput') return `${value?.mode || 'steer'} mode`
   if (key === 'vision') return value?.image_mode === 'auxiliary' ? 'Auxiliary model' : 'Active model'
   if (key === 'image_gen') return value?.provider || 'No provider selected'
   if (key === 'auxiliary') return `${Object.values(value || {}).filter(Boolean).length} model overrides`

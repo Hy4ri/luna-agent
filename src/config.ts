@@ -81,7 +81,8 @@ export const ConfigSchema = z
       subagents: compactionLimits(80000, 120000).prefault({}),
     }).prefault({}),
     busyInput: z.strictObject({
-      mode: z.enum(["interrupt", "queue", "steer"]).default("interrupt"),
+      // Retired "interrupt" settings load as "steer"; the next save writes the new value.
+      mode: z.preprocess((value) => (value === "interrupt" ? "steer" : value), z.enum(["queue", "steer"])).default("steer"),
       acknowledgements: z.boolean().default(true),
     }).prefault({}),
     /** Continue a turn automatically after a usage limit resets. Off by default. */

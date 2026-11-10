@@ -123,8 +123,8 @@ export function registerWebhooks(app: Hono, ctx: RouteCtx): void {
     return c.json({ accepted: true, submissionId: sub.id }, 202); // fire-and-forget; poll GET /v1/submissions/:id
   });
 
-  // Withdraw only this queued input before admitting its redirect replacement.
-  app.post("/v1/sessions/:id/submissions/:submission/send-now", async (c) => {
+  // Withdraw only this queued input before admitting it again as a steer of the current run.
+  app.post("/v1/sessions/:id/submissions/:submission/steer", async (c) => {
     const sid = c.req.param("id"),
       submissionId = c.req.param("submission");
     const body = await c.req.json();
@@ -145,7 +145,7 @@ export function registerWebhooks(app: Hono, ctx: RouteCtx): void {
       } else if (record.status !== "unanswered" || record.reason !== "aborted" || record.entry !== undefined) {
         return err(c, 409, "Message is already being delivered.");
       }
-      return ctx.send!(c, sid, { content: body.content, requestId: `send-now:${submissionId}`, whenBusy: "redirect" }, true);
+      return ctx.send!(c, sid, { content: body.content, requestId: `steer:${submissionId}`, whenBusy: "steer" }, true);
     }
   });
 
