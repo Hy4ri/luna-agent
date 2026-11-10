@@ -1,0 +1,472 @@
+import { randomUUID } from "node:crypto";
+import { defineDoc, type ConversationId, type SubmissionId, type Tx } from "@earendil-works/pi-durable";
+import { context } from "./luna.js";
+
+type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
+
+export type ScheduledMessageStatus = "scheduled" | "queued" | "delivered" | "cancelled" | "failed";
+
+export type ScheduledMessageSource =
+  | { kind: "user" }
+  | {
+      kind: "limit_recovery";
+      boundary: number;
+      generation: number;
+      provider: string;
+      model: string;
+      exact: boolean;
+      resetSource?: string;
+    };
+
+export type ScheduledMessageRecord = {
+  id: string;
+  conversationId: number;
+  createdAt: number;
+  dueAt: number;
+  content: string;
+  status: ScheduledMessageStatus;
+  source: ScheduledMessageSource;
+  requestId: string;
+  submissionId?: string;
+  entryId?: number;
+  terminalReason?: string;
+  deliveryAttempts?: number;
+  nextDeliveryAt?: number;
+  lastError?: string;
+};
+
+export type ScheduledMessagesDocValue = {
+  schedules: Record<string, ScheduledMessageRecord>;
+  requests: Record<string, { scheduleId: string; fingerprint: string }>;
+};
+
+export const ScheduledMessagesDoc = defineDoc<ScheduledMessagesDocValue>({
+  checkpointWhen: () => false,
+  kind: "luna.scheduled-messages",
+  version: 1,
+  scope: "session",
+  initial: () => ({ schedules: {}, requests: {} }),
+});
+
+export class ScheduledMessageError extends Error {
+  constructor(message: string, readonly status: 400 | 404 | 409 = 400) {
+    super(message);
+  }
+}
+
+const MAX_TIMER = 2 ** 31 - 1;
+const DELIVERY_BACKOFFS = [30_000, 120_000, 600_000];
+
+function fingerprintOf(conversationId: number, content: string, dueAt: number, source: ScheduledMessageSource): string {
+  return new Bun.CryptoHasher("sha256")
+    .update(JSON.stringify({ conversationId, content, dueAt, source }))
+    .digest("hex");
+}
+
+function cloneRecord<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function compareDue(a: ScheduledMessageRecord, b: ScheduledMessageRecord): number {
+  return a.dueAt - b.dueAt || a.id.localeCompare(b.id);
+}
+
+export class ScheduledMessagesService {
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private observation: { detach(): void } | undefined;
+  private closed = false;
+  private work: Promise<void> = Promise.resolve();
+  private readonly pending = new Set<Promise<unknown>>();
+
+  constructor(
+    private readonly o: {
+      harness: Harness;
+      log: (m: string) => void;
+      now?: () => number;
+      skip?: (id: number) => boolean;
+    },
+  ) {}
+
+  private now(): number {
+    return this.o.now?.() ?? Date.now();
+  }
+
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.pending.add(p);
+    void p.finally(() => this.pending.delete(p)).catch(() => {});
+    return p;
+  }
+
+  private enqueueWork(fn: () => Promise<void>): Promise<void> {
+    this.work = this.work.catch(() => {}).then(async () => {
+      if (this.closed) return;
+      await fn();
+    });
+    return this.track(this.work);
+  }
+
+  async start(): Promise<void> {
+    this.observation = this.o.harness.observeCommits({
+      advance: (p) => {
+        const relevant = p.changes.some(
+          (ch) => ch.type === "submission" && (ch.value.status === "done" || ch.value.status === "unanswered"),
+        );
+        if (relevant) {
+          queueMicrotask(() => {
+            if (this.closed) return;
+            void this.enqueueWork(() => this.reconcileAndArm()).catch((e) =>
+              this.o.log(`scheduled-messages: ${(e as Error).message}`),
+            );
+          });
+        }
+      },
+      end: () => {
+        this.closed = true;
+        queueMicrotask(() => void this.close());
+      },
+    });
+
+    await this.enqueueWork(() => this.reconcileAndArm());
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.observation?.detach();
+    this.observation = undefined;
+    await Promise.allSettled([...this.pending]);
+  }
+
+  async create(
+    tx: Tx,
+    input: {
+      conversationId: number;
+      content: string;
+      dueAt: number;
+      requestId: string;
+      source: ScheduledMessageSource;
+      allowPast?: boolean;
+    },
+  ): Promise<{ schedule: ScheduledMessageRecord; created: boolean }> {
+    const content = input.content.trim();
+    if (!content) throw new ScheduledMessageError("Message content is required.", 400);
+    if (!Number.isFinite(input.dueAt)) throw new ScheduledMessageError("Invalid dueAt timestamp.", 400);
+    if (!input.requestId || !input.requestId.trim()) {
+      throw new ScheduledMessageError("requestId is required.", 400);
+    }
+
+    const doc = await tx.doc(ScheduledMessagesDoc);
+    const reqKey = `${input.conversationId}:${input.requestId}`;
+    const fp = fingerprintOf(input.conversationId, content, input.dueAt, input.source);
+    const existingReq = doc.requests[reqKey];
+    if (existingReq) {
+      if (existingReq.fingerprint !== fp) {
+        throw new ScheduledMessageError("requestId already belongs to another scheduled message.", 409);
+      }
+      const existing = doc.schedules[existingReq.scheduleId];
+      if (existing) return { schedule: cloneRecord(existing), created: false };
+    }
+
+    const now = this.now();
+    if (!input.allowPast && input.dueAt <= now) {
+      throw new ScheduledMessageError("Scheduled time must be in the future.", 400);
+    }
+
+    const id = `sm_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+    const record: ScheduledMessageRecord = {
+      id,
+      conversationId: input.conversationId,
+      createdAt: now,
+      dueAt: input.dueAt,
+      content,
+      status: "scheduled",
+      source: input.source,
+      requestId: `scheduled-message:${id}`,
+    };
+    doc.schedules[id] = record;
+    doc.requests[reqKey] = { scheduleId: id, fingerprint: fp };
+    return { schedule: cloneRecord(record), created: true };
+  }
+
+  async list(tx: Tx, conversationId: number): Promise<ScheduledMessageRecord[]> {
+    const doc = await tx.doc(ScheduledMessagesDoc);
+    return Object.values(doc.schedules)
+      .filter((s) => s.conversationId === conversationId)
+      .sort(compareDue)
+      .map((s) => cloneRecord(s));
+  }
+
+  async cancel(
+    conversationId: number,
+    scheduleId: string,
+    reason = "Cancelled by the user.",
+  ): Promise<{
+    status: "cancelled" | "already_delivered" | "already_cancelled" | "not_found";
+    schedule?: ScheduledMessageRecord;
+  }> {
+    const pre = await this.o.harness.commit(async (tx) => {
+      const doc = await tx.doc(ScheduledMessagesDoc);
+      const rec = doc.schedules[scheduleId];
+      if (!rec || rec.conversationId !== conversationId) return { kind: "not_found" as const };
+      if (rec.status === "delivered") return { kind: "already_delivered" as const, schedule: cloneRecord(rec) };
+      if (rec.status === "cancelled" || rec.status === "failed") {
+        return { kind: "already_cancelled" as const, schedule: cloneRecord(rec) };
+      }
+      if (rec.status === "scheduled") {
+        rec.status = "cancelled";
+        rec.terminalReason = reason;
+        return { kind: "cancelled" as const, schedule: cloneRecord(rec) };
+      }
+      return { kind: "queued" as const, submissionId: rec.submissionId, requestId: rec.requestId };
+    }, context);
+
+    if (pre.kind !== "queued") {
+      if (pre.kind === "not_found") return { status: "not_found" };
+      if (pre.kind === "cancelled") await this.scheduleChanged();
+      return { status: pre.kind, schedule: pre.schedule };
+    }
+
+    if (pre.submissionId) {
+      await this.o.harness.abortSubmission(
+        Number(pre.submissionId) as SubmissionId,
+        context,
+        conversationId as ConversationId,
+      );
+    }
+
+    const post = await this.o.harness.commit(async (tx) => {
+      const doc = await tx.doc(ScheduledMessagesDoc);
+      const rec = doc.schedules[scheduleId];
+      if (!rec || rec.conversationId !== conversationId) return { status: "not_found" as const };
+      const sub = await tx.submissionByRequest(conversationId as ConversationId, rec.requestId);
+      if (sub && (sub.status === "done" || ("entry" in sub && sub.entry !== undefined))) {
+        rec.status = "delivered";
+        if ("entry" in sub && sub.entry !== undefined) rec.entryId = Number(sub.entry);
+        return { status: "already_delivered" as const, schedule: cloneRecord(rec) };
+      }
+      if (rec.status !== "cancelled") {
+        rec.status = "cancelled";
+        rec.terminalReason = reason;
+      }
+      return { status: "cancelled" as const, schedule: cloneRecord(rec) };
+    }, context);
+
+    await this.scheduleChanged();
+    return post;
+  }
+
+  async cancelForConversation(
+    conversationId: number,
+    filter: "all" | "limit_recovery" | "queued_or_recovery",
+    reason: string,
+  ): Promise<number> {
+    const queuedToAbort: { id: string; submissionId?: string }[] = [];
+    let cancelledCount = 0;
+
+    await this.o.harness.commit(async (tx) => {
+      const doc = await tx.doc(ScheduledMessagesDoc);
+      for (const rec of Object.values(doc.schedules)) {
+        if (rec.conversationId !== conversationId) continue;
+        if (rec.status !== "scheduled" && rec.status !== "queued") continue;
+        const match =
+          filter === "all" ||
+          (filter === "limit_recovery" && rec.source.kind === "limit_recovery") ||
+          (filter === "queued_or_recovery" && (rec.status === "queued" || rec.source.kind === "limit_recovery"));
+        if (!match) continue;
+        if (rec.status === "scheduled") {
+          rec.status = "cancelled";
+          rec.terminalReason = reason;
+          cancelledCount++;
+        } else {
+          queuedToAbort.push({ id: rec.id, submissionId: rec.submissionId });
+        }
+      }
+    }, context);
+
+    for (const item of queuedToAbort) {
+      const res = await this.cancel(conversationId, item.id, reason);
+      if (res.status === "cancelled") cancelledCount++;
+    }
+
+    if (cancelledCount > 0) await this.scheduleChanged();
+    return cancelledCount;
+  }
+
+  async scheduleChanged(): Promise<void> {
+    if (this.closed) return;
+    await this.enqueueWork(() => this.reconcileAndArm());
+  }
+
+  private async reconcileAndArm(): Promise<void> {
+    if (this.closed) return;
+    await this.reconcile();
+    await this.deliverDue();
+    await this.armNext();
+  }
+
+  async reconcile(): Promise<void> {
+    if (this.closed) return;
+    await this.o.harness.commit(async (tx) => {
+      const doc = await tx.doc(ScheduledMessagesDoc);
+      for (const rec of Object.values(doc.schedules)) {
+        if (rec.status !== "queued") continue;
+        const sub = await tx.submissionByRequest(rec.conversationId as ConversationId, rec.requestId);
+        if (!sub) continue;
+        if (sub.status === "done" || ("entry" in sub && sub.entry !== undefined)) {
+          rec.status = "delivered";
+          if ("entry" in sub && sub.entry !== undefined) rec.entryId = Number(sub.entry);
+        } else if (sub.status === "unanswered") {
+          const reason = "reason" in sub ? String(sub.reason ?? "") : "";
+          rec.status = reason === "run_failed" ? "failed" : "cancelled";
+          rec.terminalReason = reason || "unanswered";
+        }
+      }
+    }, context);
+  }
+
+  async deliverDue(): Promise<void> {
+    if (this.closed) return;
+    const now = this.now();
+    const dueIds = await this.o.harness.commit(async (tx) => {
+      const doc = await tx.doc(ScheduledMessagesDoc);
+      return Object.values(doc.schedules)
+        .filter((s) => s.status === "scheduled" && Math.max(s.dueAt, s.nextDeliveryAt ?? 0) <= now)
+        .sort(compareDue)
+        .map((s) => s.id);
+    }, context);
+
+    for (const id of dueIds) {
+      if (this.closed) return;
+      await this.fireOne(id);
+    }
+  }
+
+  async fireOne(id: string): Promise<boolean> {
+    if (this.closed) return false;
+    const now = this.now();
+
+    const pre = await this.o.harness.commit(async (tx) => {
+      const doc = await tx.doc(ScheduledMessagesDoc);
+      const rec = doc.schedules[id];
+      if (!rec || rec.status !== "scheduled") return undefined;
+      if (Math.max(rec.dueAt, rec.nextDeliveryAt ?? 0) > now) return undefined;
+      return { ...rec };
+    }, context);
+
+    if (!pre) return false;
+
+    if (this.o.skip?.(pre.conversationId)) {
+      await this.o.harness.commit(async (tx) => {
+        const doc = await tx.doc(ScheduledMessagesDoc);
+        const rec = doc.schedules[id];
+        if (rec && rec.status === "scheduled") {
+          rec.status = "cancelled";
+          rec.terminalReason = "Conversation skipped or archived.";
+        }
+      }, context);
+      return false;
+    }
+
+    const conv = await this.o.harness.conversation(pre.conversationId as ConversationId, context);
+    if (!conv) {
+      await this.o.harness.commit(async (tx) => {
+        const doc = await tx.doc(ScheduledMessagesDoc);
+        const rec = doc.schedules[id];
+        if (rec && rec.status === "scheduled") {
+          rec.status = "cancelled";
+          rec.terminalReason = "Conversation not found.";
+        }
+      }, context);
+      return false;
+    }
+
+    try {
+      const result = await this.o.harness.commit(async (tx) => {
+        const doc = await tx.doc(ScheduledMessagesDoc);
+        const rec = doc.schedules[id];
+        if (!rec || rec.status !== "scheduled") return "skip" as const;
+
+        const existingSub = await tx.submissionByRequest(pre.conversationId as ConversationId, rec.requestId);
+        if (existingSub) {
+          rec.submissionId = String(existingSub.id);
+          if (existingSub.status === "done" || ("entry" in existingSub && existingSub.entry !== undefined)) {
+            rec.status = "delivered";
+            if ("entry" in existingSub && existingSub.entry !== undefined) rec.entryId = Number(existingSub.entry);
+          } else if (existingSub.status === "unanswered") {
+            rec.status = "cancelled";
+            rec.terminalReason = "reason" in existingSub ? String(existingSub.reason ?? "unanswered") : "unanswered";
+          } else {
+            rec.status = "queued";
+          }
+          return "reconciled" as const;
+        }
+
+        // Submit before any table write in this tx (ReadAfterWrite contract).
+        const subId: SubmissionId = await conv.submit(tx, {
+          type: "input",
+          content: rec.content,
+          requestId: rec.requestId,
+          whenBusy: "followUp",
+          entry: {
+            kind: "luna.scheduled-message",
+            data: { scheduleId: rec.id, source: rec.source.kind },
+          },
+        });
+        rec.status = "queued";
+        rec.submissionId = String(subId);
+        return "admitted" as const;
+      }, context);
+
+      if (result === "admitted") {
+        await this.reconcile();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      const msg = (e as Error).message || "Delivery failed";
+      await this.o.harness.commit(async (tx) => {
+        const doc = await tx.doc(ScheduledMessagesDoc);
+        const rec = doc.schedules[id];
+        if (!rec || rec.status !== "scheduled") return;
+        const attempts = (rec.deliveryAttempts ?? 0) + 1;
+        rec.deliveryAttempts = attempts;
+        rec.lastError = msg.slice(0, 300);
+        if (attempts > DELIVERY_BACKOFFS.length) {
+          rec.status = "failed";
+          rec.terminalReason = `Delivery failed: ${rec.lastError}`;
+        } else {
+          rec.nextDeliveryAt = now + DELIVERY_BACKOFFS[attempts - 1]!;
+        }
+      }, context);
+      return false;
+    }
+  }
+
+  private async armNext(): Promise<void> {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    if (this.closed) return;
+
+    const nextAt = await this.o.harness.commit(async (tx) => {
+      const doc = await tx.doc(ScheduledMessagesDoc);
+      let earliest: number | undefined;
+      for (const s of Object.values(doc.schedules)) {
+        if (s.status !== "scheduled") continue;
+        const t = Math.max(s.dueAt, s.nextDeliveryAt ?? 0);
+        if (earliest === undefined || t < earliest) earliest = t;
+      }
+      return earliest;
+    }, context);
+
+    if (nextAt === undefined) return;
+    const delay = Math.max(0, nextAt - this.now());
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.enqueueWork(() => this.reconcileAndArm()).catch((e) =>
+        this.o.log(`scheduled-messages: ${(e as Error).message}`),
+      );
+    }, Math.min(delay, MAX_TIMER));
+    this.timer.unref?.();
+  }
+}

@@ -58,7 +58,8 @@ import { createFreeserpWebProvider, createSearxngWebProvider } from "./http-sear
 import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
-import { LimitContinuer } from "./limit-continue.js";
+import { LimitRecoveryService } from "./limit-recovery.js";
+import { ScheduledMessagesService } from "./scheduled-messages.js";
 import { DeviceStore, FcmSender, loadServiceAccount, PushNotifier } from "./push.js";
 import { WebhookStore, Webhooks, type WebhookTargets } from "./webhooks.js";
 import { createWebhookExtension } from "./webhook-tools.js";
@@ -380,10 +381,31 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   webhookNotifier.start();
   // Continue after a usage limit resets. Cron runs have their own timeout and run log, so they never wait.
   const isCronConversation = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
-  const limitContinuer = new LimitContinuer({ harness, log, policy: () => (settings?.resolved() ?? cfg).autoContinue,
-    defaultModel: () => providers.defaultModel(),
-    skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)) });
-  await limitContinuer.start();
+  const scheduledMessages = new ScheduledMessagesService({
+    harness,
+    log,
+    skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)),
+  });
+  await scheduledMessages.start();
+
+  const limitRecovery = new LimitRecoveryService({
+    harness,
+    scheduledMessages,
+    log,
+    policy: () => {
+      const ac = (settings?.resolved() ?? cfg).autoContinue;
+      return { enabled: ac.enabled, maxWaitHours: ac.maxWaitHours };
+    },
+    defaultModel: () => {
+      const subModel = (settings?.resolved().subagents ?? cfg.subagents)?.profiles?.default?.model;
+      if (subModel && typeof subModel === "object" && "provider" in subModel && "modelId" in subModel) {
+        return subModel;
+      }
+      return providers.defaultModel();
+    },
+    skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)),
+  });
+  await limitRecovery.start();
 
   harness.resume(); // continue any run a previous process left unfinished
 
@@ -415,7 +437,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     async toSession(id, content, requestId) {
       const conv = await harness.conversation(id as never, context);
       if (!conv) return false;
-      await limitContinuer.cancel(id, "New input replaced automatic recovery.");
+      await scheduledMessages.cancelForConversation(id, "limit_recovery", "New input replaced automatic recovery.");
       await conv.submit({ type: "input", content, requestId }, context);
       return true;
     },
@@ -464,7 +486,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   settings?.onApply(async (_old, next) => {
     const warnings: string[] = [];
     providers.reconcile(next.providers);
-    await limitContinuer.reconcile();
+    await scheduledMessages.reconcile();
     for (const f of await mcp.reconcile(next.mcpServers)) warnings.push(`mcp ${f.name}: ${f.error}`);
     mcp.syncExposure();
     if (scheduler && store) {
@@ -495,7 +517,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     uploads,
     sideCommands,
     titler,
-    limitContinuer,
+    scheduledMessages,
     push: push?.devices,
     config: cfg,
     settings,
@@ -524,7 +546,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     async close() {
       if (learnTimer) clearInterval(learnTimer);
       await learnRunning;
-      await limitContinuer.close();
+      await limitRecovery.close();
+      await scheduledMessages.close();
       await push?.notifier.close();
       await webhookNotifier.close();
       await webhooks.close();

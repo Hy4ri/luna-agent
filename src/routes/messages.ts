@@ -109,7 +109,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
     const slash =
       plain === undefined
         ? null
-        : /^\/(usage|cost|queue|steer|stop|model|compress|compact|retry|undo)(?:\s+([\s\S]*))?$/.exec(
+        : /^\/(usage|cost|queue|steer|stop|model|compress|compact|retry|undo|schedule)(?:\s+([\s\S]*))?$/.exec(
             plain.trim(),
           );
     let input = content as UploadInput;
@@ -163,6 +163,31 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         await stop(conv);
         return c.json({ command: true, notice: "Stopped." });
       }
+      if (command === "schedule") {
+        const svc = opts.scheduledMessages;
+        if (!svc) return err(c, 404, "scheduled messages disabled");
+        if (args === "list") {
+          const all = await harness.commit((tx) => svc.list(tx, Number(conv.id)), context);
+          const pending = all.filter((s) => s.status === "scheduled" || s.status === "queued");
+          const notice = pending.length
+            ? pending.map((s) => `${s.id} [${s.status}] ${new Date(s.dueAt).toISOString()}: ${s.content.slice(0, 60)}`).join("\n")
+            : "No scheduled messages.";
+          return c.json({ command: true, schedules: pending, notice });
+        }
+        const cancelMatch = /^cancel\s+(\S+)$/.exec(args);
+        if (cancelMatch) {
+          const res = await serial(String(conv.id), () => svc.cancel(Number(conv.id), cancelMatch[1]!));
+          if (res.status === "not_found") return err(c, 404, "no such scheduled message");
+          const notice =
+            res.status === "cancelled"
+              ? `Cancelled ${cancelMatch[1]}.`
+              : res.status === "already_delivered"
+                ? `Already delivered: ${cancelMatch[1]}.`
+                : `Already cancelled: ${cancelMatch[1]}.`;
+          return c.json({ command: true, status: res.status, schedule: res.schedule, notice });
+        }
+        return err(c, 400, "Use /schedule <message> in the web composer picker, POST /v1/sessions/:id/scheduled-messages, /schedule list, or /schedule cancel <id>.");
+      }
       if (["model", "compress", "compact", "retry"].includes(command)) {
         const busy = await harness.commit((tx) => isRunning(tx, conv.id), context);
         return err(
@@ -195,7 +220,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
           override ?? (body.whenBusy === "steer" ? "steer" : body.whenBusy === "followUp" ? "queue" : policy.mode);
         const whenBusy = body.whenBusy === "reject" && !override ? "reject" : mode === "queue" ? "followUp" : "steer";
         const prepared = await prepareAttachments(input, conv, c.req.raw.signal);
-        await opts.limitContinuer?.cancel(Number(conv.id), "New input replaced automatic recovery.");
+        await opts.scheduledMessages?.cancelForConversation(Number(conv.id), "limit_recovery", "New input replaced automatic recovery.");
         // Admit and read the inbox in one commit, so the receipt names what the harness did.
         const admitted = await conv.commit(async (tx) => {
           const id = await conv.submit(tx, { type: "input", content: prepared, requestId: body.requestId, whenBusy });

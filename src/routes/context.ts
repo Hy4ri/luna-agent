@@ -74,7 +74,7 @@ export function createRouteCtx(
     if (pending) return pending;
     draining.add(id);
     const work = serial(id, async () => {
-      await opts.limitContinuer?.cancel(Number(conv.id), "Stopped by the user.");
+      await opts.scheduledMessages?.cancelForConversation(Number(conv.id), "queued_or_recovery", "Stopped by the user.");
       return conv.abort(context);
     });
     stops.set(id, work);

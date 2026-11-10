@@ -133,9 +133,33 @@ function handleInput() {
   updateAtState();
 }
 
-/** Run client-side commands (/compact, /models); returns true when handled. */
+const schedulePickerOpen = ref(false);
+const scheduleMessageText = ref("");
+const scheduleDateTime = ref("");
+const scheduleSubmitting = ref(false);
+const scheduleTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+function defaultScheduleDateTime(): string {
+  const d = new Date(Date.now() + 15 * 60_000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Run client-side commands (/compact, /models, /schedule <message>); returns true when handled. */
 function runLocalCommand(): boolean {
-  const cmd = /^\/(compact|compress|models?)$/.exec(composer.text.trim())?.[1];
+  const trimmed = composer.text.trim();
+  const schedMatch = /^\/schedule\s+([\s\S]+)$/.exec(trimmed);
+  if (schedMatch && schedMatch[1] !== "list" && !/^cancel\s+\S+$/.test(schedMatch[1])) {
+    if (!chat.session) {
+      addErr("/schedule needs an open session.");
+      return true;
+    }
+    scheduleMessageText.value = schedMatch[1].trim();
+    scheduleDateTime.value = defaultScheduleDateTime();
+    schedulePickerOpen.value = true;
+    return true;
+  }
+  const cmd = /^\/(compact|compress|models?)$/.exec(trimmed)?.[1];
   if (!cmd) return false;
   composer.text = ""; saveDraft();
   if (cmd.startsWith("model")) {
@@ -148,6 +172,31 @@ function runLocalCommand(): boolean {
     post(`/v1/sessions/${chat.session}/compact`).catch(error => addErr((error as Error).message));
   }
   return true;
+}
+
+async function confirmSchedule() {
+  if (!chat.session || scheduleSubmitting.value) return;
+  const dueAt = new Date(scheduleDateTime.value).getTime();
+  if (!Number.isFinite(dueAt) || dueAt <= Date.now()) {
+    addErr("Scheduled time must be in the future.");
+    return;
+  }
+  scheduleSubmitting.value = true;
+  try {
+    await post(`/v1/sessions/${chat.session}/scheduled-messages`, {
+      content: scheduleMessageText.value,
+      dueAt,
+    });
+    schedulePickerOpen.value = false;
+    scheduleMessageText.value = "";
+    composer.text = "";
+    saveDraft();
+    grow();
+  } catch (error) {
+    addErr((error as Error).message);
+  } finally {
+    scheduleSubmitting.value = false;
+  }
 }
 
 function submit() {
@@ -403,5 +452,22 @@ async function handleSubmit(e?: Event) {
     </form>
 
     <ModelPicker @open="pickerOpen = true" @close="pickerOpen = false" />
+    <div v-if="schedulePickerOpen" class="schedule-picker" role="dialog" aria-label="Schedule message">
+      <div class="schedule-picker__header">
+        <span>Schedule message ({{ scheduleTimezone }})</span>
+      </div>
+      <input
+        v-model="scheduleDateTime"
+        type="datetime-local"
+        class="schedule-picker__input"
+        aria-label="Scheduled date and time"
+      />
+      <div class="schedule-picker__actions">
+        <button type="button" class="schedule-picker__btn" @click="schedulePickerOpen = false">Cancel</button>
+        <button type="button" class="schedule-picker__btn schedule-picker__btn--primary" :disabled="scheduleSubmitting" @click="confirmSchedule">
+          {{ scheduleSubmitting ? "Scheduling..." : "Schedule" }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>

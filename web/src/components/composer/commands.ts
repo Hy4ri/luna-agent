@@ -37,6 +37,9 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "stop", insert: "/stop", label: "/stop", description: "Stop the active turn immediately", category: "session" },
   { id: "compact", insert: "/compact", label: "/compact", description: "Summarize older context now", category: "session" },
   { id: "models", insert: "/models", label: "/models", description: "Open the model picker", category: "session" },
+  { id: "schedule", insert: "/schedule ", label: "/schedule", args: "<message>", description: "Schedule a message for a specific date and time", category: "busy" },
+  { id: "schedule list", insert: "/schedule list", label: "/schedule list", description: "List pending scheduled messages", category: "busy" },
+  { id: "schedule cancel", insert: "/schedule cancel ", label: "/schedule cancel", args: "<id>", description: "Cancel a scheduled message", category: "busy" },
 ];
 
 export function filterAndSortMentionCards(cards: MentionCard[], query: string): MentionCard[] {

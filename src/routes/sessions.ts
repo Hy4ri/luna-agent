@@ -375,7 +375,9 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     }
     const { project: _p, ...rest } = b;
     const changes = { ...rest, ...("title" in b ? { title: b.title.trim() } : {}) } as Partial<ConversationMeta>;
-    if (changes.archived) await opts.limitContinuer?.cancel(id, "Session archived.");
+    if (changes.archived) {
+      await opts.scheduledMessages?.cancelForConversation(id, "all", "Session archived.");
+    }
     return c.json(await opts.conversations.update(id, changes));
   });
 
@@ -401,7 +403,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     if (!opts.conversations) return err(c, 404, "conversation management disabled");
     const id = Number(c.req.param("id"));
     if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
-    await opts.limitContinuer?.cancel(id, "Session deleted.");
+    await opts.scheduledMessages?.cancelForConversation(id, "all", "Session deleted.");
     const deleted = await opts.conversations.delete(id);
     await opts.limitContinuer?.reconcile();
     return c.json({ deleted });

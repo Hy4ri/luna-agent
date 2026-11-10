@@ -20,6 +20,7 @@ import type { CronStore, Scheduler } from "./scheduler.js";
 import { type WorkerHub } from "./workers.js";
 import type { SessionTitler } from "./titles.js";
 import type { LimitContinuer } from "./limit-continue.js";
+import type { ScheduledMessagesService } from "./scheduled-messages.js";
 import { SideCommands } from "./side-commands.js";
 import { UploadError, type UploadStore } from "./uploads.js";
 import type { SessionTalkPolicy } from "./session-talk.js";
@@ -40,6 +41,7 @@ import { registerTerminals } from "./routes/terminals.js";
 import { registerBrowser } from "./routes/browser.js";
 import { registerGithub } from "./routes/github.js";
 import { registerMessages } from "./routes/messages.js";
+import { registerScheduledMessages } from "./routes/scheduled-messages.js";
 import { registerSubsystems } from "./routes/subsystems.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
@@ -50,8 +52,10 @@ export interface ServerOptions {
   sideCommands?: SideCommands;
   /** Automatic and on-demand session titles. Absent: no title generation. */
   titler?: SessionTitler;
-  /** Automatic continuation after usage limits. Absent: no waits are reported or cancelled. */
+  /** Automatic continuation after usage limits (retired). */
   limitContinuer?: LimitContinuer;
+  /** Durable one-shot scheduled messages. Absent: scheduled-message endpoints answer 404. */
+  scheduledMessages?: ScheduledMessagesService;
   /** Registered Android push tokens. Absent: push is off and its endpoints answer 404. */
   push?: import("./push.js").DeviceStore;
   settings?: SettingsStore;
@@ -165,6 +169,7 @@ export function createApp(opts: ServerOptions) {
   registerSessionConfig(app, ctx);
   registerSessionOps(app, ctx);
   registerMessages(app, ctx);
+  registerScheduledMessages(app, ctx);
   registerSubsystems(app, ctx);
   registerWebhooks(app, ctx);
   registerPush(app, ctx);
