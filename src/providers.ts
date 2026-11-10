@@ -25,6 +25,7 @@ import type { ModelRef } from "./scheduler.js";
 import type { SettingsStore } from "./settings.js";
 import { claudeCliProvider } from "./claude-cli.js";
 import { opencodeCliProvider } from "./opencode-cli.js";
+import { costFor } from "./model-pricing.js";
 import { invalidateClaudeLoginStatus } from "./claude-native/status.js";
 
 /** Codex subscription (ChatGPT OAuth, chatgpt.com/backend-api). It uses the Codex plan quota, not the Sign in with ChatGPT sharing quota of `openai`. */
@@ -103,7 +104,8 @@ export function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch =
     input: m.vision ? ["text", "image"] : ["text"], reasoning: m.reasoning ?? false,
     ...(m.reasoning && m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
     contextWindow: m.contextWindow ?? 128_000, maxTokens: m.maxTokens ?? 16_384,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    // Endpoints publish no price: estimate from the built-in model of the same name.
+    cost: costFor(m.id),
     // Mid-conversation system messages keep the leading prompt fixed; affinity headers keep a session on one upstream account.
     ...(def.compat ? { compat: def.compat } : {}),
   } as Model<CustomApi>);

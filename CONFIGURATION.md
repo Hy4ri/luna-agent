@@ -652,6 +652,8 @@ the status and a hint. On start the provider checks the running opencode for the
 clear message if one is missing (tested with 2.1.x).
 `LUNA_OPENCODE_EXECUTABLE` selects the executable; the default is `opencode` on PATH. The routes used are marked
 experimental, so pin the opencode version you tested.
+Each response is priced at the rates OpenCode lists for the model (zero for free models). A model without a
+listed price takes the name-matched catalog estimate described under `/usage`.
 
 ## Claude CLI provider
 
@@ -850,6 +852,14 @@ Queue numbers start at 1. Each command applies atomically to the current queue. 
 `/model`, `/compress`, `/compact`, and `/retry` are rejected while busy. Use session controls when idle.
 
 `/usage` (alias `/cost`) returns recorded model token totals and cost for the current Luna conversation, plus Claude plan usage from the daemon host's Claude Code login. It does not submit a model prompt, change the conversation, or scan local transcripts. Tool-reported usage is excluded because it can overlap model usage. Recorded model cost is not the subscription bill; Claude generations record the native CLI's USD estimate, while providers that do not report cost can show zero.
+
+**Name-matched prices.** Custom providers and OpenCode models have no price in Luna's catalog. Luna prices them at the
+rates of the built-in model with the same name: first-party catalogs (Anthropic, OpenAI, Google, xAI, DeepSeek,
+Mistral, Groq) first, then OpenRouter. Matching ignores case, the vendor prefix (`anthropic/`), `.`/`_` versus `-`,
+and a trailing thinking or effort suffix (`-thinking`, `-high`), so `anthropic/claude-sonnet-4.6` and
+`claude-opus-4-6-thinking` match. IDs that end in `free` and unknown names stay at zero. The result is an
+API-list-price estimate, not a bill: a gateway can charge more or less, and a subscription proxy can cost nothing.
+Rates apply to responses recorded after the model list loads; older ledger entries are not repriced.
 
 **Cost source labels.** Session, model, and delegation cost totals are estimates, never invoices. A provider can return the billed amount for one response (`usage.cost.totalFromProvider`, for example OpenRouter), but stock pi-durable keeps only the first response's flag when the session ledger adds responses. A ledger total can therefore mix provider-reported, catalog-rate, and Claude CLI estimate parts, so analytics, the status bar, `/usage`, and the delegation summary label every total as an estimate. Component costs (`input`, `output`, and so on) stay catalog estimates even when a response total is provider-reported. Claude Code's total is its own USD estimate and is not marked provider-reported. The report appears in command feedback, not model context.
 
