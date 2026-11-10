@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { chat, answerQuestion } from "@/stores/chat";
+import Markdown from "./Markdown.vue";
 
 const questions = computed(() => chat.extras?.questions || []);
 
@@ -47,6 +48,7 @@ async function handleAnswer(q: any, cancelled = false) {
           <span dir="auto" class="pill">{{ questionDef.header }}</span>
           <b dir="auto" class="grow">{{ questionDef.question }}</b>
         </div>
+        <Markdown v-if="questionDef.context" dir="auto" class="muted ask-context" :content="questionDef.context" />
         <label v-for="(opt, oi) in questionDef.options" :key="oi" class="opt">
           <input :type="questionDef.multiSelect ? 'checkbox' : 'radio'" :name="`q${q.callId}-${qi}`" :value="opt.label" />
           <span>

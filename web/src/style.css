@@ -864,6 +864,9 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 #questions { min-width: 0; gap: 8px; font-size: 14.5px; font-weight: 440; }
 #questions .opt > span { min-width: 0; overflow-wrap: anywhere; }
 #questions pre.code { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; }
+#questions .ask-context { font-size: 13.5px; overflow-wrap: anywhere; }
+#questions .ask-context > :first-child { margin-top: 0; }
+#questions .ask-context > :last-child { margin-bottom: 0; }
 .chat-extras .activity { font-size: 13.5px; font-weight: 420; padding: 0; }
 .activity summary { cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 10px; list-style: none; }
 .activity summary::-webkit-details-marker { display: none; }
