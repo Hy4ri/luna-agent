@@ -4,6 +4,7 @@ import { ChevronsUpDown } from "@lucide/vue";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useModelRefresh } from "@/lib/use-model-refresh";
 import ModelSelector from "@/components/ModelSelector.vue";
+import ModelRefreshButton from "@/components/ModelRefreshButton.vue";
 import { models, modelKey } from "@/stores/models";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +31,7 @@ const emit = defineEmits<{
 
 const open = ref(false);
 const selectorRef = ref<InstanceType<typeof ModelSelector> | null>(null);
-const { loading, errorText, refreshModels, begin, cancel, markInteracted } = useModelRefresh(selectorRef, () => open.value);
+const { loading, errorText, retry, refreshAll, begin, cancel, markInteracted } = useModelRefresh(selectorRef, () => open.value);
 
 // label: try to resolve via injected choices + fallback to raw value
 const injected = inject("settingsModelChoices", null as any);
@@ -97,6 +98,9 @@ watch(open, (v) => {
       @keydown.capture="markInteracted()"
       @wheel.passive="markInteracted()"
     >
+      <div class="combobox-head">
+        <ModelRefreshButton :loading="loading" @refresh="refreshAll" />
+      </div>
       <ModelSelector
         ref="selectorRef"
         :value="modelValue || ''"
@@ -104,7 +108,7 @@ watch(open, (v) => {
         :error="errorText"
         :placeholder="placeholder"
         :empty-label="emptyLabel"
-        @retry="refreshModels"
+        @retry="retry"
         @select="onSelect as any"
         @close="open = false"
       />
@@ -117,6 +121,7 @@ watch(open, (v) => {
 .combobox-trigger:disabled { opacity: .6; cursor: not-allowed; }
 .combobox-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .combobox-label[data-empty="true"] { color: var(--muted-foreground); }
+.combobox-head { flex: none; display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .combobox-chevron { flex: none; color: var(--muted-foreground); }
 .input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 14px; }
 .input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
