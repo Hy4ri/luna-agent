@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll as after, test } from "bun:test";
@@ -38,6 +38,7 @@ test("worker commands cannot read the link token or the API token", async () => 
   } finally { proc.kill(); await proc.exited; }
 });
 
+let releaseFifo: (() => void) | undefined;
 test("a call the worker never answers fails on its own and leaves the link up", async () => {
   hub.fileTimeoutMs = 500;
   const { worker, token } = hub.store.create("slow");
@@ -47,13 +48,16 @@ test("a call the worker never answers fails on its own and leaves the link up", 
     await w.ready;
     const fifo = join(dir, "fifo");
     await Bun.$`mkfifo ${fifo}`.quiet();
+    // The worker's blocked open() holds a thread-pool thread until a writer appears. Release it at the end
+    // or a small CI runner runs out of fs threads for the next test file.
+    releaseFifo = () => closeSync(openSync(fifo, "r+"));
     const env = hub.env(worker.id, dir) as any;
     const r = await env.readTextFile(fifo, BACKGROUND_CONTEXT);
     assert.equal(r.ok, false);
     assert.match(r.error.message, /did not answer within/);
     assert.ok(hub.view(worker.id)?.online);
     assert.ok((await env.exists(dir, BACKGROUND_CONTEXT)).ok);
-  } finally { hub.fileTimeoutMs = 120_000; await w.close(); }
+  } finally { hub.fileTimeoutMs = 120_000; releaseFifo?.(); await Bun.sleep(100); await w.close(); }
 }, 20_000);
 
 test("an oversized result fails that call only; other commands survive", async () => {
