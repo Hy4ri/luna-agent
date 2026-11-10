@@ -789,7 +789,7 @@ test("recovery startup does not wait for a parser or revive unclaimed historical
   }
 });
 
-test("live recovery rejects stale failure/reset evidence before parsing but still parses fresh exact evidence once", async () => {
+test("live recovery rejects stale evidence and schedules fresh exact evidence without parsing", async () => {
   const { RecoveryStateDoc } = await import("../src/recovery-state.js");
   const now = Date.now(), faux = fauxProvider(), models = createModels();
   models.setProvider(faux.provider);
@@ -822,7 +822,7 @@ test("live recovery rejects stale failure/reset evidence before parsing but stil
         return value ? JSON.parse(JSON.stringify(value)) as typeof value : undefined;
       }, context), "terminal recovery eligibility");
       assert.equal(attempt.status, i < 2 ? "stopped" : "scheduled");
-      assert.equal(parserCalls, i < 2 ? 0 : 1);
+      assert.equal(parserCalls, 0);
       if (i === 0) assert.match(attempt.reason!, /older than maxWaitHours/);
       if (i === 1) assert.match(attempt.reason!, /reset.*passed/i);
     }

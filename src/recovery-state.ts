@@ -14,12 +14,16 @@ export type RecoveryAttempt = {
   exact?: boolean;
 };
 
-/** A claim is persisted BEFORE a parser call. An interrupted claim never calls the model again. */
-export const RecoveryStateDoc = defineDoc<{
+export type RecoveryStateValue = {
   attempts: Record<string, RecoveryAttempt>;
   blockedThrough: Record<string, number>;
   legacyMigrated: boolean;
-}>({
+  claimedThrough?: Record<string, number>;
+  resetFloors?: Record<string, number>;
+};
+
+/** A claim is persisted BEFORE a parser call. An interrupted claim never calls the model again. */
+export const RecoveryStateDoc = defineDoc<RecoveryStateValue>({
   kind: "luna.scheduled-recovery", version: 1, scope: "session", checkpointWhen: () => false,
   initial: () => ({ attempts: {}, blockedThrough: {}, legacyMigrated: false }),
 });
@@ -27,10 +31,33 @@ export const RecoveryStateDoc = defineDoc<{
 export const recoveryKey = (id: number, boundary: number) => `${id}:${boundary}`;
 
 /** Same configured route can share provider reset evidence, never another model's guessed timing. */
-export function recoveryResetFloor(attempts: Record<string, RecoveryAttempt>, provider: string, model: string): number {
-  return Math.max(0, ...Object.values(attempts)
-    .filter(a => a.provider === provider && a.model === model && a.evidenceAt !== undefined)
-    .map(a => a.evidenceAt!));
+const routeKey = (provider: string, model: string) => JSON.stringify([provider, model]);
+export function recoveryResetFloor(state: RecoveryStateValue, provider: string, model: string): number {
+  if (state.resetFloors) return state.resetFloors[routeKey(provider, model)] ?? 0;
+  // Compatibility for state written before compaction was introduced.
+  return Object.values(state.attempts).reduce((floor, a) => a.provider === provider && a.model === model
+    ? Math.max(floor, a.evidenceAt ?? 0) : floor, 0);
+}
+
+/** Keep one current attempt/entitlement watermark per conversation, not its entire failure history. */
+export function compactRecoveryState(state: RecoveryStateValue, now: number): void {
+  if (!state.claimedThrough) state.claimedThrough = {};
+  if (!state.resetFloors) state.resetFloors = {};
+  const claimed = state.claimedThrough, floors = state.resetFloors;
+  for (const [key, at] of Object.entries(floors)) if (at <= now) delete floors[key];
+  const latest = new Map<number, RecoveryAttempt>();
+  for (const attempt of Object.values(state.attempts)) {
+    const sid = String(attempt.conversationId);
+    claimed[sid] = Math.max(claimed[sid] ?? -1, attempt.boundary);
+    if (attempt.evidenceAt && attempt.evidenceAt > now) {
+      const key = routeKey(attempt.provider, attempt.model);
+      floors[key] = Math.max(floors[key] ?? 0, attempt.evidenceAt);
+    }
+    if ((latest.get(attempt.conversationId)?.boundary ?? -1) < attempt.boundary) latest.set(attempt.conversationId, attempt);
+  }
+  for (const [key, attempt] of Object.entries(state.attempts)) {
+    if (latest.get(attempt.conversationId)?.boundary !== attempt.boundary) delete state.attempts[key];
+  }
 }
 
 /** Read only: all admission guards must run before the harness writes tables. */

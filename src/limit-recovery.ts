@@ -1,8 +1,8 @@
 import { LiveDoc, UsageDoc, type ConversationId, type ModelRef, type Tx } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { classifyLimit } from "./limit-reset.js";
-import { type ScheduledMessagesService, ScheduledMessagesDoc } from "./scheduled-messages.js";
-import { RecoveryStateDoc, recoveryCandidate, recoveryKey, recoveryResetFloor, type RecoveryAttempt } from "./recovery-state.js";
+import { type ScheduledMessagesService } from "./scheduled-messages.js";
+import { RecoveryStateDoc, compactRecoveryState, recoveryCandidate, recoveryKey, recoveryResetFloor, type RecoveryAttempt } from "./recovery-state.js";
 import type { ResetTimeInput, ResetTimeResult } from "./reset-time-parser.js";
 import { migrateLimitWaits } from "./limit-continue.js";
 
@@ -54,9 +54,11 @@ export class LimitRecoveryService {
     });
     // Reconcile a claimed parser cut off by a crash using captured evidence only; never re-call it.
     await this.enqueue(async () => {
-      const claims = await this.o.harness.commit(async tx => JSON.parse(JSON.stringify(
-        Object.values((await tx.doc(RecoveryStateDoc)).attempts).filter(a => a.status === "parsing"),
-      )) as RecoveryAttempt[], context);
+      const claims = await this.o.harness.commit(async tx => {
+        const state = await tx.doc(RecoveryStateDoc);
+        compactRecoveryState(state, this.now());
+        return JSON.parse(JSON.stringify(Object.values(state.attempts).filter(a => a.status === "parsing"))) as RecoveryAttempt[];
+      }, context);
       for (const claim of claims) await this.finish(claim, undefined);
       // Only persisted claims/schedules resume at boot. Historical failures without a
       // claim require new user intent, not a new paid interpretation of old error text.
@@ -80,39 +82,46 @@ export class LimitRecoveryService {
       if (!failure || failure.generation !== generation) return;
       const state = await tx.doc(RecoveryStateDoc);
       const key = recoveryKey(id, failure.boundary);
-      if (state.attempts[key]) return;
+      if (state.attempts[key] || (state.claimedThrough?.[String(id)] ?? -1) >= failure.boundary) return;
       const failedAt = failure.limit?.receivedAt ?? failure.failedAt ?? now;
       const error = failure.limit?.response ?? failure.message;
       const cls = classifyLimit(error, failedAt);
       if (cls.kind === "fatal" || failure.limit?.kind === "fatal" || (cls.kind !== "wait" && failure.limit?.kind !== "wait")) return;
       // The run's actual submission receipts handle batching, many tool rounds, and restarts.
       const inputs = (await tx.doc(LiveDoc, cid)).runFailure?.inputs ?? [];
-      const schedules = await tx.doc(ScheduledMessagesDoc);
-      const recoveryIds = new Set(Object.values(schedules.schedules)
-        .filter(s => s.conversationId === id && s.source.kind === "limit_recovery").map(s => s.submissionId));
-      const recursive = inputs.some(sub => recoveryIds.has(String(sub)));
+      let recursive = false;
+      for (const input of inputs) {
+        const submission = await tx.submission(input);
+        const entry = submission && "entry" in submission && submission.entry !== undefined ? await tx.entry(submission.entry) : undefined;
+        if (entry?.kind === "luna.scheduled-message" && entry.data && typeof entry.data === "object" && !Array.isArray(entry.data) && entry.data.source === "limit_recovery") {
+          recursive = true; break;
+        }
+      }
       const windows = failure.limit?.windows ?? [];
       const knownResets = windows.flatMap(w => w.resetAt === null ? [] : [w.resetAt]);
       if (cls.kind === "wait" && cls.resetAt !== undefined) knownResets.push(cls.resetAt);
       const provider = failure.provider ?? this.o.defaultModel().provider;
       const model = failure.model ?? this.o.defaultModel().modelId;
       const ownEvidence = knownResets.length ? Math.max(...knownResets) : 0;
+      const evidenceAt = Math.max(ownEvidence, recoveryResetFloor(state, provider, model)) || undefined;
       const staleReason = now - failedAt > this.o.policy().maxWaitHours * 3_600_000
         ? "Failure is older than maxWaitHours. Retry or schedule manually."
         : ownEvidence > 0 && ownEvidence <= now ? "Known reset time already passed. Retry or schedule manually." : undefined;
-      const evidenceAt = Math.max(ownEvidence, recoveryResetFloor(state.attempts, provider, model)) || undefined;
+      const exactEvidence = ownEvidence > 0 && !windows.some(w => w.resetAt === null) && (windows.length > 0 || (cls.kind === "wait" && !!cls.exact));
       const attempt: RecoveryAttempt = {
         conversationId: id, boundary: failure.boundary, generation: failure.generation,
         provider, model,
         status: recursive ? "consumed" : staleReason ? "stopped" : "parsing",
         ...(recursive ? { reason: "Automatic recovery already attempted. Retry or schedule manually." } : staleReason ? { reason: staleReason } : {}),
         ...(evidenceAt !== undefined ? { evidenceAt } : {}),
-        exact: evidenceAt !== undefined && evidenceAt === ownEvidence && !windows.some(w => w.resetAt === null) && (windows.length > 0 || (cls.kind === "wait" && !!cls.exact)),
+        exact: exactEvidence && evidenceAt === ownEvidence,
       };
       state.attempts[key] = attempt;
-      return { attempt: JSON.parse(JSON.stringify(attempt)) as RecoveryAttempt, error, failedAt, windows };
+      compactRecoveryState(state, now);
+      return { attempt: JSON.parse(JSON.stringify(attempt)) as RecoveryAttempt, error, failedAt, windows, exactEvidence };
     }, context);
     if (!claim || claim.attempt.status !== "parsing") return;
+    if (claim.exactEvidence) { await this.finish(claim.attempt, undefined); return; }
 
     const failedModel = { provider: claim.attempt.provider, modelId: claim.attempt.model };
     const parserModel = this.o.parserModel?.(failedModel) ?? failedModel;
@@ -154,9 +163,11 @@ export class LimitRecoveryService {
       const parsedAt = parsed?.resetAt;
       const validParse = typeof parsedAt === "number" && Number.isFinite(parsedAt) && parsedAt > now && parsedAt <= 8.64e15;
       // Even incomplete structured windows carry a known lower bound that a parser must not shorten.
-      const resetAt = Math.ceil(Math.max(claim.evidenceAt ?? 0, recoveryResetFloor(state.attempts, claim.provider, claim.model), validParse ? parsedAt : 0));
+      const resetAt = Math.ceil(Math.max(claim.evidenceAt ?? 0, recoveryResetFloor(state, claim.provider, claim.model), validParse ? parsedAt : 0));
       if (!resetAt || resetAt + (policy.resetGraceSeconds ?? 60) * 1000 <= now) {
-        current.status = "stopped"; current.reason = "Cannot determine reset time. Schedule a message or retry manually."; return;
+        current.status = "stopped";
+        current.reason = resetAt ? "Known reset time already passed. Retry or schedule manually." : "Cannot determine reset time. Schedule a message or retry manually.";
+        return;
       }
       const dueAt = resetAt + (policy.resetGraceSeconds ?? 60) * 1000;
       if (dueAt - now > policy.maxWaitHours * 3_600_000) {

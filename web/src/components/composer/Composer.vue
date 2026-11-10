@@ -228,8 +228,9 @@ async function confirmSchedule() {
     scheduleRevision.value++; scheduleList.value?.show();
   } catch (error) {
     if (scheduleAttempt === attempt) {
-      if ((error as Error & { status?: number }).status === 400) {
-        scheduleAttempt = null; // Definitive validation rejection: safe to correct the time and submit anew.
+      const status = (error as Error & { status?: number }).status;
+      if (status === 400 || status === 404 || status === 409) {
+        scheduleAttempt = null; // Definitive rejection: safe to correct and submit anew.
         scheduleError.value = (error as Error).message;
       } else scheduleError.value = `Not confirmed: ${(error as Error).message}. Retry uses the same request.`;
     }

@@ -13,6 +13,7 @@ export type SessionRow = SessionState & {
   running: boolean;
   wait: number | null;
   recovery: RecoverySummary | null;
+  scheduled?: { count: number; version: string };
   lastActivity: number | null;
   createdAt: number | null;
   worker: number | null;
@@ -81,14 +82,17 @@ export function createSessionRows(ctx: RouteCtx) {
         worker: null,
       };
     const running = await isRunning(tx, r.id);
+    const recovery = running ? null : ((await opts.scheduledMessages?.recovery(tx, r.id)) ?? null);
+    const scheduled = await opts.scheduledMessages?.summary(tx, Number(r.id));
     return {
       hidden: false,
       parent: r.parent ?? null,
       firstUser,
       running,
       ...(await readSessionStatus(tx, r.id, running)),
-      wait: running ? null : (await opts.scheduledMessages?.recovery(tx, r.id))?.resumeAt ?? null,
-      recovery: running ? null : ((await opts.scheduledMessages?.recovery(tx, r.id)) ?? null),
+      wait: recovery?.resumeAt ?? null,
+      recovery,
+      scheduled,
       lastActivity: await newestMessageTime(tx, r.id),
       createdAt: (await tx.doc(SessionCreated, r.id)).at ?? null,
       worker: (await tx.doc(ExecTarget, r.id)).worker,

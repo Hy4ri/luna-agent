@@ -141,9 +141,10 @@ transactional submission API, not a host callback stored in a submission.
   `maxWaitHours` (default `168`) limits the remaining automatic wait.
   `resetGraceSeconds` (default `60`, range `0..3600`) adds a safety margin in seconds after a known quota reset timestamp.
   `maxAttempts` is retired; existing configs containing `autoContinue.maxAttempts` are accepted as deprecated compatibility input and stripped on load/save.
-  Reset parsing uses one configured subagent-default completion, preserves known reset evidence plus `resetGraceSeconds`, and does not perform chained retries or unknown-time backoff.
+  Complete structured provider reset evidence is used directly with no model call. Only an eligible failure without exact evidence uses one configured subagent-default completion; either path preserves known reset evidence plus `resetGraceSeconds`, and does not perform chained retries or unknown-time backoff.
   Startup restores persisted recovery claims and schedules without parsing unclaimed historical failures or waiting for parser calls.
   New recovery claims require an observed terminal generation; failures older than `maxWaitHours` or whose latest known reset already passed require manual action before any parser call.
+  Settled scheduled messages move to per-conversation history and recovery state keeps one attempt per conversation plus entitlement watermarks and same-route future reset floors; request deduplication and one-shot entitlement are retained indefinitely.
   Authentication, payment-required errors, empty balances, `insufficient_quota`, and context overflow never enter quota recovery.
   New input, **Stop**, a model change, archive/delete, or disabling recovery cancels a pending recovery wait.
   Quota refusals have one retry owner: the durable scheduled-message engine. Provider-local and generation retry

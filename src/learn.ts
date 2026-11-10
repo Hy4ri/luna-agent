@@ -13,7 +13,7 @@ export type Cause = "missing" | "not_loaded" | "ignored" | "wrong" | "stale" | "
 export type Scope = "skill" | "memory" | "project";
 export type LessonStatus = "supported" | "verified" | "replaced" | "applying" | "blocked" | "candidate" | "corroborated" | "proposed" | "applied" | "confirmed" | "ineffective" | "rejected" | "retired";
 
-export interface ScanMessage { entry: number; role: "user" | "assistant" | "toolResult"; text: string; ts: number | null; calls: { id?: string; name: string; args: Record<string, unknown> }[]; toolName?: string; toolCallId?: string; isError?: boolean; source?: string }
+export interface ScanMessage { entry: number; role: "user" | "assistant" | "toolResult"; text: string; ts: number | null; calls: { id?: string; name: string; args: Record<string, unknown> }[]; toolName?: string; toolCallId?: string; isError?: boolean; source?: string; scheduledSource?: string }
 export interface DetectedSignal { entry: number; kind: SignalKind; key: string | null; summary: string; skills: string[]; ts: number | null; context: string; fingerprint: string }
 export interface SignalRow { id: number; conv: number; entry: number; kind: SignalKind; key: string | null; summary: string; skills: string; ts: number | null; lesson: number | null; context: string; fingerprint: string | null; disposition: string | null }
 export interface LessonRow {
@@ -48,7 +48,7 @@ const RULE = new RegExp(
 
 /** Heuristics nominate events, never establish truth or permission. Quoted material is not a user rule. */
 export function originalUserText(m: ScanMessage): string {
-  if (m.role !== "user" || (m.source && m.source !== "pi.user")) return "";
+  if (m.role !== "user" || (m.source && m.source !== "pi.user" && !(m.source === "luna.scheduled-message" && m.scheduledSource === "user"))) return "";
   if (/^(?:The conversation history before this point was compacted|Background process |\[|<summary>|\/learn\b)/i.test(m.text.trim())) return "";
   return m.text.replace(/```[\s\S]*?(?:```|$)/g, "").split("\n").filter(l => !/^\s*>/.test(l)).join("\n").trim();
 }
@@ -159,7 +159,9 @@ export async function readConversation(tx: Pick<Tx, "scanEntries">, conv: number
         const text = m.role === "toolResult" && Array.isArray(m.content)
           ? (m.content as { type?: string; text?: string }[]).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n")
           : messageText(m as never);
-        msgs.push({ entry: e.id as number, role: m.role, text, ts: m.timestamp ?? null, calls, source: e.kind, ...(m.role === "toolResult" ? { toolName: m.toolName, toolCallId: m.toolCallId, isError: !!m.isError } : {}) });
+        msgs.push({ entry: e.id as number, role: m.role, text, ts: m.timestamp ?? null, calls, source: e.kind,
+          ...(e.kind === "luna.scheduled-message" && e.data && typeof e.data === "object" && !Array.isArray(e.data) && typeof e.data.source === "string" ? { scheduledSource: e.data.source } : {}),
+          ...(m.role === "toolResult" ? { toolName: m.toolName, toolCallId: m.toolCallId, isError: !!m.isError } : {}) });
       }
     }
     cursor = page.next;

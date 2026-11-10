@@ -12,6 +12,8 @@ const loaded = ref(false), loading = ref(false), error = ref(""), notice = ref("
 const cancelling = ref<string | null>(null);
 const open = ref(false);
 const pending = computed(() => rows.value.filter(s => s.status === "scheduled" || s.status === "queued"));
+const summary = computed(() => history.list.find(s => String(s.id) === String(chat.session))?.scheduled);
+const count = computed(() => summary.value?.count ?? pending.value.length);
 let ticket = 0;
 onBeforeUnmount(() => { ticket++; });
 async function refresh() {
@@ -29,7 +31,10 @@ watch(() => [chat.session, serverUrl.value, token.value], () => {
   ticket++; rows.value = []; loaded.value = false; error.value = ""; notice.value = ""; open.value = false;
   void refresh();
 }, { immediate: true });
-watch(() => [chat.connected, history.list, props.revision], () => { if (chat.session && chat.connected) void refresh(); });
+watch(() => [chat.connected, props.revision], ([connected]) => { if (chat.session && connected) void refresh(); });
+// Streaming replaces history rows often. Only a real scheduling change refreshes an open list.
+// Collapsed counts come from the session row; opening always fetches the current records.
+watch(() => summary.value?.version, () => { if (open.value && chat.session && chat.connected) void refresh(); });
 watch(open, value => { if (value) { notice.value = ""; void refresh(); } });
 async function cancel(row: Schedule) {
   const sid = chat.session, origin = serverUrl.value;
@@ -47,17 +52,17 @@ defineExpose({ show: () => { open.value = true; } });
 </script>
 
 <template>
-  <details v-if="chat.session" class="scheduled-list" :open="open" @toggle="open = ($event.target as HTMLDetailsElement).open">
+  <details v-if="chat.session && (open || !!error || !loaded || count > 0)" class="scheduled-list" :open="open" @toggle="open = ($event.target as HTMLDetailsElement).open">
     <summary><Clock :size="13" aria-hidden="true" />
       <span v-if="error">Scheduled · unavailable</span>
-      <span v-else-if="loaded">Scheduled · {{ pending.length }}</span>
+      <span v-else-if="loaded">Scheduled · {{ count }}</span>
       <span v-else>Scheduled · loading</span>
     </summary>
     <div class="scheduled-list__body" aria-label="Scheduled messages">
       <div class="scheduled-list__actions"><span v-if="loading" role="status">Refreshing…</span><button type="button" :disabled="loading" @click="refresh">Refresh</button></div>
       <p v-if="error" role="alert">{{ error }} <button type="button" :disabled="loading" @click="refresh">Retry</button></p>
       <p v-if="notice" role="status">{{ notice }}</p>
-      <p v-if="loaded && !pending.length">No pending messages.</p>
+      <p v-if="loaded && !loading && !pending.length">No pending messages.</p>
       <div v-for="row in pending" :key="row.id" class="scheduled-list__row">
         <div><p class="scheduled-list__text">{{ row.content }}</p>
           <p class="scheduled-list__meta">{{ row.source.kind === 'limit_recovery' ? 'Automatic' : 'Manual' }} · {{ row.status === 'queued' ? 'Queued' : new Date(row.dueAt).toLocaleString() }}</p>

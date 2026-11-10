@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { defineDoc, type ConversationId, type SubmissionId, type Tx } from "@earendil-works/pi-durable";
+import { defineDoc, defineDocFamily, type ConversationId, type SubmissionId, type SubmissionRecord, type Tx } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { newestInputBoundary } from "./session-status.js";
 import { RecoveryStateDoc, recoveryCandidate, recoveryKey, recoveryResetFloor } from "./recovery-state.js";
@@ -49,6 +49,22 @@ export const ScheduledMessagesDoc = defineDoc<ScheduledMessagesDocValue>({
   scope: "session",
   initial: () => ({ schedules: {}, requests: {} }),
 });
+
+/** Cold terminal history and indefinite request receipts, partitioned by conversation. */
+export const ScheduledMessagesHistoryDoc = defineDocFamily<ScheduledMessagesDocValue, null>({
+  checkpointWhen: () => false, kind: "luna.scheduled-messages-history", version: 1, scope: "session", family: true,
+  initial: () => ({ schedules: {}, requests: {} }),
+});
+
+function applySubmission(rec: ScheduledMessageRecord, sub: SubmissionRecord): void {
+  if (sub.status === "done" || ("entry" in sub && sub.entry !== undefined)) {
+    rec.status = "delivered";
+    if ("entry" in sub && sub.entry !== undefined) rec.entryId = Number(sub.entry);
+  } else if (sub.status === "unanswered") {
+    rec.status = sub.reason === "run_failed" ? "failed" : "cancelled";
+    rec.terminalReason = sub.reason || "unanswered";
+  } else rec.status = "queued";
+}
 
 export class ScheduledMessageError extends Error {
   constructor(message: string, readonly status: 400 | 404 | 409 = 400) {
@@ -144,15 +160,15 @@ export class ScheduledMessagesService {
   }
 
   async recovery(tx: Tx, id: ConversationId): Promise<RecoverySummary | undefined> {
-    const schedules = await this.list(tx, Number(id));
-    const pending = schedules.find(s => s.source.kind === "limit_recovery" && (s.status === "scheduled" || s.status === "queued"));
+    const pending = Object.values((await tx.doc(ScheduledMessagesDoc)).schedules)
+      .filter(s => s.conversationId === Number(id) && s.source.kind === "limit_recovery" && (s.status === "scheduled" || s.status === "queued"))
+      .sort(compareDue)[0];
     if (pending && pending.source.kind === "limit_recovery") return {
       active: true, resumeAt: Math.max(pending.dueAt, pending.nextDeliveryAt ?? 0), exact: pending.source.exact,
       source: pending.source.resetSource, provider: pending.source.provider, model: pending.source.model,
     };
     const boundary = await newestInputBoundary(tx, id);
-    const attempt = Object.values((await tx.doc(RecoveryStateDoc)).attempts)
-      .find(a => a.conversationId === Number(id) && a.boundary === boundary);
+    const attempt = (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(Number(id), boundary)];
     if (attempt && (attempt.status === "stopped" || attempt.status === "consumed") && attempt.reason) return {
       active: false, exact: false, pausedReason: attempt.reason, provider: attempt.provider, model: attempt.model,
     };
@@ -192,12 +208,13 @@ export class ScheduledMessagesService {
     const doc = await tx.doc(ScheduledMessagesDoc);
     const reqKey = `${input.conversationId}:${input.requestId}`;
     const fp = fingerprintOf(input.conversationId, content, input.dueAt, input.source);
-    const existingReq = doc.requests[reqKey];
+    const history = await tx.doc(ScheduledMessagesHistoryDoc, String(input.conversationId), null);
+    const existingReq = doc.requests[reqKey] ?? history.requests[reqKey];
     if (existingReq) {
       if (existingReq.fingerprint !== fp) {
         throw new ScheduledMessageError("requestId already belongs to another scheduled message.", 409);
       }
-      const existing = doc.schedules[existingReq.scheduleId];
+      const existing = doc.schedules[existingReq.scheduleId] ?? history.schedules[existingReq.scheduleId];
       if (existing) return { schedule: cloneRecord(existing), created: false };
     }
 
@@ -225,9 +242,17 @@ export class ScheduledMessagesService {
     return { schedule: cloneRecord(record), created: true };
   }
 
+  async summary(tx: Tx, conversationId: number): Promise<{ count: number; version: string }> {
+    const pending = Object.values((await tx.doc(ScheduledMessagesDoc)).schedules)
+      .filter(s => s.conversationId === conversationId && (s.status === "scheduled" || s.status === "queued")).sort(compareDue);
+    return { count: pending.length, version: pending.length ? new Bun.CryptoHasher("sha256")
+      .update(JSON.stringify(pending.map(s => [s.id, s.status, s.dueAt, s.nextDeliveryAt, s.lastError]))).digest("hex") : "" };
+  }
+
   async list(tx: Tx, conversationId: number): Promise<ScheduledMessageRecord[]> {
     const doc = await tx.doc(ScheduledMessagesDoc);
-    return Object.values(doc.schedules)
+    const history = await tx.doc(ScheduledMessagesHistoryDoc, String(conversationId), null);
+    return [...Object.values(doc.schedules), ...Object.values(history.schedules)]
       .filter((s) => s.conversationId === conversationId)
       .sort(compareDue)
       .map((s) => cloneRecord(s));
@@ -243,7 +268,7 @@ export class ScheduledMessagesService {
   }> {
     const pre = await this.o.harness.commit(async (tx) => {
       const doc = await tx.doc(ScheduledMessagesDoc);
-      const rec = doc.schedules[scheduleId];
+      const rec = doc.schedules[scheduleId] ?? (await tx.doc(ScheduledMessagesHistoryDoc, String(conversationId), null)).schedules[scheduleId];
       if (!rec || rec.conversationId !== conversationId) return { kind: "not_found" as const };
       if (rec.status === "delivered") return { kind: "already_delivered" as const, schedule: cloneRecord(rec) };
       if (rec.status === "cancelled" || rec.status === "failed") {
@@ -273,7 +298,7 @@ export class ScheduledMessagesService {
 
     const post = await this.o.harness.commit(async (tx) => {
       const doc = await tx.doc(ScheduledMessagesDoc);
-      const rec = doc.schedules[scheduleId];
+      const rec = doc.schedules[scheduleId] ?? (await tx.doc(ScheduledMessagesHistoryDoc, String(conversationId), null)).schedules[scheduleId];
       if (!rec || rec.conversationId !== conversationId) return { status: "not_found" as const };
       const sub = await tx.submissionByRequest(conversationId as ConversationId, rec.requestId);
       if (sub && (sub.status === "done" || ("entry" in sub && sub.entry !== undefined))) {
@@ -355,7 +380,7 @@ export class ScheduledMessagesService {
     if (rec.source.kind !== "limit_recovery") return;
     const policy = this.o.recoveryPolicy?.();
     const state = await tx.doc(RecoveryStateDoc);
-    const floor = recoveryResetFloor(state.attempts, rec.source.provider, rec.source.model);
+    const floor = recoveryResetFloor(state, rec.source.provider, rec.source.model);
     if (floor && floor + (policy?.resetGraceSeconds ?? 60) * 1000 > rec.dueAt) {
       rec.dueAt = Math.ceil(floor + (policy?.resetGraceSeconds ?? 60) * 1000);
       rec.source.exact = false; rec.source.resetSource = "shared_provider_evidence";
@@ -386,14 +411,22 @@ export class ScheduledMessagesService {
         if (rec.status !== "queued") continue;
         const sub = await tx.submissionByRequest(rec.conversationId as ConversationId, rec.requestId);
         if (!sub) continue;
-        if (sub.status === "done" || ("entry" in sub && sub.entry !== undefined)) {
-          rec.status = "delivered";
-          if ("entry" in sub && sub.entry !== undefined) rec.entryId = Number(sub.entry);
-        } else if (sub.status === "unanswered") {
-          const reason = "reason" in sub ? String(sub.reason ?? "") : "";
-          rec.status = reason === "run_failed" ? "failed" : "cancelled";
-          rec.terminalReason = reason || "unanswered";
+        applySubmission(rec, sub);
+      }
+      // Retire terminal records from every timer/agent scan without erasing dedup or user history.
+      const requests = new Map<string, [string, { scheduleId: string; fingerprint: string }][]>();
+      for (const [key, receipt] of Object.entries(doc.requests)) {
+        const group = requests.get(receipt.scheduleId) ?? [];
+        group.push([key, receipt]); requests.set(receipt.scheduleId, group);
+      }
+      for (const rec of Object.values(doc.schedules)) {
+        if (rec.status === "scheduled" || rec.status === "queued") continue;
+        const history = await tx.doc(ScheduledMessagesHistoryDoc, String(rec.conversationId), null);
+        history.schedules[rec.id] = cloneRecord(rec);
+        for (const [key, receipt] of requests.get(rec.id) ?? []) {
+          history.requests[key] = { ...receipt }; delete doc.requests[key];
         }
+        delete doc.schedules[rec.id];
       }
     }, context);
   }
@@ -413,6 +446,7 @@ export class ScheduledMessagesService {
       if (this.closed) return;
       await this.fireOne(id);
     }
+    if (dueIds.length) await this.reconcile();
   }
 
   async fireOne(id: string): Promise<boolean> {
@@ -477,15 +511,7 @@ export class ScheduledMessagesService {
         const existingSub = await tx.submissionByRequest(pre.conversationId as ConversationId, rec.requestId);
         if (existingSub) {
           rec.submissionId = String(existingSub.id);
-          if (existingSub.status === "done" || ("entry" in existingSub && existingSub.entry !== undefined)) {
-            rec.status = "delivered";
-            if ("entry" in existingSub && existingSub.entry !== undefined) rec.entryId = Number(existingSub.entry);
-          } else if (existingSub.status === "unanswered") {
-            rec.status = "cancelled";
-            rec.terminalReason = "reason" in existingSub ? String(existingSub.reason ?? "unanswered") : "unanswered";
-          } else {
-            rec.status = "queued";
-          }
+          applySubmission(rec, existingSub);
           return "reconciled" as const;
         }
 
