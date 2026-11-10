@@ -115,7 +115,8 @@ compiled assets, and the pre-upgrade state snapshot. Work created after that sna
 Do not start two writing daemons against the same data directory.
 
 Dependency patches retain Luna's redirect/grouped-steering behavior, submission receipts,
-selected model identity in failures, and provider quota diagnostics/retry ownership. Guarded server admissions use Pi's
+selected model identity in failures, and provider 429 retry ownership. Codex and Google quota errors use upstream
+error text; Luna adds no quota diagnostics for them. Guarded server admissions use Pi's
 transactional submission API, not a host callback stored in a submission.
 
 ## Fields

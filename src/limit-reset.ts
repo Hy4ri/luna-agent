@@ -2,7 +2,7 @@
 // - "wait": a rate or usage limit that ends by itself. `resetAt` (epoch ms) is set when the error names a time.
 // - "fatal": waiting cannot fix it (context overflow, auth, billing, an empty pay-as-you-go balance).
 // - "none": not a limit error.
-// Patterns come from real provider errors: Codex/ChatGPT (resets_at epoch), Claude subscription
+// Patterns come from real provider errors: Codex/ChatGPT ("Try again in ~42 min."), Claude subscription
 // ("resets 12:30am (Asia/Amman)"), OpenAI/Groq/DeepSeek ("try again in 6m0s"), Google (retryDelay "37s",
 // ErrorInfo quotaResetTimeStamp/quotaResetDelay), plain 429.
 
