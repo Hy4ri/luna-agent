@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
 import { bindRefusal, ConfigSchema, parseConfig } from "../src/config.js";
+import { nativeCompaction } from "../src/compaction-limits.js";
 import { SettingsStore } from "../src/settings.js";
 
 const base = "/srv/luna";
@@ -154,6 +155,20 @@ test("compaction defaults, partial overrides, and threshold ordering", () => {
   rejects({ compaction: { sessions: { backgroundAtTokens: 160000 } } }, /backgroundAtTokens/);
   rejects({ compaction: { subagents: { keepRecentTokens: 80000 } } }, /keepRecentTokens/);
   rejects({ compaction: { sessions: { typo: 1 } } }, /compaction/);
+  assert.deepEqual(
+    nativeCompaction(config.compaction.sessions, [
+      { provider: "p", id: "big", contextWindow: 1_000_000 },
+      { provider: "p", id: "small", contextWindow: 128_000 },
+      { provider: "p", id: "unknown" },
+    ]),
+    {
+      keepRecentTokens: 20000,
+      modelOverrides: {
+        "p/big": { reserveTokens: 840000, backgroundTokens: 40000, keepRecentTokens: 20000 },
+        "p/small": { reserveTokens: 16384, backgroundTokens: 32768, keepRecentTokens: 20000 },
+      },
+    },
+  );
 });
 
 test("terminal access is off by default and rejects unknown fields", () => {
