@@ -10,6 +10,7 @@ import { WorkerHub, WorkerStore, type WorkerWsData } from "../src/workers.js";
 const dir = mkdtempSync(join(tmpdir(), "luna-hardening-"));
 const home = join(dir, "home"); mkdirSync(home);
 const config = join(dir, "c.json"); writeFileSync(config, "{}");
+const saved = { LUNA_CONFIG: process.env.LUNA_CONFIG, HOME: process.env.HOME };
 process.env.LUNA_CONFIG = config;
 const hub = new WorkerHub(new WorkerStore(join(dir, "w.db")), () => {});
 const server = Bun.serve<WorkerWsData>({
@@ -18,7 +19,9 @@ const server = Bun.serve<WorkerWsData>({
   websocket: { maxPayloadLength: 256 * 1024 * 1024, open: ws => hub.wsOpen(ws), message: (ws, m) => hub.wsMessage(ws, m), pong: ws => hub.wsPong(ws), close: ws => hub.wsClose(ws) },
 });
 const url = "http://127.0.0.1:" + server.port;
-after(async () => { hub.close(); await server.stop(true); rmSync(dir, { recursive: true, force: true }); });
+after(async () => {
+  for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  hub.close(); await server.stop(true); rmSync(dir, { recursive: true, force: true }); });
 
 test("worker commands cannot read the link token or the API token", async () => {
   const { worker, token } = hub.store.create("env");
