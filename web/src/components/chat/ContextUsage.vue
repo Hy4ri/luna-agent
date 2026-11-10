@@ -19,10 +19,10 @@ const ctx = computed(() => {
 const usage = computed(() => {
   const rows = Object.values(chat.usage?.models || {}) as any[];
   if (!rows.length) return null;
-  let fresh = 0, cacheRead = 0, cacheWrite = 0, output = 0, cost = 0, priced = 0, provider = 0;
+  let fresh = 0, cacheRead = 0, cacheWrite = 0, output = 0, cost = 0, priced = 0;
   for (const row of rows) {
     fresh += row.input || 0; cacheRead += row.cacheRead || 0; cacheWrite += row.cacheWrite || 0; output += row.output || 0;
-    if (Number.isFinite(row.cost?.total)) { cost += row.cost.total; priced++; if (row.cost.totalFromProvider === true) provider++; }
+    if (Number.isFinite(row.cost?.total)) { cost += row.cost.total; priced++; }
   }
   const input = fresh + cacheRead + cacheWrite;
   const split = [`${compactNumber(fresh)} new`, cacheRead && `${compactNumber(cacheRead)} cache read`, cacheWrite && `${compactNumber(cacheWrite)} cache write`].filter(Boolean).join(' · ');
@@ -30,7 +30,7 @@ const usage = computed(() => {
     input: compactNumber(input), inputTitle: `${input.toLocaleString()} input tokens: ${split}`,
     output: compactNumber(output), outputTitle: `${output.toLocaleString()} output tokens`,
     cost: priced ? `$${cost < 10 ? cost.toFixed(2) : cost.toFixed(0)}` : '—',
-    costTitle: priced ? `$${cost.toFixed(4)} · ${provider === priced ? 'provider-reported' : 'estimated model cost, not an invoice'}` : 'No pricing for this model',
+    costTitle: priced ? `$${cost.toFixed(4)} · estimated model cost, not an invoice` : 'No pricing for this model',
   };
 });
 </script>

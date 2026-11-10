@@ -12,11 +12,8 @@ const cost = computed(() => {
   const known = rows.filter(row => Number.isFinite(row.cost?.total));
   return known.length ? `$${known.reduce((sum, row) => sum + row.cost.total, 0).toFixed(4)}` : '';
 });
-// Provider-reported only when every priced row is. Everything else is a catalog or CLI estimate.
-const costTitle = computed(() => {
-  const known = (Object.values(chat.usage?.models || {}) as any[]).filter(row => Number.isFinite(row.cost?.total));
-  return known.length && known.every(row => row.cost.totalFromProvider === true) ? 'Provider-reported cost' : 'Estimated model cost, not an invoice';
-});
+// Ledger sums keep only the first response's provider flag, so the session total is always an estimate.
+const costTitle = 'Estimated model cost, not an invoice';
 function dismiss(event: PointerEvent | KeyboardEvent) {
   const details = disclosure.value;
   if (!details?.open) return;

@@ -1,4 +1,5 @@
-// Contract: a cost total is provider-reported only when every priced part is. A missing flag is an estimate.
+// Contract: stock pi-durable sums cost exactly but keeps only the first response's provider flag,
+// so Luna labels every ledger total as an estimate.
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
@@ -43,34 +44,23 @@ async function ledgerAfter(flags: (boolean | undefined)[]) {
   } finally { await harness.close(context); }
 }
 
-test("the session ledger and delegation summary are provider-reported only when every response is", async () => {
-  const allReported = await ledgerAfter([true, true]);
-  assert.equal(allReported.cost.totalFromProvider, true);
-  assert.equal(allReported.delegate.costReported, true);
-  assert.equal(allReported.cost.total, 1);
-
+test("the stock ledger sums cost exactly but keeps the first response's flag", async () => {
   const mixed = await ledgerAfter([true, false]);
-  assert.equal(mixed.cost.totalFromProvider, false, "one catalog estimate makes the whole total an estimate");
-  assert.equal(mixed.delegate.costReported, false);
-
-  const lateEstimate = await ledgerAfter([false, true]);
-  assert.equal(lateEstimate.cost.totalFromProvider, false);
+  assert.equal(mixed.cost.total, 1);
+  assert.equal(mixed.cost.totalFromProvider, true, "stock aggregation does not combine the flag; labels must not trust it");
+  assert.equal(mixed.delegate.costUsd, 1);
+  assert.equal("costReported" in mixed.delegate, false, "the delegation summary makes no provider claim");
+  const late = await ledgerAfter([false, true]);
+  assert.equal(late.cost.total, 1);
+  assert.equal(late.cost.totalFromProvider, false);
 });
 
-test("a response without a flag is never reported as billed", async () => {
-  const unflagged = await ledgerAfter([undefined, undefined]);
-  assert.notEqual(unflagged.cost.totalFromProvider, true);
-  assert.equal(unflagged.delegate.costReported, false);
-  const partlyFlagged = await ledgerAfter([true, undefined]);
-  assert.notEqual(partlyFlagged.cost.totalFromProvider, true);
-  assert.equal(partlyFlagged.delegate.costReported, false);
-});
-
-test("/usage names the cost source", () => {
+test("/usage labels a ledger total as an estimate, even when its flag says provider-reported", () => {
   const model = (flag?: boolean) => ({ models: { "p/m": { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.25, ...(flag === undefined ? {} : { totalFromProvider: flag }) } } }, tools: {} });
-  assert.match(usageNotice(model(true) as never), /provider-reported cost \$0\.2500/);
-  assert.match(usageNotice(model(true) as never), /^(?!.*not an invoice)/s);
-  assert.match(usageNotice(model(false) as never), /estimated cost.*not an invoice.*\$0\.2500/s);
-  assert.match(usageNotice(model() as never), /estimated cost/);
+  for (const flag of [true, false, undefined]) {
+    const notice = usageNotice(model(flag) as never);
+    assert.match(notice, /estimated cost \$0\.2500.*not an invoice/s);
+    assert.doesNotMatch(notice, /provider-reported/);
+  }
 });
