@@ -78,7 +78,7 @@ function closePage(view: "analytics" | "source-control") {
   setDrawer(false);
 }
 /** The page's own hash, including deep links such as `#source-control/pr/148`. */
-const isPageHash = (view: string) => location.hash === "#" + view || (view === "source-control" && location.hash.startsWith("#source-control/"));
+const isPageHash = (view: string) => location.hash === "#" + view || ((view === "source-control" || view === "analytics") && location.hash.startsWith("#" + view + "/"));
 function openSettings(route?: string) {
   if (ui.login) return;
   if (ui.view === "settings" && guard?.canChangeTab?.() === false) {
@@ -379,7 +379,7 @@ window.addEventListener("pageshow", e => { if (e.persisted) { needsBoot = true; 
 function applyHash() {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) openSettings();
-  else if (h === "#analytics") { if (ui.view !== "analytics") openAnalytics(); }
+  else if (h === "#analytics" || h.startsWith("#analytics/")) { if (ui.view !== "analytics") openAnalytics(); }
   else if (h === "#source-control" || h.startsWith("#source-control/")) { if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#cron") { history.replaceState(null, "", location.pathname + location.search); openPanel("cron"); }
@@ -388,7 +388,7 @@ window.addEventListener("hashchange", () => {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) { openSettings(); return; }
   if (!closeSettings()) return;
-  if (h === "#analytics" || h === "#source-control" || h.startsWith("#source-control/") || h === "#cron") applyHash();
+  if (h === "#analytics" || h.startsWith("#analytics/") || h === "#source-control" || h.startsWith("#source-control/") || h === "#cron") applyHash();
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else { closePage("analytics"); closePage("source-control"); }
 });

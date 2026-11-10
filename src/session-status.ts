@@ -1,5 +1,6 @@
 import { defineDoc, defineExtension, defineTool, LiveDoc, section, type ConversationId, type EntryRecord, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
+import { AnalyticsWaitDoc, closeOpenSessionStatusWaits, startWait } from "./analytics/waits.js";
 import { AskDoc } from "./ask.js";
 import { GoalDoc } from "./goal-doc.js";
 import { classifyLimit } from "./limit-reset.js";
@@ -94,8 +95,20 @@ export const SessionStatusExtension = defineExtension({
     execute: async (args, api, context) => {
       const reason = args.reason.trim();
       if (!reason) return { output: [{ type: "text", text: "A nonempty reason is required." }], isError: true };
+      const callId = api.callId;
+      const now = Date.now();
       await api.commit(async tx => {
+        const wait = await tx.doc(AnalyticsWaitDoc, api.conversationId);
+        if (wait.pending[callId] || wait.completed?.[callId]) return;
         (await tx.doc(SessionHandoffDoc, api.conversationId)).handoff = { status: args.status, reason, boundary: await newestInputBoundary(tx, api.conversationId) };
+        await closeOpenSessionStatusWaits(tx, api.conversationId, "stopped", now);
+        await startWait(tx, api.conversationId, {
+          callId,
+          kind: "session_status",
+          purpose: args.status === "needs_approval" ? "approval" : "input",
+          tool: "session_status",
+          startedAt: now,
+        });
       }, context);
       return { output: [{ type: "text", text: "Handoff recorded. Return your final response and wait for the user." }] };
     },

@@ -16,8 +16,10 @@ import { projectAgentEvent, projectSnapshotImages } from "../session-images.js";
 import { projectAgentEventForUi } from "../session-history-view.js";
 import { context } from "../luna.js";
 import { conversationStorage } from "../conversation-storage.js";
+import { analyticsService } from "../analytics/index.js";
 import { BackgroundCommandStore } from "../background-command.js";
 import { isRunning } from "../session-status.js";
+import { closeOpenSessionStatusWaits } from "../analytics/waits.js";
 import type { SideInput } from "../side-commands.js";
 import { type RouteCtx, textOf } from "./context.js";
 
@@ -223,7 +225,11 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         await opts.scheduledMessages?.cancelForConversation(Number(conv.id), "limit_recovery", "New input replaced automatic recovery.");
         // Admit and read the inbox in one commit, so the receipt names what the harness did.
         const admitted = await conv.commit(async (tx) => {
+          const prior = body.requestId ? await tx.submissionByRequest(conv.id, body.requestId) : undefined;
           const id = await conv.submit(tx, { type: "input", content: prepared, requestId: body.requestId, whenBusy });
+          if (!prior) {
+            await closeOpenSessionStatusWaits(tx, conv.id, "answered");
+          }
           const action = await admittedAction(tx, conv.id, id);
           return { id, action, ...(await feedback(tx, conv.id, policy, action)) };
         }, context);
@@ -428,25 +434,28 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         timer: ReturnType<typeof setTimeout> | undefined,
         dirty = false,
         boardDirty = false,
+        analyticsDirty = false,
         writing = false,
         closed = false;
       const done = new Promise<void>((r) => (finish = r));
       stream.onAbort(finish);
       const flush = async () => {
         timer = undefined;
-        if (closed || writing || (!dirty && !boardDirty)) return;
+        if (closed || writing || (!dirty && !boardDirty && !analyticsDirty)) return;
         const sessions = dirty,
-          board = boardDirty;
-        dirty = boardDirty = false;
+          board = boardDirty,
+          analytics = analyticsDirty;
+        dirty = boardDirty = analyticsDirty = false;
         writing = true;
         try {
           if (sessions) await stream.writeSSE({ event: "sessions_changed", data: "{}" });
           if (board) await stream.writeSSE({ event: "board_changed", data: "{}" });
+          if (analytics) await stream.writeSSE({ event: "analytics_changed", data: "{}" });
         } catch {
           finish();
         } finally {
           writing = false;
-          if ((dirty || boardDirty) && !closed) timer = setTimeout(flush, 100);
+          if ((dirty || boardDirty || analyticsDirty) && !closed) timer = setTimeout(flush, 100);
         }
       };
       const arm = () => {
@@ -490,6 +499,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
       });
       const unsubscribeMeta = opts.conversations?.subscribeChanges(changed);
       const unsubscribeBoard = opts.conversations?.subscribeBoard(boardChanged);
+      const unsubscribeAnalytics = analyticsService(harness).subscribe(() => { analyticsDirty = true; arm(); });
       const ping = setInterval(() => {
         if (!writing) void stream.writeSSE({ event: "ping", data: "{}" }).catch(finish);
       }, 15000);
@@ -504,6 +514,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
         observation.detach();
         unsubscribeMeta?.();
         unsubscribeBoard?.();
+        unsubscribeAnalytics();
       }
     }),
   );

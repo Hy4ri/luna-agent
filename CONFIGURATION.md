@@ -2188,64 +2188,23 @@ Pinned, recent, archived, running, excluded, or unconfirmed descendants protect 
 Deletion uses the existing atomic hard purge, including messages, descendants, documents, metadata, and search entries.
 It is permanent. A failed purge leaves the selected sessions intact; the UI reports the error. A storage fault can require a daemon restart before retry.
 
-### Analytics snapshots
+### Analytics store
 
-`GET /v1/analytics` returns a complete analytics snapshot. The daemon shares concurrent
-requests and reuses successful snapshots for up to three seconds. `generatedAt` reports
-when the snapshot was built; session statuses reflect that time. Use
-`GET /v1/analytics?refresh=true` to bypass snapshot reuse (an active refresh is shared).
-The Analytics Refresh button uses this option. Failed refreshes can be retried.
-A delayed scan warms the cache 30 seconds after startup. Scans release the harness
-queue between conversations and yield during entry paging. Analytics is eventually
-consistent across conversations, not one atomic point-in-time database snapshot.
+Analytics uses `analytics.db` beside conversation storage (normally `/.luna/analytics.db`),
+with file mode `0600` and SQLite WAL. Appends scan only new owned entries. Structural changes
+rebuild the affected session; durable checkpoints reuse unchanged sessions after restart.
 
-The web UI retains the last snapshot while the analytics window is closed and refreshes
-it on reopen. Changing the server or authentication token clears this client snapshot.
+Before deleting a session, Luna preserves its title and recorded numbers under the maintenance
+barrier. Preservation failure blocks deletion. Tombstones remain in v2 totals unless Include
+deleted is off; that toggle defaults to on. Removing the analytics database loses deleted-session
+history, although retained sessions can be indexed again.
 
-#### Overview and session explorer
+`GET /v1/analytics` and `/v1/analytics/sessions` keep their legacy active-session response shapes
+through a persistent-store adapter. The dashboard uses `/v1/analytics/v2/*` for ten topic views,
+filters, drawers, comparison and primary-table CSV/JSON exports. Authenticated `analytics_changed`
+SSE events update the visible dashboard without polling.
 
-`GET /v1/analytics?view=overview` returns the same totals and charts, but includes only
-five recent rows in `sessionsList`. The `sessions` count and `statusBreakdown` still
-cover all retained conversations. The web overview uses this smaller response.
-The default endpoint remains compatible and returns all session rows.
-
-`GET /v1/analytics/sessions` filters, sorts, and paginates session rows on the daemon.
-It accepts these optional query parameters:
-
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `search` | empty | Case-insensitive title substring or session ID substring. |
-| `status` | empty | Exact session status; empty includes every status. |
-| `sort` | `tokensDesc` | Column name (`title`, `status`, `tokens`, `cost`, `hitRate`, `responses`, `duration`, or `activity`) followed by `Asc` or `Desc`. Sorting applies before pagination; unreported values stay last in both directions. |
-| `page` | `0` | Nonnegative integer page index. Out-of-range pages clamp to the last page. |
-| `limit` | `20` | Integer page size, from 1 to 100. |
-| `refresh` | `false` | `true` bypasses snapshot reuse; concurrent refreshes share one computation. |
-
-The response contains `generatedAt`, `sessions` (the current page), `total` (matching
-sessions), `allTotal`, `statusBreakdown`, `page`, and `limit`. Filtering and sorting
-happen before pagination. Invalid pagination or sort parameters return HTTP 400.
-The explorer fetches rows only while open; it refreshes on reopen. Changing filters
-resets pagination, and stale responses cannot replace newer results.
-
-Both analytics routes send `Cache-Control: no-store`. The daemon's short snapshot
-cache is separate from HTTP caching. `Server-Timing` reports analytics request time;
-the overview route also reports JSON serialization time. These timings are visible
-in browser network tools. Browser Performance measures record overview request and
-render work without adding dashboard controls.
-
-Snapshots include `performance`: `scanMs`, `aggregationMs`, `metadataMs`,
-`entriesScanned`, `conversationsScanned`, and `cacheHits`. These describe the snapshot
-build, not later cache hits. `aggregationMs` includes session status reads and other
-work outside the history scans and bulk metadata queries. Browser Performance entries
-use `analytics-request`, `analytics-render`, and `analytics-request-to-render`; the last
-sample for each name replaces the previous sample. Render timing ends after Vue's DOM
-update, not the browser's paint.
-
-Conversation summaries reuse immutable retained entries and scan only entries after
-the last processed ID. Usage ledgers are refreshed independently and remain the source
-of token and cost totals, including compaction. Structural history changes rebuild the
-affected summary. Deleted conversations are pruned from the cache at the next build.
-The first request after daemon startup still needs a full retained-history scan.
+See [Analytics v2](docs/analytics-v2.md) for the API, measurement boundaries and benchmarks.
 
 ### Workspace Git status
 

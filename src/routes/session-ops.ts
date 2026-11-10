@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import { isRunning } from "../session-status.js";
 import { context } from "../luna.js";
 import { AskDoc, checkAnswer } from "../ask.js";
+import { closeWait } from "../analytics/waits.js";
 import { GoalDoc } from "../goal-doc.js";
 import { ExecTarget } from "../workers.js";
 import { workerMediaResponse } from "../worker-media.js";
@@ -59,6 +60,7 @@ export function registerSessionOps(app: Hono, ctx: RouteCtx): void {
       const res = checkAnswer(JSON.parse(JSON.stringify(p)), body);
       if (typeof res === "string") return { status: 400 as const, error: res };
       doc.answers[callId] = res as never;
+      await closeWait(tx, conv.id, { callId, outcome: res.cancelled ? "cancelled" : "answered" });
       return { status: 200 as const };
     }, context);
     return r.status === 200 ? c.json({ ok: true }) : err(c, r.status, r.error!);
