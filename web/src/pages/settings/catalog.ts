@@ -199,7 +199,7 @@ export const timing: Record<string, string> = {
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
 export const summaries: Record<string, string> = {
-  compaction: 'Set separate context summarization thresholds for main sessions and subagents. Model-capacity safety limits still apply.',
+  compaction: 'Absolute thresholds per session type, applied as native per-model compaction settings.',
   busyInput: 'Control what happens when you send another message while Luna is working.',
   autoContinue: 'Resume a turn after a rate or usage limit, within the limits you set.',
   sessionTalk: 'Let a session send messages to other sessions. Mention a session with @ in the chat box.',
