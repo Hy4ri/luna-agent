@@ -37,7 +37,7 @@ const managerBusy = ref(false)
 const pendingForms = ref(new Set<string>())
 const pendingFormReload = ref(false)
 provide('settingsPendingForms', pendingForms)
-watch(() => pendingForms.value.size, count => { if (!count && pendingFormReload.value && !dirty.value) { pendingFormReload.value = false; void loadSettings() } })
+watch(() => pendingForms.value.size, count => { if (!count && pendingFormReload.value && !dirty.value) { pendingFormReload.value = false; void loadSettings({ background: true }) } })
 const related = computed(() => managers[activeTab.value] || [])
 const disabled = computed(() => isSaving.value || isReloading.value || managerBusy.value || managerReloading.value)
 const managerReloading = ref(false)
@@ -45,7 +45,8 @@ async function managerChanged() {
   if (pendingForms.value.size) { pendingFormReload.value = true; return }
   // Managers are disabled while the draft is dirty. Block stale saves until the new revision is loaded.
   managerReloading.value = true
-  try { await loadSettings() } finally { managerReloading.value = false }
+  // Reload in the background: a full loading state unmounts the manager panels and drops their live state (an OAuth login in progress).
+  try { await loadSettings({ background: true }) } finally { managerReloading.value = false }
 }
 function selectSearch(result: SettingsResult) {
   if (disabled.value) return
@@ -162,9 +163,9 @@ async function revealTarget() {
 }
 watch([() => ui.settingsNavigation, loading], () => { void revealTarget() }, { flush: 'post' })
 let mounted = true
-async function loadSettings() {
-  loading.value = true
-  loadError.value = null
+async function loadSettings(options: { background?: boolean } = {}) {
+  const background = options.background && !!saved.value
+  if (!background) { loading.value = true; loadError.value = null }
   try {
     const [res] = await Promise.all([json('/v1/settings'), loadModels()])
     if (!mounted) return
@@ -175,9 +176,11 @@ async function loadSettings() {
     saveError.value = false
     statusText.value = res.restartRequired ? 'Saved startup settings need a Luna restart.' : 'No unsaved changes.'
   } catch (e: any) {
-    if (mounted) loadError.value = e.message || 'Failed to load settings'
+    if (!mounted) return
+    if (background) { saveError.value = true; statusText.value = 'Could not reload settings: ' + (e.message || 'request failed') }
+    else loadError.value = e.message || 'Failed to load settings'
   } finally {
-    if (mounted) loading.value = false
+    if (mounted && !background) loading.value = false
   }
 }
 async function saveSettings() {
@@ -282,7 +285,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
           <div class="section-heading"><h2 tabindex="-1" id="settings-category-title">{{ section.title }}</h2><p>{{ section.description }}</p></div>
           <ConnectionRoutes v-if="activeTab === 'system'" :disabled="disabled || dirty || pendingForms.size > 0" />
           <div v-if="loading" class="settings-loading" role="status">Loading settings…</div>
-          <div v-else-if="loadError" class="settings-error"><p role="alert"><AlertCircle :size="18" />{{ loadError }}</p><button class="settings-button" type="button" @click="loadSettings">Retry</button></div>
+          <div v-else-if="loadError" class="settings-error"><p role="alert"><AlertCircle :size="18" />{{ loadError }}</p><button class="settings-button" type="button" @click="loadSettings()">Retry</button></div>
           <template v-else-if="saved && draft">
             <p class="manager-notice">{{ activeTab === 'connections' ? 'Account and connection actions apply immediately. They do not use Save settings.' : 'Preference edits use Save settings. Changes from every category share one draft.' }}</p>
             <div v-if="related.length" class="manager-grid" aria-label="Related management panels">
