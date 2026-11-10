@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
+import { AgentDoc } from "@earendil-works/pi-durable";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { parseConfig } from "../src/config.js";
 import { startRuntime } from "../src/runtime.js";
 import { codemodeCatalog, codemodeToolDescription, createLunaCodemodeExtension } from "../src/codemode.js";
 
-async function runCode(code: string, disabledTools: string[] = [], toolAllowlist?: string[], timeoutMs = 5000) {
+async function runCode(code: string, disabledTools: string[] = [], enabledTools?: string[], timeoutMs = 5000) {
   const dir = mkdtempSync(join(tmpdir(), "luna-codemode-"));
   writeFileSync(join(dir, "sample.txt"), "scratch-content");
   const faux = fauxProvider();
@@ -26,7 +27,9 @@ async function runCode(code: string, disabledTools: string[] = [], toolAllowlist
   try {
     rt = await startRuntime(parseConfig({ dataDir: dir, cwd: dir, extensions: ["coding", "codemode"], disabledTools, codemode: { timeoutMs } }), { models, model: modelRef });
     const session = await rt.harness.createConversation({
-      ownership: { kind: "ownerless" }, agent: { model: modelRef, ...(toolAllowlist ? { toolAllowlist } : {}) },
+      ownership: { kind: "ownerless" }, agent: { model: modelRef },
+      // Store the enabled-tool filter by name, as side tasks copy it from their parent.
+      ...(enabledTools ? { init: async (tx, id) => { (await tx.doc(AgentDoc, id)).tools = [...enabledTools]; } } : {}),
     }, context);
     const run = await (await session.submit({ type: "input", content: "execute workflow" }, context)).wait(context);
     assert.equal(run.status, "done");
@@ -55,7 +58,7 @@ test("disabled tools remain blocked inside Code Mode", async () => {
   assert.doesNotMatch(text(result), /scratch-content/);
 });
 
-test("a conversation tool allowlist also limits sandbox tool access", async () => {
+test("the enabled tool set also limits sandbox tool access", async () => {
   const result = await runCode('try { text(await tools.read({ path: "sample.txt" })); } catch (e) { text("BLOCKED: " + e.message); }', [], ["codemode"]);
   assert.match(text(result), /BLOCKED:/);
   assert.doesNotMatch(text(result), /scratch-content/);

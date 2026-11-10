@@ -152,7 +152,7 @@ export function createSkillViewer(opts: SkillsOptions): SkillViewer {
     const text =
       `# Skill: ${skill.name}\n\n${skill.body}\n` +
       (files.length ? `\n## Linked files (read with skill action=view file_path)\n${files.map((f) => `- ${f}`).join("\n")}\n` : "") +
-      (skill.tools.length ? `\n## Tools requested (subject to conversation tool limits)\n${skill.tools.map((t) => `- ${t}`).join("\n")}\n` : "");
+      (skill.tools.length ? `\n## Tools requested\n${skill.tools.map((t) => `- ${t}`).join("\n")}\n` : "");
     return {
       output: [{ type: "text", text }],
       details: { skill: skill.name, files, tools: skill.tools },

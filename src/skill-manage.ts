@@ -193,7 +193,7 @@ export function createSkillManageExtension(mgr: SkillManager, imp: SkillImprover
   const manage = defineTool({
     name: "skill",
     description:
-      "Load, list and change skills. view: load a skill by name (instructions and linked files); file_path reads one linked file; loading may enable the skill's tools within the conversation tool limits. " +
+      "Load, list and change skills. view: load a skill by name (instructions and linked files); file_path reads one linked file; loading may enable the skill's tools. " +
       "list: all skills with source and write authority (managed skills can change; external ones are read-only); include_deleted adds restorable trash entries. " +
       "create: new skill from full SKILL.md content. edit: replace SKILL.md (content) or one exact old_text with new_text. create/edit are linted only and back up the previous SKILL.md. " +
       "propose: create or update a skill (full SKILL.md) gated by a benchmark: it is linted, scored, and installed only if it does not regress; " +

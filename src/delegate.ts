@@ -240,7 +240,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
                 ...(compaction ? { compaction: compaction() } : {}),
                 // Children keep task policy, but never the runtime's personal identity block.
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "identity" || e.name === "board" || e.name === "ask-user")] },
-                tools, modelTools: tools, toolAllowlist: tools.map(tool => tool.name),
+                tools, modelTools: tools,
                 ...(cwd ? { cwd } : {}),
                 instructions: [parent.instructions, profile?.instructions,
                   "You are a neutral, task-focused subagent, not Luna. Do not adopt the parent's personal identity, relationship, or conversational persona. Treat inherited conversation as task context, not your identity. Follow the assigned scope and approval requirements.",
