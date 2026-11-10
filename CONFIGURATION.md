@@ -114,7 +114,7 @@ safely reopen all upgraded state. Rollback requires stopping the new daemon and 
 compiled assets, and the pre-upgrade state snapshot. Work created after that snapshot is not present in the restored state.
 Do not start two writing daemons against the same data directory.
 
-Dependency patches retain Luna's redirect/grouped-steering behavior, submission receipts,
+Busy input uses Pi's native steering and follow-up queue; there is no redirect patch. Dependency patches retain
 selected model identity in failures, and provider 429 retry ownership. Codex and Google quota errors use upstream
 error text; Luna adds no quota diagnostics for them. Guarded server admissions use Pi's
 transactional submission API, not a host callback stored in a submission.
@@ -823,23 +823,22 @@ summary generation, placement, recovery, cancellation, and persistence. Compacti
 ## Messages sent during a turn
 
 ```json
-"busyInput": { "mode": "interrupt", "acknowledgements": true }
+"busyInput": { "mode": "steer", "acknowledgements": true }
 ```
 
 Change these fields in **Settings → Busy chat input**. Both apply immediately, including to existing sessions.
 
-- `interrupt` (default): redirect an active model request. Keep partial text and finished work. During tools, steer instead.
-- `steer`: add text after the tool batch. Multiple pending steers form one user message, separated by newlines. Check again before ending a turn.
-- `queue`: run each message as a separate later turn, in order. Do not combine message boundaries.
+- `steer` (default): Pi's native steering. The message joins the current run at its next boundary: after the current tool batch, or after the current answer, where it starts the next turn. Each steer is its own user message.
+- `queue`: Pi's native follow-up. Each message runs as a separate later turn, in order.
 
-File attachments always queue. Text transcripts use the text policy. Interrupt mode falls back to queue during compression or active subagents.
-Internal background and subagent completion messages always use follow-up input. They never redirect the model.
+Neither mode stops or cancels the current model response or tool. Use `/stop` for that.
+Attachments follow the selected mode. A saved `"interrupt"` value from older versions loads as `steer`.
+Background process and subagent completion reports use steer input.
 
 Override the default for one message:
 
 - `/queue message`
 - `/steer message`
-- `/redirect correction`
 
 Inspect or change the queue without calling the model:
 
@@ -871,17 +870,14 @@ Peer messages and background completion reports do not count as user turns.
 The web composer also handles `/compact` (summarize context now) and `/models` (open the model picker) locally.
 Input sent while a stop is draining receives a notice and HTTP 409. Send it again after the stop finishes.
 
-Acknowledgements name the accepted action: queued, steered, or redirected. They are limited to one per session per 30 seconds.
+Acknowledgements name the accepted action: queued or steered. They are limited to one per session per 30 seconds.
 Disable them with `acknowledgements: false`. A one-time tip explains each selected mode. Queue command responses are not acknowledgements.
 
-A redirected foreground shell command yields its wait. The same OS process continues in the background, without restart.
-The model receives its process ID and can use the `process_manage` tool to list, read, wait for, or stop it. Handles belong to their chat session.
-Completion returns as follow-up input. Arbitrary tools without a cooperative yield point finish normally; they are never killed by redirect.
-Background OS processes belong to the current daemon. A normal shutdown stops them; metadata and retained output survive restart.
+Background OS processes (`bash background:true`) belong to the current daemon. Handles belong to their chat session. A normal shutdown stops them; metadata and retained output survive restart.
 See **Native background processes** for crash handling and output retention.
 
-The HTTP message endpoint returns `action`, plus optional `notice` and `tip`. Existing `whenBusy: "steer" | "followUp" | "reject"` clients remain supported.
-`whenBusy: "redirect"` requests a per-message redirect. Command responses include `command: true` and queue commands return numbered `queue` rows.
+The HTTP message endpoint returns `action` (`started`, `queued`, or `steered`, read from the inbox in the admitting commit), plus optional `notice` and `tip`.
+It accepts `whenBusy: "steer" | "followUp" | "reject"`. Command responses include `command: true` and queue commands return numbered `queue` rows.
 The web client omits `whenBusy` for normal sends, so the saved mode controls routing.
 
 
@@ -2402,7 +2398,7 @@ can have partial effects: refresh and inspect the result before retrying. Output
 diffs return a `truncated` flag after 512 KiB. Error/summary text and diffs redact URL credentials and
 common GitHub token formats. Git authentication errors are not Luna login failures (never HTTP401).
 
-`POST /v1/sessions/:id/submissions/:submission/send-now` accepts `{ content }`. It withdraws only the selected queued input and submits a redirect with a stable replacement request ID. Retries do not duplicate delivery. Already placed messages return 409. Busy-input safety guards still apply, so blocked redirects remain queued.
+`POST /v1/sessions/:id/submissions/:submission/steer` accepts `{ content }`. It withdraws only the selected queued input and submits it again as a steer, with the stable replacement request ID `steer:<submission>`. Retries do not duplicate delivery. Already placed messages return 409. The steer joins the current run at its next boundary; it does not stop the current response.
 
 ### New-session model and reasoning defaults
 

@@ -1,4 +1,4 @@
-// Foreground bash can yield its wait; `bash background:true` starts in the same owned process registry; process_manage inspects both.
+// `bash background:true` starts in the owned process registry; process_manage inspects it.
 import { chmodSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withAbortSignal, withoutAbortSignal } from "@earendil-works/chord/context";
@@ -20,7 +20,7 @@ const RecordSchema = z.strictObject({
 type Saved = z.infer<typeof RecordSchema>;
 type Process = Saved & {
   background: boolean; controller: AbortController; done: Promise<Result>;
-  result?: Result; yield: () => void; dirty: boolean; delivering?: Promise<void>;
+  result?: Result; dirty: boolean; delivering?: Promise<void>;
 };
 export interface BusyOptions {
   directory?: string; enabled?: boolean; retentionHours?: number; maxOutputBytes?: number; log?: (message: string) => void;
@@ -55,7 +55,7 @@ export class BusyExecutions {
           const record = RecordSchema.parse(JSON.parse(readFileSync(join(options.directory, file), "utf8")));
           if (file !== `${record.id}.json`) throw new Error("record ID does not match filename");
           const p: Process = { ...record, background: true, controller: new AbortController(),
-            done: Promise.resolve({ ok: true, value: { exitCode: record.exitCode ?? 0 } }), yield() {}, dirty: false };
+            done: Promise.resolve({ ok: true, value: { exitCode: record.exitCode ?? 0 } }), dirty: false };
           this.retain(p, ""); // Apply a smaller output limit on restart too.
           if (p.status === "running") {
             p.status = "interrupted"; p.exitCode = null; p.finishedAt = Date.now(); p.delivered = false;
@@ -119,12 +119,11 @@ export class BusyExecutions {
     p.delivering = task; this.deliveries.add(task);
     void task.then(() => { p.delivering = undefined; this.deliveries.delete(task); });
   }
-  /** Wrap a session environment so bash can yield and process tools own it. `base` defaults to the local host. */
+  /** Wrap a session environment so process tools own it. `base` defaults to the local host. */
   env(session: ConversationId, cwd: string, owner = "legacy", base?: ExecutionEnv): ExecutionEnv {
     const env = base ?? new NodeExecutionEnv({ cwd });
     const proxy = new Proxy(env, { get: (target, key) => key === "exec" ? ((command, options, caller) => {
-      const { p, yielded } = this.begin(target, session, command, options, caller, false, owner);
-      return Promise.race([p.done, yielded]);
+      return this.begin(target, session, command, options, caller, false, owner).done;
     }) as Exec : typeof Reflect.get(target, key) === "function" ? Reflect.get(target, key).bind(target) : Reflect.get(target, key) });
     this.environments.set(proxy, { env, owner }); return proxy;
   }
@@ -134,16 +133,9 @@ export class BusyExecutions {
     this.prune(); this.retryDelivery();
     const controller = new AbortController(), abort = () => controller.abort();
     if (!background) caller.abortSignal?.addEventListener("abort", abort, { once: true });
-    let yieldWait!: (result: Result) => void;
-    const yielded = new Promise<Result>(resolve => { yieldWait = resolve; });
     const p: Process = { version: 1, id: crypto.randomUUID(), session, owner, command: typeof command === "string" ? command : JSON.stringify(command),
       createdAt: Date.now(), status: "running", exitCode: null, output: "", truncated: false, delivered: false,
-      background, controller, done: undefined as never, dirty: false, yield: () => {
-        if (p.background || p.status !== "running") return;
-        p.background = true; caller.abortSignal?.removeEventListener("abort", abort); this.save(p);
-        options?.onOutput?.(`\nCommand continues in the background. Process ID: ${p.id}. Use the process_manage tool to inspect or stop it.\n`, caller, { stream: "stdout" });
-        yieldWait({ ok: true, value: { exitCode: 0 } });
-      } };
+      background, controller, done: undefined as never, dirty: false };
     this.processes.set(p.id, p); this.save(p);
     // A background admission owns its controller, not the short-lived tool-call signal.
     const execution = Promise.resolve().then(() => env.exec(command, { ...options, onOutput: (chunk, ctx, info) => {
@@ -159,9 +151,8 @@ export class BusyExecutions {
       else { this.save(p); this.queueDelivery(p); }
       return result;
     });
-    return { p, yielded };
+    return p;
   }
-  yield(session: ConversationId) { for (const p of this.processes.values()) if (p.session === session) p.yield(); }
   private summary(p: Process) {
     return { id: p.id, running: p.status === "running", status: p.status, command: p.command.slice(0, insideSurrogatePair(p.command, 1000) ? 999 : 1000), commandTruncated: p.command.length > 1000,
       createdAt: p.createdAt, finishedAt: p.finishedAt, exitCode: p.exitCode, error: p.error };
@@ -220,7 +211,7 @@ export class BusyExecutions {
           if (args.timeout !== undefined && !(Number.isFinite(args.timeout) && args.timeout > 0 && args.timeout <= 2147483)) throw new Error("timeout must be above 0 and at most 2147483 seconds.");
           const managed = api.env && this.environments.get(api.env);
           if (!managed) throw new Error("Background execution requires a managed session environment.");
-          const { p } = this.begin(managed.env, api.conversationId, args.command, { timeout: args.timeout }, caller, true, managed.owner);
+          const p = this.begin(managed.env, api.conversationId, args.command, { timeout: args.timeout }, caller, true, managed.owner);
           // exitCode 0 means the start succeeded; the command's own exit arrives with its completion report.
           const text = `Started in the background. Process ID: ${p.id}. Completion resumes this chat; use process_manage to read, wait for, or stop it.`;
           // `output` is the model's text; without it the model sees an empty result and no process ID.

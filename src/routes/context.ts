@@ -42,7 +42,7 @@ export interface RouteCtx {
   send?: (
     c: HonoContext,
     sessionId: string,
-    body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" | "redirect" },
+    body: { content?: unknown; requestId?: string; whenBusy?: "steer" | "followUp" | "reject" },
     asyncMode?: boolean,
   ) => Promise<Response>;
 }

@@ -294,18 +294,18 @@ export async function submitMessage(sid: string, body: any) {
     loadSessions().catch(() => {});
   }
 }
-/** A promotion retry uses the same replacement request ID, never a second input. */
-export async function sendPendingNow(requestId: string) {
+/** Turn a queued message into a steer of the current run. A retry uses the same replacement request ID, never a second input. */
+export async function steerPending(requestId: string) {
   const pending = pendingMessages.get(requestId);
   if (!pending?.session || !pending.submissionId || pending.status !== "Queued" || composer.submitting.has(pending.session)) return;
   const sid = pending.session;
   pending.promoting = true;
   composer.submitting.add(sid);
   try {
-    const result = await post(`/v1/sessions/${sid}/submissions/${encodeURIComponent(pending.submissionId)}/send-now`, { content: pending.content });
+    const result = await post(`/v1/sessions/${sid}/submissions/${encodeURIComponent(pending.submissionId)}/steer`, { content: pending.content });
     if (result.submissionId === undefined) throw new Error(result.notice || "Message promotion was not accepted.");
     pendingMessages.delete(requestId);
-    const replacementId = `send-now:${pending.submissionId}`;
+    const replacementId = `steer:${pending.submissionId}`;
     pendingMessages.set(replacementId, { ...pending, promoting: false, requestId: replacementId, submissionId: String(result.submissionId), status: result.action === "queued" ? "Queued" : "Sent" });
     void refreshPending(sid);
   } catch (error) {

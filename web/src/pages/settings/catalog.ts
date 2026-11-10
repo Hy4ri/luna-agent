@@ -101,7 +101,7 @@ const fieldHelp: Record<string, string> = {
   'codemode.memoryLimitBytes': 'Maximum QuickJS memory per script. Does not limit memory used by tools. Requires a restart.',
   'codemode.inlineBudget': 'Token budget for tool declarations in the Code Mode prompt section. Requires a restart.',
   'codemode.pinned': 'Tools the Code Mode prompt section always lists first. Their cost counts against the budget. Requires a restart.',
-  'busyInput.mode': 'Interrupt redirects the response after tools finish safely. Queue sends a separate turn. Steer adds information at the next safe boundary.',
+  'busyInput.mode': 'Steer adds the message to the current turn at its next boundary: after the current tool batch or answer. Queue sends it as a separate turn. Neither stops the current response.',
   'busyInput.acknowledgements': 'Show confirmation when a message is queued or used to steer a response.',
   'autoContinue.enabled': 'Wait for a usage reset, then continue the stopped turn. A new message cancels the wait. Authentication, billing, and context errors do not retry.',
   'autoContinue.maxWaitHours': 'Maximum individual wait and total recovery time from the first failure. Longer waits remain paused.',
