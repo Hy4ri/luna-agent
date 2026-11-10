@@ -1,4 +1,4 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type { Op } from "@earendil-works/chord/delta";
 import type { AssistantMessage, Message, Usage } from "@earendil-works/pi-ai";
 import {

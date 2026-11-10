@@ -1,5 +1,5 @@
 diff --git a/dist/harness/agent.js b/dist/harness/agent.js
-index de65a5e..0c2f03a 100644
+index dbae2ff3bd5ded4db56c1fa3f5c4a58eee2af315..4c14831bd77dd86f0d98c065a16e631f24b805c6 100644
 --- a/dist/harness/agent.js
 +++ b/dist/harness/agent.js
 @@ -75,6 +75,10 @@ export async function configure(tx, conversationId, change) {
@@ -22,7 +22,16 @@ index de65a5e..0c2f03a 100644
      const tools = change.tools;
      set("tools", tools === undefined || tools === null ? tools : isList(tools) ? names(tools) : { remove: names(tools.remove) });
      const modelTools = change.modelTools;
-@@ -217,7 +223,10 @@ report) {
+@@ -148,7 +154,7 @@ function compactionSettings(settings) {
+     const overrides = Object.entries(modelOverrides).map(([key, override]) => [key, compactionFields(override)]);
+     return { ...compactionFields(policy), modelOverrides: Object.fromEntries(overrides) };
+ }
+-const TOKEN_FIELDS = ["reserveTokens", "keepRecentTokens", "backgroundTokens"];
++const TOKEN_FIELDS = ["reserveTokens", "keepRecentTokens", "backgroundTokens", "backgroundAtTokens", "blockAtTokens"];
+ /** The set fields of `policy`; throws a `RangeError` for a token count that is not an integer `0` or more. */
+ function compactionFields(policy) {
+     const fields = policy.enabled === undefined ? {} : { enabled: policy.enabled };
+@@ -242,7 +248,10 @@ report) {
                  applyWrap(sections, wrap.section, (section) => wrap.wrap(section), (section) => section.key, wrapReport);
          }
      }
@@ -34,69 +43,21 @@ index de65a5e..0c2f03a 100644
      const callableBy = (caller) => (tool) => tool.callers === undefined || tool.callers.includes(caller);
      const modelCallable = enabled.filter(callableBy("model"));
      const tools = offeredTools(modelCallable, state?.modelTools);
-diff --git a/dist/harness/compaction.d.ts b/dist/harness/compaction.d.ts
-index 0a2ce55..a9a0b84 100644
---- a/dist/harness/compaction.d.ts
-+++ b/dist/harness/compaction.d.ts
-@@ -1,5 +1,6 @@
-+import type { Context } from "@earendil-works/chord";
- import type { Message, ModelThinkingLevel } from "@earendil-works/pi-ai";
--import type { ConversationId, EntryId, TaskId, Tx } from "../types.ts";
-+import type { ConversationId, DocumentReader, EntryId, TaskId, Tx } from "../types.ts";
- import type { CompactionHooks, CompactionPolicy, CompactionReason, CompactionResult, ContextView, ConversationStreamOptions, ModelRef, Settings } from "./types.ts";
- export type CompactionInput = {
-     reason: CompactionReason;
-@@ -37,7 +38,7 @@ export declare const CompactionTask: import("../types.ts").Task<CompactionInput,
-  */
- export declare function createCompaction(tx: Tx, conversationId: ConversationId, input: CompactionInput, owner?: TaskId): Promise<TaskId<CompactionResult>>;
- /** The compaction policy for `model`: its `modelOverrides` entry over the harness-wide policy, field by field. */
--export declare function compactionPolicy(settings: Settings, model: ModelRef): CompactionPolicy;
-+export declare function compactionPolicy(settings: Settings, model: ModelRef, runtime: DocumentReader & { conversationId: ConversationId }, context: Context): Promise<CompactionPolicy>;
- /**
-  * Index in `view.entries` of the first entry a summary keeps, or `undefined` when there is nothing to compact
-  * (spec §8.7). Walks back from the tail until `keepRecentTokens` are kept, then cuts at the first candidate at or after
 diff --git a/dist/harness/compaction.js b/dist/harness/compaction.js
-index e8eded7..a87f5b2 100644
+index 54f3ef34ddf1bf85e3ad9c41bdbd216c081a476f..c0a3cfa27986fa36e2c11c2f4734184f6455fb3c 100644
 --- a/dist/harness/compaction.js
 +++ b/dist/harness/compaction.js
-@@ -66,7 +66,7 @@ export const CompactionTask = defineTask({
-             const model = ref === undefined ? undefined : runtime.models.getModel(ref.provider, ref.modelId);
-             if (ref === undefined || model === undefined)
-                 return failNoModel(runtime, ref, context);
--            const policy = compactionPolicy(settings, ref);
-+            const policy = await compactionPolicy(settings, ref, runtime, context);
-             const view = await runtime.context(conversationId, context);
-             const cut = selectCut(view, policy.keepRecentTokens);
-             if (cut === undefined)
-@@ -198,16 +198,20 @@ export async function createCompaction(tx, conversationId, input, owner) {
-     return taskId;
- }
- /** The compaction policy for `model`: its `modelOverrides` entry over the harness-wide policy, field by field. */
--export function compactionPolicy(settings, model) {
--    const { modelOverrides, ...policy } = settings.compaction;
-+export async function compactionPolicy(settings, model, runtime, context) {
-+    const { modelOverrides, resolve, ...policy } = settings.compaction;
-     const override = modelOverrides?.[`${model.provider}/${model.modelId}`];
-+    const host = await resolve?.({ conversationId: runtime.conversationId, read: runtime }, context);
-     return {
--        enabled: override?.enabled ?? policy.enabled,
--        reserveTokens: override?.reserveTokens ?? policy.reserveTokens,
--        keepRecentTokens: override?.keepRecentTokens ?? policy.keepRecentTokens,
--        backgroundTokens: override?.backgroundTokens ?? policy.backgroundTokens,
-+        enabled: host?.enabled ?? override?.enabled ?? policy.enabled,
-+        reserveTokens: host?.reserveTokens ?? override?.reserveTokens ?? policy.reserveTokens,
-+        keepRecentTokens: host?.keepRecentTokens ?? override?.keepRecentTokens ?? policy.keepRecentTokens,
-+        backgroundTokens: host?.backgroundTokens ?? override?.backgroundTokens ?? policy.backgroundTokens,
-+        backgroundAtTokens: host?.backgroundAtTokens ?? override?.backgroundAtTokens ?? policy.backgroundAtTokens,
-+        blockAtTokens: host?.blockAtTokens ?? override?.blockAtTokens ?? policy.blockAtTokens,
+@@ -218,6 +218,8 @@ export function compactionPolicy(settings, model, conversation) {
+         reserveTokens: field("reserveTokens"),
+         keepRecentTokens: field("keepRecentTokens"),
+         backgroundTokens: field("backgroundTokens"),
++        backgroundAtTokens: field("backgroundAtTokens"),
++        blockAtTokens: field("blockAtTokens"),
      };
  }
-+
  /**
-  * Index in `view.entries` of the first entry a summary keeps, or `undefined` when there is nothing to compact
-  * (spec §8.7). Walks back from the tail until `keepRecentTokens` are kept, then cuts at the first candidate at or after
 diff --git a/dist/harness/generation.js b/dist/harness/generation.js
-index ac42dfe..ccb09e0 100644
+index 27e60bb9b479b5600a7314f13bba25177a5e47d9..3647efab150c4669fd2aaae3e0e48798d2c62fcb 100644
 --- a/dist/harness/generation.js
 +++ b/dist/harness/generation.js
 @@ -6,7 +6,7 @@ import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.j
@@ -108,15 +69,6 @@ index ac42dfe..ccb09e0 100644
  import { cutOffCount, cutOffTooOften, endRun, LiveDoc, PROGRESS_COMMIT, salvageable, } from "./live.js";
  import { PartialChanges } from "./partial-changes.js";
  import { planSystemEntries, renderSections, replaySections } from "./prompt.js";
-@@ -87,7 +87,7 @@ export const GenerationTask = defineTask({
-             }), context);
-             const entries = planSystemEntries(view, desired, agent.tools, runtime.now());
-             const threshold = compacted === undefined
--                ? thresholdCompaction(view, entries, resolved.contextWindow, compactionPolicy(settings, model))
-+                ? thresholdCompaction(view, entries, resolved.contextWindow, await compactionPolicy(settings, model, runtime, context))
-                 : undefined;
-             if (threshold === "blocking") {
-                 // Compact first and prepare again; the transcript is unchanged until the compaction appends.
 @@ -119,6 +119,13 @@ export const GenerationTask = defineTask({
              }, context);
          },
@@ -234,16 +186,7 @@ index ac42dfe..ccb09e0 100644
      // Record the requested level, as pi-agent-core's agent loop does.
      if (thinkingLevel !== undefined)
          message.thinkingLevel = thinkingLevel;
-@@ -604,7 +651,7 @@ async function classify(runtime, request, message, context) {
-     // The retry and compaction policies govern the next attempt, so they are read now rather than pinned at preparation.
-     const settings = runtime.settings;
-     const overflow = message.stopReason === "error" && isContextOverflow(message);
--    const compaction = compactionPolicy(settings, ref);
-+    const compaction = await compactionPolicy(settings, ref, runtime, context);
-     if (overflow && compacted === undefined && compaction.enabled) {
-         const view = await runtime.context(conversationId, context, { at: cutoff });
-         if (selectCut(view, compaction.keepRecentTokens) !== undefined) {
-@@ -647,7 +694,8 @@ async function classify(runtime, request, message, context) {
+@@ -649,7 +696,8 @@ async function classify(runtime, request, message, context) {
          await endFailedRun(tx, runtime, live, failure, { status: "unanswered", reason: "model_error", detail: text });
          return {
              status: "terminal",
@@ -253,7 +196,7 @@ index ac42dfe..ccb09e0 100644
          };
      }, context);
  }
-@@ -678,7 +726,13 @@ async function answer(runtime, message, context) {
+@@ -680,7 +728,13 @@ async function answer(runtime, message, context) {
              if (held !== undefined)
                  return held;
          }
@@ -269,7 +212,7 @@ index ac42dfe..ccb09e0 100644
              const user = { role: "user", content: continues, timestamp: runtime.now() };
              await tx.appendEntry(UserEntry, conversationId, { model: [user] });
 diff --git a/dist/harness/harness.js b/dist/harness/harness.js
-index e286f00..215969c 100644
+index e286f00f872ebec79367a594938040c6a37a879f..215969ce33479e6738b616be1c82b5992ab93bd7 100644
 --- a/dist/harness/harness.js
 +++ b/dist/harness/harness.js
 @@ -118,7 +118,9 @@ class HarnessImpl extends SessionImpl {
@@ -292,10 +235,10 @@ index e286f00..215969c 100644
              blocked: (record) => this.#tasks.blockedReason(record),
              subscribeBlocked: (listener) => this.#tasks.subscribeBlocked(listener),
 diff --git a/dist/harness/inbox.d.ts b/dist/harness/inbox.d.ts
-index 1197339..aa099d6 100644
+index 59d3598da52544b00f7a4abd306d82b26b749103..2d9ff3ede789a3b0054a64051265e4d2105f8abd 100644
 --- a/dist/harness/inbox.d.ts
 +++ b/dist/harness/inbox.d.ts
-@@ -6,6 +6,7 @@ export type InboxItem = {
+@@ -7,6 +7,7 @@ export type InboxItem = {
      id: SubmissionId;
      mode: "steer" | "followUp";
      content: JsonRepresentation<UserInput>;
@@ -303,7 +246,7 @@ index 1197339..aa099d6 100644
      entry?: JsonRepresentation<InputEntry>;
  }
  /** `entry` is an `EntryDraft`, stored as plain JSON. */
-@@ -38,6 +39,7 @@ export type BoundaryResult = {
+@@ -39,6 +40,7 @@ export type BoundaryResult = {
      readonly users: SubmissionId[];
      readonly first: EntryId | undefined;
      readonly reset: boolean;
@@ -312,7 +255,7 @@ index 1197339..aa099d6 100644
  /**
   * Read what a boundary needs. Table reads must precede the commit's first table write, so callers prepare the
 diff --git a/dist/harness/inbox.js b/dist/harness/inbox.js
-index 5ff8c17..d1f8320 100644
+index 415ef367aa3c964f00f6b11c376ba5a97fe8bb1d..75a964df62f3974ff1feb3b6943ec706c2900f54 100644
 --- a/dist/harness/inbox.js
 +++ b/dist/harness/inbox.js
 @@ -42,7 +42,8 @@ export async function applyBoundary(tx, boundary, at, now) {
@@ -353,7 +296,7 @@ index 5ff8c17..d1f8320 100644
  /** Append the entry an input is placed as: `entry`'s kind and data, or `pi.user`, with the user message of `content`. */
  export function appendInput(tx, conversationId, content, entry, now) {
 diff --git a/dist/harness/scheduler.js b/dist/harness/scheduler.js
-index 365ea3a..0d4278e 100644
+index df651a4f8f0769d10daee02292ea91380b158d5e..7e431fcf2c63eeac322383c343b4429bf304ab17 100644
 --- a/dist/harness/scheduler.js
 +++ b/dist/harness/scheduler.js
 @@ -98,6 +98,7 @@ export class TaskScheduler {
@@ -364,7 +307,7 @@ index 365ea3a..0d4278e 100644
      /**
       * The idle kept contexts by `idleSince`, oldest first: the expiry order, so neither an expiry nor finding the next one
       * scans `#contexts`. Kept sorted also when the Harness clock goes back (see `#markIdle`).
-@@ -192,6 +193,7 @@ export class TaskScheduler {
+@@ -198,6 +199,7 @@ export class TaskScheduler {
          this.#storage = options.storage;
          this.#registry = options.registry;
          this.#models = options.models;
@@ -372,7 +315,7 @@ index 365ea3a..0d4278e 100644
          this.#agent = options.agent;
          this.#settings = options.settings;
          this.#env = options.env;
-@@ -2475,6 +2477,7 @@ export class TaskScheduler {
+@@ -2504,6 +2506,7 @@ export class TaskScheduler {
              get models() {
                  return models();
              },
@@ -381,7 +324,7 @@ index 365ea3a..0d4278e 100644
              get settings() {
                  return settings();
 diff --git a/dist/harness/submissions.js b/dist/harness/submissions.js
-index 6e882a8..cc827ac 100644
+index 512b2477c29b83c03a1c239ee427d928ce553caa..410b01b0c1bc825bcae0267802191288505b6928 100644
 --- a/dist/harness/submissions.js
 +++ b/dist/harness/submissions.js
 @@ -18,7 +18,9 @@ export class Submissions {
@@ -447,10 +390,10 @@ index 6e882a8..cc827ac 100644
          this.#submissions = submissions;
      }
 diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
-index eb64e47..7d8ef81 100644
+index 7f4a0ba59df6d5870248c60c055dd188fdab51c4..5ee4a38669746f4b76ba10ce23d66aeac10b1f8c 100644
 --- a/dist/harness/types.d.ts
 +++ b/dist/harness/types.d.ts
-@@ -31,7 +31,7 @@ export type SubmissionDraft = {
+@@ -33,7 +33,7 @@ export type SubmissionDraft = {
  } & ({
      readonly type: "input";
      readonly content: UserInput;
@@ -459,7 +402,7 @@ index eb64e47..7d8ef81 100644
      /**
       * `reject`: an idle conversation (no run) rejects the input with `ConversationIdle` and writes nothing, so the input
       * never starts a run of its own. With `whenBusy: "steer"` it steers the current run or is refused; a run that
-@@ -68,6 +68,7 @@ export type SettledSubmissionRecord = SubmissionRecord & {
+@@ -70,6 +70,7 @@ export type SettledSubmissionRecord = SubmissionRecord & {
  };
  /** Awaitable host object for one durably admitted submission. */
  export interface Submission {
@@ -467,7 +410,7 @@ index eb64e47..7d8ef81 100644
      readonly id: SubmissionId;
      status(context: Context): Promise<SubmissionRecord>;
      wait(context: Context): Promise<SettledSubmissionRecord>;
-@@ -397,6 +398,8 @@ export type AgentState = {
+@@ -399,6 +400,8 @@ export type AgentState = {
          add?: string[];
          remove?: string[];
      };
@@ -476,7 +419,7 @@ index eb64e47..7d8ef81 100644
      /** Filters the selected extensions' tools: the enabled tools. An array enables exactly these, in order. */
      tools?: string[] | {
          remove: string[];
-@@ -432,6 +435,8 @@ export type AgentChange = {
+@@ -440,6 +443,8 @@ export type AgentChange = {
          readonly add?: readonly Extension[];
          readonly remove?: readonly Extension[];
      } | null;
@@ -485,7 +428,7 @@ index eb64e47..7d8ef81 100644
      readonly tools?: readonly ToolRegistration[] | {
          readonly remove: readonly ToolRegistration[];
      } | null;
-@@ -500,6 +505,9 @@ export type ConversationRetryPolicy = {
+@@ -516,6 +521,9 @@ export type ConversationRetryPolicy = {
  };
  /** Automatic compaction thresholds (spec §8.7); manual compaction ignores `enabled`. */
  export type CompactionPolicy = {
@@ -495,26 +438,8 @@ index eb64e47..7d8ef81 100644
      /** Threshold and overflow compaction. */
      enabled: boolean;
      /** Room kept free for the answer: generation blocks to compact above `contextWindow - reserveTokens`. */
-@@ -514,6 +522,8 @@ export type CompactionPolicy = {
-  * replaces the harness-wide one for that model, so small- and large-window models can share a harness.
-  */
- export type CompactionSettings = Partial<CompactionPolicy> & {
-+    /** Host policy, resolved at preparation, selection, and overflow recovery, never persisted. */
-+    readonly resolve?: (target: { conversationId: ConversationId; read: DocumentReader }, context: Context) => Partial<CompactionPolicy> | Promise<Partial<CompactionPolicy>>;
-     readonly modelOverrides?: Readonly<Record<string, Partial<CompactionPolicy>>>;
- };
- /**
-@@ -594,7 +604,7 @@ export type Settings = {
-     readonly stream: ConversationStreamOptions;
-     readonly retry: ConversationRetryPolicy;
-     /** Harness-wide policy over the defaults; per-model overrides apply where the model is known. */
--    readonly compaction: CompactionPolicy & Pick<CompactionSettings, "modelOverrides">;
-+    readonly compaction: CompactionPolicy & Pick<CompactionSettings, "modelOverrides" | "resolve">;
-     readonly progress: ProgressPolicy;
-     readonly toolExecution: ToolExecutionMode;
-     readonly steeringMode: QueueMode;
 diff --git a/dist/harness/usage.js b/dist/harness/usage.js
-index daa3c4d..d243bf9 100644
+index 3ae22e5e6e7c957ad991e15f1b56d9080097b97a..f3bfed00cd7412e0b3dabd6abbc0575fe7cbff4a 100644
 --- a/dist/harness/usage.js
 +++ b/dist/harness/usage.js
 @@ -36,6 +36,10 @@ export function addUsage(total, usage) {
@@ -529,10 +454,10 @@ index daa3c4d..d243bf9 100644
  /** Add every bucket of `state` into `sum`. */
  export function addUsageState(sum, state) {
 diff --git a/dist/session/cached-storage.d.ts b/dist/session/cached-storage.d.ts
-index aa958f0..5119be7 100644
+index 54f906bc5e39f0e208a879d7ceb3417354fb3f4c..c863fdf8b7b123555ecde6ceb64ad723ff7ad1fc 100644
 --- a/dist/session/cached-storage.d.ts
 +++ b/dist/session/cached-storage.d.ts
-@@ -34,6 +34,7 @@ export declare class CachedStorage implements Storage {
+@@ -35,6 +35,7 @@ export declare class CachedStorage implements Storage {
       * hold the same objects, so a live task's record is in memory once.
       */
      published(writes: readonly StorageWrite[]): void;
@@ -541,7 +466,7 @@ index aa958f0..5119be7 100644
      conversation(id: ConversationId, context: Context): Promise<ConversationRecord | undefined>;
      scanConversations(query: ConversationQuery, limit: number, cursor: Cursor | undefined, context: Context): Promise<Page<ConversationRecord, Cursor>>;
 diff --git a/dist/session/cached-storage.js b/dist/session/cached-storage.js
-index 90d1335..28777aa 100644
+index 90d1335626a9581716a78b47f71e48221952de92..28777aa248e16820d2fee8db6c7f663e891ee4c8 100644
 --- a/dist/session/cached-storage.js
 +++ b/dist/session/cached-storage.js
 @@ -66,6 +66,22 @@ export class CachedStorage {
@@ -568,7 +493,7 @@ index 90d1335..28777aa 100644
          return this.#storage.mintId();
      }
 diff --git a/dist/session/conversation-tails.d.ts b/dist/session/conversation-tails.d.ts
-index 98fdba3..61e6585 100644
+index 98fdba3773774e34416834342f7d0f6beb831352..61e6585457fca5fe4d34a4479658bbdecfd98195 100644
 --- a/dist/session/conversation-tails.d.ts
 +++ b/dist/session/conversation-tails.d.ts
 @@ -23,6 +23,7 @@ export declare class ConversationTails {
@@ -580,7 +505,7 @@ index 98fdba3..61e6585 100644
      apply(writes: readonly StorageWrite[]): void;
      /** How many conversations have their newest entry kept, for tests that bound memory. */
 diff --git a/dist/session/conversation-tails.js b/dist/session/conversation-tails.js
-index 152cdc2..bc09739 100644
+index 152cdc22efa493ab2a449c4ef3400350a780b3e0..bc097392abfd5274ca77d75ba87ab3633bb01eef 100644
 --- a/dist/session/conversation-tails.js
 +++ b/dist/session/conversation-tails.js
 @@ -47,6 +47,12 @@ export class ConversationTails {
@@ -597,10 +522,10 @@ index 152cdc2..bc09739 100644
      apply(writes) {
          for (const write of writes) {
 diff --git a/dist/session/session.d.ts b/dist/session/session.d.ts
-index 8201d7c..0795211 100644
+index c7843cd0c2e0a722f4aa3324d1c8cf58863a3f21..89ea21343d19f04144ec2a208f0575515019f558 100644
 --- a/dist/session/session.d.ts
 +++ b/dist/session/session.d.ts
-@@ -211,6 +211,15 @@ export declare class SessionImpl implements Session {
+@@ -213,6 +213,15 @@ export declare class SessionImpl implements Session {
      subscribeClose(listener: () => void): () => void;
      /** Drop every loaded tracker on the mutation line, held changes stored first; later access cold-loads from Storage. */
      unloadDocuments(): Promise<void>;
@@ -617,7 +542,7 @@ index 8201d7c..0795211 100644
       * Internal, for tests: how many documents the cache holds, how many are idle, how many incarnations are pinned, how
       * many sweep jobs were queued on the line so far, how many documents have held changes, how many live tasks have
 diff --git a/dist/session/session.js b/dist/session/session.js
-index e9ae9eb..62bd060 100644
+index 86978d80b597c7cd059f36ab23cd4fa115da55f5..920fe2a9049cfac473757eebacd5a021771e8dd8 100644
 --- a/dist/session/session.js
 +++ b/dist/session/session.js
 @@ -89,6 +89,7 @@ export function persistWithin(ms) {
@@ -678,10 +603,10 @@ index e9ae9eb..62bd060 100644
       * Internal, for tests: how many documents the cache holds, how many are idle, how many incarnations are pinned, how
       * many sweep jobs were queued on the line so far, how many documents have held changes, how many live tasks have
 diff --git a/dist/types.d.ts b/dist/types.d.ts
-index b43143c..0d1866b 100644
+index 783d56468bdd1c4d2f07e1e58a38b9ae004c2e97..a8603078d1eebcff613973705e881851a98ae59c 100644
 --- a/dist/types.d.ts
 +++ b/dist/types.d.ts
-@@ -1077,6 +1077,15 @@ export interface Session extends DocumentObserver {
+@@ -1081,6 +1081,15 @@ export interface Session extends DocumentObserver {
       * Session does not know Storage's newest `seq` before its own first commit.
       */
      observeCommits(observer: CommitObserver): CommitObservation;

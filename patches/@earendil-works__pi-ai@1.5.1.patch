@@ -47,7 +47,7 @@ index 1b7cb58ec7ad745938a5684014867601454acdcb..c9bd92bc1829e68b719dd531f8900daf
              stream.end();
          }
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4b3b08845 100644
+index e64cc029276fdb45c8ebf6d16a7d9573df223798..8602bc350c4c8ea65893cb32f83631007a775a00 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
 @@ -53,7 +53,7 @@ function isTerminalRateLimitError(errorText) {
@@ -59,7 +59,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
          return false;
      }
      if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
-@@ -162,6 +162,7 @@ export const stream = (model, context, options) => {
+@@ -166,6 +166,7 @@ export const stream = (model, context, options) => {
              stopReason: "pending",
              timestamp: Date.now(),
          };
@@ -67,7 +67,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
          try {
              const apiKey = options?.apiKey;
              if (!apiKey) {
-@@ -284,6 +285,7 @@ export const stream = (model, context, options) => {
+@@ -288,6 +289,7 @@ export const stream = (model, context, options) => {
                          combinedSignal.cleanup();
                      }
                      await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
@@ -75,7 +75,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
                      if (response.ok) {
                          break;
                      }
-@@ -302,7 +304,13 @@ export const stream = (model, context, options) => {
+@@ -306,7 +308,13 @@ export const stream = (model, context, options) => {
                          statusText: response.statusText,
                      });
                      const info = await parseErrorResponse(fakeResponse);
@@ -90,7 +90,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
                  }
                  catch (error) {
                      if (error instanceof Error) {
-@@ -313,6 +321,7 @@ export const stream = (model, context, options) => {
+@@ -317,6 +325,7 @@ export const stream = (model, context, options) => {
                      lastError = error instanceof Error ? error : new Error(String(error));
                      // Network errors are retryable
                      if (attempt < maxRetries &&
@@ -98,7 +98,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
                          !(lastError instanceof RetryDelayExceededError) &&
                          !lastError.message.includes("usage limit")) {
                          const delayMs = BASE_DELAY_MS * 2 ** attempt;
-@@ -343,6 +352,10 @@ export const stream = (model, context, options) => {
+@@ -347,6 +356,10 @@ export const stream = (model, context, options) => {
          catch (error) {
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
              output.errorMessage = formatProviderError(normalizeProviderError(error));
@@ -109,7 +109,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
          }
-@@ -436,7 +449,10 @@ function getServiceTierCostMultiplier(model, serviceTier) {
+@@ -440,7 +453,10 @@ function getServiceTierCostMultiplier(model, serviceTier) {
          case "flex":
              return 0.5;
          case "priority":
@@ -120,7 +120,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
          default:
              return 1;
      }
-@@ -452,7 +468,7 @@ function applyServiceTierPricing(usage, serviceTier, model) {
+@@ -456,7 +472,7 @@ function applyServiceTierPricing(usage, serviceTier, model) {
      usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
  }
  function resolveCodexServiceTier(responseServiceTier, requestServiceTier) {
@@ -129,7 +129,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
          return requestServiceTier;
      }
      return responseServiceTier ?? requestServiceTier;
-@@ -496,6 +512,48 @@ class CodexApiError extends Error {
+@@ -500,6 +516,48 @@ class CodexApiError extends Error {
          this.cause = options?.cause;
      }
  }
@@ -178,7 +178,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
  class CodexProtocolError extends Error {
      payload;
      constructor(message, options) {
-@@ -535,6 +593,7 @@ function extractCodexEventError(event) {
+@@ -539,6 +597,7 @@ function extractCodexEventError(event) {
      };
  }
  async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
@@ -186,7 +186,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
      for await (const event of events) {
          try {
              await onProviderStreamEvent?.(event, model);
-@@ -546,18 +605,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
+@@ -550,18 +609,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
          const type = typeof event.type === "string" ? event.type : undefined;
          if (!type)
              continue;
@@ -225,7 +225,7 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
          }
          if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
              const response = event.response;
-@@ -1257,6 +1333,11 @@ async function parseErrorResponse(response) {
+@@ -1261,6 +1337,11 @@ async function parseErrorResponse(response) {
                  friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
              }
              message = err.message || friendlyMessage || message;
@@ -238,10 +238,10 @@ index 427df0a7054cc4b2071c8e5c2dc2ac1a82ea166a..cb97fec973c281a6c4f0d7e66a1b30a4
      }
      catch { }
 diff --git a/dist/api/openai-responses.js b/dist/api/openai-responses.js
-index 7b3b0d733c3495fd0815f563212acac457224dc0..f07202a559914e01215dd155beabd7b274e7e749 100644
+index 0977a46594d2caa8c92b90e267158ee5efb74938..624bdd56eec4bbee630811a91110c249abaa06ee 100644
 --- a/dist/api/openai-responses.js
 +++ b/dist/api/openai-responses.js
-@@ -316,6 +316,8 @@ function getServiceTierCostMultiplier(model, serviceTier) {
+@@ -318,6 +318,8 @@ function getServiceTierCostMultiplier(model, serviceTier) {
          case "priority":
          case "fast":
              return model.id === "gpt-5.5" ? 2.5 : 2;
@@ -308,10 +308,10 @@ index 5960cf7f5e992eef7d1b96530cea66c6f616a6d2..0d7629d77faffd0e407eeb5383d6a715
      if (shouldRetry === "true")
          return true;
 diff --git a/dist/utils/retry.js b/dist/utils/retry.js
-index d33b8069b80bc454b0db59a221aba9332d522bf3..05ae85768273f325410dec53245f5bdf6a7064a1 100644
+index dae863cfd9f141d27f781754ef0ada914dd45c5f..338effb083e1e0c0b017e233b7e436c5dbb1ff21 100644
 --- a/dist/utils/retry.js
 +++ b/dist/utils/retry.js
-@@ -205,7 +205,11 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
+@@ -208,7 +208,11 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
  export function isRetryableAssistantError(message) {
      if (message.stopReason !== "error" || !message.errorMessage)
          return false;

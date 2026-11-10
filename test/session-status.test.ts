@@ -8,7 +8,7 @@ import {
   createRegistry, createSession, Harness, LiveDoc, MemoryStorage,
   type ConversationId, type EntryId, type RunFailureReason, type SubmissionId, type TaskId,
 } from "@earendil-works/pi-durable";
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { commitWrites } from "@earendil-works/pi-durable/testing";
 import { readCommonSessionReport, readSessionStatus, readTurnFailure, SessionHandoffDoc } from "../src/session-status.js";
 

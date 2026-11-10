@@ -3,7 +3,7 @@
 // spawning tool call and the parent's abort. Each parent records its own children in a conversation document,
 // so list/wait/steer/stop only ever touch that parent's children. Replay safety: spawn is keyed by the tool
 // call's task id (a rerun after a crash finds the child it already made) and every message has a deterministic requestId.
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { readFileSync } from "node:fs";
 import { ExecTarget } from "./workers.js";
 import { AskDoc } from "./ask.js";
@@ -85,7 +85,7 @@ export interface DelegateSettings {
   maxTurns?: number;
   profiles?: Record<string, DelegateProfile>;
 }
-export function createDelegateExtension(settings: () => DelegateSettings = () => ({})): Extension {
+export function createDelegateExtension(settings: () => DelegateSettings = () => ({}), compaction?: () => AgentChange["compaction"]): Extension {
   const extension: Extension = defineExtension({
     name: "delegate",
     tasks: [DelegateDeadline],
@@ -236,6 +236,8 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
                 // Clamp to the child's model: a profile level can exceed what that model supports.
                 thinkingLevel: resolveThinkingLevel(api.models, model ?? parent.model, undefined, profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel),
                 ...(maxTurns === undefined ? {} : { maxTurns }),
+                // Subagent limits live in the child's agent state; sessions use the harness-wide policy.
+                ...(compaction ? { compaction: compaction() } : {}),
                 // Children keep task policy, but never the runtime's personal identity block.
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "identity" || e.name === "board" || e.name === "ask-user")] },
                 tools, modelTools: tools, toolAllowlist: tools.map(tool => tool.name),

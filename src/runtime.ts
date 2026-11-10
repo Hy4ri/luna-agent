@@ -221,7 +221,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     const cut = body.length > CAP ? `${body.slice(0, CAP)}\n[truncated: ${body.length - CAP} more chars in ${path}]` : body;
     return `## SOUL.md\n${cut}`;
   })] }));
-  if (on("delegate")) extensions.push(DelegateResults, createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents));
+  if (on("delegate")) extensions.push(DelegateResults, createDelegateExtension(() => settings?.resolved().subagents ?? cfg.subagents, () => (settings?.resolved() ?? cfg).compaction.subagents));
   // Crew sessions are full sessions, created with the same rules as the web UI's new-session request.
   let projectExtensions: Extension[] = [];
   const newSessionAgent = () => {
