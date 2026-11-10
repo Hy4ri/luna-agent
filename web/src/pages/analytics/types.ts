@@ -6,8 +6,6 @@ export interface UsageCost {
   cacheRead: number
   cacheWrite: number
   total: number
-  /** True only when every priced part is provider-reported. Absent means an estimate. */
-  totalFromProvider?: boolean
 }
 
 export interface ModelUsage {

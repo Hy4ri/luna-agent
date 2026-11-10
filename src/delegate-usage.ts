@@ -5,15 +5,12 @@ import { Children } from "./delegate-state.js";
 export interface DelegateUsage {
   input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number;
   costUsd: number; missingCost: boolean; zeroCostModels: string[];
-  /** True only when every priced part is provider-reported; null when nothing was priced. */
-  costReported: boolean | null;
 }
-const empty = (): DelegateUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, costUsd: 0, missingCost: false, zeroCostModels: [], costReported: null });
+const empty = (): DelegateUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, costUsd: 0, missingCost: false, zeroCostModels: [] });
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 function add(target: DelegateUsage, source: DelegateUsage) {
   for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens", "costUsd"] as const) target[key] += source[key];
   target.missingCost ||= source.missingCost;
-  if (source.costReported !== null) target.costReported = target.costReported === null ? source.costReported : target.costReported && source.costReported;
   target.zeroCostModels = [...new Set([...target.zeroCostModels, ...source.zeroCostModels])];
 }
 export async function readDelegateUsage(tx: Tx, id: ConversationId): Promise<DelegateUsage> {
@@ -24,8 +21,6 @@ export async function readDelegateUsage(tx: Tx, id: ConversationId): Promise<Del
     for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) if (finite(usage[key])) result[key] += usage[key];
     if (finite(usage.cost?.total)) {
       result.costUsd += usage.cost.total;
-      const reported = usage.cost.totalFromProvider === true;
-      result.costReported = result.costReported === null ? reported : result.costReported && reported;
       if (usage.cost.total === 0 && usage.totalTokens > 0) result.zeroCostModels.push(name);
     } else result.missingCost = true;
   }
@@ -44,5 +39,5 @@ export async function readDelegationUsage(tx: Tx, id: ConversationId) {
   }
   add(total, parent); add(total, childTotal);
   return { parent, children, childTotal, total, unavailableChildren: children.filter(c => c.usage === null).length,
-    note: "Recorded model USD amounts. They are provider-reported only when costReported is true; otherwise they are estimates, not invoices. Zero cost can mean unpriced, subscription, or free usage. Deleted children are excluded; tool-reported usage is not added." };
+    note: "Recorded model USD amounts. They are estimates, not invoices: a total can mix provider-reported and catalog-rate parts. Zero cost can mean unpriced, subscription, or free usage. Deleted children are excluded; tool-reported usage is not added." };
 }

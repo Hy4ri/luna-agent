@@ -1,5 +1,4 @@
 // Control-only usage reads: never submit a prompt or start a model generation.
-import { costWording, providerReported } from "./usage-cost.js";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { UsageState } from "@earendil-works/pi-durable";
@@ -86,8 +85,8 @@ export function usageNotice(usage: UsageState, report?: ClaudeUsageReport): stri
   const totals = Object.values(usage.models).reduce((sum, value) => ({
     tokens: sum.tokens + value.totalTokens, cost: sum.cost + value.cost.total,
   }), { tokens: 0, cost: 0 });
-  const reported = providerReported(Object.values(usage.models).map(value => value.cost));
-  const lines = [`Luna session: ${totals.tokens.toLocaleString("en-US")} tokens · ${costWording(reported)} $${totals.cost.toFixed(4)}${reported ? "" : " (not your subscription bill)"}.`];
+  // Stock ledger sums keep the first response's totalFromProvider flag, so a session total is always an estimate.
+  const lines = [`Luna session: ${totals.tokens.toLocaleString("en-US")} tokens · estimated cost $${totals.cost.toFixed(4)} (catalog rates, a CLI estimate, or mixed sources; not an invoice or your subscription bill).`];
   if (!report) return lines.join("\n");
   lines.push(`Claude plan (daemon host): ${report.subscription_type ?? "unavailable"}.`);
   if (!report.rate_limits_available || !report.rate_limits) {

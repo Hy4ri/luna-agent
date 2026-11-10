@@ -75,7 +75,7 @@
             <strong class="block text-[26px] font-semibold leading-tight tracking-tight tabular-nums text-primary-text a-value">
               {{ usd(activeUsage.cost.total) }}
             </strong>
-            <small class="text-muted-foreground text-xs block mt-1">{{ activeUsage.cost.totalFromProvider === true ? 'Provider-reported' : 'Estimate, not an invoice' }}</small>
+            <small class="text-muted-foreground text-xs block mt-1">Estimate, not an invoice</small>
           </div>
 
           <div class="border border-border rounded-[var(--radius)] p-4 bg-card a-kpi">

@@ -388,21 +388,6 @@ index 7f4a0ba59df6d5870248c60c055dd188fdab51c4..15de2d3034eca8337c09b50962cdcb9e
      /** Threshold and overflow compaction. */
      enabled: boolean;
      /** Room kept free for the answer: generation blocks to compact above `contextWindow - reserveTokens`. */
-diff --git a/dist/harness/usage.js b/dist/harness/usage.js
-index 3ae22e5e6e7c957ad991e15f1b56d9080097b97a..f3bfed00cd7412e0b3dabd6abbc0575fe7cbff4a 100644
---- a/dist/harness/usage.js
-+++ b/dist/harness/usage.js
-@@ -36,6 +36,10 @@ export function addUsage(total, usage) {
-     total.cost.cacheRead += usage.cost.cacheRead;
-     total.cost.cacheWrite += usage.cost.cacheWrite;
-     total.cost.total += usage.cost.total;
-+    // luna: a sum is provider-reported only when every part is. A missing flag is unknown, never billed.
-+    if (total.cost.totalFromProvider !== undefined || usage.cost.totalFromProvider !== undefined) {
-+        total.cost.totalFromProvider = total.cost.totalFromProvider === true && usage.cost.totalFromProvider === true;
-+    }
- }
- /** Add every bucket of `state` into `sum`. */
- export function addUsageState(sum, state) {
 diff --git a/dist/session/cached-storage.d.ts b/dist/session/cached-storage.d.ts
 index 54f906bc5e39f0e208a879d7ceb3417354fb3f4c..c863fdf8b7b123555ecde6ceb64ad723ff7ad1fc 100644
 --- a/dist/session/cached-storage.d.ts
