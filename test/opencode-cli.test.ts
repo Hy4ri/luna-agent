@@ -110,3 +110,18 @@ test("a background summary with the same session ID does not hang the live gener
   assert.equal(answered.content.find((c: any) => c.type === "text")?.text, "done");
   } finally { fake.server.closeAllConnections(); fake.server.close(); }
 });
+
+// Contract: a Luna thinking level reaches opencode as the model variant (ACP "effort"), clamped to the variants offered.
+test("thinking levels map to opencode variants", async () => {
+  const { variantLevels, variantFor } = await import("../src/opencode-cli.js");
+  const { getSupportedThinkingLevels, clampThinkingLevel } = await import("@earendil-works/pi-ai");
+  assert.deepEqual(variantLevels([]), { reasoning: false });
+  const m = { ...variantLevels([{ id: "low" }, { id: "high" }, { id: "max" }]), id: "x", provider: "opencode-cli" } as any;
+  assert.deepEqual(getSupportedThinkingLevels(m), ["off", "low", "high", "max"]);
+  assert.equal(variantFor(m, clampThinkingLevel(m, "medium")), "high");
+  assert.equal(variantFor(m, "max"), "max");
+  assert.equal(variantFor(m, "off"), undefined, "off without a none variant runs the model default");
+  const n = { ...variantLevels([{ id: "none" }, { id: "low" }]) } as any;
+  assert.equal(variantFor(n, "off"), "none");
+  assert.equal(variantFor({ reasoning: false }, "high"), undefined);
+});

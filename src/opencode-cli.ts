@@ -387,10 +387,33 @@ async function sendPrompt(sessionId: string, prompt: { text: string; files: Atta
 
 // ------------------------------------------------------------------ stream
 
-function parseModel(id: string) {
+function parseModel(id: string, variant?: string) {
   const i = id.indexOf("/");
   if (i <= 0) throw new Error(`opencode-cli model id must look like provider/model, got "${id}"`);
-  return { providerID: id.slice(0, i), id: id.slice(i + 1) };
+  return { providerID: id.slice(0, i), id: id.slice(i + 1), ...(variant ? { variant } : {}) };
+}
+
+const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+/** opencode's name for "no variant": the model runs at its own default effort. */
+const DEFAULT_VARIANT = "default";
+
+/**
+ * Luna thinking levels for an opencode model, from the variants opencode reports (the ACP "effort" option).
+ * Each listed effort maps to itself; other levels clamp. Off sends "none" when offered, else no variant.
+ */
+export function variantLevels(variants: unknown): { reasoning: boolean; thinkingLevelMap?: Partial<Record<(typeof LEVELS)[number], string | null>> } {
+  const ids = Array.isArray(variants) ? variants.map(v => v?.id).filter((v): v is string => typeof v === "string") : [];
+  if (!ids.length) return { reasoning: false };
+  const map: Partial<Record<(typeof LEVELS)[number], string | null>> = { off: ids.includes("none") ? "none" : DEFAULT_VARIANT };
+  for (const level of LEVELS.slice(1)) map[level] = ids.includes(level) ? level : null;
+  return { reasoning: true, thinkingLevelMap: map };
+}
+
+/** The variant to send for the requested level, or undefined for the model default. */
+export function variantFor(model: { reasoning: boolean; thinkingLevelMap?: Record<string, string | null | undefined> }, level: string | undefined): string | undefined {
+  if (!model.reasoning || !level) return undefined;
+  const mapped = model.thinkingLevelMap?.[level];
+  return mapped && mapped !== DEFAULT_VARIANT ? mapped : undefined;
 }
 
 const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
@@ -418,6 +441,8 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       if (conv.active && !conv.active.aborted) conv = newConv(`${key}:side:${crypto.randomUUID()}`, tools, true);
       conv.active = options?.signal ?? new AbortController().signal;
       conv.lastUsed = Date.now();
+      const variant = variantFor(model as any, options?.reasoning);
+      const modelKey = variant ? `${model.id}#${variant}` : model.id;
       const toolsHash = hashTools(tools);
       const toolsChanged = toolsHash !== conv.toolsHash;
       conv.tools = tools; conv.toolsHash = toolsHash;
@@ -435,7 +460,7 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
         }
       } else {
         const vision = model.input.includes("image");
-        const next = followUp(conv, messages, model.id, system, vision);
+        const next = followUp(conv, messages, modelKey, system, vision);
         if (next) {
           // The live session already holds the earlier turns: send only the new user message.
           try {
@@ -446,10 +471,10 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
           } catch (error) {
             if (options?.signal?.aborted) throw error;
             // The session is gone or unreachable: replay the transcript into a new one.
-            await startSession(conv, parseModel(model.id), system, renderPrompt(conv, messages, vision), options?.signal);
+            await startSession(conv, parseModel(model.id, variant), system, renderPrompt(conv, messages, vision), options?.signal);
           }
         } else {
-          await startSession(conv, parseModel(model.id), system, renderPrompt(conv, messages, vision), options?.signal);
+          await startSession(conv, parseModel(model.id, variant), system, renderPrompt(conv, messages, vision), options?.signal);
         }
       }
 
@@ -503,7 +528,7 @@ const stream: ProviderStreams["streamSimple"] = (model, context, options) => {
       if (result === "stop") {
         // Keep the session: the next user message can continue it instead of replaying the transcript.
         const turns = messages.filter(m => m.role !== "system");
-        conv.sent = { model: model.id, systemHash: sha(system), count: turns.length, firstHash: sha(textOf((turns[0] as any)?.content ?? "")), reply: text?.text ?? "" };
+        conv.sent = { model: modelKey, systemHash: sha(system), count: turns.length, firstHash: sha(textOf((turns[0] as any)?.content ?? "")), reply: text?.text ?? "" };
       }
       events.push({ type: "done", reason: message.stopReason, message });
     } catch (error) {
@@ -531,7 +556,7 @@ async function listModels() {
     id: `${m.providerID}/${m.modelID}`, name: `${m.name ?? m.modelID} (opencode)`,
     api: PROVIDER_ID as string, provider: PROVIDER_ID, baseUrl: "",
     input: (m.capabilities?.input?.includes("image") ? ["text", "image"] : ["text"]) as ("text" | "image")[],
-    reasoning: false,
+    ...variantLevels(m.variants),
     contextWindow: m.limit?.context ?? 128_000, maxTokens: m.limit?.output ?? 32_000,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   }));
