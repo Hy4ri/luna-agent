@@ -1,48 +1,8 @@
-diff --git a/dist/harness/agent.js b/dist/harness/agent.js
-index 5a97712ca36ae51680f4ce9d67aa2bc5a82b4ddd..4c14831bd77dd86f0d98c065a16e631f24b805c6 100644
---- a/dist/harness/agent.js
-+++ b/dist/harness/agent.js
-@@ -154,7 +154,7 @@ function compactionSettings(settings) {
-     const overrides = Object.entries(modelOverrides).map(([key, override]) => [key, compactionFields(override)]);
-     return { ...compactionFields(policy), modelOverrides: Object.fromEntries(overrides) };
- }
--const TOKEN_FIELDS = ["reserveTokens", "keepRecentTokens", "backgroundTokens"];
-+const TOKEN_FIELDS = ["reserveTokens", "keepRecentTokens", "backgroundTokens", "backgroundAtTokens", "blockAtTokens"];
- /** The set fields of `policy`; throws a `RangeError` for a token count that is not an integer `0` or more. */
- function compactionFields(policy) {
-     const fields = policy.enabled === undefined ? {} : { enabled: policy.enabled };
-diff --git a/dist/harness/compaction.js b/dist/harness/compaction.js
-index 54f3ef34ddf1bf85e3ad9c41bdbd216c081a476f..c0a3cfa27986fa36e2c11c2f4734184f6455fb3c 100644
---- a/dist/harness/compaction.js
-+++ b/dist/harness/compaction.js
-@@ -218,6 +218,8 @@ export function compactionPolicy(settings, model, conversation) {
-         reserveTokens: field("reserveTokens"),
-         keepRecentTokens: field("keepRecentTokens"),
-         backgroundTokens: field("backgroundTokens"),
-+        backgroundAtTokens: field("backgroundAtTokens"),
-+        blockAtTokens: field("blockAtTokens"),
-     };
- }
- /**
 diff --git a/dist/harness/generation.js b/dist/harness/generation.js
-index 27e60bb9b479b5600a7314f13bba25177a5e47d9..b0de262af4d044cb6e79075942affdfa4cc400a1 100644
+index 27e60bb9b479b5600a7314f13bba25177a5e47d9..9bac48e0deef9c72c7515fa0d7d8ef844ba165e9 100644
 --- a/dist/harness/generation.js
 +++ b/dist/harness/generation.js
-@@ -307,9 +307,10 @@ function thresholdCompaction(view, planned, contextWindow, policy) {
-     if (!policy.enabled || contextWindow <= 0)
-         return undefined;
-     const tokens = estimateContext(view, planned.flatMap((entry) => entry.model ?? []));
--    const blocking = contextWindow - policy.reserveTokens;
--    const background = blocking - policy.backgroundTokens;
--    const over = tokens > blocking ? "blocking" : policy.backgroundTokens > 0 && tokens > background ? "background" : undefined;
-+    const safetyBlocking = contextWindow - policy.reserveTokens;
-+    const blocking = Math.min(safetyBlocking, policy.blockAtTokens ?? Infinity);
-+    const background = Math.min(safetyBlocking - policy.backgroundTokens, policy.backgroundAtTokens ?? Infinity, blocking);
-+    const over = tokens >= blocking ? "blocking" : (policy.backgroundTokens > 0 || policy.backgroundAtTokens !== undefined) && tokens >= background ? "background" : undefined;
-     if (over === undefined || selectCut(view, policy.keepRecentTokens) === undefined)
-         return undefined;
-     return over;
-@@ -649,7 +650,8 @@ async function classify(runtime, request, message, context) {
+@@ -649,7 +649,8 @@ async function classify(runtime, request, message, context) {
          await endFailedRun(tx, runtime, live, failure, { status: "unanswered", reason: "model_error", detail: text });
          return {
              status: "terminal",
@@ -52,20 +12,6 @@ index 27e60bb9b479b5600a7314f13bba25177a5e47d9..b0de262af4d044cb6e79075942affdfa
          };
      }, context);
  }
-diff --git a/dist/harness/types.d.ts b/dist/harness/types.d.ts
-index 3849e54fe2ffdd95ef6e8a0e6f96100183a99662..df0fc37b39789a09c66271cd6a929fcb42c9cbfe 100644
---- a/dist/harness/types.d.ts
-+++ b/dist/harness/types.d.ts
-@@ -520,6 +520,9 @@ export type ConversationRetryPolicy = {
- };
- /** Automatic compaction thresholds (spec §8.7); manual compaction ignores `enabled`. */
- export type CompactionPolicy = {
-+    /** Optional absolute thresholds, clamped to model-capacity safety limits. */
-+    backgroundAtTokens?: number;
-+    blockAtTokens?: number;
-     /** Threshold and overflow compaction. */
-     enabled: boolean;
-     /** Room kept free for the answer: generation blocks to compact above `contextWindow - reserveTokens`. */
 diff --git a/dist/session/cached-storage.d.ts b/dist/session/cached-storage.d.ts
 index 54f906bc5e39f0e208a879d7ceb3417354fb3f4c..c863fdf8b7b123555ecde6ceb64ad723ff7ad1fc 100644
 --- a/dist/session/cached-storage.d.ts
