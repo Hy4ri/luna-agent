@@ -111,7 +111,7 @@ export function registerWebhooks(app: Hono, ctx: RouteCtx): void {
     }
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
-    await opts.limitContinuer?.cancel(Number(conv.id), "New input replaced automatic recovery.");
+    await opts.scheduledMessages?.cancelForConversation(Number(conv.id), "limit_recovery", "New input replaced automatic recovery.");
     const sub = await conv.submit(
       {
         type: "input",

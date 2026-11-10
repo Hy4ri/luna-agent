@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { defineDoc, type ConversationId, type SubmissionId, type Tx } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
+import { newestInputBoundary } from "./session-status.js";
+import { RecoveryStateDoc, recoveryCandidate, recoveryKey, recoveryResetFloor } from "./recovery-state.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
 
@@ -71,7 +73,10 @@ function compareDue(a: ScheduledMessageRecord, b: ScheduledMessageRecord): numbe
   return a.dueAt - b.dueAt || a.id.localeCompare(b.id);
 }
 
+export type RecoverySummary = { active: boolean; resumeAt?: number; exact: boolean; source?: string; pausedReason?: string; provider?: string; model?: string };
+
 export class ScheduledMessagesService {
+  private readonly paused = new Set<number>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private observation: { detach(): void } | undefined;
   private closed = false;
@@ -84,6 +89,8 @@ export class ScheduledMessagesService {
       log: (m: string) => void;
       now?: () => number;
       skip?: (id: number) => boolean;
+      recoveryPolicy?: () => { enabled: boolean; maxWaitHours: number; resetGraceSeconds?: number };
+      defaultModel?: () => { provider: string; modelId: string };
     },
   ) {}
 
@@ -109,7 +116,8 @@ export class ScheduledMessagesService {
     this.observation = this.o.harness.observeCommits({
       advance: (p) => {
         const relevant = p.changes.some(
-          (ch) => ch.type === "submission" && (ch.value.status === "done" || ch.value.status === "unanswered"),
+          (ch) => ch.type === "submission" || ch.type === "document" &&
+            ["luna.ask", "luna.session-handoff", "pi.agent", "luna.scheduled-recovery"].includes(ch.record.kind),
         );
         if (relevant) {
           queueMicrotask(() => {
@@ -127,6 +135,28 @@ export class ScheduledMessagesService {
     });
 
     await this.enqueueWork(() => this.reconcileAndArm());
+  }
+
+  async withDeliveryPaused<T>(id: number, fn: () => Promise<T>): Promise<T> {
+    this.paused.add(id);
+    try { return await fn(); }
+    finally { this.paused.delete(id); await this.scheduleChanged(); }
+  }
+
+  async recovery(tx: Tx, id: ConversationId): Promise<RecoverySummary | undefined> {
+    const schedules = await this.list(tx, Number(id));
+    const pending = schedules.find(s => s.source.kind === "limit_recovery" && (s.status === "scheduled" || s.status === "queued"));
+    if (pending && pending.source.kind === "limit_recovery") return {
+      active: true, resumeAt: Math.max(pending.dueAt, pending.nextDeliveryAt ?? 0), exact: pending.source.exact,
+      source: pending.source.resetSource, provider: pending.source.provider, model: pending.source.model,
+    };
+    const boundary = await newestInputBoundary(tx, id);
+    const attempt = Object.values((await tx.doc(RecoveryStateDoc)).attempts)
+      .find(a => a.conversationId === Number(id) && a.boundary === boundary);
+    if (attempt && (attempt.status === "stopped" || attempt.status === "consumed") && attempt.reason) return {
+      active: false, exact: false, pausedReason: attempt.reason, provider: attempt.provider, model: attempt.model,
+    };
+    return undefined;
   }
 
   async close(): Promise<void> {
@@ -151,7 +181,10 @@ export class ScheduledMessagesService {
   ): Promise<{ schedule: ScheduledMessageRecord; created: boolean }> {
     const content = input.content.trim();
     if (!content) throw new ScheduledMessageError("Message content is required.", 400);
-    if (!Number.isFinite(input.dueAt)) throw new ScheduledMessageError("Invalid dueAt timestamp.", 400);
+    if (content.startsWith("/")) throw new ScheduledMessageError("Scheduled messages cannot execute slash commands.", 400);
+    if (!Number.isSafeInteger(input.dueAt) || input.dueAt <= 0 || input.dueAt > 8.64e15) {
+      throw new ScheduledMessageError("Invalid dueAt timestamp.", 400);
+    }
     if (!input.requestId || !input.requestId.trim()) {
       throw new ScheduledMessageError("requestId is required.", 400);
     }
@@ -168,6 +201,9 @@ export class ScheduledMessagesService {
       if (existing) return { schedule: cloneRecord(existing), created: false };
     }
 
+    if (!await tx.conversation(input.conversationId as ConversationId) || this.o.skip?.(input.conversationId)) {
+      throw new ScheduledMessageError("Conversation is missing, archived, or unavailable for scheduling.", 409);
+    }
     const now = this.now();
     if (!input.allowPast && input.dueAt <= now) {
       throw new ScheduledMessageError("Scheduled time must be in the future.", 400);
@@ -265,6 +301,15 @@ export class ScheduledMessagesService {
     let cancelledCount = 0;
 
     await this.o.harness.commit(async (tx) => {
+      // Fence even an in-flight parser with no schedule yet, and delayed observer callbacks.
+      const boundary = await newestInputBoundary(tx, conversationId as ConversationId);
+      const state = await tx.doc(RecoveryStateDoc);
+      state.blockedThrough[String(conversationId)] = Math.max(state.blockedThrough[String(conversationId)] ?? -1, boundary);
+      for (const attempt of Object.values(state.attempts)) {
+        if (attempt.conversationId === conversationId && (attempt.status === "parsing" || attempt.status === "scheduled")) {
+          attempt.status = "stopped"; attempt.reason = reason;
+        }
+      }
       const doc = await tx.doc(ScheduledMessagesDoc);
       for (const rec of Object.values(doc.schedules)) {
         if (rec.conversationId !== conversationId) continue;
@@ -305,11 +350,39 @@ export class ScheduledMessagesService {
     await this.armNext();
   }
 
+  /** Rechecked again at admission so a newer same-route reset cannot lose a timer race. */
+  private async preserveResetFloor(tx: Tx, rec: ScheduledMessageRecord): Promise<void> {
+    if (rec.source.kind !== "limit_recovery") return;
+    const policy = this.o.recoveryPolicy?.();
+    const state = await tx.doc(RecoveryStateDoc);
+    const floor = recoveryResetFloor(state.attempts, rec.source.provider, rec.source.model);
+    if (floor && floor + (policy?.resetGraceSeconds ?? 60) * 1000 > rec.dueAt) {
+      rec.dueAt = Math.ceil(floor + (policy?.resetGraceSeconds ?? 60) * 1000);
+      rec.source.exact = false; rec.source.resetSource = "shared_provider_evidence";
+    }
+    if (policy && rec.dueAt - this.now() > policy.maxWaitHours * 3_600_000) {
+      rec.status = "cancelled"; rec.terminalReason = "Reset time exceeds maxWaitHours.";
+      const attempt = state.attempts[recoveryKey(rec.conversationId, rec.source.boundary)];
+      if (attempt) { attempt.status = "stopped"; attempt.reason = rec.terminalReason; }
+    }
+  }
+
   async reconcile(): Promise<void> {
     if (this.closed) return;
     await this.o.harness.commit(async (tx) => {
       const doc = await tx.doc(ScheduledMessagesDoc);
       for (const rec of Object.values(doc.schedules)) {
+        if (rec.status === "scheduled" && rec.source.kind === "limit_recovery") {
+          const policy = this.o.recoveryPolicy?.();
+          await this.preserveResetFloor(tx, rec);
+          if (rec.status !== "scheduled") continue;
+          const eligible = await recoveryCandidate(tx, rec.conversationId as ConversationId,
+            this.o.defaultModel?.() ?? { provider: rec.source.provider, modelId: rec.source.model });
+          if (policy?.enabled === false || this.o.skip?.(rec.conversationId) || !eligible ||
+            eligible.boundary !== rec.source.boundary || eligible.generation !== rec.source.generation) {
+            rec.status = "cancelled"; rec.terminalReason = "Automatic recovery no longer matches the session or settings.";
+          }
+        }
         if (rec.status !== "queued") continue;
         const sub = await tx.submissionByRequest(rec.conversationId as ConversationId, rec.requestId);
         if (!sub) continue;
@@ -351,7 +424,7 @@ export class ScheduledMessagesService {
       const rec = doc.schedules[id];
       if (!rec || rec.status !== "scheduled") return undefined;
       if (Math.max(rec.dueAt, rec.nextDeliveryAt ?? 0) > now) return undefined;
-      return { ...rec };
+      return cloneRecord(rec);
     }, context);
 
     if (!pre) return false;
@@ -385,7 +458,21 @@ export class ScheduledMessagesService {
       const result = await this.o.harness.commit(async (tx) => {
         const doc = await tx.doc(ScheduledMessagesDoc);
         const rec = doc.schedules[id];
-        if (!rec || rec.status !== "scheduled") return "skip" as const;
+        if (!rec || rec.status !== "scheduled" || this.paused.has(rec.conversationId)) return "skip" as const;
+        if (Math.max(rec.dueAt, rec.nextDeliveryAt ?? 0) > this.now()) return "skip" as const;
+        if (this.o.skip?.(rec.conversationId)) {
+          rec.status = "cancelled"; rec.terminalReason = "Conversation skipped or archived."; return "skip" as const;
+        }
+        if (rec.source.kind === "limit_recovery") {
+          await this.preserveResetFloor(tx, rec);
+          if (rec.status !== "scheduled" || Math.max(rec.dueAt, rec.nextDeliveryAt ?? 0) > this.now()) return "skip" as const;
+          const eligible = await recoveryCandidate(tx, rec.conversationId as ConversationId,
+            this.o.defaultModel?.() ?? { provider: rec.source.provider, modelId: rec.source.model });
+          if (this.o.recoveryPolicy?.().enabled === false || !eligible ||
+            eligible.boundary !== rec.source.boundary || eligible.generation !== rec.source.generation) {
+            rec.status = "cancelled"; rec.terminalReason = "Automatic recovery invalidated before delivery."; return "skip" as const;
+          }
+        }
 
         const existingSub = await tx.submissionByRequest(pre.conversationId as ConversationId, rec.requestId);
         if (existingSub) {
@@ -452,7 +539,7 @@ export class ScheduledMessagesService {
       const doc = await tx.doc(ScheduledMessagesDoc);
       let earliest: number | undefined;
       for (const s of Object.values(doc.schedules)) {
-        if (s.status !== "scheduled") continue;
+        if (s.status !== "scheduled" || this.paused.has(s.conversationId)) continue;
         const t = Math.max(s.dueAt, s.nextDeliveryAt ?? 0);
         if (earliest === undefined || t < earliest) earliest = t;
       }

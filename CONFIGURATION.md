@@ -136,9 +136,15 @@ transactional submission API, not a host callback stored in a submission.
   (`task_interrupted`, or an extension task's `task_faulted`) are also posted there. Pi 1.5 ends restart-limited work instead of parking it.
   `GET /v1/tasks/parked` and `POST /v1/tasks/:id/retry` return HTTP 410. They do not restart terminal tasks or repeat side effects.
   Inspect the session failure, then send a new input or request a new compaction when appropriate.
-- `autoContinue`: resume a stopped turn after a rate or usage limit. `enabled` defaults to `false`.
+- `autoContinue`: one-shot scheduled limit recovery after a rate or usage limit. `enabled` defaults to `false`.
   Edit it under **Settings → Chat → Continue after usage limits**. Changes apply live.
-  Quota refusals have one retry owner: the durable continuation scheduler. Provider-local and generation retry
+  `maxWaitHours` (default `168`) limits the remaining automatic wait.
+  `resetGraceSeconds` (default `60`, range `0..3600`) adds a safety margin in seconds after a known quota reset timestamp.
+  `maxAttempts` is retired; existing configs containing `autoContinue.maxAttempts` are accepted as deprecated compatibility input and stripped on load/save.
+  Reset parsing uses one configured subagent-default completion, preserves known reset evidence plus `resetGraceSeconds`, and does not perform chained retries or unknown-time backoff.
+  Authentication, payment-required errors, empty balances, `insufficient_quota`, and context overflow never enter quota recovery.
+  New input, **Stop**, a model change, archive/delete, or disabling recovery cancels a pending recovery wait.
+  Quota refusals have one retry owner: the durable scheduled-message engine. Provider-local and generation retry
   loops do not rapidly retry a 429, even when automatic continuation is disabled. Non-quota transient network/server retries remain separate.
   Claude native preserves rejected SDK windows and upstream quota headers. Codex preserves HTTP headers,
   streamed `codex.rate_limits` windows, and refusal reset epochs. Google preserves allowlisted quota details and receipt time.
@@ -148,32 +154,33 @@ transactional submission API, not a host callback stored in a submission.
   (such as "resets 1am (Asia/Amman)"), and relative text are also supported.
   Relative delays are anchored to the original response receipt time, never the request start or a later reload.
   Independent blocked windows and mandatory retry guidance remain lower bounds. Unknown windows prevent an exact-recovery claim.
-  A known quota reset gets a 60-second safety margin, plus 0–30 seconds of positive jitter saved once.
-  Without reliable future timing, delays are 2, 10, 30, then 60 minutes, bounded by the retry budget.
-  Stale reset timestamps use fallback backoff, never immediate repeated requests.
-  Sessions on the same configured provider/model route share cooldown evidence. Only one automatic recovery turn runs there at a time.
-  The next waiting session starts after a safety interval. Different provider IDs are not assumed to share an account.
-  Coordination is local to one daemon; it does not detect unknown shared accounts, aliases, or other daemon instances.
-  `maxWaitHours` (default `168`) limits both an individual scheduled wait and the complete recovery lifetime from its first failure.
-  `maxAttempts` (default `5`) limits admitted automatic continuations in that recovery chain.
-  Neither budget resets after a daemon restart. A provider reset beyond the time limit leaves recovery paused, not shortened.
-  Authentication, payment-required errors, empty balances, `insufficient_quota`, and context overflow never enter quota recovery.
-  An upgrade suggestion with a recoverable quota reset is not, by itself, a permanent billing failure.
-  New input, **Stop**, **Cancel**, a model change, archive/delete, a pending user action, or disabling recovery invalidates the old wait.
-  Re-enabling recovery does not silently revive cancelled work. Cron runs, owned subagents, and side questions remain excluded.
-  Recovery resumes the stored run with Pi's native `continue` submission. It adds no recovery message to the conversation, so the transcript
-  and prompt-cache prefix stay unchanged. A continue is accepted only when the conversation is idle and its context ends in a user message or
-  tool results; a busy or ineligible conversation is paused or retried by the rules above, never replaced by a synthetic user message.
-  Because no input entry is added, the session's input boundary does not move; an admitted recovery shows no stale recovery state.
-  Stable submission IDs and durable receipt lookup prevent duplicate continuation after an ambiguous acknowledgement or crash.
-  Local delivery failures use three redelivery delays: 30 seconds, 2 minutes, and 10 minutes. Persistent failure then pauses recovery.
-  Receipt lookups and redelivery of the same admitted input do not spend extra model-attempt budget.
-  The existing wait status shows reported or estimated retry timing and the attempt budget. A reported reset does not confirm quota availability.
-  Budget exhaustion and delivery failures show a pause reason. Waiting does not add recurring transcript messages or quota polls.
-  Session detail/list responses keep `resumeAt` and add an optional `recovery` summary
-  (`active`, `resumeAt`, `attempt`, `maxAttempts`, `exact`, `source`, `pausedReason`). Updates use existing SSE invalidation.
-  Legacy waits without a failed-generation identity are retired. Identity-valid legacy waits retain their saved time;
-  recovery pauses conservatively when its original lifetime or submission ownership cannot be established.
+  Known reset evidence is a lower bound; `resetGraceSeconds` is added once, with no jitter or unknown-time backoff.
+  Known provider reset evidence is shared only within the same configured provider/model route; it can postpone automatic messages,
+  never manual schedules. Routes do not share parsed guesses or run serial recovery probes.
+  One durable claim is recorded before the parser call. If the daemon exits during parsing, restart uses captured evidence
+  without calling the parser again. Unknown timing or a reset beyond `maxWaitHours` leaves a visible manual-action reason.
+  Parser calls use `subagents.provider` / `subagents.model`, falling back to the failed session's model when unset,
+  with no tools, history, or provider retry, a 15-second deadline, and a bounded response. Their usage is charged to the session.
+  The recovery is one visible same-chat `Continue` input, using the same durable delivery engine as manual schedules.
+  A failure of that recovery input never starts another parsing call or automatic message. A genuinely new user input can
+  have its own one-shot recovery. Stable request IDs and receipt reconciliation prevent duplicate admission after restart.
+  Re-enabling recovery does not revive cancelled work. Cron runs, owned subagents, and side questions remain excluded.
+  Queued scheduled inputs are withdrawn on **Stop** without aborting an unrelated active turn. Future manual schedules survive.
+  Session detail/list responses keep `resumeAt` and optional `recovery`
+  (`active`, `resumeAt`, `exact`, `source`, `pausedReason`, `provider`, `model`), with SSE invalidation.
+  Eligible, unused first legacy waits migrate once, preserving the later of the saved reset/delivery times without adding grace again.
+  Previously admitted, cancelled, stale, model-mismatched, and over-budget legacy waits never become a new message.
+  The legacy dispatcher and attempt-count settings are retired.
+- Scheduled messages (`/schedule` and `/v1/sessions/:id/scheduled-messages`):
+  - `/schedule <text>`: in the web UI, the date/time picker uses the local timezone, shows the resolved UTC time/offset, rejects nonexistent local times, and posts an absolute `dueAt` (epoch ms in the future).
+  - `/schedule list`: list scheduled messages for the session.
+  - `/schedule cancel <id>`: cancel a scheduled message by ID.
+  - `GET /v1/sessions/:id/scheduled-messages`: list scheduled messages for a session.
+  - `POST /v1/sessions/:id/scheduled-messages`: create a scheduled message with required `content`, `dueAt` (epoch ms in the future), and `requestId`. Idempotent: same `requestId` and payload returns `200`, new creation returns `201`, and conflicting payload for an existing `requestId` returns `409`.
+  - `DELETE /v1/sessions/:id/scheduled-messages/:scheduleId`: cancel a scheduled message.
+  - Scheduled messages run as same-chat text-only normal input (no attachments or slash command execution).
+  - The composer shows a pending list with manual/automatic origin, local time plus ISO timestamp, status, and cancellation. Failed POST retries retain the same request identity and payload, including after the due time.
+  - User schedules persist across activity and **Stop** unless already queued; archiving or deleting the session cancels all scheduled messages.
 - `sessionTalk`: messages between sessions. `enabled` defaults to `true`; `maxHops` (1 through 20) defaults to `3`.
   Edit it under **Settings → Chat**. Changes apply live. See **Sessions talk with each other**.
 - `providers`: custom AI endpoints, API formats, and model definitions. Built-in providers need no entry.

@@ -477,7 +477,8 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
                     "luna.session-handoff",
                     "luna.session-review",
                     "luna.session-read",
-                    "luna.limit-waits",
+                    "luna.scheduled-messages",
+                    "luna.scheduled-recovery",
                   ].includes(change.record.kind)),
             )
           )

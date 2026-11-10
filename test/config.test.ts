@@ -172,3 +172,20 @@ test("browser.providers.chromium.cdpUrl takes an HTTP or WebSocket URL only", ()
   assert.equal(parse("file:///tmp/x"), false);
   assert.equal(parse("9222"), false);
 });
+
+test("retired recovery budget loads but never reappears in settings, disk saves, or the form schema", () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-recovery-settings-"));
+  try {
+    const path = join(dir, "luna.config.json");
+    writeFileSync(path, JSON.stringify({ dataDir: dir, provider: "faux", model: "faux", autoContinue: { enabled: true, maxAttempts: 5 } }));
+    const settings = new SettingsStore(path, dir);
+    assert.deepEqual(settings.read().autoContinue, { enabled: true, maxWaitHours: 168, resetGraceSeconds: 60 });
+    const schema = ConfigSchema.toJSONSchema() as any;
+    assert.equal(schema.properties.autoContinue.properties.maxAttempts, undefined);
+    settings.update(s => { s.autoContinue.resetGraceSeconds = 90; });
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).autoContinue.maxAttempts, undefined);
+    assert.equal(settings.resolved().autoContinue.resetGraceSeconds, 90);
+    for (const resetGraceSeconds of [-1, 3601, 0.5, "60"]) rejects({ autoContinue: { resetGraceSeconds } }, /resetGraceSeconds/);
+    rejects({ autoContinue: { maxAttempts: 5, typo: true } }, /autoContinue/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

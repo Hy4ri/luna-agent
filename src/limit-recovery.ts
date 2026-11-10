@@ -1,255 +1,177 @@
-import { type ConversationId, type Tx } from "@earendil-works/pi-durable";
+import { LiveDoc, UsageDoc, type ConversationId, type ModelRef, type Tx } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { classifyLimit } from "./limit-reset.js";
-import { ScheduledMessagesService } from "./scheduled-messages.js";
+import { type ScheduledMessagesService, ScheduledMessagesDoc } from "./scheduled-messages.js";
+import { RecoveryStateDoc, recoveryCandidate, recoveryKey, recoveryResetFloor, type RecoveryAttempt } from "./recovery-state.js";
+import type { ResetTimeInput, ResetTimeResult } from "./reset-time-parser.js";
+import { migrateLimitWaits } from "./limit-continue.js";
 
 type Harness = Awaited<ReturnType<typeof import("./luna.js").openLuna>>;
-
-export type LimitRecoveryPolicy = {
-  enabled: boolean;
-  maxWaitHours: number;
-};
-
-export type LimitRecoveryFailure = {
-  boundary: number;
-  error: string;
-  at: number;
-  provider: string;
-  model: string;
-};
-
-export type ResetTimeParseResult =
-  | { kind: "reset_at"; resetAt: number; exact: boolean; source: "model_parse" | "deterministic" }
-  | { kind: "no_reset_time"; reason: string };
-
+export type LimitRecoveryPolicy = { enabled: boolean; maxWaitHours: number; resetGraceSeconds?: number };
 export const RESET_TIME_MARGIN_MS = 60_000;
 
 export class LimitRecoveryService {
   private observation: { detach(): void } | undefined;
   private closed = false;
   private work: Promise<void> = Promise.resolve();
-  private readonly pending = new Set<Promise<unknown>>();
-  private readonly lastFailure = new Map<number, LimitRecoveryFailure>();
+  private readonly controllers = new Set<AbortController>();
 
-  constructor(
-    private readonly o: {
-      harness: Harness;
-      scheduledMessages: ScheduledMessagesService;
-      log: (m: string) => void;
-      policy: () => LimitRecoveryPolicy;
-      defaultModel: () => { provider: string; modelId: string };
-      parseResetTime?: (input: {
-        error: string;
-        now: number;
-        timezone: string;
-        model: { provider: string; modelId: string };
-      }) => Promise<{ resetAt?: number; exact?: boolean } | undefined>;
-      now?: () => number;
-      skip?: (id: number) => boolean;
-      graceMs?: number;
-    },
-  ) {}
+  constructor(private readonly o: {
+    harness: Harness;
+    scheduledMessages: ScheduledMessagesService;
+    log: (m: string) => void;
+    policy: () => LimitRecoveryPolicy;
+    /** Main-session fallback, used only to verify the failed route. */
+    defaultModel: () => ModelRef;
+    /** Same provider/model defaults used by an unprofiled subagent. */
+    parserModel?: (failedModel: ModelRef) => ModelRef;
+    parseResetTime?: (input: ResetTimeInput) => Promise<ResetTimeResult | undefined>;
+    now?: () => number;
+    skip?: (id: number) => boolean;
+  }) {}
 
-  private now(): number {
-    return this.o.now?.() ?? Date.now();
-  }
-
-  private track<T>(p: Promise<T>): Promise<T> {
-    this.pending.add(p);
-    void p.finally(() => this.pending.delete(p)).catch(() => {});
-    return p;
-  }
-
-  private enqueueWork(fn: () => Promise<void>): Promise<void> {
-    this.work = this.work.catch(() => {}).then(async () => {
-      if (this.closed) return;
-      await fn();
-    });
-    return this.track(this.work);
+  private now() { return this.o.now?.() ?? Date.now(); }
+  private enqueue(fn: () => Promise<void>) {
+    this.work = this.work.catch(() => {}).then(async () => { if (!this.closed) await fn(); });
+    void this.work.catch(e => this.o.log(`limit-recovery: ${(e as Error).message}`));
+    return this.work;
   }
 
   async start(): Promise<void> {
+    await migrateLimitWaits(this.o.harness, this.o.scheduledMessages, this.o.policy(), this.o.defaultModel(), this.now(), this.o.skip);
     this.observation = this.o.harness.observeCommits({
-      advance: (p) => {
-        const failed = p.changes.filter(
-          (ch) => ch.type === "submission" && ch.value.status === "unanswered",
-        );
-        if (failed.length === 0) return;
-        for (const ch of failed) {
-          if (ch.type !== "submission") continue;
-          const convId = Number(ch.value.conversationId);
-          queueMicrotask(() => {
-            if (this.closed) return;
-            void this.enqueueWork(() => this.handleFailedConversation(convId)).catch((e) =>
-              this.o.log(`limit-recovery: ${(e as Error).message}`),
-            );
-          });
+      advance: p => {
+        const ids = new Set<number>();
+        for (const ch of p.changes) {
+          if (ch.type === "submission" && ch.value.status === "unanswered" ||
+            ch.type === "task" && ch.value.kind === "pi.generation" && ch.value.state.status === "terminal") {
+            ids.add(Number(ch.value.conversationId));
+          }
         }
+        for (const id of ids) queueMicrotask(() => { void this.enqueue(() => this.check(id)).catch(() => {}); });
       },
-      end: () => {
-        this.closed = true;
-        queueMicrotask(() => void this.close());
-      },
+      end: () => { queueMicrotask(() => void this.close()); },
     });
+    // Reconcile a claimed parser cut off by a crash using captured evidence only; never re-call it.
+    await this.enqueue(async () => {
+      const claims = await this.o.harness.commit(async tx => JSON.parse(JSON.stringify(
+        Object.values((await tx.doc(RecoveryStateDoc)).attempts).filter(a => a.status === "parsing"),
+      )) as RecoveryAttempt[], context);
+      for (const claim of claims) await this.finish(claim, undefined);
+      const ids = await this.o.harness.commit(async tx => {
+        const ids: number[] = [];
+        let cursor;
+        do { const page = await tx.scanConversations({}, 100, cursor); ids.push(...page.items.map(c => Number(c.id))); cursor = page.next; } while (cursor);
+        return ids;
+      }, context);
+      for (const id of ids) await this.check(id);
+    });
+    await this.o.scheduledMessages.scheduleChanged();
   }
 
   async close(): Promise<void> {
     this.closed = true;
     this.observation?.detach();
-    this.observation = undefined;
-    await Promise.allSettled([...this.pending]);
+    for (const c of this.controllers) c.abort();
+    await this.work.catch(() => {});
   }
 
-  lastFailureFor(conversationId: number): LimitRecoveryFailure | undefined {
-    return this.lastFailure.get(conversationId);
-  }
-
-  private async handleFailedConversation(convId: number): Promise<void> {
-    if (this.closed) return;
-    if (this.o.skip?.(convId)) return;
-    const policy = this.o.policy();
-    if (!policy.enabled) return;
-
-    const conv = await this.o.harness.conversation(convId as ConversationId, context);
-    if (!conv) return;
-
-    const entries = await conv.entries({}, 10, undefined, context);
-    const latest = entries.items[0];
-    // Prevent recovery chains: if the failed turn was itself triggered by a limit_recovery scheduled message, halt.
-    for (const e of entries.items) {
-      if (e.kind === "luna.scheduled-message") {
-        const data = (e as { data?: { source?: string } }).data;
-        if (data?.source === "limit_recovery") {
-          this.lastFailure.set(convId, {
-            boundary: Number(latest?.id ?? 0),
-            error: "Limit recovery already attempted for this turn; halting to avoid retry chain.",
-            at: this.now(),
-            provider: this.o.defaultModel().provider,
-            model: this.o.defaultModel().modelId,
-          });
-          return;
-        }
-        break;
-      }
-      if (e.kind === "input") break;
-    }
-
-    let errorMessage: string | undefined;
-    let provider = this.o.defaultModel().provider;
-    let model = this.o.defaultModel().modelId;
-
-    const msg = entries.items
-      .flatMap((e) => [...(e.model ?? [])] as { stopReason?: string; errorMessage?: string; provider?: string; model?: string }[])
-      .find((m) => m.stopReason === "error" && m.errorMessage);
-    if (msg?.errorMessage) {
-      errorMessage = msg.errorMessage;
-      provider = msg.provider ?? provider;
-      model = msg.model ?? model;
-    }
-    if (!latest || !errorMessage) return;
-
+  private async check(id: number): Promise<void> {
+    if (this.closed || !this.o.policy().enabled || this.o.skip?.(id)) return;
+    const cid = id as ConversationId;
     const now = this.now();
-    const classified = classifyLimit(errorMessage, now);
-    if (classified.kind !== "wait") {
-      this.lastFailure.delete(convId);
-      return;
-    }
+    const claim = await this.o.harness.commit(async tx => {
+      const failure = await recoveryCandidate(tx, cid, this.o.defaultModel());
+      if (!failure) return;
+      const state = await tx.doc(RecoveryStateDoc);
+      const key = recoveryKey(id, failure.boundary);
+      if (state.attempts[key]) return;
+      const failedAt = failure.limit?.receivedAt ?? failure.failedAt ?? now;
+      const error = failure.limit?.response ?? failure.message;
+      const cls = classifyLimit(error, failedAt);
+      if (cls.kind === "fatal" || failure.limit?.kind === "fatal" || (cls.kind !== "wait" && failure.limit?.kind !== "wait")) return;
+      // The run's actual submission receipts handle batching, many tool rounds, and restarts.
+      const inputs = (await tx.doc(LiveDoc, cid)).runFailure?.inputs ?? [];
+      const schedules = await tx.doc(ScheduledMessagesDoc);
+      const recoveryIds = new Set(Object.values(schedules.schedules)
+        .filter(s => s.conversationId === id && s.source.kind === "limit_recovery").map(s => s.submissionId));
+      const recursive = inputs.some(sub => recoveryIds.has(String(sub)));
+      const windows = failure.limit?.windows ?? [];
+      const knownResets = windows.flatMap(w => w.resetAt === null ? [] : [w.resetAt]);
+      if (cls.kind === "wait" && cls.resetAt !== undefined) knownResets.push(cls.resetAt);
+      const provider = failure.provider ?? this.o.defaultModel().provider;
+      const model = failure.model ?? this.o.defaultModel().modelId;
+      const ownEvidence = knownResets.length ? Math.max(...knownResets) : 0;
+      const evidenceAt = Math.max(ownEvidence, recoveryResetFloor(state.attempts, provider, model)) || undefined;
+      const attempt: RecoveryAttempt = {
+        conversationId: id, boundary: failure.boundary, generation: failure.generation,
+        provider, model,
+        status: recursive ? "consumed" : "parsing",
+        ...(recursive ? { reason: "Automatic recovery already attempted. Retry or schedule manually." } : {}),
+        ...(evidenceAt !== undefined ? { evidenceAt } : {}),
+        exact: evidenceAt !== undefined && evidenceAt === ownEvidence && !windows.some(w => w.resetAt === null) && (windows.length > 0 || (cls.kind === "wait" && !!cls.exact)),
+      };
+      state.attempts[key] = attempt;
+      return { attempt: JSON.parse(JSON.stringify(attempt)) as RecoveryAttempt, error, failedAt, windows };
+    }, context);
+    if (!claim || claim.attempt.status !== "parsing") return;
 
-    const boundary = Number(latest.id);
+    const failedModel = { provider: claim.attempt.provider, modelId: claim.attempt.model };
+    const parserModel = this.o.parserModel?.(failedModel) ?? failedModel;
+    const controller = new AbortController();
+    this.controllers.add(controller);
+    const deadline = setTimeout(() => controller.abort(), 15_000);
+    let parsed: ResetTimeResult | undefined;
+    try {
+      // Admission was durably claimed above. Exceptions/unknown output get evidence fallback, not another call.
+      parsed = await this.o.parseResetTime?.({ error: claim.error.slice(0, 6000), now, failedAt: claim.failedAt,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", model: parserModel, windows: claim.windows, signal: controller.signal });
+      if (parsed?.usage) await this.o.harness.commit(async tx => {
+        const totals = (await tx.doc(UsageDoc, cid)).models;
+        const key = `${parserModel.provider}/${parserModel.modelId}`;
+        const usage = parsed!.usage!;
+        if (!Object.hasOwn(totals, key)) { totals[key] = JSON.parse(JSON.stringify(usage)); return; }
+        const total = totals[key]!;
+        for (const field of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[field] += usage[field];
+        for (const field of ["cacheWrite1h", "reasoning"] as const) if (usage[field] !== undefined) total[field] = (total[field] ?? 0) + usage[field]!;
+        for (const field of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[field] += usage.cost[field];
+      }, context);
+    } catch (e) { this.o.log(`limit-recovery ${id}: parser unavailable; using reset evidence (${(e as Error).message})`); }
+    finally { clearTimeout(deadline); this.controllers.delete(controller); }
+    if (!this.closed) await this.finish(claim.attempt, parsed);
+  }
 
-    // Check if we already scheduled recovery for this boundary.
-    const existing = await this.o.harness.commit((tx) => this.o.scheduledMessages.list(tx, convId), context);
-    if (
-      existing.some(
-        (s) =>
-          s.source.kind === "limit_recovery" &&
-          s.source.boundary === boundary &&
-          (s.status === "scheduled" || s.status === "queued" || s.status === "delivered"),
-      )
-    ) {
-      return;
-    }
-
-    let parsed: ResetTimeParseResult;
-    if (this.o.parseResetTime) {
-      try {
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-        const res = await this.o.parseResetTime({
-          error: errorMessage,
-          now,
-          timezone: tz,
-          model: this.o.defaultModel(),
-        });
-        if (res && typeof res.resetAt === "number" && Number.isFinite(res.resetAt) && res.resetAt > now) {
-          parsed = { kind: "reset_at", resetAt: res.resetAt, exact: Boolean(res.exact), source: "model_parse" };
-        } else if (classified.resetAt && classified.resetAt > now) {
-          parsed = { kind: "reset_at", resetAt: classified.resetAt, exact: Boolean(classified.exact), source: "deterministic" };
-        } else {
-          parsed = { kind: "no_reset_time", reason: "No reset time could be parsed from the provider error." };
-        }
-      } catch {
-        if (classified.resetAt && classified.resetAt > now) {
-          parsed = { kind: "reset_at", resetAt: classified.resetAt, exact: Boolean(classified.exact), source: "deterministic" };
-        } else {
-          parsed = { kind: "no_reset_time", reason: "Reset-time parser failed and no deterministic reset time was present." };
-        }
-      }
-    } else if (classified.resetAt && classified.resetAt > now) {
-      parsed = { kind: "reset_at", resetAt: classified.resetAt, exact: Boolean(classified.exact), source: "deterministic" };
-    } else {
-      parsed = { kind: "no_reset_time", reason: "No reset time found in the provider error." };
-    }
-
-    if (parsed.kind === "no_reset_time") {
-      this.lastFailure.set(convId, { boundary, error: parsed.reason, at: now, provider, model });
-      return;
-    }
-
-    const dueAt = parsed.resetAt + (this.o.graceMs ?? RESET_TIME_MARGIN_MS);
-    const maxWaitMs = policy.maxWaitHours * 3_600_000;
-    if (dueAt - now > maxWaitMs) {
-      this.lastFailure.set(convId, {
-        boundary,
-        error: `Reset time exceeds maxWaitHours (${policy.maxWaitHours}h).`,
-        at: now,
-        provider,
-        model,
-      });
-      return;
-    }
-
-    if (this.closed || this.o.skip?.(convId)) return;
-    const latestAfter = (await conv.entries({}, 1, undefined, context)).items[0];
-    if (!latestAfter || Number(latestAfter.id) !== boundary) return;
-
-    this.lastFailure.delete(convId);
+  private async finish(claim: RecoveryAttempt, parsed: ResetTimeResult | undefined): Promise<void> {
+    const now = this.now();
     await this.o.harness.commit(async (tx: Tx) => {
-      const current = await this.o.scheduledMessages.list(tx, convId);
-      if (
-        current.some(
-          (s) =>
-            s.source.kind === "limit_recovery" &&
-            s.source.boundary === boundary &&
-            (s.status === "scheduled" || s.status === "queued" || s.status === "delivered"),
-        )
-      ) {
-        return;
+      const state = await tx.doc(RecoveryStateDoc);
+      const current = state.attempts[recoveryKey(claim.conversationId, claim.boundary)];
+      if (!current || current.status !== "parsing") return;
+      const policy = this.o.policy();
+      const failure = await recoveryCandidate(tx, claim.conversationId as ConversationId, this.o.defaultModel());
+      if (!policy.enabled || this.o.skip?.(claim.conversationId) || !failure ||
+        failure.boundary !== claim.boundary || failure.generation !== claim.generation) {
+        current.status = "stopped"; current.reason = "Recovery invalidated by session activity or settings."; return;
       }
+      const parsedAt = parsed?.resetAt;
+      const validParse = typeof parsedAt === "number" && Number.isFinite(parsedAt) && parsedAt > now && parsedAt <= 8.64e15;
+      // Even incomplete structured windows carry a known lower bound that a parser must not shorten.
+      const resetAt = Math.ceil(Math.max(claim.evidenceAt ?? 0, recoveryResetFloor(state.attempts, claim.provider, claim.model), validParse ? parsedAt : 0));
+      if (!resetAt || resetAt + (policy.resetGraceSeconds ?? 60) * 1000 <= now) {
+        current.status = "stopped"; current.reason = "Cannot determine reset time. Schedule a message or retry manually."; return;
+      }
+      const dueAt = resetAt + (policy.resetGraceSeconds ?? 60) * 1000;
+      if (dueAt - now > policy.maxWaitHours * 3_600_000) {
+        current.status = "stopped"; current.reason = "Reset time exceeds maxWaitHours."; return;
+      }
+      const exact = !!claim.exact && resetAt === claim.evidenceAt;
       await this.o.scheduledMessages.create(tx, {
-        conversationId: convId,
-        content: "Continue",
-        dueAt,
-        requestId: `limit-recovery:${convId}:${boundary}`,
-        source: {
-          kind: "limit_recovery",
-          boundary,
-          generation: 1,
-          provider,
-          model,
-          exact: parsed.exact,
-          resetSource: parsed.source,
-        },
+        conversationId: claim.conversationId, content: "Continue", dueAt,
+        requestId: `limit-recovery:${claim.conversationId}:${claim.boundary}`,
+        source: { kind: "limit_recovery", boundary: claim.boundary, generation: claim.generation,
+          provider: claim.provider, model: claim.model, exact, resetSource: validParse && parsedAt > (claim.evidenceAt ?? 0) ? "model_parse" : "provider_evidence" },
       });
+      current.status = "scheduled";
     }, context);
     await this.o.scheduledMessages.scheduleChanged();
   }

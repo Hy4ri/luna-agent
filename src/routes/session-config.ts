@@ -185,10 +185,10 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
   });
 
   app.delete("/v1/sessions/:id/limit-wait", async (c) => {
-    if (!opts.limitContinuer) return err(c, 404, "auto-continue disabled");
+    if (!opts.scheduledMessages) return err(c, 404, "scheduled messages disabled");
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");
-    return c.json({ cancelled: await opts.limitContinuer.cancel(Number(conv.id)) });
+    return c.json({ cancelled: !!(await opts.scheduledMessages.cancelForConversation(Number(conv.id), "limit_recovery", "Cancelled by the user.")) });
   });
 
   const sessionTalkPolicy = () =>

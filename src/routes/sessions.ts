@@ -160,8 +160,6 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
     const built = await listRows();
     const links = opts.conversations?.projects.links();
-    const continuing = !!opts.limitContinuer?.enabled();
-    const recoveryBudget = opts.limitContinuer?.attemptLimit();
     const sessions: SessionItem[] = [];
     for (const [id, row] of built) {
       if (row.hidden) continue;
@@ -173,11 +171,9 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
         project: links?.get(id) ?? (opts.conversations ? GENERAL_PROJECT.id : null),
         ...meta,
         title: meta.title ?? firstUser,
-        resumeAt: continuing && !row.running ? wait : null,
+        resumeAt: !row.running ? wait : null,
         recovery:
-          !row.running && (continuing || recovery?.pausedReason) && recovery
-            ? { ...recovery, maxAttempts: recoveryBudget ?? recovery.maxAttempts }
-            : null,
+          !row.running ? recovery : null,
       });
     }
     sessions.sort(compareSessions);
@@ -347,7 +343,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
         const owner = (await tx.doc(ProcessOwner, id as ConversationId)).token;
         return harness.busyTools?.sessionProcesses(id as ConversationId, owner).some((p) => p.status === "running") ?? false;
       });
-      if (!preview) await opts.limitContinuer?.reconcile();
+      if (!preview) await opts.scheduledMessages?.scheduleChanged();
       return c.json(preview ? selected : { deleted: selected.ids });
     });
 
@@ -405,7 +401,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     if (!Number.isSafeInteger(id) || id < 1) return err(c, 404, "no such session");
     await opts.scheduledMessages?.cancelForConversation(id, "all", "Session deleted.");
     const deleted = await opts.conversations.delete(id);
-    await opts.limitContinuer?.reconcile();
+    await opts.scheduledMessages?.scheduleChanged();
     return c.json({ deleted });
   });
 
@@ -691,7 +687,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
         parentSessionId,
         ...status,
         resumeAt: await resumeAt(tx, conv.id, running),
-        recovery: running ? null : ((await opts.limitContinuer?.recovery(tx, conv.id)) ?? null),
+        recovery: running ? null : ((await opts.scheduledMessages?.recovery(tx, conv.id)) ?? null),
       };
     }, context);
 

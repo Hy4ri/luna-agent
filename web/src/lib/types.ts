@@ -25,8 +25,6 @@ export interface SessionMeta {
   recovery?: {
     active: boolean;
     resumeAt?: number;
-    attempt: number;
-    maxAttempts: number;
     exact: boolean;
     source?: string;
     pausedReason?: string;

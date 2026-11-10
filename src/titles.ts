@@ -82,7 +82,7 @@ async function readUsers(tx: Pick<Tx, "scanEntries">, id: ConversationId, collec
     const page = await tx.scanEntries({ conversationId: id, order: "ascending" }, 200, cursor);
     for (const e of page.items) {
       if (e.kind === "delegate.child") return undefined;
-      if (e.kind !== "pi.user") continue;
+      if (e.kind !== "pi.user" && e.kind !== "luna.scheduled-message") continue;
       const text = textOf(e.model);
       if (!text) continue;
       turns++; latest = text; if (!first) first = text;
@@ -107,7 +107,7 @@ export class SessionTitler {
     this.observation = this.o.harness.observeCommits({
       advance: (p) => {
         const ids = new Set<number>();
-        for (const ch of p.changes) if (ch.type === "entry" && ch.value.kind === "pi.user") ids.add(Number(ch.value.conversationId));
+        for (const ch of p.changes) if (ch.type === "entry" && (ch.value.kind === "pi.user" || ch.value.kind === "luna.scheduled-message")) ids.add(Number(ch.value.conversationId));
         if (ids.size === 0) return;
         queueMicrotask(() => {
           if (this.closed) return;

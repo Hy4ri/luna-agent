@@ -151,7 +151,9 @@ luna-pi/
 │   ├── busy-input.ts           # Interrupt / queue / steer policies for active turns
 │   ├── busy-tools.ts           # bash background flag and the process_manage tool
 │   ├── side-commands.ts        # Ephemeral side questions (/btw) without polluting main context
-│   └── limit-continue.ts       # Automatic turn continuation after rate/quota reset
+│   ├── scheduled-messages.ts   # Durable same-chat scheduled inputs and cancellation
+│   ├── limit-recovery.ts       # One-shot recovery through the shared scheduler
+│   └── limit-continue.ts       # Migration-only reader for retired limit waits
 └── web/
     ├── vite.config.ts          # Vite 8 config + TS 5 SFC registration + service worker emitter
     ├── tsconfig.json           # Frontend TypeScript configuration

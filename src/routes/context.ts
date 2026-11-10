@@ -10,7 +10,6 @@ import { ExecTarget } from "../workers.js";
 import { uploadWriter } from "../worker-protocol.js";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import { context } from "../luna.js";
-import { readLimitWait } from "../limit-continue.js";
 import { resolveThinkingLevel, type ThinkingDefaults } from "../thinking.js";
 
 export type Harness = ServerOptions["harness"];
@@ -74,8 +73,11 @@ export function createRouteCtx(
     if (pending) return pending;
     draining.add(id);
     const work = serial(id, async () => {
-      await opts.scheduledMessages?.cancelForConversation(Number(conv.id), "queued_or_recovery", "Stopped by the user.");
-      return conv.abort(context);
+      const abort = async () => {
+        await opts.scheduledMessages?.cancelForConversation(Number(conv.id), "queued_or_recovery", "Stopped by the user.");
+        return conv.abort(context);
+      };
+      return opts.scheduledMessages ? opts.scheduledMessages.withDeliveryPaused(Number(conv.id), abort) : abort();
     });
     stops.set(id, work);
     try {
@@ -87,7 +89,7 @@ export function createRouteCtx(
   };
 
   const resumeAt = async (tx: Tx, id: ConversationId, running: boolean) =>
-    !running && opts.limitContinuer?.enabled() ? (await readLimitWait(tx, id))?.resumeAt ?? null : null;
+    !running ? (await opts.scheduledMessages?.recovery(tx, id))?.resumeAt ?? null : null;
 
   const jobView = (job: SideJob) => ({
     ...job,

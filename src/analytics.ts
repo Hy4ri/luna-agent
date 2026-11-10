@@ -444,7 +444,7 @@ export async function readAnalytics(harness: Harness, models?: Models, cache?: A
             const titleEntries = await tx.scanEntries({ conversationId: id, order: "ascending" }, 30);
             timings.entriesScanned += titleEntries.items.length;
             timings.scanMs += performance.now() - titleScanStarted;
-            const first = titleEntries.items.find(e => e.kind === "pi.user");
+            const first = titleEntries.items.find(e => (e.kind === "pi.user" || e.kind === "luna.scheduled-message"));
             const txt = (first as unknown as { model?: Array<{ content?: unknown }> })?.model?.[0]?.content ?? "";
             const t = typeof txt === "string" ? txt : Array.isArray(txt) ? (txt as Array<{ text?: string }>).map((b) => b.text || "").join(" ") : "";
             fallbackTitle = t.replace(/\s+/g, " ").slice(0, 60) || null;

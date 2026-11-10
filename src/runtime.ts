@@ -58,6 +58,8 @@ import { createFreeserpWebProvider, createSearxngWebProvider } from "./http-sear
 import { FileCredentialStore, ProviderManager } from "./providers.js";
 import { CronStore, Scheduler, type ModelRef } from "./scheduler.js";
 import { SessionTitler } from "./titles.js";
+import { RecoveryStateDoc } from "./recovery-state.js";
+import { parseResetTime } from "./reset-time-parser.js";
 import { LimitRecoveryService } from "./limit-recovery.js";
 import { ScheduledMessagesService } from "./scheduled-messages.js";
 import { DeviceStore, FcmSender, loadServiceAccount, PushNotifier } from "./push.js";
@@ -384,6 +386,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const scheduledMessages = new ScheduledMessagesService({
     harness,
     log,
+    defaultModel: () => providers.defaultModel(),
+    recoveryPolicy: () => live().autoContinue,
     skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)),
   });
   await scheduledMessages.start();
@@ -394,15 +398,16 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     log,
     policy: () => {
       const ac = (settings?.resolved() ?? cfg).autoContinue;
-      return { enabled: ac.enabled, maxWaitHours: ac.maxWaitHours };
+      return { enabled: ac.enabled, maxWaitHours: ac.maxWaitHours, resetGraceSeconds: ac.resetGraceSeconds };
     },
-    defaultModel: () => {
-      const subModel = (settings?.resolved().subagents ?? cfg.subagents)?.profiles?.default?.model;
-      if (subModel && typeof subModel === "object" && "provider" in subModel && "modelId" in subModel) {
-        return subModel;
-      }
-      return providers.defaultModel();
+    defaultModel: () => providers.defaultModel(),
+    parserModel: failedModel => {
+      const defaults = live().subagents;
+      return defaults.provider && defaults.model
+        ? { provider: defaults.provider, modelId: defaults.model }
+        : failedModel;
     },
+    parseResetTime: input => parseResetTime(built.models, input),
     skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)),
   });
   await limitRecovery.start();
@@ -486,7 +491,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   settings?.onApply(async (_old, next) => {
     const warnings: string[] = [];
     providers.reconcile(next.providers);
-    await scheduledMessages.reconcile();
+    if (!next.autoContinue.enabled) {
+      const ids = await harness.commit(async tx => Object.values((await tx.doc(RecoveryStateDoc)).attempts)
+        .filter(a => a.status === "parsing" || a.status === "scheduled").map(a => a.conversationId), context);
+      for (const id of new Set(ids)) await scheduledMessages.cancelForConversation(id, "limit_recovery", "Automatic recovery disabled.");
+    }
+    await scheduledMessages.scheduleChanged();
     for (const f of await mcp.reconcile(next.mcpServers)) warnings.push(`mcp ${f.name}: ${f.error}`);
     mcp.syncExposure();
     if (scheduler && store) {

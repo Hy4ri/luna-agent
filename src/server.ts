@@ -19,7 +19,6 @@ import { context, type MemoryStore } from "./luna.js";
 import type { CronStore, Scheduler } from "./scheduler.js";
 import { type WorkerHub } from "./workers.js";
 import type { SessionTitler } from "./titles.js";
-import type { LimitContinuer } from "./limit-continue.js";
 import type { ScheduledMessagesService } from "./scheduled-messages.js";
 import { SideCommands } from "./side-commands.js";
 import { UploadError, type UploadStore } from "./uploads.js";
@@ -53,7 +52,6 @@ export interface ServerOptions {
   /** Automatic and on-demand session titles. Absent: no title generation. */
   titler?: SessionTitler;
   /** Automatic continuation after usage limits (retired). */
-  limitContinuer?: LimitContinuer;
   /** Durable one-shot scheduled messages. Absent: scheduled-message endpoints answer 404. */
   scheduledMessages?: ScheduledMessagesService;
   /** Registered Android push tokens. Absent: push is off and its endpoints answer 404. */

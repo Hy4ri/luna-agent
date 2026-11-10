@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { Hono } from "hono";
 import { context } from "../luna.js";
 import { ScheduledMessageError } from "../scheduled-messages.js";
@@ -30,16 +29,19 @@ export function registerScheduledMessages(app: Hono, ctx: RouteCtx): void {
       return err(c, 400, "invalid json");
     }
 
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(k => !["content", "dueAt", "requestId"].includes(k))) {
+      return err(c, 400, "Only content, dueAt, and requestId are accepted (text only).");
+    }
     if (typeof body.content !== "string" || !body.content.trim()) {
       return err(c, 400, "content (nonempty string) required");
     }
     if (typeof body.dueAt !== "number" || !Number.isFinite(body.dueAt)) {
       return err(c, 400, "dueAt (epoch ms) required");
     }
-    if (body.requestId !== undefined && (typeof body.requestId !== "string" || !body.requestId.trim())) {
+    if (typeof body.requestId !== "string" || !body.requestId.trim()) {
       return err(c, 400, "requestId must be a nonempty string");
     }
-    const requestId = typeof body.requestId === "string" ? body.requestId.trim() : randomUUID();
+    const requestId = body.requestId.trim();
 
     try {
       const result = await serial(String(conv.id), async () => {

@@ -28,7 +28,7 @@ const textOf = (content: unknown): string =>
 
 async function firstUserText(tx: Tx, id: ConversationId): Promise<string> {
   const head = (await tx.scanEntries({ conversationId: id, order: "ascending" }, 30)).items;
-  const user = head.find((e) => e.kind === "pi.user");
+  const user = head.find((e) => (e.kind === "pi.user" || e.kind === "luna.scheduled-message"));
   const text = (user?.model ?? []).map((m) => (m.role === "user" ? textOf(m.content) : "")).join(" ");
   return text.replace(/\s+/g, " ").trim().slice(0, 60);
 }
@@ -73,7 +73,8 @@ export async function readSessionExchange(tx: Tx, from: ConversationId, to: numb
         const approvedMaxHops = Math.max(m.approvedMaxHops ?? 0, grant?.anchor === m.requestId ? grant.maxHops : 0);
         return { ...initial, anchor: m.requestId, hop: m.hop + 1, approvedMaxHops,
           maxHops: Math.max(policy.maxHops, approvedMaxHops) };
-      } else if (["pi.user", "pi.reset", "luna.context-start"].includes(e.kind)) return initial;
+      } else if (["pi.user", "pi.reset", "luna.context-start"].includes(e.kind) ||
+        e.kind === "luna.scheduled-message" && (e.data as { source?: string } | undefined)?.source === "user") return initial;
     }
     cursor = page.next;
   } while (cursor);

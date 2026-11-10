@@ -86,13 +86,22 @@ export const ConfigSchema = z
       acknowledgements: z.boolean().default(true),
     }).prefault({}),
     /** Continue a turn automatically after a usage limit resets. Off by default. */
-    autoContinue: z.strictObject({
-      enabled: z.boolean().default(false),
-      /** Maximum individual wait and total recovery-chain lifetime, in hours. */
-      maxWaitHours: z.number().positive().max(24 * 31).default(168),
-      /** Maximum admitted automatic continuations in one recovery chain. */
-      maxAttempts: z.number().int().min(1).max(50).default(5),
-    }).prefault({}),
+    autoContinue: z.preprocess(
+      (value) => {
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          const { maxAttempts: _deprecated, ...rest } = value as Record<string, unknown>;
+          return rest;
+        }
+        return value;
+      },
+      z.strictObject({
+        enabled: z.boolean().default(false),
+        /** Maximum automatic recovery wait, in hours. */
+        maxWaitHours: z.number().positive().max(24 * 31).default(168),
+        /** Safety margin added after a known quota reset timestamp, in seconds. */
+        resetGraceSeconds: z.number().int().min(0).max(3600).default(60),
+      }),
+    ).prefault({}),
     /** Sessions can message each other with session_send. A peer message never interrupts and grants no permission. */
     sessionTalk: z.strictObject({
       enabled: z.boolean().default(true),
