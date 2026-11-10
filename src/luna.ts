@@ -12,6 +12,7 @@ import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
 import { SessionStatusExtension } from "./session-status.js";
 import { ULTRA_SECTION } from "./thinking.js";
+import { catalogModels, nativeCompaction, STOCK_POLICY } from "./compaction-limits.js";
 import { GenUiExtension } from "./genui.js";
 import { MessageTimeExtension } from "./message-time.js";
 import { ExecTarget } from "./workers.js";
@@ -21,7 +22,7 @@ export const context = BACKGROUND_CONTEXT;
 export const ProcessOwner = defineDoc({ checkpointWhen: () => false, kind: "luna.process-owner", version: 1, scope: "conversation", history: "latest", fork: "initial", initial: () => ({ token: "legacy" }) });
 
 export interface LunaOptions {
-  /** Live absolute compaction thresholds, shared by every conversation on the harness. */
+  /** Live compaction limits, translated to native per-model settings on the harness. */
   compaction?: () => LunaConfig["compaction"];
   /** Live policy for queued inputs behind a failed run. Default keep. */
   afterFailedRun?: () => "keep" | "continue" | "withdraw";
@@ -113,8 +114,11 @@ export async function openLuna(opts: LunaOptions) {
         },
         get afterFailedRun() { return opts.afterFailedRun?.(); },
         // Native harness-wide policy, read on each use so config edits reach open sessions. Delegate children store
-        // the subagent limits in their own agent state (see delegate.ts).
-        get compaction() { return (opts.compaction?.() ?? defaultCompaction).sessions; },
+        // their own per-model subagent table in agent state (see delegate.ts).
+        get compaction() {
+          const limits = (opts.compaction?.() ?? defaultCompaction).sessions;
+          return { ...STOCK_POLICY, ...nativeCompaction(limits, catalogModels(opts.models)) };
+        },
         steeringMode: "all",
         followUpMode: "one-at-a-time",
       },

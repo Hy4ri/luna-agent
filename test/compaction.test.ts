@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type FauxResponseFactory } from "@earendil-works/pi-ai";
+import { nativeCompaction } from "../src/compaction-limits.js";
 import { Children, readChildReport } from "../src/delegate-state.js";
 import { parseConfig } from "../src/config.js";
 import { startRuntime } from "../src/runtime.js";
@@ -51,7 +52,7 @@ for (const scenario of [
       rt = await startRuntime(parseConfig({ dataDir: dir, cwd: dir, extensions: [] }), { models, model: ref });
       // A delegate child stores the subagent limits in its agent state, as delegate.ts does at spawn.
       const subagents = parseConfig({ dataDir: dir, cwd: dir }).compaction.subagents;
-      const conv = await rt.harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref, ...(scenario.child ? { compaction: subagents } : {}) } }, context);
+      const conv = await rt.harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref, ...(scenario.child ? { compaction: nativeCompaction(subagents, [model]) } : {}) } }, context);
       await rt.harness.commit(async tx => {
         // Multiple old message boundaries provide an eligible prefix while retaining the recent 20k tokens.
         for (let tokens = 0; tokens < scenario.tokens; tokens += 5000) {

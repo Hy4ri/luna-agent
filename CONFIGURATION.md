@@ -788,15 +788,14 @@ Large contexts can consume more usage; the built-in pricing tiers remain unchang
 ## Context usage
 
 The chat context bar shows estimated active tokens, model capacity, and the percentage used.
-It is green below 50%, amber from 50% up to the configured trigger, and red at or above the trigger.
-A trigger below 50% takes precedence over green. Unknown model capacity is shown as unavailable.
+It is green below 50%, amber from 50% up to 80%, and red at or above 80%. Unknown model capacity is shown as unavailable.
 The bar refreshes after tool results, model changes, and compaction. It is not a live tokenizer.
 Older usage measurements are discarded after a summary changes the context boundary.
 The separate token totals remain cumulative usage.
 
 ## Runtime compaction policy
 
-Luna applies absolute token thresholds to every session, including existing sessions, cron runs, crew members, and delegates.
+Luna translates these absolute token thresholds into native `pi-durable` per-model `CompactionSettings` (`modelOverrides`) for every model in the live catalog, clamped to stock model-capacity safety limits. Models outside the catalog use stock window-relative thresholds.
 Configure them in `luna.config.json` (or through the shared settings API):
 
 ```json
@@ -807,12 +806,10 @@ Configure them in `luna.config.json` (or through the shared settings API):
 ```
 
 These are the defaults. Partial overrides are accepted. All values must be positive integers, with
-`keepRecentTokens < backgroundAtTokens < blockAtTokens`. Settings apply on the next preparation or compaction selection;
-an already-running model request is not interrupted. Delegates use `subagents`; ordinary sessions, crew members,
-and cron runs use `sessions`. Delegate identity is read from durable result-schema state, including after compaction or restart.
+`keepRecentTokens < backgroundAtTokens < blockAtTokens`. For main sessions, settings apply on the next preparation or compaction selection; an already-running model request is not interrupted. Delegates snapshot their per-model table in agent state when spawned; forks and children inherit it.
 
 At the background threshold, summarization starts without delaying the current turn. At the blocking threshold,
-the next model request waits for blocking compaction. Thresholds use estimated active context tokens, not cumulative usage.
+the next model request waits for blocking compaction. Thresholds use estimated active context tokens, not cumulative usage (stock `pi-durable` triggers strictly above `>` the threshold).
 They are preparation-time triggers, not a byte-level hard cap: a large input or tool result can cross them in one step.
 Compaction needs an eligible older prefix; if none exists, it cannot shrink the context. No messages are silently truncated.
 
