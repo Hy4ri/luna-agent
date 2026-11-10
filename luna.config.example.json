@@ -75,7 +75,14 @@
   ],
   "cron": {
     "notifyUrl": "https://ntfy.sh/your-topic",
-    "runTimeoutMinutes": 30
+    "runTimeoutMinutes": 30,
+    "retention": {
+      "enabled": true,
+      "emptyRunDays": 7,
+      "reportDays": 90,
+      "reportsPerJob": 50,
+      "deletedJobDays": 30
+    }
   },
   "improve": {
     "schedule": "0 3 * * *",

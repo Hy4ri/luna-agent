@@ -209,7 +209,22 @@ export const ConfigSchema = z
     /** Extra skill dirs, scanned after <dataDir>/skills. */
     skillDirs: z.array(z.string()).default([]),
     mcpServers: z.array(McpServerSchema).default([]),
-    cron: z.strictObject({ notifyUrl: z.url().optional(), runTimeoutMinutes: z.number().positive().optional() }).prefault({}),
+    cron: z.strictObject({
+      notifyUrl: z.url().optional(),
+      runTimeoutMinutes: z.number().positive().optional(),
+      /** How long the scheduled-run log is kept. The cleanup runs in the background and never holds the daemon up. */
+      retention: z.strictObject({
+        enabled: z.boolean().default(true),
+        /** Days a finished run without a report stays in the log. */
+        emptyRunDays: z.number().int().positive().max(3650).default(7),
+        /** Days a report stays in the log. */
+        reportDays: z.number().int().positive().max(3650).default(90),
+        /** Newest reports kept for every job, however old they are. */
+        reportsPerJob: z.number().int().positive().max(1000).default(50),
+        /** Days the runs of a deleted job stay in the log. */
+        deletedJobDays: z.number().int().positive().max(3650).default(30),
+      }).prefault({}),
+    }).prefault({}),
     /** Android push through Firebase Cloud Messaging. Off until a service-account key file is set. */
     push: z.strictObject({ serviceAccountFile: z.string().min(1).optional() }).prefault({}),
     improve: z.strictObject({ schedule: cronExpr.optional(), allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),

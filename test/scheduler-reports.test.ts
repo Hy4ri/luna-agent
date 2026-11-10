@@ -8,6 +8,81 @@ import { join } from "node:path";
 import { test } from "bun:test";
 import { CronStore } from "../src/scheduler.js";
 
+// The inbox is the newest report of each job, while it is unread. The lookup became a per-job seek, so it has
+// to keep agreeing with a plain reference over the whole table: newest report per job, empty output is no
+// report, a running run is no report, a read report leaves the inbox and stays in the history.
+test("inbox matches a plain reference over the whole run table", () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-cron-inbox-semantics-"));
+  const store = new CronStore(join(dir, "cron.db"));
+  try {
+    const now = 1_000_000;
+    for (let i = 0; i < 12; i++) {
+      const job = store.addJob(`sem-${i}`, "0 * * * *", "Report", undefined, now);
+      // Every job gets a report, then a mix of noise: empty output, errors, and a running run.
+      const first = store.claimManual(job, now + i * 100);
+      store.finish(first.id, "ok", `first ${i}`, null, now + i * 100 + 1);
+      if (i % 3 === 0) {
+        const empty = store.claimManual(job, now + i * 100 + 10);
+        store.finish(empty.id, "ok", "   ", null, now + i * 100 + 11);
+      }
+      if (i % 4 === 1) {
+        const failing = store.claimManual(job, now + i * 100 + 20);
+        store.finish(failing.id, "error", null, `boom ${i}`, now + i * 100 + 21);
+      }
+      if (i % 5 === 2) {
+        const second = store.claimManual(job, now + i * 100 + 30);
+        store.finish(second.id, "ok", `second ${i}`, null, now + i * 100 + 31);
+      }
+      if (i % 6 === 3) store.claimManual(job, now + i * 100 + 40); // still running
+    }
+
+    // Reference: the newest report of each job, straight from the table.
+    const reference = new Map<number, number>();
+    for (const row of store.db.prepare(
+      "SELECT job_id, MAX(id) AS id FROM runs WHERE report=1 AND status != 'running' AND (TRIM(COALESCE(output,''))!='' OR TRIM(COALESCE(error,''))!='') GROUP BY job_id"
+    ).all() as { job_id: number; id: number }[]) reference.set(row.job_id, row.id);
+
+    const inbox = store.reports({ limit: 100 });
+    const expected = [...reference.values()].filter(id => store.getRun(id)!.readAt === null).sort((a, b) => b - a);
+    assert.deepEqual(inbox.map(run => run.id), expected);
+    assert.equal(store.unreadCount(), expected.length);
+
+    // Reading the newest report of a job empties its inbox entry and leaves the report in the history.
+    const target = inbox[0]!;
+    store.markRead(target.id, true);
+    assert.ok(!store.reports({ limit: 100 }).some(run => run.id === target.id));
+    assert.equal(store.unreadCount(), expected.length - 1);
+    assert.ok(store.reports({ history: true, limit: 100 }).some(run => run.id === target.id));
+
+    // Marking it unread again puts it back, and it is still the newest report of its job.
+    store.markRead(target.id, false);
+    assert.ok(store.reports({ limit: 100 }).some(run => run.id === target.id));
+    assert.equal(store.unreadCount(), expected.length);
+
+    // A newer report replaces the older unread one: the older report leaves the inbox and stays unread in the
+    // history.
+    const superseded = expected[1]!;
+    const job = store.getJob(store.getRun(superseded)!.jobId)!;
+    const newer = store.claimManual(job, now + 900_000);
+    store.finish(newer.id, "ok", "newest", null, now + 900_001);
+    const after = store.reports({ limit: 100 });
+    assert.ok(after.some(run => run.id === newer.id));
+    assert.ok(!after.some(run => run.id === superseded));
+    assert.equal(store.getRun(superseded)!.readAt, null, "a superseded report keeps its unread state");
+    assert.ok(store.reports({ history: true, limit: 100 }).some(run => run.id === superseded));
+
+    // Read all covers the whole inbox, and only the inbox.
+    const inboxBefore = store.unreadCount();
+    const marked = store.markAllReportsRead(now + 950_000);
+    assert.equal(marked, inboxBefore);
+    assert.equal(store.unreadCount(), 0);
+    assert.deepEqual(store.reports(), []);
+    assert.equal(store.getRun(superseded)!.readAt, null, "read-all must not rewrite the superseded history");
+  } finally {
+    store.close(); rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("attention cursor spans errors and successes without losing reports; read-all leaves superseded history untouched", () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-cron-reports-"));
   let store = new CronStore(join(dir, "cron.db"));
