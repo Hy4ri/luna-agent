@@ -26,8 +26,7 @@ test("Claude subscription: clock time in a named zone resolves to its next occur
   assert.equal(resetAt("Claude usage limit reached. resets 11pm", "Asia/Amman"), Date.UTC(2026, 9, 20, 20, 0));
 });
 
-test("Codex / ChatGPT: epoch, relative minutes, or no time", () => {
-  assert.equal(resetAt("You have hit your ChatGPT usage limit (plus plan). (resets_at=1792540800)"), 1792540800_000);
+test("Codex / ChatGPT: relative minutes, or no time", () => {
   assert.equal(resetAt("You have hit your ChatGPT usage limit (plus plan). Try again in ~42 min."), now + 42 * 60_000);
   assert.equal(resetAt("The ChatGPT user has reached their Subscription Sharing usage limit. Ask the user to try again after their usage limit resets or use an API key instead."), undefined);
 });

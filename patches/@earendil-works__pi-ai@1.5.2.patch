@@ -1,53 +1,5 @@
-diff --git a/dist/api/google-generative-ai.js b/dist/api/google-generative-ai.js
-index feb37cc3b55ab8011b12e316ee41203194d84fa6..ae6f87354c001ff4cc92e67fb6e92ea22ec46240 100644
---- a/dist/api/google-generative-ai.js
-+++ b/dist/api/google-generative-ai.js
-@@ -2,6 +2,8 @@ import { GoogleGenAI, } from "@google/genai";
- import { calculateCost, clampThinkingLevel } from "../models.js";
- import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
- import { AssistantMessageEventStream } from "../utils/event-stream.js";
-+import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.js";
-+import { googleQuotaDiagnostic } from "../utils/google-quota.js";
- import { providerHeadersToRecord } from "../utils/headers.js";
- import { getIdentityHeaders } from "../utils/identity.js";
- import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-@@ -221,6 +223,10 @@ export const stream = (model, context, options) => {
-         catch (error) {
-             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-             output.errorMessage = formatProviderError(normalizeProviderError(error));
-+            const receivedAt = Date.now(), quota = googleQuotaDiagnostic(error, receivedAt);
-+            if (quota && output.stopReason === "error") {
-+                appendAssistantMessageDiagnostic(output, { type: "luna.usage-limit", timestamp: receivedAt, details: quota });
-+            }
-             stream.push({ type: "error", reason: output.stopReason, error: output });
-             stream.end();
-         }
-diff --git a/dist/api/google-vertex.js b/dist/api/google-vertex.js
-index 1b7cb58ec7ad745938a5684014867601454acdcb..c9bd92bc1829e68b719dd531f8900daf3dd5a507 100644
---- a/dist/api/google-vertex.js
-+++ b/dist/api/google-vertex.js
-@@ -2,6 +2,8 @@ import { GoogleGenAI, ResourceScope, } from "@google/genai";
- import { calculateCost, clampThinkingLevel } from "../models.js";
- import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
- import { AssistantMessageEventStream } from "../utils/event-stream.js";
-+import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.js";
-+import { googleQuotaDiagnostic } from "../utils/google-quota.js";
- import { providerHeadersToRecord } from "../utils/headers.js";
- import { getIdentityHeaders } from "../utils/identity.js";
- import { getProviderEnvValue } from "../utils/provider-env.js";
-@@ -223,6 +225,10 @@ export const stream = (model, context, options) => {
-         catch (error) {
-             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-             output.errorMessage = formatProviderError(normalizeProviderError(error));
-+            const receivedAt = Date.now(), quota = googleQuotaDiagnostic(error, receivedAt);
-+            if (quota && output.stopReason === "error") {
-+                appendAssistantMessageDiagnostic(output, { type: "luna.usage-limit", timestamp: receivedAt, details: quota });
-+            }
-             stream.push({ type: "error", reason: output.stopReason, error: output });
-             stream.end();
-         }
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index e64cc029276fdb45c8ebf6d16a7d9573df223798..8602bc350c4c8ea65893cb32f83631007a775a00 100644
+index e64cc029276fdb45c8ebf6d16a7d9573df223798..21787ba35a4d9f4ed028410a38298efc84531c13 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
 @@ -53,7 +53,7 @@ function isTerminalRateLimitError(errorText) {
@@ -59,38 +11,17 @@ index e64cc029276fdb45c8ebf6d16a7d9573df223798..8602bc350c4c8ea65893cb32f8363100
          return false;
      }
      if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
-@@ -166,6 +166,7 @@ export const stream = (model, context, options) => {
-             stopReason: "pending",
-             timestamp: Date.now(),
-         };
-+        let limitWindows = [];
-         try {
-             const apiKey = options?.apiKey;
-             if (!apiKey) {
-@@ -288,6 +289,7 @@ export const stream = (model, context, options) => {
-                         combinedSignal.cleanup();
-                     }
-                     await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
-+                    limitWindows = codexLimitHeaderWindows(response.headers, Date.now());
-                     if (response.ok) {
-                         break;
-                     }
-@@ -306,7 +308,13 @@ export const stream = (model, context, options) => {
+@@ -306,7 +306,8 @@ export const stream = (model, context, options) => {
                          statusText: response.statusText,
                      });
                      const info = await parseErrorResponse(fakeResponse);
 -                    throw new Error(info.friendlyMessage || info.message);
-+                    let payload;
-+                    try { payload = JSON.parse(errorText); } catch { payload = {}; }
-+                    throw new CodexApiError(info.friendlyMessage || info.message, {
-+                        code: payload?.error?.code ?? payload?.error?.type,
-+                        payload: { error: payload?.error, httpStatus: response.status,
-+                            limitWindows },
-+                    });
++                    // luna: a final HTTP refusal is not a network error; do not retry it below.
++                    throw new CodexApiError(info.friendlyMessage || info.message);
                  }
                  catch (error) {
                      if (error instanceof Error) {
-@@ -317,6 +325,7 @@ export const stream = (model, context, options) => {
+@@ -317,6 +318,7 @@ export const stream = (model, context, options) => {
                      lastError = error instanceof Error ? error : new Error(String(error));
                      // Network errors are retryable
                      if (attempt < maxRetries &&
@@ -98,18 +29,7 @@ index e64cc029276fdb45c8ebf6d16a7d9573df223798..8602bc350c4c8ea65893cb32f8363100
                          !(lastError instanceof RetryDelayExceededError) &&
                          !lastError.message.includes("usage limit")) {
                          const delayMs = BASE_DELAY_MS * 2 ** attempt;
-@@ -347,6 +356,10 @@ export const stream = (model, context, options) => {
-         catch (error) {
-             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-             output.errorMessage = formatProviderError(normalizeProviderError(error));
-+            const limit = codexLimitFailure(error, limitWindows);
-+            if (limit && output.stopReason === "error") {
-+                appendAssistantMessageDiagnostic(output, { type: "luna.usage-limit", timestamp: Date.now(), details: limit });
-+            }
-             stream.push({ type: "error", reason: output.stopReason, error: output });
-             stream.end();
-         }
-@@ -440,7 +453,10 @@ function getServiceTierCostMultiplier(model, serviceTier) {
+@@ -440,7 +442,10 @@ function getServiceTierCostMultiplier(model, serviceTier) {
          case "flex":
              return 0.5;
          case "priority":
@@ -120,7 +40,7 @@ index e64cc029276fdb45c8ebf6d16a7d9573df223798..8602bc350c4c8ea65893cb32f8363100
          default:
              return 1;
      }
-@@ -456,7 +472,7 @@ function applyServiceTierPricing(usage, serviceTier, model) {
+@@ -456,7 +461,7 @@ function applyServiceTierPricing(usage, serviceTier, model) {
      usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
  }
  function resolveCodexServiceTier(responseServiceTier, requestServiceTier) {
@@ -129,114 +49,6 @@ index e64cc029276fdb45c8ebf6d16a7d9573df223798..8602bc350c4c8ea65893cb32f8363100
          return requestServiceTier;
      }
      return responseServiceTier ?? requestServiceTier;
-@@ -500,6 +516,48 @@ class CodexApiError extends Error {
-         this.cause = options?.cause;
-     }
- }
-+// luna: preserve typed quota data through pi-ai's persisted diagnostic channel.
-+function codexLimitHeaderWindows(headers, now) {
-+    const windows = [];
-+    // Same header families as codex-api/src/rate_limits.rs, including model-scoped metered limits.
-+    for (const [name, used] of headers) {
-+        const match = /^x-(.+)-(primary|secondary)-used-percent$/.exec(name);
-+        if (!match || !Number.isFinite(Number(used)) || Number(used) < 100) continue;
-+        const reset = headers.get(`x-${match[1]}-${match[2]}-reset-at`);
-+        const at = reset !== null && reset.trim() !== "" ? Number(reset) * 1000 : NaN;
-+        windows.push({ id: `${match[1]}:${match[2]}`, resetAt: Number.isFinite(at) && at > 0 && at <= 8.64e15 ? at : null });
-+    }
-+    const retry = headers.get("retry-after");
-+    if (retry !== null) {
-+        const delay = Number(retry);
-+        const at = retry.trim() !== "" && Number.isFinite(delay) && delay >= 0 ? now + delay * 1000 : Date.parse(retry);
-+        if (Number.isFinite(at) && at > 0 && at <= 8.64e15) windows.push({ id: "retry-after", resetAt: at });
-+    }
-+    return windows;
-+}
-+function codexLimitFailure(error, headerWindows) {
-+    if (!(error instanceof CodexApiError)) return undefined;
-+    const payload = error.payload;
-+    const native = payload?.response?.error ?? payload?.error ?? payload;
-+    const code = String(error.code ?? native?.code ?? native?.type ?? "");
-+    const status = payload?.httpStatus;
-+    if ([401, 402, 403].includes(status) || /^(insufficient_quota|billing_error|invalid_api_key|authentication_error|usage_not_included)$/.test(code)) {
-+        return { kind: "fatal", windows: [] };
-+    }
-+    if (status !== 429 && !/^(usage_limit_reached|rate_limit_exceeded|rate_limit_error|usageLimitExceeded)$/.test(code)) return undefined;
-+    const byId = new Map(headerWindows.map(window => [window.id, window]));
-+    for (const window of payload?.limitWindows ?? []) {
-+        if (window.exhausted === false) byId.delete(window.id);
-+        else byId.set(window.id, { id: window.id, resetAt: window.resetAt });
-+    }
-+    const windows = [...byId.values()];
-+    const reset = native?.resets_at ?? payload?.resets_at;
-+    if (reset !== undefined) {
-+        const at = typeof reset === "number" ? reset * 1000 : NaN;
-+        windows.push({ id: "refusal", resetAt: Number.isFinite(at) && at > 0 && at <= 8.64e15 ? at : null });
-+    }
-+    return { kind: "wait", windows };
-+}
- class CodexProtocolError extends Error {
-     payload;
-     constructor(message, options) {
-@@ -539,6 +597,7 @@ function extractCodexEventError(event) {
-     };
- }
- async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
-+    const quotaWindows = new Map();
-     for await (const event of events) {
-         try {
-             await onProviderStreamEvent?.(event, model);
-@@ -550,18 +609,35 @@ async function* mapCodexEvents(events, output, model, onProviderStreamEvent) {
-         const type = typeof event.type === "string" ? event.type : undefined;
-         if (!type)
-             continue;
-+        if (type === "codex.rate_limits") {
-+            const reportedBucket = event.metered_limit_name ?? event.limit_name;
-+            const bucket = typeof reportedBucket === "string" && reportedBucket.trim()
-+                ? reportedBucket.trim().toLowerCase().replaceAll("_", "-") : "codex";
-+            for (const position of ["primary", "secondary"]) {
-+                const window = event.rate_limits?.[position];
-+                if (!window || typeof window.used_percent !== "number" || !Number.isFinite(window.used_percent)) continue;
-+                const id = `${bucket}:${position}`;
-+                const at = window.reset_at === undefined ? quotaWindows.get(id)?.resetAt
-+                    : typeof window.reset_at === "number" ? window.reset_at * 1000 : NaN;
-+                quotaWindows.set(id, { id, exhausted: window.used_percent >= 100,
-+                    resetAt: Number.isFinite(at) && at > 0 && at <= 8.64e15 ? at : null });
-+            }
-+            continue;
-+        }
-         if (type === "error") {
-             const { code, message } = extractCodexEventError(event);
--            throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}`, {
-+            const resetsAt = event.error?.resets_at ?? event.resets_at;
-+            throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}${Number.isFinite(resetsAt) ? ` (resets_at=${resetsAt})` : ""}`, {
-                 code,
--                payload: event,
-+                payload: { ...event, limitWindows: [...quotaWindows.values()] },
-             });
-         }
-         if (type === "response.failed") {
-             const response = event.response;
-             const code = response?.error?.code;
-             const message = response?.error?.message;
--            throw new CodexApiError(message || "Codex response failed", { code, payload: event });
-+            const resetsAt = response?.error?.resets_at;
-+            throw new CodexApiError(`${message || "Codex response failed"}${Number.isFinite(resetsAt) ? ` (resets_at=${resetsAt})` : ""}`, { code, payload: { ...event, limitWindows: [...quotaWindows.values()] } });
-         }
-         if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
-             const response = event.response;
-@@ -1261,6 +1337,11 @@ async function parseErrorResponse(response) {
-                 friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
-             }
-             message = err.message || friendlyMessage || message;
-+            // luna: keep the exact reset time for automatic continuation.
-+            if (Number.isFinite(err.resets_at)) {
-+                message += ` (resets_at=${err.resets_at})`;
-+                if (friendlyMessage) friendlyMessage += ` (resets_at=${err.resets_at})`;
-+            }
-         }
-     }
-     catch { }
 diff --git a/dist/api/openai-responses.js b/dist/api/openai-responses.js
 index 0977a46594d2caa8c92b90e267158ee5efb74938..624bdd56eec4bbee630811a91110c249abaa06ee 100644
 --- a/dist/api/openai-responses.js
@@ -250,50 +62,6 @@ index 0977a46594d2caa8c92b90e267158ee5efb74938..624bdd56eec4bbee630811a91110c249
          default:
              return 1;
      }
-diff --git a/dist/utils/google-quota.js b/dist/utils/google-quota.js
-new file mode 100644
-index 0000000000000000000000000000000000000000..fad981953ca82864d3f096e7d8e0d3c8206a007a
---- /dev/null
-+++ b/dist/utils/google-quota.js
-@@ -0,0 +1,38 @@
-+// luna: persist only quota fields before the provider's display error loses its body.
-+// Parsing reset dates belongs to Luna's scheduler, not the SDK retry loop.
-+export function googleQuotaDiagnostic(error, receivedAt) {
-+    const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
-+    const parse = value => {
-+        if (object(value)) return value;
-+        if (typeof value !== "string" || value.length > 4000) return undefined;
-+        const start = value.indexOf("{"), end = value.lastIndexOf("}");
-+        if (start < 0 || end < start) return undefined;
-+        try { const body = JSON.parse(value.slice(start, end + 1)); return object(body) ? body : undefined; }
-+        catch { return undefined; }
-+    };
-+    const raw = parse(error?.error) ?? parse(error?.body) ?? parse(error?.message);
-+    const body = object(raw?.error) ? raw.error : raw;
-+    const status = typeof error?.status === "number" ? error.status : body?.code;
-+    if ([401, 402, 403].includes(status)) return { kind: "fatal", windows: [], receivedAt };
-+    if (status !== 429 && body?.status !== "RESOURCE_EXHAUSTED") return undefined;
-+    const details = [];
-+    for (const detail of Array.isArray(body?.details) ? body.details.slice(0, 32) : []) {
-+        if (detail?.["@type"] === "type.googleapis.com/google.rpc.ErrorInfo") {
-+            const metadata = {};
-+            for (const key of ["quotaResetTimeStamp", "quotaResetDelay"]) {
-+                const value = detail.metadata?.[key];
-+                if (typeof value === "string" && value.length <= 128) metadata[key] = value;
-+            }
-+            details.push({ "@type": detail["@type"], metadata,
-+                ...(typeof detail.reason === "string" ? { reason: detail.reason.slice(0, 128) } : {}) });
-+        }
-+        else if (detail?.["@type"] === "type.googleapis.com/google.rpc.RetryInfo" && typeof detail.retryDelay === "string") {
-+            details.push({ "@type": detail["@type"], retryDelay: detail.retryDelay.slice(0, 128) });
-+        }
-+    }
-+    const selected = { code: 429, status: "RESOURCE_EXHAUSTED", details };
-+    if (typeof body?.message === "string") selected.message = body.message.slice(0, 1000);
-+    const response = JSON.stringify(selected);
-+    // Do not truncate JSON into a malformed body. Display error text remains a fallback.
-+    return { kind: "wait", windows: [], receivedAt, ...(response.length <= 4000 ? { response } : {}) };
-+}
 diff --git a/dist/utils/provider-retry.js b/dist/utils/provider-retry.js
 index 5960cf7f5e992eef7d1b96530cea66c6f616a6d2..0d7629d77faffd0e407eeb5383d6a715fac91113 100644
 --- a/dist/utils/provider-retry.js
