@@ -9,7 +9,7 @@ import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, section, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import type { PtyProcess } from "./terminal/pty-host.js";
 import { ExecutionError, FileError, type ExecutionEnv, type Result, type ShellExecOptions } from "@earendil-works/pi-durable/env";
-import { CONNECT_PATH, PROTOCOL_VERSION, decodeResult, encode,
+import { CONNECT_PATH, FILE_CALL_TIMEOUT_MS, maxFrameBytes, PROTOCOL_VERSION, decodeResult, encode,
   type BrowserMethod, type Capabilities, WORKER_ENV_PREFIX, type EnvMethod, type MainMessage, type PtyFrame, type WorkerMessage } from "./worker-protocol.js";
 
 /** Where a session's file and shell tools run. `worker: null` is the main host. Forks keep their source's machine. */
@@ -73,7 +73,7 @@ class Link {
   private beat: ReturnType<typeof setInterval>;
   private alive = true;
   readonly connectedAt = Date.now();
-  constructor(readonly worker: WorkerRow, readonly ws: ServerWebSocket<unknown>, readonly capabilities: Capabilities, private log: (m: string) => void) {
+  constructor(readonly worker: WorkerRow, readonly ws: ServerWebSocket<unknown>, readonly capabilities: Capabilities, private log: (m: string) => void, private fileTimeoutMs: number = FILE_CALL_TIMEOUT_MS) {
     this.beat = setInterval(() => {
       if (!this.alive) { ws.close(1001, "heartbeat timeout"); return; }
       this.alive = false; ws.ping();
@@ -97,24 +97,36 @@ class Link {
         this.pending.delete(m.id); p.resolve(result);
       }
     } catch {
+      // A bad frame fails only its own call. The link and every other call keep running.
       this.pending.delete(m.id);
+      this.send({ t: "abort", id: m.id });
       p.resolve(failure(p.method, "unknown", "Invalid worker response. The operation was not retried."));
-      this.ws.close(4000, "invalid response");
     }
   }
   call(method: EnvMethod | "handle" | "browser" | "mcp", message: (id: number) => MainMessage, context: Context, onOutput?: ShellExecOptions["onOutput"]): Promise<Result<unknown, Error>> {
     const signal = context.abortSignal;
     if (signal?.aborted) return Promise.resolve(failure(method, "aborted", "aborted"));
     const id = this.next++;
+    const frame = JSON.stringify(message(id));
+    if (frame.length > maxFrameBytes()) return Promise.resolve(failure(method, "unknown", `Request is ${frame.length} bytes, over the ${maxFrameBytes()} byte frame limit. Nothing ran.`));
+    const limited = method !== "exec" && method !== "browser" && method !== "mcp";
     return new Promise(resolve => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const abort = () => {
         if (!this.pending.delete(id)) return;
         this.send({ t: "abort", id });
         resolve(failure(method, "aborted", "aborted"));
       };
       signal?.addEventListener("abort", abort, { once: true });
-      this.pending.set(id, { method, context, onOutput, resolve: r => { signal?.removeEventListener("abort", abort); resolve(r); } });
-      this.send(message(id));
+      this.pending.set(id, { method, context, onOutput, resolve: r => { clearTimeout(timer); signal?.removeEventListener("abort", abort); resolve(r); } });
+      if (limited) timer = setTimeout(() => {
+        const p = this.pending.get(id);
+        if (!p) return;
+        this.pending.delete(id);
+        this.send({ t: "abort", id });
+        p.resolve(failure(method, "unknown", `The worker did not answer within ${this.fileTimeoutMs / 1000} seconds. The operation was aborted; its effect on the worker is unknown.`));
+      }, this.fileTimeoutMs);
+      this.ws.send(frame);
     });
   }
   send(m: MainMessage) { this.ws.send(JSON.stringify(m)); }
@@ -141,6 +153,8 @@ export class WorkerHub {
   private pendingSockets = new Set<ServerWebSocket<WorkerWsData>>();
   private connectListeners = new Set<(id: number) => void>();
   private removeListeners = new Set<(id: number) => void>();
+  /** Per-call limit for file and reader calls. Public so tests can shorten it. */
+  fileTimeoutMs = FILE_CALL_TIMEOUT_MS;
   constructor(readonly store: WorkerStore, private log: (m: string) => void = m => console.error(m)) {}
   onRemove(fn: (id: number) => void) { this.removeListeners.add(fn); return () => this.removeListeners.delete(fn); }
   onConnect(fn: (id: number) => void) { this.connectListeners.add(fn); return () => this.connectListeners.delete(fn); }
@@ -182,7 +196,7 @@ export class WorkerHub {
     if (!this.store.get(worker.id)) { ws.close(4001, "worker removed"); return; }
     // Never let a second process take over a live execution machine. Heartbeats remove a stale link first.
     if (this.links.has(worker.id)) { ws.close(4009, "worker already connected"); return; }
-    const link = new Link(worker, ws, hello.capabilities, this.log);
+    const link = new Link(worker, ws, hello.capabilities, this.log, this.fileTimeoutMs);
     ws.data.link = link;
     this.links.set(worker.id, link);
     this.store.seen(worker.id, hello.capabilities);

@@ -6,6 +6,7 @@ import { startWorker } from "./worker.js";
 const base = (process.env.LUNA_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const headers = { "content-type": "application/json", ...(process.env.LUNA_TOKEN ? { authorization: `Bearer ${process.env.LUNA_TOKEN}` } : {}) };
 const worker = process.env.LUNA_WORKER_TOKEN ? startWorker({ url: base, token: process.env.LUNA_WORKER_TOKEN, cwd: process.env.LUNA_WORKER_CWD }) : undefined;
+delete process.env.LUNA_TOKEN; delete process.env.LUNA_WORKER_TOKEN; // worker commands inherit this environment
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 let sid = "", watcher: AbortController | undefined;
 const seen = new Set<number>();

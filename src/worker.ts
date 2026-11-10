@@ -7,7 +7,7 @@ import { defaultShell, programInvocation, shellEnvironment, spawnBunPty, type Pt
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError } from "@earendil-works/pi-durable/env";
-import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, PROTOCOL_VERSION, decode, encodeResult,
+import { BROWSER_METHODS, CONNECT_PATH, ENV_METHODS, HANDLE_METHODS, HANDLE_OPS, maxFrameBytes, PROTOCOL_VERSION, decode, encodeResult,
   type Capabilities, type MainMessage, type WorkerMessage } from "./worker-protocol.js";
 import { WorkerServices } from "./worker-services.js";
 import { ensureGeneratedDirectories, saveGeneratedImage, workerGeneratedRoot } from "./generated-files.js";
@@ -208,7 +208,12 @@ export function startWorker(o: WorkerOptions) {
           result = await h[m.op]!(...(decode(m.args) as unknown[]), ctx);
           if (m.op === "close") { handles.delete(m.handle); result = { ok: true, value: undefined }; }
         }
-        send({ t: "result", id: m.id, result: encodeResult(result as never) });
+        const frame = JSON.stringify({ t: "result", id: m.id, result: encodeResult(result as never) } satisfies WorkerMessage);
+        if (frame.length > maxFrameBytes()) {
+          // Fail this call only. An oversized frame would close the whole link and kill every other command.
+          const kind = m.t === "call" && m.method === "exec" ? "exec" : "file";
+          send({ t: "result", id: m.id, result: { ok: false, error: { kind, code: "unknown", message: `Result is ${frame.length} bytes, over the ${maxFrameBytes()} byte frame limit. Read it in smaller parts.` } } });
+        } else if (ws.readyState === WebSocket.OPEN) ws.send(frame);
       } catch (error) {
         send({ t: "result", id: m.id, result: { ok: false, error: { kind: m.t === "call" && m.method === "exec" ? "exec" : "file", code: "unknown", message: String(error instanceof Error ? error.message : error) } } });
       } finally { calls.delete(m.id); }
@@ -241,6 +246,8 @@ export function startWorker(o: WorkerOptions) {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const url = process.env.LUNA_URL, token = process.env.LUNA_WORKER_TOKEN;
   if (!url || !token) { console.error("LUNA_URL and LUNA_WORKER_TOKEN are required"); process.exit(1); }
+  // Commands run in this process's environment. The link token must not be readable from them.
+  delete process.env.LUNA_WORKER_TOKEN; delete process.env.LUNA_TOKEN;
   const worker = startWorker({ url, token, cwd: process.env.LUNA_WORKER_CWD, onUnauthorized: () => process.exit(1) });
   const stop = () => { void worker.close().finally(() => process.exit(0)); };
   process.on("SIGINT", stop); process.on("SIGTERM", stop);

@@ -1873,6 +1873,8 @@ Use HTTPS/WSS or a trusted private network. Do not send bearer tokens over an un
 Reverse proxies must forward the WebSocket upgrade at `/v1/workers/connect`.
 Worker tokens permit arbitrary commands on the worker through sessions assigned to that machine.
 Run workers as the desktop user, not as root.
+The worker and the main daemon remove `LUNA_WORKER_TOKEN` and `LUNA_TOKEN` from their own environment at startup, so commands cannot read them.
+A frame over 128 MiB (`LUNA_WORKER_MAX_FRAME_BYTES`) fails only its call; the link stays up. File and reader calls fail after 120 seconds without an answer (the command or file state is then unknown). Exec, browser and MCP calls keep their own limits.
 
 ### Web and terminal controls
 

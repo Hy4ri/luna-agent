@@ -15,6 +15,8 @@ let cfg;
 try { cfg = loadConfig(); } catch (e) { console.error((e as Error).message); process.exit(1); }
 const { host, port, publicUrls } = cfg.server;
 const token = process.env.LUNA_TOKEN;
+// Tool commands inherit this process's environment. Keep the API token out of it.
+delete process.env.LUNA_TOKEN;
 const refusal = bindRefusal(host, token);
 if (refusal) {
   console.error(refusal);
