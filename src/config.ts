@@ -9,7 +9,7 @@ import { z } from "zod";
 import { DEFAULT_TIPS, TipSchema } from "./wife/tips.js";
 import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
-export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks"] as const;
+export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks", "wife"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /**
  * Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live.
@@ -17,7 +17,7 @@ export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
   coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
   cron: [], "tool-search": ["tool-search", "deferred-tools"], todo: ["todo"], "ask-user": ["ask-user"],
-  recall: ["recall"], goal: ["goal"], codemode: ["codemode"], webhooks: ["webhooks"],
+  recall: ["recall"], goal: ["goal"], codemode: ["codemode"], webhooks: ["webhooks"], wife: ["wife"],
 };
 
 export const WEB_SEARCH_PROVIDERS = ["searxng", "freeserp", "ddgs"] as const;
@@ -241,6 +241,8 @@ export const ConfigSchema = z
       staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
       /** Rule ids and card kinds Wife no longer files. Agreeing to a mute card adds to these. */
       mutedRules: z.array(z.string()).default([]), mutedKinds: z.array(z.string()).default([]),
+      /** Cron expression for the daily model pass (skill and memory cards). Empty turns it off. */
+      modelSchedule: z.string().default("0 4 * * *"),
       /** New cards over this many a day wait until the next day. */
       maxNewPerDay: z.number().int().min(1).max(1000).default(10),
       /** Local-time window (HH:MM) in which new cards stay hidden. */

@@ -13,6 +13,7 @@ import { ConversationStore } from "./conversations.js";
 import { analyticsService } from "./analytics/index.js";
 import { WifeStore } from "./wife/store.js";
 import { WifeService } from "./wife/service.js";
+import { createWifeExtension } from "./wife/tool.js";
 import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
@@ -256,6 +257,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const board = createBoardExtension(() => conversationsRef);
   extensions.push(board);
   projectExtensions = [board];
+  let wifeRef: WifeService | undefined;
+  if (on("wife")) extensions.push(createWifeExtension(() => wifeRef, id => { try { conversationsRef?.get(id); return !!conversationsRef; } catch { return false; } }));
   extensions.push(createSessionWorktreeExtension({ projects: () => conversationsRef?.projects, title: id => conversationsRef?.get(id).title }));
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
   const notifyUrl = () => live().cron.notifyUrl;
@@ -344,8 +347,18 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log,
     cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
       disable: id => { store.setEnabled(id, false); scheduler?.rearm(); } } : undefined,
+    remember: memory ? ({ key, content }) => {
+      const old = key ? memory.recall(key, { kind: "fact" }).find(r => r.key === key) : undefined;
+      const row = memory.remember({ content, key });
+      return { key: row.key ?? null, before: old?.content ?? null };
+    } : undefined,
+    restoreMemory: memory ? (key, content) => {
+      for (const r of memory.recall(key, { kind: "fact" })) if (r.key === key) memory.forget(r.id);
+      if (content !== null) memory.remember({ key, content });
+    } : undefined,
     setConfig: settings ? fn => settings.update(c => fn(c.wife as unknown as Record<string, unknown>)) : undefined,
     extensions: settings ? { enabled: n => settings.read().extensions.includes(n as never), enable: n => settings.update(c => { if (!c.extensions.includes(n as never)) c.extensions.push(n as never); }) } : undefined });
+  wifeRef = wife;
   conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });
   harnessRef = harness;
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
@@ -424,6 +437,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       exclude: [board, ...(ask ? [ask] : [])],
     });
     disableLegacyJobs(store!);
+    syncWifeJob(store!, live().wife, on("wife"));
     await scheduler.start();
   }
 
@@ -472,6 +486,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     mcp.syncExposure();
     if (scheduler && store) {
       disableLegacyJobs(store);
+      syncWifeJob(store, next.wife, next.extensions.includes("wife" as never));
       scheduler.rearm();
     }
     return warnings;
@@ -554,4 +569,23 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
 const LEGACY_JOBS = ["luna-learn", "luna-self-improve"];
 function disableLegacyJobs(store: CronStore) {
   for (const job of store.listJobs()) if (LEGACY_JOBS.includes(job.name) && job.enabled) store.setEnabled(job.id, false);
+}
+
+/** Prompt of the daily model pass. Self-contained: a cron run starts with no other context. */
+export const WIFE_JOB_NAME = "luna-wife";
+export const WIFE_JOB_PROMPT = [
+  "You are Wife's daily review. File suggestion cards with the `wife` tool. Do not change anything else.",
+  "1. Call `wife action=list`. Never file a card whose fingerprint is listed.",
+  "2. Use `session_search` and recall to read sessions active since your last run. Read `skill action=list` and search memory first, so you do not duplicate what exists.",
+  "3. Procedures that repeat across sessions become kind=skill cards (payload {name, existing, outline}). Stable facts or preferences m57 stated more than once become kind=memory cards (payload {key, content}).",
+  "4. File at most 5 cards with `wife action=suggest`. Each needs real evidence sessions with a note. Prefer fewer, stronger cards.",
+  "5. Finish with one line: what you filed, or 'nothing'.",
+].join("\n");
+/** Keep the built-in luna-wife job in step with config: create it, change its schedule, or turn it off. */
+export function syncWifeJob(store: CronStore, wife: { enabled: boolean; modelSchedule?: string }, extensionOn: boolean) {
+  const want = wife.enabled && extensionOn && !!wife.modelSchedule;
+  const job = store.listJobs().find(j => j.name === WIFE_JOB_NAME);
+  if (!job) { if (want) store.addJob(WIFE_JOB_NAME, wife.modelSchedule!, WIFE_JOB_PROMPT, undefined, Date.now(), "changes"); return; }
+  if (want && (job.expr !== wife.modelSchedule || job.prompt !== WIFE_JOB_PROMPT)) store.updateJob(job.id, { expr: wife.modelSchedule, prompt: WIFE_JOB_PROMPT });
+  if (job.enabled !== want) store.setEnabled(job.id, want);
 }

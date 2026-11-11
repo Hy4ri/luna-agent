@@ -19,6 +19,8 @@ export interface WifeServiceOptions {
   cron?: { jobs: () => { id: number; name: string; enabled: boolean; runs: { status: string; output: string | null; startedAt: number }[] }[]; disable: (id: number) => void };
   setConfig?: (fn: (w: Record<string, unknown>) => void) => void;
   /** Settings mutation used by a tip that enables an extension. */
+  /** Write a memory. Returns the key and the content it replaced (null when new). */
+  remember?: (input: { key?: string; content: string }) => { key: string | null; before: string | null };
   restoreMemory?: (key: string, content: string | null) => Promise<void> | void;
   extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
 }
@@ -171,6 +173,12 @@ export class WifeService {
         const value = String(card.kind === "mute_rule" ? card.payload.rule : card.payload.kind);
         this.o.setConfig(w => { const list = (w[key] as string[] | undefined) ?? []; if (!list.includes(value)) w[key] = [...list, value]; });
         result = `Muted ${value}. Remove it from the muted list in settings to bring it back.`;
+      } else if (card.kind === "memory") {
+        if (!this.o.remember) throw new WifeError(409, "memory is not available");
+        const m = card.payload as { key?: string; content: string };
+        const r = this.o.remember({ key: m.key, content: m.content });
+        if (r.key) inverse = { type: "restore_memory", key: r.key, content: r.before };
+        result = r.key ? `Saved ${r.key}.` : "Saved a note.";
       } else if (card.kind === "feature_tip") {
         const ext = card.payload.enable as string | null;
         if (ext && this.o.extensions && !this.o.extensions.enabled(ext)) { this.o.extensions.enable(ext); result = `Enabled ${ext}. It loads on the next session.`; }
