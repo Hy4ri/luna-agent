@@ -172,7 +172,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   })] }));
   // Per-worker MCP: worker-only tools appear as w<id>_<server>__* and proxy via WorkerHub.mcpCall. Main MCP stays available.
   new WorkerMcpProxy(workers, registry, log).attach();
-  const imageGenConfig = () => (settings?.resolved() ?? cfg).image_gen;
+  const imageGenConfig = () => (settings?.shared() ?? cfg).image_gen;
   const imageGen = new ImageGenManager({ config: imageGenConfig, providers: o.imageGenProviders ?? new Map([
     ["openai-codex", createOpenAICodexImageProvider({ config: () => imageGenConfig()["openai-codex"],
       auth: createCodexImageAuth({ config: () => imageGenConfig()["openai-codex"] }),
@@ -198,7 +198,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       return { ...view, messages: uploads.hydrate(view.messages) };
     } }));
   // Read per call so Settings changes apply to the next tool call.
-  const live = () => settings?.resolved() ?? cfg;
+  const live = () => settings?.shared() ?? cfg;
   extensions.push(createWebToolsExtension(() => live().web, new Map([
     ["ddgs", createDdgsWebProvider(() => live().web.providers.ddgs, mcp)],
     ["searxng", createSearxngWebProvider(() => live().web.providers.searxng, o.fetch)],
@@ -285,7 +285,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   }) : undefined;
   if (ask) extensions.push(ask);
   // Live policy: Settings changes apply to the next send without a restart.
-  const sessionTalk = () => (settings?.resolved() ?? cfg).sessionTalk;
+  const sessionTalk = () => (settings?.shared() ?? cfg).sessionTalk;
   extensions.push(createSessionTalkExtension({
     policy: sessionTalk,
     harness: () => harnessRef,
@@ -311,11 +311,11 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   // After the toggle filter, so a disabled codemode is already gone from the request it checks.
   if (codemodeSandbox) extensions.push(createStableToolsExtension({ models: built.models, defaultModel: () => providers.defaultModel() }));
 
-  const busyInput = () => settings?.resolved().busyInput ?? cfg.busyInput;
+  const busyInput = () => settings?.shared().busyInput ?? cfg.busyInput;
   const harness = await openLuna({
     registry,
-    compaction: () => (settings?.resolved() ?? cfg).compaction,
-    afterFailedRun: () => (settings?.resolved() ?? cfg).afterFailedRun,
+    compaction: () => (settings?.shared() ?? cfg).compaction,
+    afterFailedRun: () => (settings?.shared() ?? cfg).afterFailedRun,
     alert: async (title, body) => {
       const url = notifyUrl();
       if (!url) return;
@@ -473,11 +473,14 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let learnRunning: Promise<unknown> | undefined;
   const learnScan = () => {
     if (!learn || !live().learn.captureEnabled || !live().extensions.includes("learn") || learnRunning) return learnRunning;
-    const isCronRun = store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
+    // One query per scan instead of one per conversation.
+    let cronIds: Set<string>;
+    try { cronIds = new Set((store?.db.prepare("SELECT DISTINCT conversation_id FROM runs").all() as { conversation_id: string }[] | undefined ?? []).map(r => String(r.conversation_id))); }
+    catch { cronIds = new Set(); }
     learnRunning = scanIdle({
       store: learn, idleMs: live().learn.idleMinutes * 60_000, log,
       commit: (fn) => harness.commit(fn, context),
-      skip: (id) => !!isCronRun?.get(String(id)),
+      skip: (id) => cronIds.has(String(id)),
     }).catch((e) => log(`learn: scan failed: ${(e as Error).message}`)).finally(() => { learnRunning = undefined; });
     return learnRunning;
   };

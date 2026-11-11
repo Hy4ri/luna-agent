@@ -15,7 +15,10 @@ export function daemonConnection(dataDir: string, host: string, port: number, pu
     .map(row => ({ url: `http://${row.address}:${port}`, label: /^100\./.test(row.address) && Number(row.address.split(".")[1]) >= 64 && Number(row.address.split(".")[1]) <= 127 ? "Tailscale" : "LAN" }))
     .concat(publicUrls.map(url => ({ url: new URL(url).origin, label: "Public" })));
   const origins = new Set<string>();
+  // networkInterfaces() is a syscall-heavy call; refresh at most every few seconds, and only on an unknown origin.
+  let refreshedAt = 0;
   const rememberOrigins = () => {
+    refreshedAt = Date.now();
     for (const address of addresses()) origins.add(address.url);
     if (["0.0.0.0", "::", "127.0.0.1", "::1", "localhost"].includes(host)) {
       for (const name of ["localhost", "127.0.0.1", "[::1]"]) origins.add(`http://${name}:${port}`);
@@ -26,6 +29,10 @@ export function daemonConnection(dataDir: string, host: string, port: number, pu
     id,
     info: () => ({ id, addresses: addresses() }),
     // Only origins hosted by this daemon, not arbitrary websites, may use bearer-authenticated cross-origin requests.
-    allowsOrigin: (origin: string) => { rememberOrigins(); return origins.has(origin); },
+    allowsOrigin: (origin: string) => {
+      if (origins.has(origin)) return true;
+      if (Date.now() - refreshedAt >= 5000) rememberOrigins();
+      return origins.has(origin);
+    },
   };
 }
