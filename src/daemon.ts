@@ -31,7 +31,6 @@ const app = createApp({
   settings: rt.settings, busyInput: rt.busyInput, sessionTalk: rt.sessionTalk, conversations: rt.conversations, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
   workers: rt.workers, terminals: rt.terminals, browserPanel: rt.browserPanel, uploads: rt.uploads, webhooks: rt.webhooks, cwd: cfg.cwd,
-  ...(rt.learn ? { learn: { store: rt.learn, improver: rt.improver!, scan: rt.learnScan } } : {}),
 });
 const desktopOrigins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
 rt.terminals.setOriginPolicy((origin, requestHost) => {

@@ -6,7 +6,6 @@ import { test } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import { openLuna } from "../src/luna.js";
-import { originalUserText, readConversation } from "../src/learn.js";
 import { ScheduledMessagesDoc, ScheduledMessagesService } from "../src/scheduled-messages.js";
 import { LimitRecoveryService } from "../src/limit-recovery.js";
 import { RecoveryStateDoc, recoveryKey, recoveryResetFloor } from "../src/recovery-state.js";
@@ -19,7 +18,7 @@ function provider() {
   return { faux, models, ref: { provider: model.provider, modelId: model.id } };
 }
 
-test("terminal schedule migration bounds hot state and preserves history, learning provenance and request dedup across restart", async () => {
+test("terminal schedule migration bounds hot state and preserves history and request dedup across restart", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-schedule-retention-")), dbPath = join(dir, "luna.db");
   const { faux, models, ref } = provider();
   faux.setResponses([fauxAssistantMessage([fauxText("OK")])]);
@@ -51,12 +50,6 @@ test("terminal schedule migration bounds hot state and preserves history, learni
     now = dueAt + 1;
     await s.deliverDue();
     assert.equal((await s.cancel(sid, deliveredId)).status, "already_delivered");
-    const scan = await h.commit(tx => readConversation(tx, sid), context);
-    const manual = scan.msgs.find(m => m.source === "luna.scheduled-message");
-    assert.ok(manual);
-    assert.equal(manual.scheduledSource, "user");
-    assert.equal(originalUserText(manual), "Never use blue.");
-    assert.equal(originalUserText({ ...manual, scheduledSource: "limit_recovery" }), "");
     const empty = await h.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(ScheduledMessagesDoc))), context);
     assert.equal(Object.keys(empty.schedules).length, 0);
     assert.equal(Object.keys(empty.requests).length, 0);

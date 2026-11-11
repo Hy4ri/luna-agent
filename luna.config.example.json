@@ -19,8 +19,6 @@
     "skills",
     "delegate",
     "cron",
-    "improve",
-    "learn",
     "tool-search",
     "codemode"
   ],
@@ -85,13 +83,7 @@
     }
   },
   "improve": {
-    "schedule": "0 3 * * *",
     "allowCommandBenchmarks": false
-  },
-  "learn": {
-    "idleMinutes": 30,
-    "captureEnabled": true,
-    "files": []
   },
   "thinkingLevel": "medium",
   "maxTurns": 60,

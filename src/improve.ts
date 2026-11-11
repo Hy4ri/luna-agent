@@ -1,53 +1,8 @@
-// Self-improvement engine: inspect past run logs -> extract lessons -> draft/update skills -> verify with a
-// benchmark before applying. Unverified or regressing drafts are never installed; every applied change keeps a
+// Skill write engine: draft/update skills -> verify with a benchmark before applying. Unverified or regressing drafts are never installed; every applied change keeps a
 // backup so it can be rolled back. Skills are plain SKILL.md files, so the skills extension picks edits up live.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import { Database } from "bun:sqlite";
 import { parseFrontmatter, scanSkills } from "./skills.js";
-
-export interface RunRecord { id: number; source: string; label: string; status: "ok" | "error" | "running"; startedAt: number; text: string }
-/** Anything that can list past runs (cron.db, an app log, ...). */
-export interface RunLogSource { name: string; recent(limit: number): RunRecord[] }
-
-/** Reads the scheduler's cron.db runs table (read-only). */
-export function cronRunSource(path: string): RunLogSource {
-  return {
-    name: "cron",
-    recent(limit) {
-      if (!existsSync(path)) return [];
-      const db = new Database(path, { readonly: true });
-      try {
-        const rows = db.prepare(
-          "SELECT r.id, r.status, r.started_at, r.output, r.error, j.name AS job FROM runs r JOIN jobs j ON j.id = r.job_id ORDER BY r.id DESC LIMIT ?",
-        ).all(limit) as any[];
-        return rows.map((r) => ({ id: r.id, source: "cron", label: r.job, status: r.status, startedAt: r.started_at, text: String(r.error ?? r.output ?? "") }));
-      } finally { db.close(); }
-    },
-  };
-}
-
-export interface Lesson { signature: string; count: number; labels: string[]; example: string; runIds: number[] }
-
-/** Collapse volatile parts (numbers, ids, paths, quoted strings) so repeats of one failure share a signature. */
-export function signature(text: string): string {
-  const first = text.split(/\r?\n/).find((l) => l.trim()) ?? "";
-  return first.replace(/(["'`]).*?\1/g, "<s>").replace(/\/[\w./-]+/g, "<path>").replace(/\b[0-9a-f]{8,}\b/gi, "<id>").replace(/\d+/g, "<n>").trim().slice(0, 160);
-}
-
-/** Group failed runs by signature; patterns seen `minCount`+ times are lessons worth acting on. */
-export function extractLessons(runs: RunRecord[], minCount = 2): Lesson[] {
-  const m = new Map<string, Lesson>();
-  for (const r of runs) {
-    if (r.status !== "error") continue;
-    const sig = signature(r.text) || "(empty error)";
-    const l = m.get(sig) ?? { signature: sig, count: 0, labels: [], example: r.text.slice(0, 400), runIds: [] };
-    l.count++; l.runIds.push(r.id);
-    if (!l.labels.includes(r.label)) l.labels.push(r.label);
-    m.set(sig, l);
-  }
-  return [...m.values()].filter((l) => l.count >= minCount).sort((a, b) => b.count - a.count);
-}
 
 export interface BenchResult { score: number; detail: string }
 /** A benchmark scores skill content in [0,1]. `path` is a temp copy of the candidate SKILL.md. */
@@ -83,7 +38,7 @@ export function commandBenchmark(command: string, timeoutMs = 60_000): Benchmark
   };
 }
 
-/** Benchmark that requires phrases in the skill (cheap regression guard for lessons that must be kept). */
+/** Benchmark that requires phrases in the skill (cheap regression guard for content that must be kept). */
 export function containsBenchmark(phrases: string[]): Benchmark {
   return (content) => {
     const missing = phrases.filter((p) => !content.toLowerCase().includes(p.toLowerCase()));
@@ -105,7 +60,6 @@ export interface ProposalResult {
 export interface ImproverOptions {
   /** Directory where skills are written (must be one of the dirs the skills extension scans). */
   skillsDir: string;
-  sources?: RunLogSource[];
   /** Backups of replaced skill versions; default <skillsDir>/.history (dot dirs are ignored by the scanner). */
   historyDir?: string;
   /** Named benchmarks the model may reference by name. */
@@ -124,15 +78,6 @@ export class SkillImprover {
   constructor(private o: ImproverOptions) {
     this.skillsDir = resolve(o.skillsDir);
     this.historyDir = resolve(o.historyDir ?? join(this.skillsDir, ".history"));
-  }
-
-  inspectRuns(opts: { limit?: number; status?: "ok" | "error" } = {}): RunRecord[] {
-    const out = (this.o.sources ?? []).flatMap((s) => s.recent(opts.limit ?? 50));
-    return out.filter((r) => !opts.status || r.status === opts.status).sort((a, b) => b.startedAt - a.startedAt).slice(0, opts.limit ?? 50);
-  }
-
-  lessons(opts: { limit?: number; minCount?: number } = {}): Lesson[] {
-    return extractLessons(this.inspectRuns({ limit: opts.limit ?? 200 }), opts.minCount ?? 2);
   }
 
   /** True when `dir` is a skill directory inside the managed skills dir (never the managed root itself). */

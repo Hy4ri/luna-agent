@@ -10,7 +10,6 @@ const TITLES: Record<string, string> = {
   skills: "Skills",
   providers: "Model providers",
   mcp: "MCP servers",
-  lessons: "Lessons",
 };
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -23,7 +22,6 @@ const DESCRIPTIONS: Record<string, string> = {
   skills: "Browse the instructions available to Luna.",
   providers: "Connect accounts and manage custom provider definitions.",
   mcp: "Connect external tools and manage their access.",
-  lessons: "Review what Luna learned from past sessions before it changes skills or memory.",
 };
 
 export const PANELS: Record<string, { title: string; desc: string; component: Component }> = {
@@ -81,10 +79,5 @@ export const PANELS: Record<string, { title: string; desc: string; component: Co
     title: "Webhooks",
     desc: "Receive events from other services and send Luna events out.",
     component: defineAsyncComponent(() => import("./WebhooksPanel.vue")),
-  },
-  lessons: {
-    title: TITLES.lessons,
-    desc: DESCRIPTIONS.lessons,
-    component: defineAsyncComponent(() => import("./LessonsPanel.vue")),
   },
 };

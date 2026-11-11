@@ -29,7 +29,7 @@ const helpText = computed(() => {
   else if (typeof fallback === 'number' && /timeout_?ms/i.test(full.value)) readable = `${fallback / 1000} seconds (${fallback.toLocaleString()} milliseconds)`
   return `${help}${help ? ' ' : ''}Default: ${readable}.`
 })
-const advancedNames: Record<string, string[]> = { vision: ['history_budget_bytes', 'long_edge', 'hard_bytes', 'max_calls_per_image', 'subagent_max_calls_per_image', 'profiles'], processes: ['retentionHours', 'maxOutputBytes'], 'image_gen.openai-codex': ['codexHome', 'codexCommand'], learn: ['files'] }
+const advancedNames: Record<string, string[]> = { vision: ['history_budget_bytes', 'long_edge', 'hard_bytes', 'max_calls_per_image', 'subagent_max_calls_per_image', 'profiles'], processes: ['retentionHours', 'maxOutputBytes'], 'image_gen.openai-codex': ['codexHome', 'codexCommand'] }
 const childFields = computed(() => Object.entries(safeSchema.value.properties || {}).filter(([name]) => isVisibleSetting([...props.path, name])))
 const hasModelPair = computed(() => props.path.length >= 2 && safeSchema.value.type === 'object' && !isModelOverride.value && safeSchema.value.properties?.provider && safeSchema.value.properties?.model && !(safeSchema.value.required || []).some((n: string) => n === 'provider' || n === 'model'))
 const idFields = computed(() => hasModelPair.value ? childFields.value.filter(([name]) => name === 'provider' || name === 'model') : [])

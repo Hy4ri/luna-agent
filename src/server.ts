@@ -11,8 +11,6 @@ import { BusyCommandError, type BusyPolicy } from "./busy-input.js";
 import { ProjectError } from "./projects.js";
 import { BoardError } from "./board.js";
 import type { McpManager } from "./mcp.js";
-import type { SkillImprover } from "./improve.js";
-import type { LearnStore } from "./learn.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderManager } from "./providers.js";
 import { context, type MemoryStore } from "./luna.js";
@@ -89,8 +87,6 @@ export interface ServerOptions {
   cwd?: string;
   /** Webhooks in (POST /hooks/<slug>) and out (subscriptions). Absent: their endpoints answer 404. */
   webhooks?: Webhooks;
-  /** Session learning ledger and the improver that applies approved proposals. */
-  learn?: { store: LearnStore; improver: SkillImprover; scan?: () => Promise<unknown> | undefined };
 }
 
 const safeEq = (a: string, b: string) => {

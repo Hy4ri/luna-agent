@@ -86,9 +86,8 @@ function groupStatus(key: string): string {
   if (key === 'web') return `${value?.searchProvider === 'disabled' ? 'Search off' : 'DDGS search'} · ${value?.extractProvider === 'disabled' ? 'extraction off' : 'DDGS extraction'}`
   if (key === 'browser') return value?.provider === 'disabled' ? 'Disabled' : value?.provider || 'Disabled'
   if (key === 'server') return `${value?.host}:${value?.port}`
-  if (key === 'learn') return `Scan after ${value?.idleMinutes} idle minutes`
   if (key === 'cron') return value?.runTimeoutMinutes ? `${value.runTimeoutMinutes} minute limit` : 'No run time limit'
-  if (key === 'improve') return value?.schedule ? 'Scheduled' : 'No scheduled checks'
+  if (key === 'improve') return value?.allowCommandBenchmarks ? 'Command benchmarks allowed' : 'Command benchmarks off'
   if (value && typeof value.enabled === 'boolean') return value.enabled ? 'Enabled' : 'Disabled'
   if (typeof value === 'string') return key === 'instructions' ? 'Custom instructions' : value
   return 'Not configured'
