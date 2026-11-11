@@ -233,15 +233,23 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
       const reader = sseRes.body.getReader();
       const decoder = new TextDecoder();
 
+      let buffer = "";
+      // The handler registers its subscriptions inside the stream callback, after headers are sent. It emits an
+      // initial sessions_changed only after registering, so wait for it: a change made earlier can be missed (#526).
+      while (!buffer.includes("event: sessions_changed")) {
+        const { value, done } = await reader.read();
+        assert.ok(!done, "SSE stream ended before the initial event");
+        buffer += decoder.decode(value, { stream: true });
+      }
+
       // Publication follows a materialized source change, not arbitrary raw DB writes.
       await conversations.update(idB, { title: "Session B refreshed" });
       await service.refresh();
 
-      let buffer = "";
       // Monotonic budget: this host suspends in short bursts. Date.now() jumps across a suspend and ended
       // the wait after only ~0.3 s of process time (#526). performance.now() pauses with the process.
       const timeoutDeadline = performance.now() + 2000;
-      let receivedAnalyticsChanged = false;
+      let receivedAnalyticsChanged = buffer.includes("event: analytics_changed");
 
       try {
         while (performance.now() < timeoutDeadline && !receivedAnalyticsChanged) {
