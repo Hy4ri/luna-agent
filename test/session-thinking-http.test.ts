@@ -118,7 +118,11 @@ test("reasoning levels follow the model: catalog, per-model defaults, and clampi
   const dir = mkdtempSync(join(tmpdir(), "luna-thinking-clamp-"));
   const faux = fauxProvider({ models: [{ id: "thinking", reasoning: true }, { id: "plain", reasoning: false }] });
   const models = createModels();
-  models.setProvider(faux.provider);
+  let catalogReads = 0;
+  models.setProvider({ ...faux.provider, getModels: () => {
+    catalogReads++;
+    return faux.provider.getModels();
+  } });
   const thinking = { provider: faux.provider.id, modelId: "thinking" };
   const plain = { provider: faux.provider.id, modelId: "plain" };
   const harness = await openLuna({ dbPath: join(dir, "luna.db"), models, memory: false, coding: false });
@@ -129,9 +133,11 @@ test("reasoning levels follow the model: catalog, per-model defaults, and clampi
       s.modelThinkingLevels = { [`${thinking.provider}/${thinking.modelId}`]: "high" };
     });
     const app = createApp({ harness, models, settings, conversations: new ConversationStore(harness), agent: { model: thinking } });
+    catalogReads = 0;
     const catalog = await (await app.request("/v1/models")).json() as {
       models: { id: string; thinkingLevels: string[]; defaultThinkingLevel: string }[];
     };
+    assert.ok(catalogReads <= 2, `catalog projection must not rebuild the provider catalog for each model (read ${catalogReads} times)`);
     const entry = (id: string) => catalog.models.find(m => m.id === id)!;
     assert.deepEqual(entry("thinking").thinkingLevels, ["off", "minimal", "low", "medium", "high"]);
     assert.equal(entry("thinking").defaultThinkingLevel, "high", "the per-model default wins over the global one");

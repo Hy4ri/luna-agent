@@ -97,6 +97,10 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
       if (m) avail.unshift(m);
     }
     const defaults = thinkingDefaults();
+    // getModel() rebuilds a provider's merged catalog. Reuse this request's models
+    // so projecting a large catalog does not repeat that work for every entry.
+    const byRef = new Map(avail.map(m => [`${m.provider}/${m.id}`, m]));
+    const catalog = { getModel: (provider: string, id: string) => byRef.get(`${provider}/${id}`) };
     const list = avail.map((m) => ({
       provider: m.provider,
       id: m.id,
@@ -108,7 +112,7 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
       thinkingLevels: supportedThinkingLevels(m),
       // OpenAI service tiers the speed button offers; empty hides it.
       speeds: supportedSpeeds(m),
-      defaultThinkingLevel: resolveThinkingLevel(opts.models, { provider: m.provider, modelId: m.id }, defaults),
+      defaultThinkingLevel: resolveThinkingLevel(catalog, { provider: m.provider, modelId: m.id }, defaults),
     }));
     return c.json({ default: cur, defaultThinkingLevel: baseAgent().thinkingLevel ?? DEFAULT_THINKING_LEVEL, models: list, refresh: opts.providers?.catalogStatus() ?? null });
   });
