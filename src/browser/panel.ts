@@ -105,7 +105,18 @@ export class BrowserPanel implements BrowserTabHooks {
     this.notices.set(session, n);
   }
 
-  list(session: number): PanelTab[] { return [...this.tabs.values()].filter(t => t.session === session).map(({ provider: _p, ...tab }) => tab); }
+  list(session: number): PanelTab[] {
+    this.prune(session);
+    return [...this.tabs.values()].filter(t => t.session === session).map(({ provider: _p, ...tab }) => tab);
+  }
+  /** Forget tabs the provider no longer has, e.g. after the browser restarted. Luna hears about it on her next browser call. */
+  private prune(session: number) {
+    for (const e of [...this.tabs.values()]) {
+      if (e.session !== session || e.provider.has?.(e.tabId) !== false) continue;
+      this.closed(e.tabId);
+      this.note(session, `${e.tabId} is gone (the page closed or the browser restarted)`);
+    }
+  }
   get(tabId: string): PanelTab | undefined { const e = this.tabs.get(tabId); if (!e) return undefined; const { provider: _p, ...tab } = e; return tab; }
   private owned(session: number, tabId: string): Entry {
     const e = this.tabs.get(tabId);

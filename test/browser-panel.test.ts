@@ -299,6 +299,26 @@ test("browser list shows the session's tabs, including the ones m57 opens and cl
   assert.deepEqual((await run({ action: "list" })).tabs.map((t: { tabId: string }) => t.tabId), ["t1"]);
 });
 
+test("browser list drops tabs the provider lost, and tells Luna once", async () => {
+  const alive = new Set<string>();
+  const { provider } = fakeProvider({ has: id => alive.has(id) });
+  const opened = provider.open;
+  provider.open = async (req, s) => { const tab = await opened(req, s); alive.add(tab.tabId); return tab; };
+  const panel = new BrowserPanel({ enabled: () => true, resolve: async () => provider });
+  const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
+  const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
+  const run = async (args: Record<string, unknown>) =>
+    (await (tools.get("browser")!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text: string }[] }>)(args, { conversationId: "7" }, {})).output.map(o => o.text);
+  await run({ action: "open", url: "https://x.test/" });
+  await run({ action: "open", url: "https://y.test/" });
+  alive.clear(); alive.add("t2"); // the browser restarted and only t2 came back, say
+  const [list, note] = await run({ action: "list" });
+  assert.deepEqual(JSON.parse(list!).tabs.map((t: { tabId: string }) => t.tabId), ["t2"]);
+  assert.match(note!, /t1 is gone \(the page closed or the browser restarted\)/);
+  assert.equal((await run({ action: "list" })).length, 1, "the notice comes once");
+  assert.equal(panel.get("t1"), undefined);
+});
+
 test("browser list without the panel says how to turn it on", async () => {
   const { provider } = fakeProvider();
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]));

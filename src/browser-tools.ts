@@ -22,6 +22,8 @@ export interface BrowserProvider {
   type(request: BrowserTarget & { text: string; pressEnter?: boolean }, signal: AbortSignal): Promise<void>;
   scroll(request: { tabId: string; direction: "up" | "down" | "left" | "right"; amount: number }, signal: AbortSignal): Promise<void>;
   screenshot(request: { tabId: string }, signal: AbortSignal): Promise<BrowserImage>;
+  /** False when the tab is gone: closed by the page, or lost when the browser restarted. Absent: the panel keeps tabs until they close. */
+  has?(tabId: string): boolean;
   /** Push live frames until the signal aborts or the tab closes. Absent: the panel polls screenshot(). */
   watch?(request: { tabId: string; maxWidth: number; maxHeight: number }, onFrame: (frame: BrowserFrame) => void, signal: AbortSignal): Promise<void>;
   // Optional richer control. Absent: the action fails and names the providers that have it.
