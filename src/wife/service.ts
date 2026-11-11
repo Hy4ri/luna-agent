@@ -214,6 +214,12 @@ export class WifeService {
     this.o.store.setStatus(id, card.status, { sessionId: sid, snoozeUntil: card.snoozeUntil });
     return sid;
   }
+  /** True when a session other than the ones `skip` names was active after `since`. The daily model pass uses it to stay home when nothing changed. */
+  activitySince(since: number, skip: (id: number) => boolean = () => false): boolean {
+    const rows = this.o.analytics().db.query<{ id: number }, [number]>("SELECT id FROM analytics_sessions WHERE deleted_at IS NULL AND last_activity>?").all(since);
+    return rows.some(r => !skip(r.id));
+  }
+
   /** A skill work session that has ended settles its card: done when the skill exists, failed when it does not. */
   private settleWorking(sessions: { id: number; status: string }[]) {
     for (const card of this.o.store.list("working")) {

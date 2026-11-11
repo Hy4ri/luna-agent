@@ -448,7 +448,7 @@ It is the only part that costs model calls. Run it by hand with `cron action=run
   "detectEveryMinutes": 30,
   "staleDays": 14,
   "deleteArchivedAfterDays": 60,
-  "modelSchedule": "0 4 * * *",
+  "modelSchedule": "0 4,10,16,22 * * *",
   "maxNewPerDay": 10,
   "quietHours": { "enabled": false, "from": "22:00", "to": "08:00" },
   "projects": { "mode": "all", "ids": [] },
@@ -456,7 +456,7 @@ It is the only part that costs model calls. Run it by hand with `cron action=run
 }
 ```
 
-- `modelSchedule`: cron expression for the daily model pass. Empty turns it off. Add `"wife"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
+- `modelSchedule`: cron expression for the model pass (default four times a day). A slot is recorded as skipped, with reason `unchanged`, when no non-cron session was active since the last run; a manual run always runs. Empty turns it off. Add `"wife"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
 - `maxNewPerDay`: new cards over the cap wait and show up on the next day. Quiet hours hide new cards the same way.
 - `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Wife watches.
 - `tips`: editable catalog of feature tips. Each rule is `{id, title, body, docs?, when, enable?}`.

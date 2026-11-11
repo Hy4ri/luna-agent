@@ -454,6 +454,14 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
         const url = notifyUrl(); return url ? deliverRun(url, job, run, o.fetch) : undefined;
       },
       exclude: [board, ...(ask ? [ask] : [])],
+      // Wife's model pass stays home when no session (other than cron runs) was active since its last run.
+      skipRun: job => {
+        if (job.name !== WIFE_JOB_NAME || !wifeRef) return null;
+        const last = store!.queryRuns({ jobId: job.id, history: true, limit: 5 }).find(r => r.status === "ok" || r.status === "error");
+        if (!last) return null;
+        const cron = store!.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
+        return wifeRef.activitySince(last.startedAt, id => !!cron.get(String(id))) ? null : "no session activity since the last run";
+      },
     });
     disableLegacyJobs(store!);
     syncWifeJob(store!, live().wife, on("wife"));

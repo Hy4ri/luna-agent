@@ -50,3 +50,13 @@ test("the luna-wife job is created, rescheduled and switched off with config", (
   assert.equal(job()?.enabled, true);
   cron.close?.();
 });
+
+test("the scheduler records a skipped slot with reason unchanged and runs nothing", async () => {
+  const { CronStore } = await import("../src/scheduler.js");
+  const s = new CronStore(":memory:");
+  const job = s.addJob("j", "* * * * *", "p", undefined, 0, "changes");
+  const j = s.listJobs().find(x => x.id === (job as { id: number }).id)!;
+  assert.equal(s.claim(j, j.nextRun! + 1, "nothing changed"), undefined);
+  const r = s.queryRuns({ jobId: j.id, history: true })[0]!;
+  assert.deepEqual([r.status, r.reason], ["skipped", "unchanged"]);
+});

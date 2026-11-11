@@ -241,8 +241,8 @@ export const ConfigSchema = z
       staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
       /** Rule ids and card kinds Wife no longer files. Agreeing to a mute card adds to these. */
       mutedRules: z.array(z.string()).default([]), mutedKinds: z.array(z.string()).default([]),
-      /** Cron expression for the daily model pass (skill and memory cards). Empty turns it off. */
-      modelSchedule: z.string().default("0 4 * * *"),
+      /** Cron expression for the model pass. It skips a slot when no session was active since its last run (skill and memory cards). Empty turns it off. */
+      modelSchedule: z.string().default("0 4,10,16,22 * * *"),
       /** New cards over this many a day wait until the next day. */
       maxNewPerDay: z.number().int().min(1).max(1000).default(10),
       /** Local-time window (HH:MM) in which new cards stay hidden. */

@@ -102,3 +102,11 @@ test("a leftover browser tab in an idle session files a card; agree closes it", 
   await a.wife.agree(card.id);
   assert.deepEqual(a.closedTabs, ["t1"]);
 });
+
+test("the model pass stays home when no session was active since the last run", () => {
+  const a = setup();
+  a.db.run("INSERT INTO analytics_sessions(id, last_activity) VALUES (1, 500), (2, 900)");
+  assert.equal(a.wife.activitySince(1000), false);
+  assert.equal(a.wife.activitySince(800), true);
+  assert.equal(a.wife.activitySince(800, id => id === 2), false);   // a cron session does not count
+});
