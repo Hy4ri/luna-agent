@@ -20,7 +20,7 @@ const RecordSchema = z.strictObject({
 type Saved = z.infer<typeof RecordSchema>;
 type Process = Saved & {
   background: boolean; controller: AbortController; done: Promise<Result>;
-  result?: Result; dirty: boolean; delivering?: Promise<void>;
+  result?: Result; dirty: boolean; delivering?: Promise<void>; syncedAt?: number;
 };
 export interface BusyOptions {
   directory?: string; enabled?: boolean; retentionHours?: number; maxOutputBytes?: number; log?: (message: string) => void;
@@ -100,8 +100,10 @@ export class BusyExecutions {
       try {
         writeSync(fd, JSON.stringify({ version, id, session, owner, command, createdAt, finishedAt, status, exitCode, error, output, truncated, delivered }));
         // A host crash after rename can keep the name but lose unflushed data. Final records must survive it.
-        // Running snapshots skip the flush: they change every 250 ms and become interrupted on restart.
-        if (status !== "running") fsyncSync(fd);
+        // Running snapshots change every 250 ms, so flush the first one and then at most every 5 s. A crash must not
+        // leave an all-NUL file (#524): that loses the record, so its interrupted notice is never delivered.
+        const now = Date.now();
+        if (status !== "running" || p.syncedAt === undefined || now - p.syncedAt >= 5000) { fsyncSync(fd); p.syncedAt = now; }
       } finally { closeSync(fd); }
       renameSync(tmp, file); p.dirty = false;
     } catch (error) { this.markDirty(p); this.log(`Cannot save process ${p.id}: ${String(error)}`); }
