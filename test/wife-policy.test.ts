@@ -70,3 +70,39 @@ test("a muted project gets no cards, and 'ask wife' on one session bypasses cap 
   assert.equal(r.filed, 0);
   assert.equal(store.count("open"), 1);
 });
+
+test("Scan now fills the page up to the cap even when today's cap is used; the timer does not", () => {
+  const clock = { t: at(12) };
+  const { store, wife } = service({ maxNewPerDay: 2 }, [1, 2, 3].map(i => stale(i)).concat([4, 5].map(i => ({ ...stale(i), archived: true }))), clock);
+  wife.scan();
+  assert.equal(store.count("open"), 2);
+  for (const c of store.list("open")) store.setStatus(c.id, "dismissed");
+  assert.equal(wife.scan().shown, 0);  // the timer respects the used cap
+  assert.equal(store.count("open"), 0);
+  const r = wife.scan({ manual: true });
+  assert.equal(r.shown, 2);
+  assert.equal(store.count("open"), 2);
+  assert.equal(r.held, 1);
+});
+
+test("Ask Wife shows held cards about the session and reports how many match", () => {
+  const clock = { t: at(12) };
+  const { store, wife } = service({ maxNewPerDay: 0 }, [stale(1), stale(2)], clock);
+  wife.scan();
+  assert.equal(store.count("open"), 0);
+  const r = wife.scan({ session: 1 });
+  assert.equal(r.matched, 1);
+  assert.equal(store.count("open"), 1);
+  assert.equal(wife.scan({ session: 99 }).matched, 0);
+});
+
+test("held cards are released by value: an unfinished goal before a weekly recap", () => {
+  const clock = { t: at(12) };
+  const store = new WifeStore(":memory:", () => clock.t);
+  const card = (kind: string, fp: string) => ({ kind, fingerprint: fp, title: fp, body: "b", evidence: [], payload: {}, source: "detector" }) as never;
+  store.file(card("weekly_recap", "a"), false);
+  store.file(card("compaction_heavy", "b"), false);
+  store.file(card("goal_unfinished", "c"), false);
+  assert.equal(store.release(1), 1);
+  assert.deepEqual(store.list().map(c => c.fingerprint), ["c"]);
+});

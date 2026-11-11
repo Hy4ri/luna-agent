@@ -18,9 +18,14 @@ test("cost_habit uses window rows only and flags only a project above 2x the med
   assert.equal(costHabit([row(1, 1), row(2, 1), row(3, 1), { ...row(4, 50), turns: 5 }], ss, "w").length, 0);
 });
 
-test("compaction_heavy needs 3 compactions in a live session", () => {
-  const s = [sess(1, 1, 0, 0), sess(2, 1, 0, 0, { archived: true })];
-  assert.deepEqual(compactionHeavy([{ session: 1, n: 3 }, { session: 2, n: 5 }, { session: 9, n: 4 }, { session: 1, n: 2 }].slice(0, 3), s, NOW).map(c => c.payload.sessionId), [1]);
+test("compaction_heavy needs 5 compactions in a live session and folds every hit into one weekly card", () => {
+  const s = [sess(1, 1, 0, 0), sess(2, 1, 0, 0, { archived: true }), sess(3, 1, 0, 0), sess(4, 1, 0, 0, { lastActivity: NOW - 20 * DAY })];
+  assert.equal(compactionHeavy([{ session: 1, n: 4 }], s, NOW, "w").length, 0);
+  const cards = compactionHeavy([{ session: 1, n: 5 }, { session: 2, n: 9 }, { session: 9, n: 9 }, { session: 3, n: 8 }, { session: 4, n: 9 }], s, NOW, "w");
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0]!.fingerprint, "compaction_heavy:w");
+  assert.deepEqual(cards[0]!.payload.sessionIds, [3, 1]);
+  assert.match(cards[0]!.title, /2 sessions compacted 5\+ times/);
 });
 
 test("weekly_recap summarises boards, and stays quiet with none", () => {

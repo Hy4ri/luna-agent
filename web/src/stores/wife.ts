@@ -14,7 +14,18 @@ export interface RuleStats { ruleId: string; kind: string; decisions: number; ag
 export interface WifeStats { agree30: { decisions: number; agrees: number; rate: number | null }; rules: RuleStats[] }
 export const wifeStats = ref<WifeStats | null>(null);
 export const wifeOpen = ref(0);
-export const wife = reactive({ cards: [] as Suggestion[], loading: false, error: "", loaded: false, busy: new Set<number>() });
+export const wife = reactive({ cards: [] as Suggestion[], loading: false, scanning: false, error: "", notice: "", loaded: false, busy: new Set<number>() });
+export interface ScanResult { filed: number; withdrawn: number; held: number; shown: number; matched: number }
+
+/** One line that says what a scan did, so a scan that changes nothing still answers. */
+export function scanSummary(r: ScanResult): string {
+  const parts: string[] = [];
+  if (r.filed) parts.push(`${r.filed} new`);
+  if (r.shown) parts.push(`${r.shown} shown`);
+  if (r.withdrawn) parts.push(`${r.withdrawn} withdrawn`);
+  if (r.held) parts.push(`${r.held} held by the daily limit`);
+  return parts.length ? `Scan done: ${parts.join(", ")}.` : "Scan done: nothing new.";
+}
 
 async function fail(r: Response): Promise<never> {
   const j = await r.json().catch(() => ({})) as { error?: string };
@@ -46,8 +57,14 @@ export async function loadWife() {
 }
 
 export async function scanWife() {
-  wife.error = "";
-  try { const r = await api("/v1/wife/scan", { method: "POST" }); if (!r.ok) await fail(r); } catch (e) { wife.error = (e as Error).message; return; }
+  if (wife.scanning) return;
+  wife.error = ""; wife.notice = ""; wife.scanning = true;
+  try {
+    const r = await api("/v1/wife/scan", { method: "POST" });
+    if (!r.ok) await fail(r);
+    wife.notice = scanSummary(await r.json() as ScanResult);
+  } catch (e) { wife.error = (e as Error).message; return; }
+  finally { wife.scanning = false; }
   await loadWife();
 }
 
@@ -62,14 +79,16 @@ export async function decide(id: number, action: "agree" | "dismiss" | "snooze" 
   finally { wife.busy.delete(id); await loadWife(); }
 }
 
-/** Run every detector on one session now, ignoring quiet hours and the daily cap. Returns an error text, or "". */
-export async function askWife(sessionId: string | number): Promise<string> {
+/** Run every detector on one session now, ignoring quiet hours and the daily cap.
+ * Returns how many open cards are about the session, or an error text. */
+export async function askWife(sessionId: string | number): Promise<{ matched: number; error: "" } | { matched: 0; error: string }> {
   try {
     const r = await api(`/v1/wife/scan?session=${encodeURIComponent(String(sessionId))}`, { method: "POST" });
     if (!r.ok) await fail(r);
+    const res = await r.json() as ScanResult;
     await loadWife();
-    return "";
-  } catch (e) { return (e as Error).message; }
+    return { matched: res.matched, error: "" };
+  } catch (e) { return { matched: 0, error: (e as Error).message }; }
 }
 
 /** Open a session about a card. The server seeds it with the card as the first message. */

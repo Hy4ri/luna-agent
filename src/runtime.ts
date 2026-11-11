@@ -259,7 +259,13 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   extensions.push(board);
   projectExtensions = [board];
   let wifeRef: WifeService | undefined;
-  if (on("wife")) extensions.push(createWifeExtension(() => wifeRef, id => { try { conversationsRef?.get(id); return !!conversationsRef; } catch { return false; } }));
+  let cancelScheduledRef: ((id: number) => Promise<unknown>) | undefined;
+  if (on("wife")) extensions.push(createWifeExtension({
+    wife: () => wifeRef,
+    sessionExists: id => !!conversationsRef && conversationsRef.exists(id),
+    conversations: () => conversationsRef,
+    onArchive: id => cancelScheduledRef?.(id) ?? Promise.resolve(),
+  }));
   extensions.push(createSessionWorktreeExtension({ projects: () => conversationsRef?.projects, title: id => conversationsRef?.get(id).title }));
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
   const notifyUrl = () => live().cron.notifyUrl;
@@ -413,6 +419,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     skip: (id) => conversations.get(id).archived || !!isCronConversation?.get(String(id)),
   });
   await scheduledMessages.start();
+  cancelScheduledRef = id => scheduledMessages.cancelForConversation(id, "all", "Session archived.");
 
   const limitRecovery = new LimitRecoveryService({
     harness,
@@ -601,7 +608,7 @@ function disableLegacyJobs(store: CronStore) {
 /** Prompt of the daily model pass. Self-contained: a cron run starts with no other context. */
 export const WIFE_JOB_NAME = "luna-wife";
 export const WIFE_JOB_PROMPT = [
-  "You are Wife's daily review. File suggestion cards with the `wife` tool. Do not change anything else.",
+  "You are Wife's daily review. File suggestion cards with the `wife` tool. Use only its list and suggest actions. Do not change anything else.",
   "1. Call `wife action=list`. Never file a card whose fingerprint is listed.",
   "2. Use `session_search` and recall to read sessions active since your last run. Read `skill action=list` and search memory first, so you do not duplicate what exists.",
   "3. Procedures that repeat across sessions become kind=skill cards (payload {name, existing, outline}). Stable facts or preferences m57 stated more than once become kind=memory cards (payload {key, content}).",

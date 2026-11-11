@@ -34,12 +34,20 @@ export function browserLeftovers(tabs: BrowserTabView[], idle: (session: number)
     evidence: [{ sessionId: t.session, note: "idle session" }], payload: { tabId: t.tabId, session: t.session } }));
 }
 
-/** The same tool failing in 3 or more sessions in a week. The signature is the tool name. */
-export function toolErrorRepeat(rows: { name: string; errors: number; sessions: number; sample: number[] }[], week: string, min = 3): NewSuggestion[] {
-  return rows.filter(r => r.sessions >= min).map(r => ({
-    kind: "tool_error_repeat" as const, fingerprint: `tool_error_repeat:${r.name}:${week}`, source: "detector" as const,
-    title: `Tool "${r.name}" keeps failing`, body: `${r.errors} errors in ${r.sessions} sessions this week. Discuss to find the cause.`,
-    evidence: r.sample.slice(0, 3).map(id => ({ sessionId: id, note: `${r.name} error` })), payload: { tool: r.name } }));
+export interface ToolErrorRow { name: string; calls: number; errors: number; sessions: number; sample: number[] }
+/** Tools that fail on `rate` or more of `minCalls`+ calls in a week, in `minSessions`+ sessions. One folded card per week lists them all. */
+export function toolErrorRepeat(rows: ToolErrorRow[], week: string, o: { minCalls?: number; rate?: number; minSessions?: number } = {}): NewSuggestion[] {
+  const minCalls = o.minCalls ?? 10, rate = o.rate ?? 0.2, minSessions = o.minSessions ?? 3;
+  const bad = rows.filter(r => r.calls >= minCalls && r.errors / r.calls >= rate && r.sessions >= minSessions).sort((a, b) => b.errors / b.calls - a.errors / a.calls);
+  if (!bad.length) return [];
+  const pct = (r: ToolErrorRow) => `${Math.round(100 * r.errors / r.calls)}%`;
+  const line = (r: ToolErrorRow) => `${r.name} ${pct(r)} (${r.errors} of ${r.calls} calls, ${r.sessions} sessions)`;
+  const evidence: { sessionId: number; note: string }[] = [];
+  for (const r of bad) for (const id of r.sample.slice(0, 2)) if (evidence.length < 5 && !evidence.some(e => e.sessionId === id)) evidence.push({ sessionId: id, note: `${r.name} error` });
+  return [{ kind: "tool_error_repeat", fingerprint: `tool_error_repeat:${week}`, source: "detector",
+    title: bad.length === 1 ? `Tool "${bad[0]!.name}" fails ${pct(bad[0]!)} of calls` : `${bad.length} tools fail often this week`,
+    body: `Failing this week: ${bad.slice(0, 6).map(line).join("; ")}. Discuss to find the cause.`,
+    evidence, payload: { tools: bad.map(r => ({ name: r.name, calls: r.calls, errors: r.errors, sessions: r.sessions })), tool: bad[0]!.name } }];
 }
 
 /** A managed skill with no use in `days` that is also older than `days`. */
@@ -50,12 +58,14 @@ export function skillsUnused(skills: { name: string; managed: boolean; modified:
     evidence: [], payload: { name: s.name } }));
 }
 
+/** Messages a peer session or the runtime wrote. They are not prompts m57 typed. */
+export const isMachineMessage = (t: string) => /^\[message from session #\d+/.test(t) || t.startsWith("Wife suggests:");
 const norm = (t: string) => t.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
 export interface UserMsg { conv: number; ts: number; text: string }
 /** Almost the same prompt at least 3 times, from different sessions, at least 20 hours apart on average. */
 export function promptRepeat(msgs: UserMsg[], min = 3): NewSuggestion[] {
   const groups = new Map<string, UserMsg[]>();
-  for (const m of msgs) { if (m.text.length < 30 || m.text.startsWith("/")) continue; const k = norm(m.text); groups.set(k, [...(groups.get(k) ?? []), m]); }
+  for (const m of msgs) { if (m.text.length < 30 || m.text.startsWith("/") || isMachineMessage(m.text)) continue; const k = norm(m.text); groups.set(k, [...(groups.get(k) ?? []), m]); }
   const out: NewSuggestion[] = [];
   for (const [k, g] of groups) {
     const convs = new Set(g.map(m => m.conv));
@@ -73,7 +83,7 @@ export function promptRepeat(msgs: UserMsg[], min = 3): NewSuggestion[] {
 /** At least 3 sessions in one project open with the same setup text (first 200 characters, case and digits ignored). */
 export function projectSetupRepeat(firsts: { conv: number; project: number; text: string }[], min = 3): NewSuggestion[] {
   const groups = new Map<string, { conv: number; project: number; text: string }[]>();
-  for (const f of firsts) { if (f.project === 0 || f.text.length < 80) continue; const k = `${f.project}|${norm(f.text).slice(0, 200)}`; groups.set(k, [...(groups.get(k) ?? []), f]); }
+  for (const f of firsts) { if (f.project === 0 || f.text.length < 80 || isMachineMessage(f.text)) continue; const k = `${f.project}|${norm(f.text).slice(0, 200)}`; groups.set(k, [...(groups.get(k) ?? []), f]); }
   const out: NewSuggestion[] = [];
   for (const [k, g] of groups) {
     if (g.length < min) continue;

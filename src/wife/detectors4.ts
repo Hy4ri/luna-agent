@@ -30,15 +30,19 @@ export function costHabit(rows: CostRow[], sessions: AnalyticsSessionRecord[], w
   });
 }
 
-/** A session that compacted `min` or more times and is still in use. */
-export function compactionHeavy(rows: { session: number; n: number }[], sessions: AnalyticsSessionRecord[], now: number, min = 3): NewSuggestion[] {
+/** Sessions that compacted `min` or more times in the last 14 days and are still in use. One folded card per week lists them all. */
+export function compactionHeavy(rows: { session: number; n: number }[], sessions: AnalyticsSessionRecord[], now: number, week: string, min = 5): NewSuggestion[] {
   const byId = new Map(sessions.map(s => [s.id, s]));
-  return rows.filter(r => r.n >= min).flatMap(r => {
+  const hits = rows.filter(r => r.n >= min).flatMap(r => {
     const s = byId.get(r.session);
-    if (!s || s.deletedAt !== null || s.archived || (s.lastActivity ?? 0) < now - 14 * DAY) return [];
-    return [{ kind: "compaction_heavy" as const, fingerprint: `compaction_heavy:${s.id}:${Math.floor(r.n / min)}`, source: "detector" as const, title: `"${s.title?.trim() || `Session ${s.id}`}" compacted ${r.n} times`,
-      body: "A session this long loses detail each time it compacts. Agree opens a session to split the work into smaller ones.", evidence: [{ sessionId: s.id, note: `${r.n} compactions` }], payload: { sessionId: s.id } }];
-  });
+    return !s || s.deletedAt !== null || s.archived || (s.lastActivity ?? 0) < now - 14 * DAY ? [] : [{ s, n: r.n }];
+  }).sort((a, b) => b.n - a.n);
+  if (!hits.length) return [];
+  const name = (h: typeof hits[number]) => `"${h.s.title?.trim() || `Session ${h.s.id}`}"`;
+  const title = hits.length === 1 ? `${name(hits[0]!)} compacted ${hits[0]!.n} times` : `${hits.length} sessions compacted ${min}+ times in 14 days`;
+  return [{ kind: "compaction_heavy", fingerprint: `compaction_heavy:${week}`, source: "detector", title,
+    body: `A session this long loses detail each time it compacts.${hits.length > 1 ? ` Worst: ${hits.slice(0, 3).map(h => `${name(h)} (${h.n})`).join(", ")}.` : ""} Agree opens a session to split the work into smaller ones.`,
+    evidence: hits.slice(0, 5).map(h => ({ sessionId: h.s.id, note: `${h.n} compactions in 14 days` })), payload: { sessionIds: hits.map(h => h.s.id), sessionId: hits[0]!.s.id } }];
 }
 
 export interface RecapCard { project: number; id: number; subject: string; status: string; updated: number }

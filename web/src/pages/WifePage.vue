@@ -9,9 +9,9 @@
         <p class="m-0 text-xs text-muted-foreground truncate">Suggestions from your sessions. Nothing happens until you agree.</p>
       </div>
       <div class="flex items-center gap-2 ml-auto">
-        <Button type="button" variant="outline" size="sm" :disabled="wife.loading" @click="scanWife()">
-          <RefreshCw :size="14" :class="{ 'animate-spin': wife.loading }" aria-hidden="true" />
-          {{ wife.loading ? 'Scanning…' : 'Scan now' }}
+        <Button type="button" variant="outline" size="sm" :disabled="wife.loading || wife.scanning" @click="scanWife()">
+          <RefreshCw :size="14" :class="{ 'animate-spin': wife.scanning }" aria-hidden="true" />
+          {{ wife.scanning ? 'Scanning…' : 'Scan now' }}
         </Button>
         <button type="button" class="icon-button p-1.5 rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary" aria-label="Close wife" @click="navigate('chat')"><X :size="18" /></button>
       </div>
@@ -46,6 +46,7 @@
         <span class="flex-1 min-w-0">{{ wife.error }}</span>
         <Button type="button" variant="outline" size="sm" @click="loadWife()">Retry</Button>
       </div>
+      <p v-if="wife.notice && !wife.error" class="mb-3 text-sm text-muted-foreground" role="status">{{ wife.notice }}</p>
       <p v-if="wife.loading && !wife.loaded" class="text-sm text-muted-foreground">Loading…</p>
       <p v-else-if="!shown.length && !wife.error" class="text-sm text-muted-foreground">Nothing to suggest.</p>
       <ul class="grid gap-3 list-none p-0 m-0 max-w-3xl">

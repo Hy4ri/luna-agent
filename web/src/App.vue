@@ -305,8 +305,10 @@ async function askWifeAboutSession() {
   if (!session || askPending.value) return;
   askPending.value = true;
   try {
-    const bad = await askWife(session.id);
-    if (bad) addErr(bad); else navigate('wife');
+    const r = await askWife(session.id);
+    if (r.error) addErr(r.error);
+    else if (!r.matched) addErr('Wife has no suggestions about this session.', 'muted');
+    else navigate('wife');
   } finally { askPending.value = false; }
 }
 const password = ref('');
