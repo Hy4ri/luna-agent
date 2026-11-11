@@ -189,6 +189,11 @@ export function scheduleContext() {
 }
 
 // ---- extras: todos, open questions, goal ----
+function setSessionMetadata(s: any) {
+  chat.project = s.project !== undefined ? s.project : history.list.find(row => String(row.id) === chat.session)?.project ?? null;
+  chat.machine = s.machine ?? null;
+  chat.parentSessionId = s.parentSessionId ?? null;
+}
 let extrasTimer: ReturnType<typeof setTimeout> | undefined;
 const answering = new Set<string>();
 async function loadExtras(retries: number, sid: string | null, epoch: number) {
@@ -203,6 +208,7 @@ async function loadExtras(retries: number, sid: string | null, epoch: number) {
     else chat.context = null;
   }
   if (!s) return;
+  setSessionMetadata(s);
   setExtras(s);
   if (retries && !s.questions.length) extrasTimer = setTimeout(() => loadExtras(retries - 1, sid, epoch), 500);
 }
@@ -329,6 +335,8 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     chat.connected = true;
     for (const entry of e.entries || []) entries.set(entry.id, markRaw(entry));
     chat.rev++;
+    // The rail is auxiliary: reconnect the live transcript before reading its full index.
+    void refreshUserIndex();
     const sid = chat.session;
     if (sid) void refreshPending(sid).then(() => { if (chat.session === sid && chat.epoch === epoch) retirePending(); });
     retirePending();
@@ -449,11 +457,19 @@ export async function openSession(id: string | number, reattach = false) {
   restoreDraft();
   let hydrated = false;
   let snapshotAfter: number | undefined;
-  // Hydrate durable history on EVERY attachment. Its subsequent atomic snapshot closes the fetch/subscribe gap.
+  // Hydrate once per view. On transport recovery the atomic feed catches up from retained history.
   activeFeed = watchFeed({
     path: () => `/v1/sessions/${sid}/events?view=ui${snapshotAfter !== undefined ? `&after=${snapshotAfter}` : ""}`,
     api,
     beforeConnect: async signal => {
+      if (epoch !== chat.epoch || signal.aborted) return;
+      if (hydrated) {
+        // Entry IDs are append-only. Include live commits and earlier recovery snapshots,
+        // not just the initial REST page. Zero also handles a previously empty session.
+        snapshotAfter = 0;
+        for (const id of entries.keys()) snapshotAfter = Math.max(snapshotAfter, id);
+        return;
+      }
       const s = await json(`/v1/sessions/${sid}?view=ui&limit=100`, { signal, timeoutMs: 30000 });
       if (epoch !== chat.epoch || signal.aborted) return;
       // The server returns append-only, fork-aware history. Keep the already loaded older rows.
@@ -468,10 +484,7 @@ export async function openSession(id: string | number, reattach = false) {
         snapshotAfter = Math.max(...entryIds);
       }
       hydrated = true; chat.rev++;
-      void refreshUserIndex();
-      chat.project = s.project ?? history.list.find(row => String(row.id) === sid)?.project ?? null;
-      chat.machine = s.machine ?? null;
-      chat.parentSessionId = s.parentSessionId ?? null;
+      setSessionMetadata(s);
       applyAgent(s.agent); chat.usage = s.usage ? markRaw(s.usage) : null; showContext(s.contextUsage); setExtras(s);
       chat.followTick++;
     },
