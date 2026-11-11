@@ -125,3 +125,43 @@ test("thinking levels map to opencode variants", async () => {
   assert.equal(variantFor(n, "off"), "none");
   assert.equal(variantFor({ reasoning: false }, "high"), undefined);
 });
+
+// Contract: a changed opencode executable or config directory gets its own service.
+// A service cached for another executable (e.g. the host's real opencode) is never reused.
+test("a changed opencode executable starts its own service instead of reusing the cached one", async () => {
+  const start = async () => {
+    const fake = fakeOpencode();
+    await new Promise<void>(resolve => fake.server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(fake.server.address() as { port: number }).port}`;
+    const home = mkdtempSync(join(tmpdir(), "luna-opencode-test-"));
+    mkdirSync(join(home, "opencode"), { recursive: true });
+    writeFileSync(join(home, "opencode", "service.json"), JSON.stringify({ password: "test" }));
+    const executable = join(home, "opencode-fake");
+    writeFileSync(executable, `#!/bin/sh\necho "listening on ${url}"\n`);
+    chmodSync(executable, 0o755);
+    return { ...fake, home, executable };
+  };
+  const a = await start(), b = await start();
+  const saved = { home: process.env.XDG_CONFIG_HOME, exe: process.env.LUNA_OPENCODE_EXECUTABLE };
+  try {
+    const { opencodeCliProvider } = await import("../src/opencode-cli.js");
+    const provider = opencodeCliProvider();
+    const model = provider.getModels()[0]!;
+    const run = async (fake: typeof a, text: string) => {
+      process.env.XDG_CONFIG_HOME = fake.home;
+      process.env.LUNA_OPENCODE_EXECUTABLE = fake.executable;
+      const messages = [{ role: "system", content: "You are Luna.", timestamp: 1 }, { role: "user", content: text, timestamp: 2 }] as any;
+      const done = (async () => { for await (const _ of provider.streamSimple(model, { messages } as any, { sessionId: `conv-${text}` })) { /* drain */ } })();
+      const sent = await until(() => fake.prompts.find(p => p.text.includes(text)), `the "${text}" prompt on its own service`);
+      fake.emit(sent.sessionId, "session.text.delta", { delta: "ok" });
+      fake.emit(sent.sessionId, "session.execution.succeeded");
+      await done;
+    };
+    await run(a, "first");
+    await run(b, "second");
+    assert.equal(a.prompts.some(p => p.text.includes("second")), false, "the old executable's service must not get the new prompt");
+  } finally {
+    process.env.XDG_CONFIG_HOME = saved.home; process.env.LUNA_OPENCODE_EXECUTABLE = saved.exe;
+    for (const f of [a, b]) { f.server.closeAllConnections(); f.server.close(); }
+  }
+}, 20_000);
