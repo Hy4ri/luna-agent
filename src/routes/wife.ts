@@ -37,6 +37,12 @@ export function registerWife(app: Hono, ctx: RouteCtx): void {
       return err(c, 500, (e as Error).message);
     }
   });
+  app.post("/v1/wife/:id/discuss", async c => {
+    if (!wife) return off(c);
+    const n = id(c.req.param("id")); if (!n) return err(c, 404, "no such suggestion");
+    try { return c.json({ sessionId: await wife.discuss(n) }); }
+    catch (e) { return e instanceof WifeError ? err(c, e.status, e.message) : err(c, 500, (e as Error).message); }
+  });
   app.post("/v1/wife/:id/undo", async c => {
     if (!wife) return off(c);
     const n = id(c.req.param("id")); if (!n) return err(c, 404, "no such suggestion");

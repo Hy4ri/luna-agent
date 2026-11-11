@@ -70,12 +70,17 @@
               <p v-if="errors[c.id]" class="mt-2 mb-0 text-xs text-destructive" role="alert">{{ errors[c.id] }}</p>
             </div>
           </div>
+          <div v-if="c.status === 'working' && c.sessionId" class="mt-3 flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" @click="openSession(c.sessionId)"><MessageSquare :size="14" aria-hidden="true" />Open the work session</Button>
+            <span class="text-xs text-muted-foreground">{{ c.result }}</span>
+          </div>
           <div v-if="c.status === 'done' && c.undoUntil && c.undoUntil > Date.now()" class="mt-3 flex items-center gap-2">
             <Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)" @click="run(c, 'undo')"><Undo2 :size="14" aria-hidden="true" />Undo</Button>
             <span class="text-xs text-muted-foreground">until {{ new Date(c.undoUntil).toLocaleDateString() }}</span>
           </div>
           <div v-if="c.status === 'open' || c.status === 'snoozed'" class="mt-3 flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" :disabled="wife.busy.has(c.id)" @click="agree(c)">{{ items(c).length ? `Agree (${picked(c).length})` : c.kind === 'delete_session' ? 'Delete…' : 'Agree' }}</Button>
+            <Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)" @click="discuss(c)"><MessageSquare :size="14" aria-hidden="true" />Discuss</Button>
             <DropdownMenu>
               <DropdownMenuTrigger as-child><Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)"><Clock :size="14" aria-hidden="true" />Snooze</Button></DropdownMenuTrigger>
               <DropdownMenuContent align="start">
@@ -98,13 +103,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { AlarmClock, Gauge, KanbanSquare, Target, Archive, BellOff, SlidersHorizontal, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen } from "@lucide/vue";
+import { AlarmClock, Gauge, KanbanSquare, Target, Archive, BellOff, SlidersHorizontal, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen, MessageSquare } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { confirmAction, promptText } from "@/lib/confirm";
 import { navigate, setDrawer } from "@/stores/app";
 import { openSession } from "@/stores/chat";
-import { decide, loadWife, scanWife, wife, wifeStats, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
+import { decide, discussCard, loadWife, scanWife, wife, wifeStats, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
 
 const icons: Record<WifeKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb, tune_rule: SlidersHorizontal, mute_rule: BellOff, mute_kind: BellOff, goal_unfinished: Target, cron_failing: AlarmClock, quota_waits: Gauge, board_stuck: KanbanSquare };
 const kindLabels: Record<WifeKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips", tune_rule: "Tuning", mute_rule: "Mute", mute_kind: "Mute", goal_unfinished: "Goals", cron_failing: "Cron", quota_waits: "Quota", board_stuck: "Board" };
@@ -113,7 +118,7 @@ const kind = ref<WifeKind | "">("");
 const stats = computed(() => wifeStats.value);
 const errors = reactive<Record<number, string>>({});
 
-const statusChips = computed(() => (["open", "snoozed", "done", "dismissed", "failed"] as WifeStatus[]).map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1), count: wife.cards.filter(c => c.status === id).length })));
+const statusChips = computed(() => (["open", "working", "snoozed", "done", "dismissed", "failed"] as WifeStatus[]).map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1), count: wife.cards.filter(c => c.status === id).length })));
 const kindChips = computed(() => (Object.keys(kindLabels) as WifeKind[]).map(id => ({ id, label: kindLabels[id], count: wife.cards.filter(c => c.status === status.value && c.kind === id).length })).filter(k => k.count > 0 || kind.value === k.id));
 const shown = computed(() => wife.cards.filter(c => c.status === status.value && (!kind.value || c.kind === kind.value)));
 
@@ -138,6 +143,10 @@ async function dismiss(c: Suggestion, reason?: string) {
     note = text.trim() || undefined;
   }
   await run(c, "dismiss", { reason, note });
+}
+async function discuss(c: Suggestion) {
+  const r = await discussCard(c.id);
+  if (r.error) errors[c.id] = r.error; else { errors[c.id] = ""; await openSession(r.sessionId); }
 }
 async function agree(c: Suggestion) {
   if (c.kind === "delete_session" && !await confirmAction({ title: "Delete this session?", message: `"${c.title}" will be deleted for good. This cannot be undone.`, confirmLabel: "Delete", danger: true })) return;

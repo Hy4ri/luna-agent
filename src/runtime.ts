@@ -347,6 +347,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log,
     cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
       disable: id => { store.setEnabled(id, false); scheduler?.rearm(); } } : undefined,
+    startSession: (project, title, content, requestId) => webhookTargets!.newSession(project ?? 0, title, content, requestId),
+    skillExists: name => scanSkills(cfg.allSkillDirs).some(sk => sk.name === name),
     remember: memory ? ({ key, content }) => {
       const old = key ? memory.recall(key, { kind: "fact" }).find(r => r.key === key) : undefined;
       const row = memory.remember({ content, key });

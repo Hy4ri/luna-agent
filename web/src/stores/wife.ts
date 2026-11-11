@@ -71,3 +71,15 @@ export async function askWife(sessionId: string | number): Promise<string> {
     return "";
   } catch (e) { return (e as Error).message; }
 }
+
+/** Open a session about a card. The server seeds it with the card as the first message. */
+export async function discussCard(id: number): Promise<{ sessionId: number; error: "" } | { sessionId: 0; error: string }> {
+  wife.busy.add(id);
+  try {
+    const r = await api(`/v1/wife/${id}/discuss`, { method: "POST" });
+    if (!r.ok) await fail(r);
+    const { sessionId } = await r.json() as { sessionId: number };
+    return { sessionId, error: "" };
+  } catch (e) { return { sessionId: 0, error: (e as Error).message }; }
+  finally { wife.busy.delete(id); await loadWife(); }
+}

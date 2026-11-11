@@ -21,10 +21,14 @@ export interface WifeServiceOptions {
   /** Settings mutation used by a tip that enables an extension. */
   /** Write a memory. Returns the key and the content it replaced (null when new). */
   remember?: (input: { key?: string; content: string }) => { key: string | null; before: string | null };
+  /** Start a session with a first message (the webhook path). Returns the session id. */
+  startSession?: (project: number | null, title: string, content: string, requestId: string) => Promise<number>;
+  skillExists?: (name: string) => boolean;
   restoreMemory?: (key: string, content: string | null) => Promise<void> | void;
   extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
 }
 
+const id_ = (c: { id: number }) => c.id;
 const DAY = 86_400_000;
 export class WifeService {
   private timer?: ReturnType<typeof setInterval>;
@@ -36,6 +40,7 @@ export class WifeService {
     const now = (this.o.now ?? Date.now)();
     this.o.store.expireSnoozed(now);
     const sessions = this.o.analytics().sessions();
+    this.settleWorking(sessions);
     const projects = this.o.conversations.projects.list();
     const found = [...batchCards([...staleSessions(sessions, this.o.config(), now), ...misfiledSessions(sessions, projects)]), ...newProjects(sessions, projects, now)];
     const store = this.o.analytics();
@@ -96,6 +101,48 @@ export class WifeService {
     this.timer.unref();
   }
   stop() { if (this.timer) clearInterval(this.timer); }
+
+  /** The text a Discuss session starts with: the card, its evidence, and the action Wife proposes. */
+  seedMessage(card: Suggestion): string {
+    const lines = [`Wife suggests: ${card.title}`, "", card.body];
+    if (card.evidence.length) lines.push("", "Evidence:", ...card.evidence.map(e => `- session ${e.sessionId}: ${e.note}`));
+    lines.push("", `Proposed action: ${this.actionText(card)}`, "", "Let's talk it through. Do not change anything until I say so.");
+    return lines.join("\n");
+  }
+  private actionText(card: Suggestion): string {
+    const p = card.payload as Record<string, unknown>;
+    switch (card.kind) {
+      case "skill": return `${p.existing ? "update" : "create"} managed skill "${p.name}" from this outline: ${p.outline}`;
+      case "memory": return `remember ${p.key ? `"${p.key}" = ` : ""}${JSON.stringify(p.content)}`;
+      case "archive_session": return "archive the session";
+      case "delete_session": return "delete the archived session";
+      case "move_session": return `move the session to project ${p.projectId}`;
+      case "new_project": return `create project "${p.name}" in ${p.cwd} and move its sessions there`;
+      default: return card.title;
+    }
+  }
+  /** Open a session about a card. The card keeps its status. A card with a session returns that session. */
+  async discuss(id: number): Promise<number> {
+    const card = this.o.store.get(id);
+    if (!card) throw new WifeError(404, "no such suggestion");
+    if (card.sessionId) return card.sessionId;
+    if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+    const first = card.evidence[0]?.sessionId;
+    const project = first === undefined ? null : this.o.conversations.projects.projectOf(first) ?? null;
+    const sid = await this.o.startSession(project, `Wife: ${card.title}`.slice(0, 100), this.seedMessage(card), `wife-discuss-${id}`);
+    this.o.store.setStatus(id, card.status, { sessionId: sid, snoozeUntil: card.snoozeUntil });
+    return sid;
+  }
+  /** A skill work session that has ended settles its card: done when the skill exists, failed when it does not. */
+  private settleWorking(sessions: { id: number; status: string }[]) {
+    for (const card of this.o.store.list("working")) {
+      const rec = card.sessionId ? sessions.find(s => s.id === card.sessionId) : undefined;
+      if (!rec || ["running", "reviewing", "needs_approval", "needs_input"].includes(rec.status)) continue;
+      const name = String(card.payload.name ?? "");
+      if (this.o.skillExists?.(name)) { this.o.store.setStatus(id_(card), "done", { result: `Skill ${name} is written.` }); this.o.store.record(card, "agree", null, "skill written"); }
+      else { this.o.store.setStatus(id_(card), "failed", { result: "The session ended and the skill was not written. Open it to see why." }); this.o.store.record(card, "failed", null, "no skill"); }
+    }
+  }
 
   /** Carry out an open card. The target is checked again first. A failure is recorded on the card and thrown. */
   async agree(id: number, opts: { confirm?: boolean; targets?: number[] } = {}): Promise<Suggestion> {
@@ -173,6 +220,17 @@ export class WifeService {
         const value = String(card.kind === "mute_rule" ? card.payload.rule : card.payload.kind);
         this.o.setConfig(w => { const list = (w[key] as string[] | undefined) ?? []; if (!list.includes(value)) w[key] = [...list, value]; });
         result = `Muted ${value}. Remove it from the muted list in settings to bring it back.`;
+      } else if (card.kind === "skill") {
+        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        const p = card.payload as { name: string; existing?: boolean; outline: string };
+        const first = card.evidence[0]?.sessionId;
+        const project = first === undefined ? null : conv.projects.projectOf(first) ?? null;
+        const evidence = card.evidence.map(e => `session ${e.sessionId} (${e.note})`).join("; ");
+        const sidNew = await this.o.startSession(project, `Wife skill: ${p.name}`.slice(0, 100),
+          `${p.existing ? "Update" : "Create"} the managed skill "${p.name}" from this outline, using the evidence sessions: ${evidence}.\n\nOutline: ${p.outline}\n\nUse \`skill action=${p.existing ? "edit" : "create"}\`. Read the evidence sessions first. Report what you wrote.`, `wife-skill-${id}`);
+        this.o.store.setStatus(id, "working", { sessionId: sidNew, result: "Writing the skill in a work session." });
+        this.o.store.record(card, "agree", null, "work session");
+        return this.o.store.get(id)!;
       } else if (card.kind === "memory") {
         if (!this.o.remember) throw new WifeError(409, "memory is not available");
         const m = card.payload as { key?: string; content: string };
