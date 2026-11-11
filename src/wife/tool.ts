@@ -61,7 +61,9 @@ export function createWifeExtension(wife: () => WifeService | undefined, session
         const card = buildCard(a, sessionExists);
         if (typeof card === "string") return text(`Error: ${card}`, true);
         const known = w.store.has(card.fingerprint);
-        const filed = w.store.file(card, true);
+        const verdict = w.admit(card);
+        if (verdict === "skip") return text(`Skipped ${card.fingerprint}: muted or outside the watched projects.`);
+        const filed = w.store.file(card, verdict === "show");
         return text(filed ? `${known ? "Refreshed" : "Filed"} ${card.fingerprint}.` : `Skipped ${card.fingerprint}: already handled.`);
       },
     })],

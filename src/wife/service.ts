@@ -132,6 +132,15 @@ export class WifeService {
   }
   stop() { if (this.timer) clearInterval(this.timer); }
 
+  /** Apply the delivery policy to a card the model filed: "skip" when muted or out of scope, "show" when it may appear now, else "hold". */
+  admit(card: NewSuggestion): "skip" | "show" | "hold" {
+    const cfg = this.o.config(), now = (this.o.now ?? Date.now)();
+    if ((cfg.mutedRules ?? []).includes(card.ruleId ?? card.kind) || (cfg.mutedKinds ?? []).includes(card.kind)) return "skip";
+    const projectOf = new Map(this.o.analytics().sessions().map(x => [x.id, x.projectId]));
+    const scope = cfg.projects ?? { mode: "all" as const, ids: [] };
+    if (!card.evidence.every(e => inScope(scope, projectOf.get(e.sessionId) ?? 0))) return "skip";
+    return !inQuietHours(cfg.quietHours ?? null, now) && this.o.store.shownSince(startOfLocalDay(now)) < (cfg.maxNewPerDay ?? 10) ? "show" : "hold";
+  }
   /** The text a Discuss session starts with: the card, its evidence, and the action Wife proposes. */
   seedMessage(card: Suggestion): string {
     const lines = [`Wife suggests: ${card.title}`, "", card.body];
@@ -168,9 +177,9 @@ export class WifeService {
     for (const card of this.o.store.list("working")) {
       const rec = card.sessionId ? sessions.find(s => s.id === card.sessionId) : undefined;
       if (!rec || ["running", "reviewing", "needs_approval", "needs_input"].includes(rec.status)) continue;
-      if (card.kind !== "skill") { this.o.store.setStatus(id_(card), "done", { result: "The work session ended. Check what it wrote." }); this.o.store.record(card, "agree", null, "session ended"); continue; }
+      if (card.kind !== "skill") { this.o.store.setStatus(id_(card), "done", { result: "The work session ended. Check what it wrote." }); continue; }
       const name = String(card.payload.name ?? "");
-      if (this.o.skillExists?.(name)) { this.o.store.setStatus(id_(card), "done", { result: `Skill ${name} is written.` }); this.o.store.record(card, "agree", null, "skill written"); }
+      if (this.o.skillExists?.(name)) { this.o.store.setStatus(id_(card), "done", { result: `Skill ${name} is written.` }); }
       else { this.o.store.setStatus(id_(card), "failed", { result: "The session ended and the skill was not written. Open it to see why." }); this.o.store.record(card, "failed", null, "no skill"); }
     }
   }
@@ -238,6 +247,7 @@ export class WifeService {
         const p = card.payload as { path: string; branch: string };
         const live = this.o.worktrees?.().find(w => w.path === p.path);
         if (!live) { result = "The worktree is already gone."; }
+        else if (opts.confirm !== true) throw new WifeError(400, "removing a worktree needs confirm:true");
         else if (live.dirty) throw new WifeError(409, "The worktree has uncommitted changes. Clean it up by hand.");
         else { await this.o.removeWorktree!(p.path, p.branch); result = `Removed ${p.branch}.`; }
       } else if (card.kind === "bg_leftover") {
@@ -256,7 +266,10 @@ export class WifeService {
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;
       } else if (card.kind === "goal_unfinished" || card.kind === "tool_error_repeat" || card.kind === "quota_waits") {
-        result = "Noted. Use Discuss to work on it.";
+        const sid3 = await this.discuss(id);
+        this.o.store.setStatus(id, "working", { sessionId: sid3, result: "Working on it in a session." });
+        this.o.store.record(card, "agree", null, "work session");
+        return this.o.store.get(id)!;
       } else if (card.kind === "tune_rule") {
         const p = card.payload as { rule: string; key: string; from: number; to: number };
         const tune = TUNABLE[p.rule];

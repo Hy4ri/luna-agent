@@ -50,3 +50,37 @@ test("agreeing to a skill card starts a work session; it becomes done when the s
   b.wife.scan();
   assert.equal(b.store.get(b.card.id)!.status, "done");
 });
+
+test("agree on a goal card opens a session instead of closing the card, and settling adds no second agree", async () => {
+  const a = setup({ records: [{ id: 901, status: "finished" }] });
+  const g = a.store.file({ kind: "goal_unfinished", fingerprint: "goal_unfinished:5", title: "Resume", body: "b", evidence: [{ sessionId: 5, note: "n" }], payload: { sessionId: 5 }, source: "detector" })!;
+  const r = await a.wife.agree(g.id);
+  assert.equal(r.status, "working");
+  assert.equal(a.sent.length, 1);
+  a.wife.scan();
+  assert.equal(a.store.get(g.id)!.status, "done");
+  assert.equal(a.store.outcomes().filter(o => o.suggestionId === g.id && o.action === "agree").length, 1);
+});
+
+test("worktree removal needs confirm", async () => {
+  const a = setup();
+  let removed = false;
+  (a.wife as unknown as { o: Record<string, unknown> }).o.worktrees = () => [{ path: "/w", branch: "luna/s1", merged: true, dirty: false }];
+  (a.wife as unknown as { o: Record<string, unknown> }).o.removeWorktree = async () => { removed = true; };
+  const w = a.store.file({ kind: "worktree_orphan", fingerprint: "worktree_orphan:/w", title: "t", body: "b", evidence: [], payload: { path: "/w", branch: "luna/s1" }, source: "detector" })!;
+  await assert.rejects(a.wife.agree(w.id), /confirm/);
+  assert.equal(removed, false);
+  await a.wife.agree(w.id, { confirm: true });
+  assert.equal(removed, true);
+});
+
+test("admit skips muted kinds and holds model cards over the daily cap", () => {
+  const a = setup();
+  const cfg = (a.wife as unknown as { o: { config: () => Record<string, unknown> } }).o;
+  const base = { kind: "memory" as const, fingerprint: "m", title: "t", body: "b", evidence: [], payload: {}, source: "model" as const };
+  assert.equal(a.wife.admit(base), "show");
+  cfg.config = () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, mutedKinds: ["memory"] });
+  assert.equal(a.wife.admit(base), "skip");
+  cfg.config = () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, maxNewPerDay: 0 });
+  assert.equal(a.wife.admit(base), "hold");
+});

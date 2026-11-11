@@ -79,7 +79,7 @@
             <span class="text-xs text-muted-foreground">until {{ new Date(c.undoUntil).toLocaleDateString() }}</span>
           </div>
           <div v-if="c.status === 'open' || c.status === 'snoozed'" class="mt-3 flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" :disabled="wife.busy.has(c.id)" @click="agree(c)">{{ items(c).length ? `Agree (${picked(c).length})` : c.kind === 'delete_session' ? 'Delete…' : 'Agree' }}</Button>
+            <Button type="button" size="sm" :disabled="wife.busy.has(c.id)" @click="agree(c)">{{ items(c).length ? `Agree (${picked(c).length})` : c.kind === 'delete_session' ? 'Delete…' : c.kind === 'worktree_orphan' ? 'Remove…' : 'Agree' }}</Button>
             <Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)" @click="discuss(c)"><MessageSquare :size="14" aria-hidden="true" />Discuss</Button>
             <DropdownMenu>
               <DropdownMenuTrigger as-child><Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)"><Clock :size="14" aria-hidden="true" />Snooze</Button></DropdownMenuTrigger>
@@ -150,7 +150,8 @@ async function discuss(c: Suggestion) {
 }
 async function agree(c: Suggestion) {
   if (c.kind === "delete_session" && !await confirmAction({ title: "Delete this session?", message: `"${c.title}" will be deleted for good. This cannot be undone.`, confirmLabel: "Delete", danger: true })) return;
-  await run(c, "agree", { confirm: c.kind === "delete_session", ...(items(c).length ? { targets: picked(c) } : {}) });
+  if (c.kind === "worktree_orphan" && !await confirmAction({ title: "Remove this worktree?", message: `The worktree and its branch "${c.payload.branch}" will be removed.`, confirmLabel: "Remove", danger: true })) return;
+  await run(c, "agree", { confirm: c.kind === "delete_session" || c.kind === "worktree_orphan", ...(items(c).length ? { targets: picked(c) } : {}) });
 }
 onMounted(loadWife);
 </script>
