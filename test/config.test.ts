@@ -53,6 +53,43 @@ test("config discovery uses home .luna, ignores checkout config, and honors expl
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("startup config recovery serves authenticated diagnostics and resumes after repair without exiting", () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-config-recovery-"));
+  try {
+    const result = spawnSync(process.execPath, ["--eval", `
+      import assert from "node:assert/strict";
+      import { writeFileSync, readdirSync } from "node:fs";
+      import { loadDaemonConfig } from ${JSON.stringify(new URL("../src/config-recovery.js", import.meta.url).href)};
+      const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+      const port = probe.port;
+      await probe.stop(true);
+      process.env.LUNA_CONFIG = ${JSON.stringify(join(dir, "luna.config.json"))};
+      process.env.LUNA_HOST = "127.0.0.1";
+      process.env.LUNA_PORT = String(port);
+      writeFileSync(process.env.LUNA_CONFIG, '{"secret":"never-show-this",');
+      const pending = loadDaemonConfig("test-token");
+      const base = "http://127.0.0.1:" + port;
+      const health = await fetch(base + "/health");
+      assert.deepEqual(await health.json(), { ok: true, ready: false, auth: true });
+      assert.equal((await fetch(base + "/v1/config/status")).status, 401);
+      const headers = { authorization: "Bearer test-token", origin: "tauri://localhost" };
+      const response = await fetch(base + "/v1/config/status", { headers });
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("access-control-allow-origin"), "tauri://localhost");
+      const status = await response.json();
+      assert.equal(status.recovery, true);
+      assert.match(status.error, /Invalid JSON/);
+      assert.ok(!status.error.includes("never-show-this"));
+      assert.equal((await fetch(base + "/v1/sessions", { headers })).status, 503);
+      assert.match(await (await fetch(base)).text(), /Luna configuration error/);
+      assert.deepEqual(readdirSync(${JSON.stringify(dir)}).filter(name => name !== ".bun"), ["luna.config.json"], "no agent stores during recovery; Bun may create its own cache");
+      writeFileSync(process.env.LUNA_CONFIG, JSON.stringify({ provider: "faux", model: "repaired" }));
+      assert.equal((await pending).model, "repaired");
+    `], { env: { PATH: process.env.PATH, HOME: dir, LUNA_DATA: dir }, encoding: "utf8", timeout: 10_000 });
+    assert.equal(result.status, 0, result.stderr || result.error?.message || "config recovery subprocess failed");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("luna.config.example.json loads", () => {
   const raw = JSON.parse(readFileSync(new URL("../luna.config.example.json", import.meta.url), "utf8"));
   assert.doesNotThrow(() => parse(raw));
@@ -99,7 +136,7 @@ test("a non-loopback bind is refused without LUNA_TOKEN", () => {
   assert.equal(bindRefusal("0.0.0.0", "t"), undefined);
 });
 
-test("live settings: external edits, saves, and invalid files apply on the next read; callers get private copies", () => {
+test("live settings retain valid policy during invalid edits and recover without overwriting disk", () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-settings-"));
   try {
     const path = join(dir, "luna.config.json");
@@ -122,8 +159,21 @@ test("live settings: external edits, saves, and invalid files apply on the next 
     writeFileSync(path, JSON.stringify(raw));
     assert.equal(settings.resolved({ ...process.env, LUNA_MODEL: "other" }).model, "other");
     assert.equal(settings.resolved().model, "faux");
-    writeFileSync(path, "{");
-    assert.throws(() => settings.resolved());
+    for (const invalid of ["{", JSON.stringify({ busyInput: { mode: "typo" } })]) {
+      writeFileSync(path, invalid);
+      assert.equal(settings.resolved().busyInput.mode, "queue");
+      assert.equal(settings.read().busyInput.mode, "queue");
+      assert.ok(settings.configError);
+      assert.throws(() => settings.update(c => { c.model = "changed"; }));
+      assert.equal(readFileSync(path, "utf8"), invalid);
+    }
+    rmSync(path);
+    assert.equal(settings.resolved().busyInput.mode, "queue");
+    assert.ok(settings.configError);
+    assert.throws(() => settings.update(c => { c.model = "changed"; }));
+    writeFileSync(path, JSON.stringify({ provider: "faux", busyInput: { mode: "steer" } }));
+    assert.equal(settings.resolved().busyInput.mode, "steer");
+    assert.equal(settings.configError, undefined);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

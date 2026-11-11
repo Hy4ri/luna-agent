@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
+import ConfigError from "@/components/ConfigError.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { ArrowLeft, Menu, ScanEye, SquareTerminal, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
@@ -476,6 +477,7 @@ onUnmounted(() => {
               </PopoverContent>
             </Popover>
           </header>
+          <ConfigError />
           <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
           <div class="work-area" ref="workAreaRef" :class="dockSide ? 'dock-side' : 'dock-bottom'">
           <div class="chat-body">

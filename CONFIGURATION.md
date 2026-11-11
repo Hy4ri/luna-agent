@@ -5,6 +5,12 @@ An explicit path must exist; relative override paths resolve from the launch dir
 Without an explicit path, daemon startup creates the default file if necessary; workers use defaults when it is absent.
 Paths inside a loaded config resolve relative to that config's directory. Use `luna.config.example.json` as an example.
 
+Invalid startup configuration keeps the daemon in recovery mode instead of exiting and restart-looping. The recovery page shows an error after API-token authentication (when configured), and retries the file every two seconds. No agent runtime or persistent stores start until validation succeeds. Recovery uses valid `LUNA_HOST`/`LUNA_PORT` overrides or independently valid config listener fields; unusable fields fall back to `127.0.0.1:8787`. Without `LUNA_TOKEN`, recovery always stays on loopback. Invalid JSON cannot supply listener fields, so use environment overrides for a stable recovery address.
+
+Invalid external edits while running retain the last validated settings in memory. A UI banner shows the error; fix the file to clear it automatically. Invalid files are never overwritten by a settings save. This does not mask unrelated runtime or storage errors.
+
+`GET /v1/config/status` is authenticated like other `/v1` routes and returns `{ error: string | null, path: string | null, recovery: boolean }`, without config values or credentials. During startup recovery, `/health` returns `{ ok: true, ready: false, auth: boolean }` and other authenticated `/v1` calls return HTTP 503. The page and status responses are not cached.
+
 Open **Settings** in the Web UI to edit the same file on a full page.
 The page has eight task-based categories:
 

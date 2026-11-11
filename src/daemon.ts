@@ -1,7 +1,7 @@
 // Luna HTTP/SSE daemon: loads LUNA_CONFIG (default ~/.luna/luna.config.json), starts the full runtime and serves the API.
 // Env overrides: LUNA_DATA, LUNA_CWD, LUNA_PROVIDER, LUNA_MODEL, LUNA_HOST, LUNA_PORT. Secret: LUNA_TOKEN.
 import type { ServerWebSocket } from "bun";
-import { bindRefusal, loadConfig } from "./config.js";
+import { loadDaemonConfig } from "./config-recovery.js";
 import { startRuntime } from "./runtime.js";
 import { daemonConnection } from "./connection.js";
 import { createApp } from "./server.js";
@@ -11,17 +11,11 @@ import type { BrowserWsData } from "./browser/panel.js";
 
 type LunaWsData = WorkerWsData | TerminalWsData | BrowserWsData;
 
-let cfg;
-try { cfg = loadConfig(); } catch (e) { console.error((e as Error).message); process.exit(1); }
-const { host, port, publicUrls } = cfg.server;
 const token = process.env.LUNA_TOKEN;
 // Tool commands inherit this process's environment. Keep the API token out of it.
 delete process.env.LUNA_TOKEN;
-const refusal = bindRefusal(host, token);
-if (refusal) {
-  console.error(refusal);
-  process.exit(1);
-}
+const cfg = await loadDaemonConfig(token);
+const { host, port, publicUrls } = cfg.server;
 
 const rt = await startRuntime(cfg);
 const appConnection = daemonConnection(cfg.dataDir, host, port, publicUrls);
