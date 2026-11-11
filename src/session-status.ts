@@ -56,8 +56,15 @@ export async function finishSessionReview(tx: Tx, id: ConversationId, jobId: str
     reason: error === undefined ? null : error.slice(0, 500) };
 }
 
+/** One read of a session tail, shared by the status helpers of one unchanged transaction view. */
+export type TailMemo = { tail?: ReturnType<typeof scanSessionTail> };
+function sessionTail(tx: Tx, id: ConversationId, memo?: TailMemo) {
+  if (!memo) return scanSessionTail(tx, id);
+  return memo.tail ??= scanSessionTail(tx, id);
+}
+
 /** Entry IDs, not model timestamps, define the current input or reset boundary. */
-async function sessionTail(tx: Tx, id: ConversationId) {
+async function scanSessionTail(tx: Tx, id: ConversationId) {
   // The boundary is usually a few entries back. Start small: tool results make entries large to parse.
   let cursor, size = 16;
   let assistant: EntryRecord | undefined;
@@ -73,12 +80,12 @@ async function sessionTail(tx: Tx, id: ConversationId) {
   } while (cursor);
   return { boundary: 0, reset: false, assistant };
 }
-export async function newestInputBoundary(tx: Tx, id: ConversationId): Promise<number> {
-  return (await sessionTail(tx, id)).boundary;
+export async function newestInputBoundary(tx: Tx, id: ConversationId, memo?: TailMemo): Promise<number> {
+  return (await sessionTail(tx, id, memo)).boundary;
 }
-export async function readSessionHandoff(tx: Tx, id: ConversationId): Promise<Handoff | null> {
+export async function readSessionHandoff(tx: Tx, id: ConversationId, memo?: TailMemo): Promise<Handoff | null> {
   const handoff = (await tx.doc(SessionHandoffDoc, id)).handoff;
-  return handoff && handoff.boundary === await newestInputBoundary(tx, id) ? JSON.parse(JSON.stringify(handoff)) as Handoff : null;
+  return handoff && handoff.boundary === await newestInputBoundary(tx, id, memo) ? JSON.parse(JSON.stringify(handoff)) as Handoff : null;
 }
 
 export const SessionStatusExtension = defineExtension({
@@ -157,7 +164,7 @@ export async function isRunning(tx: Tx, id: ConversationId) {
   return false;
 }
 
-export async function readSessionStatus(tx: Tx, id: ConversationId, running: boolean): Promise<SessionState> {
+export async function readSessionStatus(tx: Tx, id: ConversationId, running: boolean, memo?: TailMemo): Promise<SessionState> {
   const ask = await tx.doc(AskDoc, id);
   // An accepted answer is no longer actionable, even before the waiting tool consumes it.
   const pending = ask.pending.find(question => !ask.answers[question.callId]);
@@ -166,7 +173,7 @@ export async function readSessionStatus(tx: Tx, id: ConversationId, running: boo
   if (review.owner === reviewOwner && review.active.length) return state("reviewing");
   if (running) return state("running");
 
-  const tail = await sessionTail(tx, id);
+  const tail = await sessionTail(tx, id, memo);
   if (tail.reset && !tail.assistant) return state("ready");
   const generation = (await tx.scanTasks({ conversationId: id, kind: "pi.generation", background: false, order: "descending" }, 1)).items[0];
   const lastMessageAt = Math.max(tail.assistant?.model?.find(message => message.role === "assistant")?.timestamp ?? 0, generation?.endedAt ?? 0);
@@ -247,6 +254,7 @@ export async function readCommonSessionReport(
   tx: Tx,
   cid: ConversationId,
   requests: string[],
+  memo: TailMemo = {},
 ): Promise<{ report: CommonSessionReport; running: boolean; latestSubmission?: Awaited<ReturnType<Tx["submissionByRequest"]>> }> {
   const base: CommonSessionReport = { state: "idle" };
   const latest = requests.at(-1);
@@ -271,8 +279,9 @@ export async function readCommonSessionReport(
   const running = pending || await isRunning(tx, cid);
   if (running) base.state = "running";
 
-  const handoff = await readSessionHandoff(tx, cid);
-  const status = await readSessionStatus(tx, cid, running);
+  // These reads do not write, so the handoff and status checks share one tail scan.
+  const handoff = await readSessionHandoff(tx, cid, memo);
+  const status = await readSessionStatus(tx, cid, running, memo);
   const latestSubmission = latest ? await tx.submissionByRequest(cid, latest) : undefined;
 
   const handoffMatches = handoff && (

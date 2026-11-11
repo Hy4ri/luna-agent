@@ -1,5 +1,5 @@
 // `bash background:true` starts in the owned process registry; process_manage inspects it.
-import { chmodSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { withAbortSignal, withoutAbortSignal } from "@earendil-works/chord/context";
 import { defineExtension, defineTool, type ConversationId, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
@@ -43,7 +43,7 @@ export class BusyExecutions {
   private started = false;
   private closePromise?: Promise<void>;
   private dirtyProcesses = new Set<Process>();
-  private snapshotTimer?: ReturnType<typeof setInterval>;
+  private snapshotTimer?: ReturnType<typeof setTimeout>;
   private pruneTimer?: ReturnType<typeof setInterval>;
   private readonly maxBytes: number;
   constructor(private deliver: (id: ConversationId, message: string, requestId: string, owner: string) => Promise<void>, private options: BusyOptions = {}) {
@@ -63,7 +63,12 @@ export class BusyExecutions {
             p.error = "Daemon stopped unexpectedly. Execution cannot be recovered; the old OS command may still run. Do not repeat it without checking.";
           }
           this.processes.set(p.id, p); this.save(p);
-        } catch (error) { this.log(`Cannot load process record ${file}: ${String(error)}`); }
+        } catch (error) {
+          this.log(`Cannot load process record ${file}: ${String(error)}`);
+          // Keep the bytes for inspection, but do not parse and log the same record again on every start.
+          try { renameSync(join(options.directory, file), join(options.directory, `${file}.corrupt`)); }
+          catch (moveError) { this.log(`Cannot set aside process record ${file}: ${String(moveError)}`); }
+        }
       }
     }
     this.prune();
@@ -73,16 +78,33 @@ export class BusyExecutions {
     const bytes = Buffer.from(p.output + chunk, "utf8");
     let start = Math.max(0, bytes.length - this.maxBytes);
     if (start) { p.truncated = true; while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start++; }
-    p.output = bytes.subarray(start).toString("utf8"); p.dirty = true; this.dirtyProcesses.add(p);
+    p.output = bytes.subarray(start).toString("utf8"); p.dirty = true; this.markDirty(p);
+  }
+  /** Arm one snapshot write 250 ms after new output. An idle daemon keeps no polling timer. */
+  private markDirty(p: Process) {
+    this.dirtyProcesses.add(p);
+    if (!this.started || this.closing || this.snapshotTimer) return;
+    this.snapshotTimer = setTimeout(() => {
+      this.snapshotTimer = undefined;
+      const batch = [...this.dirtyProcesses]; this.dirtyProcesses.clear();
+      for (const p of batch) if (p.dirty) this.save(p);
+    }, 250);
+    this.snapshotTimer.unref();
   }
   private save(p: Process) {
     if (!p.background || !this.options.directory) { p.dirty = false; return; }
     const file = join(this.options.directory, `${p.id}.json`), tmp = file + ".tmp";
     const { version, id, session, owner, command, createdAt, finishedAt, status, exitCode, error, output, truncated, delivered } = p;
     try {
-      writeFileSync(tmp, JSON.stringify({ version, id, session, owner, command, createdAt, finishedAt, status, exitCode, error, output, truncated, delivered }), { mode: 0o600 });
+      const fd = openSync(tmp, "w", 0o600);
+      try {
+        writeSync(fd, JSON.stringify({ version, id, session, owner, command, createdAt, finishedAt, status, exitCode, error, output, truncated, delivered }));
+        // A host crash after rename can keep the name but lose unflushed data. Final records must survive it.
+        // Running snapshots skip the flush: they change every 250 ms and become interrupted on restart.
+        if (status !== "running") fsyncSync(fd);
+      } finally { closeSync(fd); }
       renameSync(tmp, file); p.dirty = false;
-    } catch (error) { this.dirtyProcesses.add(p); this.log(`Cannot save process ${p.id}: ${String(error)}`); }
+    } catch (error) { this.markDirty(p); this.log(`Cannot save process ${p.id}: ${String(error)}`); }
     finally { try { rmSync(tmp, { force: true }); } catch {} }
   }
   private prune() {
@@ -98,9 +120,9 @@ export class BusyExecutions {
   async start() {
     if (this.started || this.closing) return;
     this.started = true;
-    this.snapshotTimer = setInterval(() => { for (const p of this.dirtyProcesses) { this.dirtyProcesses.delete(p); if (p.dirty) this.save(p); } }, 250);
     this.pruneTimer = setInterval(() => this.prune(), 3600000);
-    this.snapshotTimer.unref(); this.pruneTimer.unref();
+    this.pruneTimer.unref();
+    for (const p of [...this.dirtyProcesses]) this.markDirty(p);
     this.retryDelivery(); await Promise.all(this.deliveries);
   }
   private retryDelivery() { for (const p of this.processes.values()) this.queueDelivery(p); }
@@ -275,7 +297,7 @@ export class BusyExecutions {
   close(): Promise<void> {
     this.closing = true;
     return this.closePromise ??= (async () => {
-      clearInterval(this.snapshotTimer); clearInterval(this.pruneTimer);
+      clearTimeout(this.snapshotTimer); this.snapshotTimer = undefined; clearInterval(this.pruneTimer);
       const processes = [...this.processes.values()];
       for (const p of processes) if (p.status === "running") p.controller.abort();
       await Promise.all(processes.map(p => p.done));

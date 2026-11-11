@@ -1,7 +1,7 @@
 // Shared delegation state. Documents own identity; transcript scans are for legacy rows only.
 import type { JsonValue } from "@earendil-works/chord/json";
 import { defineDoc, type ConversationId, type Tx } from "@earendil-works/pi-durable";
-import { newestInputBoundary, readCommonSessionReport } from "./session-status.js";
+import { newestInputBoundary, readCommonSessionReport, type TailMemo } from "./session-status.js";
 
 export const DELEGATE_MESSAGE = "delegate.msg";
 export const DELEGATE_CHILD = "delegate.child";
@@ -59,13 +59,14 @@ export async function readChildReport(tx: Tx, parent: ConversationId, id: number
   const base: ChildReport = { id, state: "idle", resultStatus: "not_requested", ...(row?.cwd ? { cwd: row.cwd } : {}) };
   if (!row || !await tx.conversation(cid)) return { ...base, state: "failed", reason: "Child conversation no longer exists." };
   const requests = await childRequests(tx, parent, id);
-  const { report, latestSubmission } = await readCommonSessionReport(tx, cid, requests);
+  const memo: TailMemo = {};
+  const { report, latestSubmission } = await readCommonSessionReport(tx, cid, requests, memo);
   Object.assign(base, report);
   const contract = await tx.doc(ChildResult, cid);
   if (contract.schema) {
     // A result belongs to the placed input boundary, not a previous steering turn.
     const input = latestSubmission?.type === "input" ? latestSubmission.entry : undefined;
-    if (contract.result && input !== undefined && contract.result.boundary >= Number(input) && contract.result.boundary === await newestInputBoundary(tx, cid)) {
+    if (contract.result && input !== undefined && contract.result.boundary >= Number(input) && contract.result.boundary === await newestInputBoundary(tx, cid, memo)) {
       base.resultStatus = "valid"; base.result = JSON.parse(JSON.stringify(contract.result.value)) as JsonValue;
     } else {
       base.resultStatus = "missing";

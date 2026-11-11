@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 import { ConfigSchema, parseConfig, type LunaConfig } from "./config.js";
 
 export type Settings = ReturnType<typeof ConfigSchema.parse>;
-const FORM_SCHEMA = ConfigSchema.toJSONSchema();
+// Built on first settings read: the conversion costs about 0.25 s at daemon start.
+let formSchema: ReturnType<typeof ConfigSchema.toJSONSchema> | undefined;
+const FORM_SCHEMA = () => formSchema ??= ConfigSchema.toJSONSchema();
 const HIDDEN = "<secret: unchanged>";
 // Every environment input of parseConfig, including HOME for `~` expansion.
 const RESOLVE_ENV = ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LUNA_HOST", "LUNA_PORT", "HOME"] as const;
@@ -100,7 +102,7 @@ export class SettingsStore {
       else { for (const k of Object.keys(s.headers ?? {})) s.headers![k] = HIDDEN; s.url = hideUrl(s.url); }
     }
     for (const p of config.providers) p.baseUrl = hideUrl(p.baseUrl);
-    return { schema: FORM_SCHEMA, config, revision: this.revision(), path: this.path, restartRequired: this.restartRequired, environmentOverrides: ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LUNA_HOST", "LUNA_PORT"].filter(k => !!process.env[k]) };
+    return { schema: FORM_SCHEMA(), config, revision: this.revision(), path: this.path, restartRequired: this.restartRequired, environmentOverrides: ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LUNA_HOST", "LUNA_PORT"].filter(k => !!process.env[k]) };
   }
   replace(input: unknown, revision: string) {
     if (revision !== this.revision()) throw new Error("Settings changed. Reload before saving.");
