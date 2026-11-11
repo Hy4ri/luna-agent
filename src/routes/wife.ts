@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { ConversationError } from "../conversations.js";
-import { WIFE_STATUSES, type WifeStatus } from "../wife/store.js";
+import { DISMISS_REASONS, WIFE_STATUSES, type DismissReason, type WifeStatus } from "../wife/store.js";
+import { redact } from "../wife/redact.js";
 import { WifeError } from "../wife/service.js";
 import type { RouteCtx } from "./context.js";
 
@@ -33,12 +34,16 @@ export function registerWife(app: Hono, ctx: RouteCtx): void {
       return err(c, 500, (e as Error).message);
     }
   });
-  app.post("/v1/wife/:id/dismiss", c => {
+  app.post("/v1/wife/:id/dismiss", async c => {
     if (!wife) return off(c);
     const n = id(c.req.param("id")); const card = n ? wife.store.get(n) : undefined;
     if (!n || !card) return err(c, 404, "no such suggestion");
     if (card.status !== "open" && card.status !== "snoozed") return err(c, 409, `suggestion is ${card.status}`);
-    wife.store.setStatus(n, "dismissed");
+    const b = await body(c);
+    if (b.reason !== undefined && !(DISMISS_REASONS as readonly unknown[]).includes(b.reason)) return err(c, 400, `reason must be one of ${DISMISS_REASONS.join(", ")}`);
+    if (b.note !== undefined && typeof b.note !== "string") return err(c, 400, "note must be text");
+    const note = typeof b.note === "string" ? redact(b.note.trim().slice(0, 500)) : undefined;
+    wife.store.dismiss(n, b.reason as DismissReason | undefined, note);
     return c.json(wife.store.get(n));
   });
   app.post("/v1/wife/:id/snooze", async c => {
@@ -49,6 +54,7 @@ export function registerWife(app: Hono, ctx: RouteCtx): void {
     if (!Number.isInteger(days) || days < 1 || days > 365) return err(c, 400, "days must be 1 to 365");
     if (card.status !== "open" && card.status !== "snoozed") return err(c, 409, `suggestion is ${card.status}`);
     wife.store.setStatus(n, "snoozed", { snoozeUntil: Date.now() + days * 86_400_000 });
+    wife.store.record(card, "snooze", null, `${days}d`);
     return c.json(wife.store.get(n));
   });
 }

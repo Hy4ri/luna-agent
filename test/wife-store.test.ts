@@ -50,3 +50,25 @@ test("stale detector skips pinned, child, running and recent sessions", () => {
     mk(6, { archived: true, lastActivity: now - 70 * day }), mk(7, { archived: true })], { staleDays: 14, deleteArchivedAfterDays: 60 }, now);
   assert.deepEqual(out.map(o => o.fingerprint).sort(), ["archive_session:1", "delete_session:6"]);
 });
+
+test("dismiss reasons change the future and write an outcome", () => {
+  let now = 0;
+  const s = new WifeStore(":memory:", () => now);
+  const mk = (fp: string) => s.file(card(fp))!;
+  const a = mk("a"), b = mk("b"), c = mk("c"), d = mk("d");
+  s.dismiss(a.id, "wrong", "it was fine");
+  s.dismiss(b.id, "not_now");
+  s.dismiss(c.id, "already_done");
+  s.dismiss(d.id);
+  assert.equal(s.get(a.id)!.status, "dismissed");
+  assert.equal(s.get(b.id)!.status, "snoozed");
+  assert.equal(s.get(b.id)!.snoozeUntil, 30 * 86_400_000);
+  assert.equal(s.get(c.id)!.status, "done");
+  assert.equal(s.get(d.id)!.status, "dismissed");
+  assert.deepEqual(s.outcomes().map(o => [o.action, o.reason, o.ruleId]), [["dismiss", "wrong", "archive_session"], ["dismiss", "not_now", "archive_session"], ["dismiss", "already_done", "archive_session"], ["dismiss", null, "archive_session"]]);
+  assert.deepEqual(s.recentNotes(), [{ title: "t", reason: "wrong", note: "it was fine" }]);
+  now = 30 * 86_400_000;
+  s.expireSnoozed();
+  assert.equal(s.get(b.id)!.status, "open");
+  s.close();
+});

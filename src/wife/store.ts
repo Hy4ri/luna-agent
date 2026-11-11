@@ -6,21 +6,26 @@ import { chmodSync } from "node:fs";
 export const WIFE_KINDS = ["skill", "memory", "new_project", "move_session", "archive_session", "delete_session", "feature_tip"] as const;
 export type WifeKind = (typeof WIFE_KINDS)[number];
 export const WIFE_STATUSES = ["open", "snoozed", "dismissed", "working", "done", "failed"] as const;
+export const DISMISS_REASONS = ["wrong", "not_now", "already_done", "dont_care_kind", "too_aggressive"] as const;
+export type DismissReason = (typeof DISMISS_REASONS)[number];
+export type OutcomeAction = "agree" | "dismiss" | "snooze" | "undo" | "failed";
+export const NOT_NOW_DAYS = 30;
 export type WifeStatus = (typeof WIFE_STATUSES)[number];
 
 export interface Suggestion {
-  id: number; kind: WifeKind; fingerprint: string; title: string; body: string;
+  id: number; kind: WifeKind; ruleId: string; fingerprint: string; title: string; body: string;
   evidence: { sessionId: number; note: string }[];
   payload: Record<string, unknown>;
   source: "detector" | "model"; status: WifeStatus;
   snoozeUntil: number | null; sessionId: number | null; result: string | null;
   created: number; updated: number;
 }
-export type NewSuggestion = Pick<Suggestion, "kind" | "fingerprint" | "title" | "body" | "evidence" | "payload" | "source">;
+export type NewSuggestion = Pick<Suggestion, "kind" | "fingerprint" | "title" | "body" | "evidence" | "payload" | "source"> & { ruleId?: string };
+export interface Outcome { id: number; suggestionId: number; kind: WifeKind; ruleId: string; source: string; action: OutcomeAction; reason: string | null; note: string | null; ts: number }
 
-interface Row { id: number; kind: WifeKind; fingerprint: string; title: string; body: string; evidence: string; payload: string; source: "detector" | "model";
+interface Row { id: number; kind: WifeKind; rule_id: string; fingerprint: string; title: string; body: string; evidence: string; payload: string; source: "detector" | "model";
   status: WifeStatus; snooze_until: number | null; session_id: number | null; result: string | null; created: number; updated: number }
-const view = (r: Row): Suggestion => ({ id: r.id, kind: r.kind, fingerprint: r.fingerprint, title: r.title, body: r.body, evidence: JSON.parse(r.evidence),
+const view = (r: Row): Suggestion => ({ id: r.id, kind: r.kind, ruleId: r.rule_id, fingerprint: r.fingerprint, title: r.title, body: r.body, evidence: JSON.parse(r.evidence),
   payload: JSON.parse(r.payload), source: r.source, status: r.status, snoozeUntil: r.snooze_until, sessionId: r.session_id, result: r.result, created: r.created, updated: r.updated });
 
 export class WifeStore {
@@ -32,13 +37,18 @@ export class WifeStore {
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS suggestions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        kind TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE, title TEXT NOT NULL, body TEXT NOT NULL,
+        kind TEXT NOT NULL, rule_id TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE, title TEXT NOT NULL, body TEXT NOT NULL,
         evidence TEXT NOT NULL DEFAULT '[]', payload TEXT NOT NULL DEFAULT '{}',
         source TEXT NOT NULL CHECK (source IN ('detector','model')),
         status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','snoozed','dismissed','working','done','failed')),
         snooze_until INTEGER, session_id INTEGER, result TEXT, created INTEGER NOT NULL, updated INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS suggestions_status ON suggestions(status);
+      CREATE TABLE IF NOT EXISTS outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, suggestion_id INTEGER NOT NULL, kind TEXT NOT NULL, rule_id TEXT NOT NULL, source TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('agree','dismiss','snooze','undo','failed')), reason TEXT, note TEXT, ts INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS outcomes_rule ON outcomes(rule_id, ts);
     `);
   }
   close() { this.db.close(); }
@@ -61,8 +71,8 @@ export class WifeStore {
     const t = this.now();
     const existing = this.db.prepare("SELECT status FROM suggestions WHERE fingerprint=?").get(s.fingerprint) as { status: WifeStatus } | null;
     if (!existing) {
-      this.db.prepare(`INSERT INTO suggestions(kind,fingerprint,title,body,evidence,payload,source,status,created,updated) VALUES (?,?,?,?,?,?,?,'open',?,?)`)
-        .run(s.kind, s.fingerprint, s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), s.source, t, t);
+      this.db.prepare(`INSERT INTO suggestions(kind,rule_id,fingerprint,title,body,evidence,payload,source,status,created,updated) VALUES (?,?,?,?,?,?,?,?,'open',?,?)`)
+        .run(s.kind, s.ruleId ?? s.kind, s.fingerprint, s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), s.source, t, t);
     } else if (existing.status === "open" || existing.status === "snoozed") {
       this.db.prepare("UPDATE suggestions SET title=?, body=?, evidence=?, payload=?, updated=? WHERE fingerprint=?")
         .run(s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), t, s.fingerprint);
@@ -85,5 +95,29 @@ export class WifeStore {
     let n = 0;
     for (const r of rows) if (!keep.has(r.fingerprint)) { this.db.prepare("DELETE FROM suggestions WHERE id=? AND status='open'").run(r.id); n++; }
     return n;
+  }
+
+  /** Write one decision to the outcome log. The agree rate and tuning cards read it. */
+  record(card: Suggestion, action: OutcomeAction, reason?: string | null, note?: string | null) {
+    this.db.prepare("INSERT INTO outcomes(suggestion_id,kind,rule_id,source,action,reason,note,ts) VALUES (?,?,?,?,?,?,?,?)")
+      .run(card.id, card.kind, card.ruleId, card.source, action, reason ?? null, note ?? null, this.now());
+  }
+  outcomes(sinceMs = 0): Outcome[] {
+    return (this.db.prepare("SELECT * FROM outcomes WHERE ts>=? ORDER BY id").all(sinceMs) as Record<string, unknown>[]).map(r => ({
+      id: r.id as number, suggestionId: r.suggestion_id as number, kind: r.kind as WifeKind, ruleId: r.rule_id as string, source: r.source as string,
+      action: r.action as OutcomeAction, reason: r.reason as string | null, note: r.note as string | null, ts: r.ts as number }));
+  }
+  /** Dismiss with a reason. `not_now` snoozes 30 days, `already_done` closes the card as done, the rest dismiss for good. */
+  dismiss(id: number, reason?: DismissReason, note?: string) {
+    const card = this.get(id)!;
+    if (reason === "not_now") this.setStatus(id, "snoozed", { snoozeUntil: this.now() + NOT_NOW_DAYS * 86_400_000 });
+    else if (reason === "already_done") this.setStatus(id, "done", { result: "Already done." });
+    else this.setStatus(id, "dismissed");
+    this.record(card, "dismiss", reason, note);
+  }
+  /** Recent dismiss notes, so the model pass does not file what you rejected and why. */
+  recentNotes(limit = 20): { title: string; reason: string | null; note: string }[] {
+    return this.db.prepare(`SELECT s.title AS title, o.reason AS reason, o.note AS note FROM outcomes o JOIN suggestions s ON s.id=o.suggestion_id
+      WHERE o.action='dismiss' AND o.note IS NOT NULL AND o.note<>'' ORDER BY o.id DESC LIMIT ?`).all(limit) as never;
   }
 }

@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 export type WifeKind = "skill" | "memory" | "new_project" | "move_session" | "archive_session" | "delete_session" | "feature_tip";
 export type WifeStatus = "open" | "snoozed" | "dismissed" | "working" | "done" | "failed";
 export interface Suggestion {
-  id: number; kind: WifeKind; title: string; body: string; evidence: { sessionId: number; note: string }[];
+  id: number; kind: WifeKind; ruleId: string; title: string; body: string; evidence: { sessionId: number; note: string }[];
   status: WifeStatus; snoozeUntil: number | null; sessionId: number | null; result: string | null; created: number; updated: number;
 }
 

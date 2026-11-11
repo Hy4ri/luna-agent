@@ -53,7 +53,13 @@
                 <DropdownMenuItem v-for="d in [1, 7, 30]" :key="d" @select="run(c, 'snooze', { days: d })">{{ d }} {{ d === 1 ? 'day' : 'days' }}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button type="button" variant="ghost" size="sm" :disabled="wife.busy.has(c.id)" @click="run(c, 'dismiss')">Dismiss</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child><Button type="button" variant="ghost" size="sm" :disabled="wife.busy.has(c.id)">Dismiss</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem v-for="r in reasons" :key="r.id" @select="dismiss(c, r.id)">{{ r.label }}</DropdownMenuItem>
+                <DropdownMenuItem @select="dismiss(c)">Dismiss with a note…</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </li>
       </ul>
@@ -66,7 +72,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { Archive, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, X, BookOpen } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { confirmAction } from "@/lib/confirm";
+import { confirmAction, promptText } from "@/lib/confirm";
 import { navigate, setDrawer } from "@/stores/app";
 import { openSession } from "@/stores/chat";
 import { decide, loadWife, scanWife, wife, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
@@ -83,6 +89,19 @@ const shown = computed(() => wife.cards.filter(c => c.status === status.value &&
 
 async function run(c: Suggestion, action: "agree" | "dismiss" | "snooze", body: object = {}) {
   errors[c.id] = await decide(c.id, action, body);
+}
+const reasons = [
+  { id: "wrong", label: "Wrong suggestion" }, { id: "not_now", label: "Not now (30 days)" }, { id: "already_done", label: "Already done" },
+  { id: "dont_care_kind", label: "I don't care about this kind" }, { id: "too_aggressive", label: "Too aggressive" },
+];
+async function dismiss(c: Suggestion, reason?: string) {
+  let note: string | undefined;
+  if (!reason) {
+    const text = await promptText({ title: "Dismiss with a note", message: "Wife reads your note when she looks for new cards.", confirmLabel: "Dismiss", input: { label: "Note", required: false } });
+    if (text === null) return;
+    note = text.trim() || undefined;
+  }
+  await run(c, "dismiss", { reason, note });
 }
 async function agree(c: Suggestion) {
   if (c.kind === "delete_session" && !await confirmAction({ title: "Delete this session?", message: `"${c.title}" will be deleted for good. This cannot be undone.`, confirmLabel: "Delete", danger: true })) return;

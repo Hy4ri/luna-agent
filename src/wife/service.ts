@@ -63,9 +63,11 @@ export class WifeService {
         result = "Deleted.";
       } else throw new WifeError(400, `${card.kind} cards cannot be agreed yet`);
       this.o.store.setStatus(id, "done", { result });
+      this.o.store.record(card, "agree");
     } catch (e) {
       if (e instanceof WifeError) throw e;  // a refused precondition leaves the card open
       this.o.store.setStatus(id, "failed", { result: (e as Error).message });
+      this.o.store.record(card, "failed", null, (e as Error).message);
       throw e;
     }
     return this.o.store.get(id)!;
