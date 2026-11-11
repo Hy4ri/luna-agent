@@ -2,6 +2,7 @@
 import type { AnalyticsStore } from "../analytics/store.js";
 import { ConversationError, type ConversationStore } from "../conversations.js";
 import { batchCards, misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
+import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
 import { matchTips, type ToolCounts, type WifeTip } from "./tips.js";
 import type { Inverse, Suggestion, WifeStore } from "./store.js";
 
@@ -10,7 +11,9 @@ export class WifeError extends Error { constructor(readonly status: 400 | 404 | 
 
 export interface WifeServiceOptions {
   store: WifeStore; analytics: () => AnalyticsStore; conversations: ConversationStore;
-  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[] };
+  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[]; mutedRules?: string[]; mutedKinds?: string[] };
+  /** Change a value in the `wife` config block. Used by tune and mute cards. */
+  setConfig?: (fn: (w: Record<string, unknown>) => void) => void;
   /** Settings mutation used by a tip that enables an extension. */
   restoreMemory?: (key: string, content: string | null) => Promise<void> | void;
   extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
@@ -37,6 +40,13 @@ export class WifeService {
     };
     const tipCards = matchTips(tips, toolCounts, n => this.o.extensions?.enabled(n) ?? false);
     found.push(...tipCards);
+    const cfg = this.o.config();
+    const muted = (c: { ruleId?: string; kind: string }) => (cfg.mutedRules ?? []).includes(c.ruleId ?? c.kind) || (cfg.mutedKinds ?? []).includes(c.kind);
+    for (let i = found.length - 1; i >= 0; i--) if (muted(found[i]!)) found.splice(i, 1);
+    const tunedAt = new Map<string, number>();
+    for (const o of this.o.store.outcomes()) if (o.action === "agree" && o.ruleId === "tune_rule" && o.note?.startsWith("tuned:")) tunedAt.set(o.note.slice(6), o.ts);
+    found.push(...metaCards({ outcomes: this.o.store.outcomes(now - 60 * LDAY), now, tunedAt, values: { staleDays: cfg.staleDays, deleteArchivedAfterDays: cfg.deleteArchivedAfterDays },
+      mutedRules: cfg.mutedRules ?? [], mutedKinds: cfg.mutedKinds ?? [] }));
     let filed = 0;
     for (const f of found) {
       const isNew = !this.o.store.has(f.fingerprint);
@@ -44,7 +54,7 @@ export class WifeService {
       if (isNew) filed++;
     }
     let withdrawn = 0;
-    for (const rule of [...DETECTOR_RULES, ...tips.map(t => `tip:${t.id}`)])
+    for (const rule of [...DETECTOR_RULES, ...META_RULES, ...tips.map(t => `tip:${t.id}`)])
       withdrawn += this.o.store.withdrawOpen(rule, new Set(found.filter(f => (f.ruleId ?? f.kind) === rule).map(f => f.fingerprint)));
     return { filed, withdrawn };
   }
@@ -65,7 +75,7 @@ export class WifeService {
     try {
       let result: string;
       const sid = Number(card.payload.sessionId);  // not used by every kind
-      let inverse: Inverse | undefined;
+      let inverse: Inverse | undefined; let note: string | undefined;
       const conv = this.o.conversations;
       const ids = (): number[] => {
         const all = Array.isArray(card.payload.sessionIds) ? (card.payload.sessionIds as number[]) : [sid];
@@ -108,6 +118,21 @@ export class WifeService {
         for (const id of p.sessionIds) { try { const was = links.get(id) ?? 0; await conv.move(id, project.id); moves.push({ id, projectId: was }); } catch { /* session gone */ } }
         inverse = { type: "remove_project", projectId: project.id, moves };
         result = `Created project ${project.name} and moved ${moves.length} sessions.`;
+      } else if (card.kind === "tune_rule") {
+        const p = card.payload as { rule: string; key: string; from: number; to: number };
+        const tune = TUNABLE[p.rule];
+        if (!tune || tune.key !== p.key || !this.o.setConfig) throw new WifeError(409, "this rule cannot be tuned");
+        if (this.o.config()[tune.key] !== p.from) throw new WifeError(409, "the threshold changed since this card was filed");
+        this.o.setConfig(w => { w[p.key] = p.to; });
+        result = `Set ${tune.label.toLowerCase()} to ${p.to}.`;
+        note = `tuned:${p.rule}`;
+        inverse = undefined;
+      } else if (card.kind === "mute_rule" || card.kind === "mute_kind") {
+        if (!this.o.setConfig) throw new WifeError(409, "settings are not available");
+        const key = card.kind === "mute_rule" ? "mutedRules" : "mutedKinds";
+        const value = String(card.kind === "mute_rule" ? card.payload.rule : card.payload.kind);
+        this.o.setConfig(w => { const list = (w[key] as string[] | undefined) ?? []; if (!list.includes(value)) w[key] = [...list, value]; });
+        result = `Muted ${value}. Remove it from the muted list in settings to bring it back.`;
       } else if (card.kind === "feature_tip") {
         const ext = card.payload.enable as string | null;
         if (ext && this.o.extensions && !this.o.extensions.enabled(ext)) { this.o.extensions.enable(ext); result = `Enabled ${ext}. It loads on the next session.`; }
@@ -115,7 +140,7 @@ export class WifeService {
       } else throw new WifeError(400, `${card.kind} cards cannot be agreed yet`);
       this.o.store.setStatus(id, "done", { result });
       if (inverse) this.o.store.setUndo(id, inverse);
-      this.o.store.record(card, "agree");
+      this.o.store.record(card, "agree", null, note);
     } catch (e) {
       if (e instanceof WifeError) throw e;  // a refused precondition leaves the card open
       this.o.store.setStatus(id, "failed", { result: (e as Error).message });
@@ -145,5 +170,12 @@ export class WifeService {
     this.o.store.setStatus(id, "open", { result: null });
     this.o.store.record(card, "undo");
     return this.o.store.get(id)!;
+  }
+
+  /** Agree rate and per-rule stats for the page header. */
+  stats(): { agree30: ReturnType<typeof agreeRate>; rules: ReturnType<typeof ruleStats> } {
+    const now = (this.o.now ?? Date.now)();
+    const all = this.o.store.outcomes(now - 60 * LDAY);
+    return { agree30: agreeRate(all, now), rules: ruleStats(all, now) };
   }
 }

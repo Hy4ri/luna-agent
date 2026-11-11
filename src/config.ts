@@ -239,6 +239,8 @@ export const ConfigSchema = z
     wife: z.strictObject({
       enabled: z.boolean().default(true), detectEveryMinutes: z.number().int().min(1).max(1440).default(30),
       staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
+      /** Rule ids and card kinds Wife no longer files. Agreeing to a mute card adds to these. */
+      mutedRules: z.array(z.string()).default([]), mutedKinds: z.array(z.string()).default([]),
       /** Feature tips. Edit, add or remove rules here. */
       tips: z.array(TipSchema).default(() => structuredClone(DEFAULT_TIPS)),
     }).prefault({}),

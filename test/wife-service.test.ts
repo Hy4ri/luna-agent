@@ -154,3 +154,44 @@ test("a delete card has no undo", async () => {
     await assert.rejects(f.wife.undo(done.id), /cannot be undone/);
   } finally { await f.close(); }
 });
+
+test("an outcome history makes exactly one tune card, agreeing changes the config, and the window then starts over", async () => {
+  const f = await fixture();
+  try {
+    const cfg: Record<string, unknown> = { enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, mutedRules: [], mutedKinds: [] };
+    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => cfg as never,
+      setConfig: fn => fn(cfg) });
+    for (let i = 0; i < 6; i++) {
+      const c = f.store.file({ kind: "archive_session", ruleId: "archive_session", fingerprint: `archive_session:${i}`, title: "t", body: "b", evidence: [], source: "detector", payload: { sessionId: 1000 + i } })!;
+      f.store.dismiss(c.id, i < 4 ? "too_aggressive" : "wrong");
+    }
+    wife.scan(); wife.scan();
+    const open = f.store.list("open");
+    assert.equal(open.length, 1);
+    assert.equal(open[0]!.kind, "tune_rule");
+    assert.deepEqual(open[0]!.payload, { rule: "archive_session", key: "staleDays", from: 14, to: 28 });
+    await wife.agree(open[0]!.id);
+    assert.equal(cfg.staleDays, 28);
+    wife.scan();
+    assert.equal(f.store.list("open").length, 0);  // the old dismissals no longer count
+    assert.equal(wife.stats().agree30.agrees, 0);
+  } finally { await f.close(); }
+});
+
+test("five decisions with no agree make a mute card; three 'don't care' make a kind mute card; agreeing mutes", async () => {
+  const f = await fixture();
+  try {
+    const cfg: Record<string, unknown> = { enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, mutedRules: [], mutedKinds: [] };
+    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => cfg as never, setConfig: fn => fn(cfg) });
+    for (let i = 0; i < 5; i++) {
+      const c = f.store.file({ kind: "feature_tip", ruleId: "tip:codemode", fingerprint: `feature_tip:${i}`, title: "t", body: "b", evidence: [], source: "detector", payload: {} })!;
+      f.store.dismiss(c.id, i < 3 ? "dont_care_kind" : "wrong");
+    }
+    wife.scan();
+    const kinds = f.store.list("open").map(c => c.kind).sort();
+    assert.deepEqual(kinds, ["mute_kind", "mute_rule"]);
+    for (const c of f.store.list("open")) await wife.agree(c.id);
+    assert.deepEqual(cfg.mutedRules, ["tip:codemode"]);
+    assert.deepEqual(cfg.mutedKinds, ["feature_tip"]);
+  } finally { await f.close(); }
+});

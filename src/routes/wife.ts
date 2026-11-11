@@ -20,6 +20,7 @@ export function registerWife(app: Hono, ctx: RouteCtx): void {
     return c.json({ suggestions: wife.store.list(status as WifeStatus | undefined) });
   });
   app.get("/v1/wife/count", c => wife ? c.json({ open: wife.store.count("open") }) : off(c));
+  app.get("/v1/wife/stats", c => wife ? c.json(wife.stats()) : off(c));
   app.post("/v1/wife/scan", c => {
     if (!wife) return off(c);
     try { return c.json(wife.scan()); } catch (e) { return err(c, 500, (e as Error).message); }

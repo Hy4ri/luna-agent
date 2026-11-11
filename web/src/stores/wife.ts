@@ -2,7 +2,7 @@
 import { reactive, ref } from "vue";
 import { api } from "@/lib/api";
 
-export type WifeKind = "skill" | "memory" | "new_project" | "move_session" | "archive_session" | "delete_session" | "feature_tip";
+export type WifeKind = "skill" | "memory" | "new_project" | "move_session" | "archive_session" | "delete_session" | "feature_tip" | "tune_rule" | "mute_rule" | "mute_kind";
 export type WifeStatus = "open" | "snoozed" | "dismissed" | "working" | "done" | "failed";
 export interface Suggestion {
   id: number; kind: WifeKind; ruleId: string; title: string; body: string; evidence: { sessionId: number; note: string }[];
@@ -10,6 +10,9 @@ export interface Suggestion {
   payload: Record<string, unknown>; undoUntil: number | null;
 }
 
+export interface RuleStats { ruleId: string; kind: string; decisions: number; agrees: number; wrong: number; tooAggressive: number; dontCare: number; reasons: Record<string, number> }
+export interface WifeStats { agree30: { decisions: number; agrees: number; rate: number | null }; rules: RuleStats[] }
+export const wifeStats = ref<WifeStats | null>(null);
 export const wifeOpen = ref(0);
 export const wife = reactive({ cards: [] as Suggestion[], loading: false, error: "", loaded: false, busy: new Set<number>() });
 
@@ -35,6 +38,8 @@ export async function loadWife() {
     if (!r.ok) await fail(r);
     wife.cards = ((await r.json()) as { suggestions: Suggestion[] }).suggestions;
     wife.loaded = true;
+    const st = await api("/v1/wife/stats");
+    if (st.ok) wifeStats.value = (await st.json()) as WifeStats;
     wifeOpen.value = wife.cards.filter(c => c.status === "open").length;
   } catch (e) { wife.error = (e as Error).message; }
   finally { wife.loading = false; }

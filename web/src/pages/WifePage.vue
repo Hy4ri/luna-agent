@@ -23,6 +23,24 @@
       <button v-for="k in kindChips" :key="k.id" type="button" class="chip" :class="{ on: kind === k.id }" :aria-pressed="kind === k.id" @click="kind = kind === k.id ? '' : k.id">{{ k.label }} <span class="tabular-nums opacity-70">{{ k.count }}</span></button>
     </div>
 
+    <section v-if="stats && stats.rules.length + stats.agree30.decisions > 0" class="shrink-0 px-6 py-2 max-[760px]:px-3 border-b border-border/60 text-xs text-muted-foreground">
+      <details>
+        <summary class="cursor-pointer">
+          <template v-if="stats.agree30.rate !== null">You agreed to {{ Math.round(stats.agree30.rate * 100) }}% of cards in the last 30 days ({{ stats.agree30.agrees }} of {{ stats.agree30.decisions }}).</template>
+          <template v-else>No decisions in the last 30 days.</template>
+        </summary>
+        <table class="mt-2 w-full max-w-3xl text-left">
+          <thead><tr><th class="font-medium pr-3">Rule</th><th class="font-medium pr-3">Decided</th><th class="font-medium pr-3">Agreed</th><th class="font-medium">Dismissed for</th></tr></thead>
+          <tbody>
+            <tr v-for="r in stats.rules" :key="r.ruleId">
+              <td class="pr-3">{{ r.ruleId }}</td><td class="pr-3 tabular-nums">{{ r.decisions }}</td><td class="pr-3 tabular-nums">{{ r.agrees }}</td>
+              <td>{{ Object.entries(r.reasons).map(([k, n]) => `${k} ${n}`).join(', ') || 'none' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+    </section>
+
     <main class="flex-1 min-h-0 overflow-y-auto px-6 py-4 max-[760px]:px-3">
       <div v-if="wife.error" class="mb-3 flex items-center gap-3 rounded-[var(--radius)] border border-destructive/40 px-3 py-2 text-sm" role="alert">
         <span class="flex-1 min-w-0">{{ wife.error }}</span>
@@ -80,18 +98,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Archive, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen } from "@lucide/vue";
+import { Archive, BellOff, SlidersHorizontal, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { confirmAction, promptText } from "@/lib/confirm";
 import { navigate, setDrawer } from "@/stores/app";
 import { openSession } from "@/stores/chat";
-import { decide, loadWife, scanWife, wife, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
+import { decide, loadWife, scanWife, wife, wifeStats, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
 
-const icons: Record<WifeKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb };
-const kindLabels: Record<WifeKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips" };
+const icons: Record<WifeKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb, tune_rule: SlidersHorizontal, mute_rule: BellOff, mute_kind: BellOff };
+const kindLabels: Record<WifeKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips", tune_rule: "Tuning", mute_rule: "Mute", mute_kind: "Mute" };
 const status = ref<WifeStatus>("open");
 const kind = ref<WifeKind | "">("");
+const stats = computed(() => wifeStats.value);
 const errors = reactive<Record<number, string>>({});
 
 const statusChips = computed(() => (["open", "snoozed", "done", "dismissed", "failed"] as WifeStatus[]).map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1), count: wife.cards.filter(c => c.status === id).length })));
