@@ -87,6 +87,7 @@ function groupStatus(key: string): string {
   if (key === 'browser') return value?.provider === 'disabled' ? 'Disabled' : value?.provider || 'Disabled'
   if (key === 'server') return `${value?.host}:${value?.port}`
   if (key === 'cron') return value?.runTimeoutMinutes ? `${value.runTimeoutMinutes} minute limit` : 'No run time limit'
+  if (key === 'wife') return value?.enabled === false ? 'Off' : `Check every ${value?.detectEveryMinutes} minutes`
   if (key === 'improve') return value?.allowCommandBenchmarks ? 'Command benchmarks allowed' : 'Command benchmarks off'
   if (value && typeof value.enabled === 'boolean') return value.enabled ? 'Enabled' : 'Disabled'
   if (typeof value === 'string') return key === 'instructions' ? 'Custom instructions' : value

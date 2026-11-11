@@ -34,6 +34,7 @@ export const fieldTitles: Record<string, string> = {
   cron: 'Scheduled runs', notifyUrl: 'Notification URL', runTimeoutMinutes: 'Run timeout (minutes)',
   emptyRunDays: 'Empty run retention (days)', reportDays: 'Report retention (days)', reportsPerJob: 'Reports kept per job', deletedJobDays: 'Deleted job retention (days)', retention: 'Run log retention',
   improve: 'Skill improvement', allowCommandBenchmarks: 'Allow command benchmarks',
+  wife: 'Wife suggestions', detectEveryMinutes: 'Check every (minutes)', staleDays: 'Archive idle sessions after (days)', deleteArchivedAfterDays: 'Suggest deleting archived sessions after (days)',
   dataDir: 'Data directory', cwd: 'Working directory', server: 'HTTP server', host: 'Listen address', port: 'Port', push: 'Android push notifications', serviceAccountFile: 'Firebase service-account key file',
 }
 
@@ -190,6 +191,7 @@ export const summaries: Record<string, string> = {
   skillDirs: 'Add local sources of reusable instructions.',
   cron: 'Set the limits, notifications, and log retention used by scheduled prompts.',
   improve: 'Control access to command benchmarks for skill checks.',
+  wife: 'Suggestion cards from your session activity. Wife only suggests; you decide.',
   dataDir: 'Choose where Luna stores its persistent data.', cwd: 'Choose the default directory for tool commands.', server: 'Choose where the HTTP server listens.',
   push: 'Send Android notifications through Firebase Cloud Messaging.',
 }

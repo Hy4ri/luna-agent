@@ -1,0 +1,98 @@
+<template>
+  <div id="wife-screen" class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-background" :aria-busy="wife.loading ? 'true' : 'false'">
+    <header class="shrink-0 flex items-center gap-3 flex-wrap px-6 py-3 max-[760px]:px-3 border-b border-border/60 bg-background">
+      <Button id="wife-menu" type="button" variant="ghost" size="icon" class="hidden max-[760px]:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground" aria-label="Open navigation" aria-controls="side" @click="setDrawer(true)">
+        <Menu :size="18" />
+      </Button>
+      <div class="flex-1 min-w-0">
+        <h1 tabindex="-1" class="m-0 text-lg font-semibold tracking-tight leading-tight">Wife</h1>
+        <p class="m-0 text-xs text-muted-foreground truncate">Suggestions from your sessions. Nothing happens until you agree.</p>
+      </div>
+      <div class="flex items-center gap-2 ml-auto">
+        <Button type="button" variant="outline" size="sm" :disabled="wife.loading" @click="scanWife()">
+          <RefreshCw :size="14" :class="{ 'animate-spin': wife.loading }" aria-hidden="true" />
+          {{ wife.loading ? 'Scanning…' : 'Scan now' }}
+        </Button>
+        <button type="button" class="icon-button p-1.5 rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary" aria-label="Close wife" @click="navigate('chat')"><X :size="18" /></button>
+      </div>
+    </header>
+
+    <div class="shrink-0 flex flex-wrap gap-2 px-6 py-2 max-[760px]:px-3 border-b border-border/60" role="group" aria-label="Filter suggestions">
+      <button v-for="f in statusChips" :key="f.id" type="button" class="chip" :class="{ on: status === f.id }" :aria-pressed="status === f.id" @click="status = f.id">{{ f.label }} <span class="tabular-nums opacity-70">{{ f.count }}</span></button>
+      <span class="w-px bg-border mx-1" aria-hidden="true" />
+      <button v-for="k in kindChips" :key="k.id" type="button" class="chip" :class="{ on: kind === k.id }" :aria-pressed="kind === k.id" @click="kind = kind === k.id ? '' : k.id">{{ k.label }} <span class="tabular-nums opacity-70">{{ k.count }}</span></button>
+    </div>
+
+    <main class="flex-1 min-h-0 overflow-y-auto px-6 py-4 max-[760px]:px-3">
+      <div v-if="wife.error" class="mb-3 flex items-center gap-3 rounded-[var(--radius)] border border-destructive/40 px-3 py-2 text-sm" role="alert">
+        <span class="flex-1 min-w-0">{{ wife.error }}</span>
+        <Button type="button" variant="outline" size="sm" @click="loadWife()">Retry</Button>
+      </div>
+      <p v-if="wife.loading && !wife.loaded" class="text-sm text-muted-foreground">Loading…</p>
+      <p v-else-if="!shown.length && !wife.error" class="text-sm text-muted-foreground">Nothing to suggest.</p>
+      <ul class="grid gap-3 list-none p-0 m-0 max-w-3xl">
+        <li v-for="c in shown" :key="c.id" class="rounded-[var(--radius)] border border-border bg-card p-4">
+          <div class="flex items-start gap-3">
+            <component :is="icons[c.kind]" :size="18" class="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div class="min-w-0 flex-1">
+              <h2 class="m-0 text-sm font-semibold break-words">{{ c.title }}</h2>
+              <p class="mt-1 mb-0 text-sm text-muted-foreground break-words">{{ c.body }}</p>
+              <ul v-if="c.evidence.length" class="mt-2 mb-0 p-0 list-none flex flex-wrap gap-2">
+                <li v-for="e in c.evidence" :key="e.sessionId + e.note"><button type="button" class="text-xs underline text-primary-text" @click="openSession(e.sessionId)">Session {{ e.sessionId }}: {{ e.note }}</button></li>
+              </ul>
+              <p v-if="c.status === 'done' || c.status === 'failed'" class="mt-2 mb-0 text-xs" :class="c.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'">{{ c.result }}</p>
+              <p v-else-if="c.status === 'snoozed' && c.snoozeUntil" class="mt-2 mb-0 text-xs text-muted-foreground">Back on {{ new Date(c.snoozeUntil).toLocaleDateString() }}</p>
+              <p v-if="errors[c.id]" class="mt-2 mb-0 text-xs text-destructive" role="alert">{{ errors[c.id] }}</p>
+            </div>
+          </div>
+          <div v-if="c.status === 'open' || c.status === 'snoozed'" class="mt-3 flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" :disabled="wife.busy.has(c.id)" @click="agree(c)">{{ c.kind === 'delete_session' ? 'Delete…' : 'Agree' }}</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child><Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)"><Clock :size="14" aria-hidden="true" />Snooze</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem v-for="d in [1, 7, 30]" :key="d" @select="run(c, 'snooze', { days: d })">{{ d }} {{ d === 1 ? 'day' : 'days' }}</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button type="button" variant="ghost" size="sm" :disabled="wife.busy.has(c.id)" @click="run(c, 'dismiss')">Dismiss</Button>
+          </div>
+        </li>
+      </ul>
+    </main>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from "vue";
+import { Archive, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, X, BookOpen } from "@lucide/vue";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { confirmAction } from "@/lib/confirm";
+import { navigate, setDrawer } from "@/stores/app";
+import { openSession } from "@/stores/chat";
+import { decide, loadWife, scanWife, wife, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
+
+const icons: Record<WifeKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb };
+const kindLabels: Record<WifeKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips" };
+const status = ref<WifeStatus>("open");
+const kind = ref<WifeKind | "">("");
+const errors = reactive<Record<number, string>>({});
+
+const statusChips = computed(() => (["open", "snoozed", "done", "dismissed", "failed"] as WifeStatus[]).map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1), count: wife.cards.filter(c => c.status === id).length })));
+const kindChips = computed(() => (Object.keys(kindLabels) as WifeKind[]).map(id => ({ id, label: kindLabels[id], count: wife.cards.filter(c => c.status === status.value && c.kind === id).length })).filter(k => k.count > 0 || kind.value === k.id));
+const shown = computed(() => wife.cards.filter(c => c.status === status.value && (!kind.value || c.kind === kind.value)));
+
+async function run(c: Suggestion, action: "agree" | "dismiss" | "snooze", body: object = {}) {
+  errors[c.id] = await decide(c.id, action, body);
+}
+async function agree(c: Suggestion) {
+  if (c.kind === "delete_session" && !await confirmAction({ title: "Delete this session?", message: `"${c.title}" will be deleted for good. This cannot be undone.`, confirmLabel: "Delete", danger: true })) return;
+  await run(c, "agree", { confirm: c.kind === "delete_session" });
+}
+onMounted(loadWife);
+</script>
+
+<style scoped>
+.chip { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.25rem 0.625rem; font-size: 0.75rem; color: var(--muted-foreground); background: transparent; }
+.chip:hover { color: var(--foreground); background: var(--secondary); }
+.chip.on { color: var(--foreground); background: var(--secondary); border-color: var(--primary); }
+</style>

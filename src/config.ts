@@ -234,6 +234,11 @@ export const ConfigSchema = z
     }).prefault({}),
     /** Android push through Firebase Cloud Messaging. Off until a service-account key file is set. */
     push: z.strictObject({ serviceAccountFile: z.string().min(1).optional() }).prefault({}),
+    /** Wife: suggestion cards from session activity. */
+    wife: z.strictObject({
+      enabled: z.boolean().default(true), detectEveryMinutes: z.number().int().min(1).max(1440).default(30),
+      staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
+    }).prefault({}),
     /** `improve.allowCommandBenchmarks` gates shell benchmarks in `skill action=propose`. */
     improve: z.strictObject({ allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
     server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787),

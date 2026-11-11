@@ -10,6 +10,9 @@ import { createCodexImageAuth } from "./codex-image-auth.js";
 import { createMediaExtension } from "./media.js";
 import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
+import { analyticsService } from "./analytics/index.js";
+import { WifeStore } from "./wife/store.js";
+import { WifeService } from "./wife/service.js";
 import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
@@ -337,6 +340,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   uploads.bind(conversationStorage(harness).db);
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
+  const wifeStore = new WifeStore(join(cfg.dataDir, "wife.db"));
+  const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log });
   conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });
   harnessRef = harness;
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
@@ -447,6 +452,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     },
   };
   webhooks.start();
+  wife.start();
 
   // Settings saved while running: bring live state in line without a restart.
   settings?.onApply(async (_old, next) => {
@@ -503,6 +509,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     skillDirs: on("skills") ? cfg.allSkillDirs : undefined,
     model: built.model,
     improver,
+    wife,
     store,
     scheduler,
     mcp,
@@ -511,6 +518,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     browserPanel,
     webhooks,
     async close() {
+      wife.stop();
+      wifeStore.close();
       await limitRecovery.close();
       await scheduledMessages.close();
       await push?.notifier.close();

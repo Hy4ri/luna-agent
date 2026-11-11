@@ -19,6 +19,7 @@ import ImageViewer from '@/components/ui/ImageViewer.vue';
 import SnapTool from '@/components/SnapTool.vue';
 import { browser, loadBrowser } from '@/stores/browser';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
+const WifePage = defineAsyncComponent(() => import('@/pages/WifePage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
 // The terminal emulator (ghostty-web, ~400 kB) loads only when a terminal opens.
@@ -502,6 +503,9 @@ onUnmounted(() => {
       </div>
       <div v-if="ui.view === 'analytics'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Analytics" tabindex="-1"><AnalyticsPage :inert="blocked" /></div>
+      </div>
+      <div v-if="ui.view === 'wife'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+        <div class="settings-window" role="dialog" aria-modal="true" aria-label="Wife" tabindex="-1"><WifePage :inert="blocked" /></div>
       </div>
       <div v-if="ui.view === 'source-control'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Source Control" tabindex="-1"><SourceControlPage :inert="blocked" /></div>
