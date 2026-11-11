@@ -139,8 +139,8 @@ luna-pi/
 │   ├── recall.ts               # Full-text search index (FTS5) across past conversations
 │   ├── skills.ts               # Skill catalog loader and SKILL.md parser
 │   ├── skill-manage.ts         # Managed skill CRUD, linting, and trash/restore
-│   ├── improve.ts              # Failure lesson extraction and benchmark-gated skill proposals
-│   ├── learn.ts                # Idle session scanning and lesson diagnosis
+│   ├── improve.ts              # Benchmark-gated skill proposals (SkillImprover)
+│   ├── wife/                   # Wife tab: store, detectors, learning loop, policy, service, `wife` tool
 │   ├── learn-command.ts        # /learn slash command handler
 │   ├── media.ts                # media_analyze tool: routes images to vision.ts, videos to video.ts
 │   ├── vision.ts               # Native/auxiliary image analysis for media_analyze
@@ -185,7 +185,7 @@ A capability is complete only when all three layers are verified:
 - Web UI panels (Settings, Model Providers, MCP Servers) must read and update this shared store so live runtime policy (`busyInput`, `autoContinue`, `subagents`, `auxiliary`, etc.) stays consistent without requiring separate config files.
 
 ### 4. Data Directory Isolation (`dataDir`)
-- All persistent runtime state (`luna.db`, `memory.db`, `cron.db`, `learn.db`, `recall.db`, `auth.json`, `mcp.json`, `skills/`, `processes/`, `uploads/`, `generated/`; legacy `generated-images/`) must live under `cfg.dataDir` (default `~/.luna`).
+- All persistent runtime state (`luna.db`, `memory.db`, `cron.db`, `wife.db`, `recall.db`, `auth.json`, `mcp.json`, `skills/`, `processes/`, `uploads/`, `generated/`; legacy `generated-images/`) must live under `cfg.dataDir` (default `~/.luna`).
 - Never hardcode database or state file paths relative to `process.cwd()` or the repository root.
 - In tests, always create an isolated temporary directory (`mkdtempSync`) for `dataDir` and clean it up on exit.
 

@@ -429,6 +429,42 @@ Saved configs that still list them load unchanged: the keys are dropped. `improv
 shell benchmarks in `skill action=propose`. On start the old `luna-learn` and `luna-self-improve` cron jobs are disabled,
 with their history kept. `learn.db` stays on disk, unused.
 
+## Wife
+
+Wife is a page of suggestion cards built from your session activity. A card can be agreed (Wife does the work), discussed
+(opens a session seeded with the card), snoozed, or dismissed with a reason. State lives in `wife.db`.
+Wife only suggests. She never edits her own rules or code, merges, or acts alone. Agreeing to a delete needs `confirm:true`
+(the page asks first); deleting a session cannot be undone. Other direct actions can be undone for 7 days (archive, move,
+new project, memory).
+
+Detectors run every `wife.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
+misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, and stuck board cards.
+A daily model pass, the built-in cron job `luna-wife`, files skill and memory cards through the `wife` tool.
+It is the only part that costs model calls. Run it by hand with `cron action=run`.
+
+```json
+"wife": {
+  "enabled": true,
+  "detectEveryMinutes": 30,
+  "staleDays": 14,
+  "deleteArchivedAfterDays": 60,
+  "modelSchedule": "0 4 * * *",
+  "maxNewPerDay": 10,
+  "quietHours": { "enabled": false, "from": "22:00", "to": "08:00" },
+  "projects": { "mode": "all", "ids": [] },
+  "mutedRules": [], "mutedKinds": [], "tips": []
+}
+```
+
+- `modelSchedule`: cron expression for the daily model pass. Empty turns it off. Add `"wife"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
+- `maxNewPerDay`: new cards over the cap wait and show up on the next day. Quiet hours hide new cards the same way.
+- `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Wife watches.
+- `tips`: editable catalog of feature tips. Each rule is `{id, title, body, docs?, when, enable?}`.
+- Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Wife never does it alone.
+- The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap.
+
+Not built yet: detectors for orphan worktrees, leftover background processes, repeated tool errors, and unused skills; model cards for overlapping skills and conflicting memory.
+
 ## Learning from a source
 
 `/learn <source> [objective]` studies a web page, repository, or local file and saves what it learns as a skill.
