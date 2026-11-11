@@ -8,3 +8,6 @@ minimumReleaseAgeExcludes = [
   "@earendil-works/pi-schema",
   "@earendil-works/pi-telemetry",
 ]
+
+[test]
+preload = ["./test/preload.ts"]
