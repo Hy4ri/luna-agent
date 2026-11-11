@@ -8,9 +8,16 @@ import { supportedSpeeds } from "../speed.js";
 export function registerSettings(app: Hono, ctx: RouteCtx): void {
   const { opts, err, baseAgent, thinkingDefaults } = ctx;
 
-  app.get("/v1/settings", (c) =>
-    opts.settings ? c.json(opts.settings.view()) : err(c, 404, "settings disabled"),
-  );
+  // The view is cached until the file changes; the revision doubles as a strong ETag, so a reload can answer 304.
+  app.get("/v1/settings", (c) => {
+    if (!opts.settings) return err(c, 404, "settings disabled");
+    const { json, revision } = opts.settings.viewJson();
+    const etag = `"${revision}"`;
+    const headers = { etag, "cache-control": "no-cache" };
+    const tags = (c.req.header("if-none-match") ?? "").split(",").map(t => t.trim().replace(/^W\//, ""));
+    if (tags.includes(etag) || tags.includes("*")) return new Response(null, { status: 304, headers });
+    return new Response(json, { headers: { ...headers, "content-type": "application/json; charset=utf-8" } });
+  });
 
   app.get("/v1/models/pins", (c) =>
     opts.settings ? c.json({ pins: opts.settings.read().pinnedModels }) : err(c, 404, "settings disabled"),
