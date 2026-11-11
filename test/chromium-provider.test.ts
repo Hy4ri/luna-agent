@@ -18,6 +18,7 @@ const PAGE = `<!doctype html><title>t</title>
 <a id="next" href="/two">next</a>
 <script>
   window.keys = []; document.addEventListener("keydown", e => keys.push(e.key));
+  window.moves = 0; document.addEventListener("mousemove", () => moves++);
   window.strokes = 0; const pad = document.getElementById("pad");
   pad.addEventListener("pointermove", e => { if (e.buttons & 1) strokes++; });
   setTimeout(() => document.body.insertAdjacentHTML("beforeend", "<p>Ready now</p>"), 300);
@@ -58,8 +59,10 @@ it("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history, 
     await assert.rejects(p.upload!({ tabId, selector: "#f", files: [join(dir, "none")] }, s), /No file at/);
     assert.deepEqual(await ev("[document.getElementById('c').checked, document.getElementById('f').files[0].name]"), [true, "a.txt"]);
 
+    await ev("moves = 0");
     await p.click({ tabId, selector: "#ask" }, s);
     assert.equal(await ev("document.body.dataset.answer"), "false", "an unarmed confirm is dismissed");
+    assert.ok((await ev("moves")) as number >= 8, "an element click glides the mouse there");
     assert.deepEqual(await p.dialogs!({ tabId }, s), [{ type: "confirm", message: "Sure?", answer: "dismissed" }]);
     await p.dialog!({ tabId, accept: true }, s);
     await p.click({ tabId, selector: "#ask" }, s);
@@ -76,6 +79,9 @@ it("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history, 
     assert.equal((await p.history!({ tabId, action: "back" }, s)).url, `${base}/`);
     assert.equal((await p.history!({ tabId, action: "forward" }, s)).url, `${base}/two`);
     assert.equal((await p.history!({ tabId, action: "reload" }, s)).url, `${base}/two`);
+    assert.equal(p.has!(tabId), true);
+    await p.close({ tabId }, s);
+    assert.equal(p.has!(tabId), false);
   } finally {
     await p.dispose();
     server.close();

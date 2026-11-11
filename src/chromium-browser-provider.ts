@@ -16,9 +16,31 @@ const PAGE_CHARS = 20_000;
 const TIMEOUT_MS = 30_000;
 const ACTION_MS = 10_000;
 const MAX_LOG = 100;
-/** What a page did that Luna cannot see in a snapshot. */
-interface PageState { logs: BrowserLogs; unseen: BrowserDialog[]; arm?: { accept: boolean; promptText?: string } }
+/** What a page did that Luna cannot see in a snapshot, and where its mouse is. */
+interface PageState { logs: BrowserLogs; unseen: BrowserDialog[]; arm?: { accept: boolean; promptText?: string }; mouse?: { x: number; y: number } }
 const keep = <T>(list: T[], item: T) => { list.push(item); if (list.length > MAX_LOG) list.shift(); };
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+const between = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+
+/**
+ * A mouse path the way a hand moves it: a curve with one random bend, fast in the middle and slow at both ends.
+ * Starts after `from` and ends exactly on `to`. Bot checks such as Turnstile flag a pointer that jumps.
+ */
+function humanPath(from: { x: number; y: number }, to: { x: number; y: number }): { x: number; y: number }[] {
+  const dx = to.x - from.x, dy = to.y - from.y, dist = Math.hypot(dx, dy);
+  if (dist < 2) return [{ ...to }];
+  const steps = Math.round(Math.min(40, Math.max(8, dist / 15)));
+  // The bend sits somewhere along the line and leans to one side, at most a quarter of the distance.
+  const along = between(0.3, 0.7), lean = between(-0.25, 0.25) * dist;
+  const cx = from.x + dx * along - (dy / dist) * lean, cy = from.y + dy * along + (dx / dist) * lean;
+  const out: { x: number; y: number }[] = [];
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps, e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    const x = (1 - e) ** 2 * from.x + 2 * (1 - e) * e * cx + e * e * to.x, y = (1 - e) ** 2 * from.y + 2 * (1 - e) * e * cy + e * e * to.y;
+    out.push(i === steps ? { ...to } : { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+  }
+  return out;
+}
 
 export function createChromiumBrowserProvider(options: () => ChromiumOptions): BrowserProvider & { dispose(): Promise<void> } {
   return createPlaywrightBrowserProvider({
@@ -60,6 +82,27 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
     return st;
   }
   const state = (p: Page) => states.get(p) ?? track(p);
+  /** Glide the mouse to a point. A new page has no known position, so the first move starts from a random spot. */
+  async function glide(p: Page, to: { x: number; y: number }, signal: AbortSignal) {
+    const st = state(p), size = p.viewportSize() ?? { width: 1280, height: 720 };
+    const from = st.mouse ?? { x: between(0.2, 0.8) * size.width, y: between(0.2, 0.8) * size.height };
+    for (const pt of humanPath(from, to)) { signal.throwIfAborted(); await p.mouse.move(pt.x, pt.y); st.mouse = pt; await sleep(between(6, 14)); }
+  }
+  /** Press and release where the mouse is, with a hand's pause between. */
+  async function press(p: Page, button: "left" | "middle" | "right", clickCount: number) {
+    for (let i = 1; i <= clickCount; i++) {
+      await p.mouse.down({ button, clickCount: i }); await sleep(between(40, 110));
+      await p.mouse.up({ button, clickCount: i });
+      if (i < clickCount) await sleep(between(60, 120));
+    }
+  }
+  /** A point inside the element, away from its edges. Null when it has no box (detached, or hidden in a frame). */
+  async function aim(target: ReturnType<typeof locator>, kind: "click" | "hover") {
+    // Trial runs Playwright's checks (attached, visible, stable, not covered; enabled for a click) and scrolls it into view, without acting.
+    await (kind === "click" ? target.click({ trial: true, timeout: ACTION_MS }) : target.hover({ trial: true, timeout: ACTION_MS }));
+    const box = await target.boundingBox({ timeout: ACTION_MS });
+    return box && box.width > 0 && box.height > 0 ? { x: box.x + box.width * between(0.35, 0.65), y: box.y + box.height * between(0.35, 0.65) } : null;
+  }
   let context: Promise<BrowserContext> | undefined, browser: Browser | undefined;
 
   function launch() {
@@ -94,6 +137,7 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
       return tab(tabId, p);
     },
     async close({ tabId }) { const p = tabs.get(tabId); tabs.delete(tabId); await p?.close(); },
+    has(tabId) { const p = tabs.get(tabId); return !!p && !p.isClosed(); },
     async snapshot({ tabId, offset }, signal) {
       signal.throwIfAborted();
       const p = page(tabId), start = offset ?? 0;
@@ -106,7 +150,9 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
     async click(request, signal) {
       signal.throwIfAborted();
       const p = page(request.tabId); await engine.prepare?.(p);
-      await locator(p, request).click({ timeout: 10_000 });
+      const target = locator(p, request), at = await aim(target, "click");
+      if (!at) { await target.click({ timeout: ACTION_MS }); return; }
+      await glide(p, at, signal); await press(p, "left", 1);
     },
     async type(request, signal) {
       signal.throwIfAborted();
@@ -145,14 +191,19 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
       const p = page(tabId); await engine.prepare?.(p);
       const [first, ...rest] = points;
       if (!first) throw new Error("No points.");
-      if (action === "click") { await p.mouse.click(first.x, first.y, { button: button ?? "left", clickCount: clickCount ?? 1 }); return; }
-      await p.mouse.move(first.x, first.y);
+      await glide(p, first, signal);
+      if (action === "click") { await press(p, button ?? "left", clickCount ?? 1); return; }
       if (action === "hover") return;
       await p.mouse.down({ button: button ?? "left" });
-      try { for (const pt of rest) { signal.throwIfAborted(); await p.mouse.move(pt.x, pt.y, { steps: 4 }); } }
+      try { for (const pt of rest) { signal.throwIfAborted(); await p.mouse.move(pt.x, pt.y, { steps: 4 }); state(p).mouse = pt; } }
       finally { await p.mouse.up({ button: button ?? "left" }); }
     },
-    async hover(request, signal) { signal.throwIfAborted(); const p = page(request.tabId); await engine.prepare?.(p); await locator(p, request).hover({ timeout: ACTION_MS }); },
+    async hover(request, signal) {
+      signal.throwIfAborted();
+      const p = page(request.tabId); await engine.prepare?.(p);
+      const target = locator(p, request), at = await aim(target, "hover");
+      if (at) await glide(p, at, signal); else await target.hover({ timeout: ACTION_MS });
+    },
     async select(request, signal) {
       signal.throwIfAborted();
       const p = page(request.tabId), target = locator(p, request);
@@ -218,6 +269,7 @@ export function createPlaywrightBrowserProvider(engine: PlaywrightEngine): Brows
   };
   provider.input = async ({ tabId, event }: { tabId: string; event: BrowserInput }) => {
     const p = page(tabId);
+    if (event.kind === "mouse" || event.kind === "wheel") state(p).mouse = { x: event.x, y: event.y };
     if (event.kind === "mouse") {
       await p.mouse.move(event.x, event.y);
       if (event.type === "down") await p.mouse.down({ button: event.button ?? "left", clickCount: event.clickCount ?? 1 });
