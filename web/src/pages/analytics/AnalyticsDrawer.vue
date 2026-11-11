@@ -51,7 +51,7 @@
                 >
                   <span class="text-muted-foreground shrink-0">{{ k }}</span>
                   <span class="text-foreground text-right break-all tabular-nums">
-                    {{ formatValue(v) }}
+                    {{ formatValue(k, v) }}
                   </span>
                 </div>
               </div>
@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/dialog";
 import type { AnalyticsValue } from "../../../../src/analytics/types";
 import type { AnalyticsDetail } from "@/stores/analytics";
+import { compact, durationFormat, pct, usd, when } from "./formatters";
 
 defineProps<{
   open: boolean;
@@ -86,9 +87,18 @@ defineEmits<{
   (e: "retry"): void;
 }>();
 
-function formatValue(v: AnalyticsValue): string {
+function formatValue(key: string, v: AnalyticsValue): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "number") {
+    if (key === "id" || key.endsWith("Id")) return String(v);
+    const k = key.toLowerCase();
+    if (k === "ts") return when(new Date(v).toISOString());
+    if (k.includes("cost") || k.includes("usd")) return usd(v);
+    if (k.endsWith("ms") || k.includes("duration") || k.includes("latency")) return durationFormat(v);
+    if (k.includes("rate") || k.includes("pct") || k.includes("percent")) return pct(v);
+    return compact(v);
+  }
   return String(v);
 }
 </script>
