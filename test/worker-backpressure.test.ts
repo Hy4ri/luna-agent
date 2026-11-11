@@ -19,3 +19,21 @@ test("a dropped exec frame resolves as a not-sent failure instead of waiting for
     assert.equal(logs.length, 1);
   } finally { link.drop("test"); }
 });
+
+test("a dropped control frame closes the link instead of leaving it out of sync", () => {
+  const logs: string[] = [];
+  const closed: Array<[number | undefined, string | undefined]> = [];
+  const ws = { send: () => 0, ping() {}, close: (code?: number, reason?: string) => { closed.push([code, reason]); } } as never;
+  const link = new Link({ id: 1, name: "w", createdAt: 0, lastSeenAt: null, capabilities: null }, ws, {} as never, m => logs.push(m));
+  try {
+    link.send({ t: "abort", id: 7 });
+    assert.deepEqual(closed, [[1013, "worker link congested"]]);
+    assert.match(logs[0]!, /dropped abort frame/);
+  } finally { link.drop("test"); }
+});
+
+test("the worker treats a socket over its buffer limit as congested", async () => {
+  const { linkCongested } = await import("../src/worker.js");
+  assert.equal(linkCongested({ bufferedAmount: 100 }, 100), false);
+  assert.equal(linkCongested({ bufferedAmount: 101 }, 100), true);
+});

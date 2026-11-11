@@ -24,6 +24,13 @@ export interface WorkerOptions {
   handshakeMs?: number;
   /** First reconnect delay; it doubles up to 30 s and resets only after a link stays up for 30 s. Default 1 s. */
   retryMs?: number;
+  /** Close the link when this many bytes are already queued unsent. Commands stop; nothing replays. Default 32 MiB. */
+  maxBufferedBytes?: number;
+}
+
+/** True when the socket already holds more unsent bytes than the limit. */
+export function linkCongested(ws: { bufferedAmount: number }, limitBytes: number): boolean {
+  return ws.bufferedAmount > limitBytes;
 }
 
 // Matches the image adapter's response byte ceiling. Buffer is also a Uint8Array.
@@ -110,7 +117,17 @@ export function startWorker(o: WorkerOptions) {
       handles.clear();
       await Promise.all([...envs.values()].map(e => e.cleanup(BACKGROUND_CONTEXT).catch(() => {})));
     })();
-    const send = (m: WorkerMessage) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
+    // A slow main must not grow this process's memory without bound. Fail the link; the close path stops every command.
+    const transmit = (frame: string) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (linkCongested(ws, o.maxBufferedBytes ?? 32 * 1024 * 1024)) {
+        log(`worker: link buffer over ${o.maxBufferedBytes ?? 32 * 1024 * 1024} bytes; closing. Running commands stop and are not rerun.`);
+        ws.close(1013, "worker link congested");
+        return;
+      }
+      ws.send(frame);
+    };
+    const send = (m: WorkerMessage) => transmit(JSON.stringify(m));
     const envFor = (dir: string) => { let e = envs.get(dir); if (!e) envs.set(dir, e = new NodeExecutionEnv({ cwd: dir })); return e; };
 
     ws.addEventListener("open", () => {
@@ -220,7 +237,7 @@ export function startWorker(o: WorkerOptions) {
           // Fail this call only. An oversized frame would close the whole link and kill every other command.
           const kind = m.t === "call" && m.method === "exec" ? "exec" : "file";
           send({ t: "result", id: m.id, result: { ok: false, error: { kind, code: "unknown", message: `Result is ${frame.length} bytes, over the ${maxFrameBytes()} byte frame limit. Read it in smaller parts.` } } });
-        } else if (ws.readyState === WebSocket.OPEN) ws.send(frame);
+        } else transmit(frame);
       } catch (error) {
         send({ t: "result", id: m.id, result: { ok: false, error: { kind: m.t === "call" && m.method === "exec" ? "exec" : "file", code: "unknown", message: String(error instanceof Error ? error.message : error) } } });
       } finally { calls.delete(m.id); }

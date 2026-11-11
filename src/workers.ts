@@ -136,7 +136,13 @@ export class Link {
       }
     });
   }
-  send(m: MainMessage) { this.ws.send(JSON.stringify(m)); }
+  /** A control frame (abort, pty input) the socket drops leaves main and worker disagreeing. Close the link instead of continuing. */
+  send(m: MainMessage) {
+    if (this.ws.send(JSON.stringify(m)) === 0) {
+      this.log(`worker ${this.worker.name}: link buffer full; dropped ${m.t} frame, closing link`);
+      this.ws.close(1013, "worker link congested");
+    }
+  }
   nextId() { return this.next++; }
   /** The link is gone. Fail in-flight calls; never rerun them on another machine. */
   drop(reason: string) {
