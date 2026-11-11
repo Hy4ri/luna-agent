@@ -144,8 +144,8 @@ function limit(m: Record<string, unknown>, keys: string[]): number | undefined {
   return undefined;
 }
 // OpenRouter/ZenMux: context_length; vLLM: max_model_len; Anthropic format: max_input_tokens; others: context_window / max_context_length.
-const CONTEXT_KEYS = ["context_length", "context_window", "max_input_tokens", "max_context_length", "max_model_len", "top_provider.context_length", "contextWindow"];
-const OUTPUT_KEYS = ["max_completion_tokens", "max_output_tokens", "top_provider.max_completion_tokens", "max_tokens", "maxTokens"];
+const CONTEXT_KEYS = ["context_length", "context_window", "max_input_tokens", "max_context_length", "max_model_len", "top_provider.context_length", "contextWindow", "limit.context"];
+const OUTPUT_KEYS = ["max_completion_tokens", "max_output_tokens", "top_provider.max_completion_tokens", "max_tokens", "maxTokens", "limit.output"];
 
 type ModelEntry = Record<string, unknown>;
 async function listModels(baseUrl: string, headers: Record<string, string>, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<ModelEntry[]> {
@@ -168,8 +168,11 @@ function imageInput(m: ModelEntry): boolean | undefined {
   const architecture = m.architecture as { input_modalities?: unknown } | undefined;
   const capabilities = m.capabilities as { input?: unknown; vision?: unknown } | undefined;
   if (typeof capabilities?.vision === "boolean") return capabilities.vision;
-  const modalities = architecture?.input_modalities ?? m.input_modalities ?? capabilities?.input;
-  if (Array.isArray(modalities) && modalities.every(v => typeof v === "string")) return modalities.includes("image");
+  const reported = m.modalities as { input?: unknown } | undefined;
+  const modalities = architecture?.input_modalities ?? m.input_modalities ?? capabilities?.input ?? reported?.input;
+  if (Array.isArray(modalities) && modalities.every(v => typeof v === "string")) {
+    return modalities.some(v => v === "image" || v.startsWith("image/"));
+  }
   return undefined;
 }
 
@@ -179,28 +182,39 @@ const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as co
 /**
  * Read reported reasoning support. Formats:
  * OpenRouter and Nous: `reasoning: { mandatory, supported_efforts }` and `supported_parameters`;
- * ZenMux: `capabilities.reasoning`; others: `supports_reasoning` or `reasoning: true`.
+ * ZenMux: boolean `capabilities.reasoning`; OpenCode: `{ supported, effort, toggle }`;
+ * others: `supports_reasoning` or `reasoning: true`.
  * Missing metadata stays unknown.
  */
 export function reasoningInfo(m: ModelEntry): Pick<CustomModelDef, "reasoning" | "thinkingLevelMap"> {
   const caps = m.capabilities as { reasoning?: unknown } | undefined;
   const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : undefined;
   const meta = m.reasoning && typeof m.reasoning === "object" ? m.reasoning as { mandatory?: unknown; supported_efforts?: unknown } : undefined;
+  const capability = caps?.reasoning && typeof caps.reasoning === "object"
+    ? caps.reasoning as { supported?: unknown; effort?: unknown; toggle?: unknown } : undefined;
   let reasoning: boolean | undefined;
   if (typeof m.reasoning === "boolean") reasoning = m.reasoning;
   else if (typeof m.supports_reasoning === "boolean") reasoning = m.supports_reasoning;
   else if (typeof caps?.reasoning === "boolean") reasoning = caps.reasoning;
   else if (meta) reasoning = true;
+  else if (typeof capability?.supported === "boolean") reasoning = capability.supported;
   else if (params) reasoning = params.includes("reasoning") || params.includes("reasoning_effort");
   if (!reasoning) return reasoning === undefined ? {} : { reasoning };
   const map: Partial<Record<ThinkingLevelName, string | null>> = {};
   if (meta?.mandatory === true) map.off = null;
-  const efforts = Array.isArray(meta?.supported_efforts) ? meta.supported_efforts.filter((e): e is string => typeof e === "string") : undefined;
-  if (efforts?.length) {
-    // Listed efforts map to themselves; every other level is unsupported and clamps to a listed one.
-    for (const level of EFFORT_LEVELS) map[level] = efforts.includes(level) ? level : null;
+  const advertised = meta?.supported_efforts ?? capability?.effort;
+  const efforts = Array.isArray(advertised) ? advertised.filter((e): e is string => typeof e === "string") : undefined;
+  if (efforts?.length || capability) {
+    // A reasoning capability (including a toggle) is not an effort API. With no
+    // advertised efforts, leave the model's automatic reasoning alone: no effort request.
+    for (const level of EFFORT_LEVELS) map[level] = efforts?.includes(level) ? level : null;
+    if (meta?.mandatory !== true) {
+      if (efforts?.includes("none")) map.off = "none";
+      else if (efforts?.includes("off")) map.off = "off";
+      else if (capability && efforts?.length && capability.toggle !== true) map.off = null;
+    }
     // Ultra is a harness level: it sends the highest listed effort and turns on proactive delegation.
-    if (efforts.includes("ultra")) map.ultra = "max";
+    if (efforts?.includes("ultra")) map.ultra = "max";
   }
   return Object.keys(map).length ? { reasoning, thinkingLevelMap: map } : { reasoning };
 }
