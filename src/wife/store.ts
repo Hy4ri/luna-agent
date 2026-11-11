@@ -3,7 +3,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 
-export const WIFE_KINDS = ["skill", "memory", "new_project", "move_session", "archive_session", "delete_session", "feature_tip", "tune_rule", "mute_rule", "mute_kind", "goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "new_rule", "promote_rule", "cost_habit", "compaction_heavy", "weekly_recap", "reminder_unscheduled", "worktree_orphan", "bg_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat"] as const;
+export const WIFE_KINDS = ["skill", "memory", "new_project", "move_session", "archive_session", "delete_session", "feature_tip", "tune_rule", "mute_rule", "mute_kind", "goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "new_rule", "promote_rule", "cost_habit", "compaction_heavy", "weekly_recap", "reminder_unscheduled", "worktree_orphan", "bg_leftover",  "browser_leftover", "rule_idea","tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat"] as const;
 export type WifeKind = (typeof WIFE_KINDS)[number];
 export const WIFE_STATUSES = ["open", "snoozed", "dismissed", "working", "done", "failed"] as const;
 export const DISMISS_REASONS = ["wrong", "not_now", "already_done", "dont_care_kind", "too_aggressive"] as const;

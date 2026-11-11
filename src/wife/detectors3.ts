@@ -24,6 +24,16 @@ export function bgLeftovers(terminals: TerminalView[], idle: (session: number) =
     evidence: [{ sessionId: t.session, note: "idle session" }], payload: { terminalId: t.id } }));
 }
 
+export interface BrowserTabView { tabId: string; session: number; url: string }
+/** An open browser tab in a session that is idle for more than a day, archived, or gone. */
+export function browserLeftovers(tabs: BrowserTabView[], idle: (session: number) => boolean): NewSuggestion[] {
+  return tabs.filter(t => idle(t.session)).map(t => ({
+    kind: "browser_leftover" as const, fingerprint: `browser_leftover:${t.tabId}`, source: "detector" as const,
+    title: `Close a leftover browser tab: ${t.url.replace(/^https?:\/\//, "").slice(0, 50)}`,
+    body: `Still open in session ${t.session}, which has been idle for over a day or is archived.`,
+    evidence: [{ sessionId: t.session, note: "idle session" }], payload: { tabId: t.tabId, session: t.session } }));
+}
+
 /** The same tool failing in 3 or more sessions in a week. The signature is the tool name. */
 export function toolErrorRepeat(rows: { name: string; errors: number; sessions: number; sample: number[] }[], week: string, min = 3): NewSuggestion[] {
   return rows.filter(r => r.sessions >= min).map(r => ({

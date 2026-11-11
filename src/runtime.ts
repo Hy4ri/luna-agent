@@ -358,6 +358,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     removeWorktree: async (path, branch) => removeSessionWorktree(path, branch),
     terminals: () => terminals.registry.all().map(t => ({ id: t.id, session: t.session, command: t.command, status: t.status })),
     closeTerminal: id => terminals.registry.close(id),
+    browserTabs: () => browserPanel.all().map(t => ({ tabId: t.tabId, session: t.session, url: t.url })),
+    closeBrowserTab: (session, tabId) => browserPanel.close(session, tabId),
     skills: skillMgr ? () => skillMgr.list().map(s => ({ name: s.name, managed: s.managed, modified: statSync(s.path).mtimeMs })) : undefined,
     trashSkill: skillMgr ? name => { skillMgr.deleteSkill(name); } : undefined,
     userMessages: recall ? (since, first) => (first
@@ -596,6 +598,7 @@ export const WIFE_JOB_PROMPT = [
   "2. Use `session_search` and recall to read sessions active since your last run. Read `skill action=list` and search memory first, so you do not duplicate what exists.",
   "3. Procedures that repeat across sessions become kind=skill cards (payload {name, existing, outline}). Stable facts or preferences m57 stated more than once become kind=memory cards (payload {key, content}).",
   "   Two skills that overlap or load together become a kind=skill card with existing=true and an outline that merges them. Facts or notes that contradict each other or are out of date become a kind=memory card with the corrected content for the same key. A correction m57 made in 3 or more sessions becomes a memory card (a fact) or a skill card (a procedure rule).",
+  "   Also: a repeated way m57 uses tools that a new rule could flag becomes kind=new_rule (payload {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool,kind,project,cwd,idleDays}}}); a good rule that needs data Wife does not collect becomes kind=rule_idea (payload {idea}). If m57 said remind me, later, or tomorrow in a session and nothing scheduled it, file kind=reminder_unscheduled with a future dueAt (payload {sessionId, content, dueAt}).",
   "4. File at most 5 cards with `wife action=suggest`. Each needs real evidence sessions with a note. Prefer fewer, stronger cards.",
   "5. Finish with one line: what you filed, or 'nothing'.",
 ].join("\n");

@@ -2,7 +2,7 @@
 import type { AnalyticsStore } from "../analytics/store.js";
 import { ConversationError, type ConversationStore } from "../conversations.js";
 import { batchCards, misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
-import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans, type TerminalView } from "./detectors3.js";
+import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans, browserLeftovers, type BrowserTabView, type TerminalView } from "./detectors3.js";
 import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "./detectors2.js";
 import { inQuietHours, inScope, startOfLocalDay, type WifePolicy } from "./policy.js";
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
@@ -10,7 +10,7 @@ import { type CostRow, compactionHeavy, costHabit, weeklyRecap } from "./detecto
 import { matchTips, TipSchema, type ToolCounts, type WifeTip } from "./tips.js";
 import type { NewSuggestion, Inverse, Suggestion, WifeStore } from "./store.js";
 
-const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat", "cost_habit", "compaction_heavy", "weekly_recap", "promote_rule", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
+const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "browser_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat", "cost_habit", "compaction_heavy", "weekly_recap", "promote_rule", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
 export interface WifeServiceOptions {
@@ -30,6 +30,8 @@ export interface WifeServiceOptions {
   removeWorktree?: (path: string, branch: string) => Promise<void>;
   terminals?: () => TerminalView[];
   closeTerminal?: (id: string) => void;
+  browserTabs?: () => BrowserTabView[];
+  closeBrowserTab?: (session: number, tabId: string) => Promise<void>;
   /** Installed skills, and a way to move a managed one to the skill trash. */
   skills?: () => { name: string; managed: boolean; modified: number }[];
   trashSkill?: (name: string) => void;
@@ -60,16 +62,28 @@ export class WifeService {
     const store = this.o.analytics();
     const tips = this.o.config().tips ?? [];
     const FACT = { tool: "tool", skill: "skill", compaction: "compaction" } as const;
-    const toolCounts = (days: number, kind: keyof typeof FACT = "tool"): ToolCounts => {
-      const rows = store.db.query<{ name: string; calls: number; sessions: number }, [number]>(
-        `SELECT f.name AS name, COUNT(*) AS calls, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='${FACT[kind]}' AND f.ts>=? AND s.deleted_at IS NULL GROUP BY f.name`).all(now - days * 86_400_000);
+    const scopeSql = (t?: WifeTip): { sql: string; args: (string | number)[] } => {
+      const sql: string[] = [], args: (string | number)[] = [];
+      if (t?.when.project !== undefined) { sql.push("s.project_id=?"); args.push(t.when.project); }
+      if (t?.when.cwd) { sql.push("instr(s.cwd, ?)>0"); args.push(t.when.cwd); }
+      return { sql: sql.map(x => ` AND ${x}`).join(""), args };
+    };
+    const toolCounts = (days: number, kind: keyof typeof FACT = "tool", tip?: WifeTip): ToolCounts => {
+      const sc = scopeSql(tip);
+      const rows = store.db.query<{ name: string; calls: number; sessions: number }, (string | number)[]>(
+        `SELECT f.name AS name, COUNT(*) AS calls, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='${FACT[kind]}' AND f.ts>=? AND s.deleted_at IS NULL${sc.sql} GROUP BY f.name`).all(now - days * 86_400_000, ...sc.args);
       return new Map(rows.map(r => [r.name, { calls: r.calls, sessions: r.sessions }]));
     };
-    const tipCards = matchTips(tips, toolCounts, n => this.o.extensions?.enabled(n) ?? false);
+    const idleOf = (t: WifeTip): number | null => {
+      const sc = scopeSql(t);
+      const r = store.db.query<{ last: number | null }, (string | number)[]>(`SELECT MAX(f.ts) AS last FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='${FACT[t.when.kind]}' AND f.name=? AND s.deleted_at IS NULL${sc.sql}`).get(t.when.tool, ...sc.args);
+      return r?.last ? (now - r.last) / DAY : null;
+    };
+    const tipCards = matchTips(tips, toolCounts, n => this.o.extensions?.enabled(n) ?? false, false, idleOf);
     found.push(...tipCards, ...goalUnfinished(sessions, now));
     // Shadow rules only log. After 7 days a promote card shows what they would have flagged.
     for (const t of tips.filter(x => x.status === "shadow")) {
-      for (const c of matchTips([t], toolCounts, n => this.o.extensions?.enabled(n) ?? false, true)) this.o.store.logShadow(t.id, c.title, now);
+      for (const c of matchTips([t], toolCounts, n => this.o.extensions?.enabled(n) ?? false, true, idleOf)) this.o.store.logShadow(t.id, c.title, now);
       if (t.shadowSince !== undefined && now - t.shadowSince >= 7 * DAY) {
         const hits = this.o.store.shadowHits(t.id, t.shadowSince);
         found.push({ kind: "promote_rule", ruleId: "promote_rule", fingerprint: `promote_rule:${t.id}`, source: "detector", title: `Turn on your rule "${t.title}"?`,
@@ -92,6 +106,7 @@ export class WifeService {
     found.push(...costHabit(costRows, sessions, week), ...weeklyRecap(cards.filter(c => inScope(scopeNow, c.project)), now, week));
     const compRows = store.db.query<{ session: number; n: number }, []>("SELECT f.session_id AS session, COUNT(*) AS n FROM analytics_facts f WHERE f.kind='compaction' GROUP BY f.session_id HAVING n>=3").all();
     found.push(...compactionHeavy(compRows, sessions, now));
+    if (this.o.browserTabs) found.push(...browserLeftovers(this.o.browserTabs(), idleSession));
     if (this.o.worktrees) found.push(...worktreeOrphans(this.o.worktrees().map(w => {
       const sid = /^luna\/s(\d+)(?:-|$)/.exec(w.branch)?.[1]; const sessionId = sid ? Number(sid) : null;
       const rec = sessionId === null ? undefined : sessionById.get(sessionId);
@@ -308,6 +323,16 @@ export class WifeService {
         if (!(p.dueAt > now)) throw new WifeError(409, "that time has passed");
         await this.o.scheduleMessage(p.sessionId, p.content, p.dueAt, `wife-reminder-${id}`);
         result = `Scheduled for ${new Date(p.dueAt).toISOString().slice(0, 16).replace("T", " ")} UTC.`;
+      } else if (card.kind === "rule_idea") {
+        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        const first = card.evidence[0]?.sessionId;
+        const sidR = await this.o.startSession(first === undefined ? null : conv.projects.projectOf(first) ?? null, `Wife rule idea: ${card.title}`.slice(0, 100),
+          `Wife has a rule idea that needs data she does not collect yet.\n\n${card.body}\n\nIdea: ${String(card.payload.idea ?? "")}\n\nIn the luna-pi repo, start your own worktree (session_worktree) and implement it as a detector under src/wife with a test. Commit on that branch. Do not merge, and do not restart the daemon. Tell me when it is ready to review.`, `wife-${id}`);
+        this.o.store.setStatus(id, "working", { sessionId: sidR, result: "Implementing the idea on a branch in a work session. Nothing merges without you." });
+        this.o.store.record(card, "agree", null, "work session");
+        return this.o.store.get(id)!;
+      } else if (card.kind === "browser_leftover") {
+        await this.o.closeBrowserTab?.(Number(card.payload.session), String(card.payload.tabId)); result = "Closed the tab.";
       } else if (card.kind === "bg_leftover") {
         this.o.closeTerminal?.(String(card.payload.terminalId)); result = "Stopped the terminal.";
       } else if (card.kind === "skill_unused") {

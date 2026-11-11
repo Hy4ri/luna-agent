@@ -11,6 +11,10 @@ export const TipSchema = z.strictObject({
     withinDays: z.number().int().min(1).max(365).default(30), withoutTool: z.string().min(1).optional(),
     /** Which analytics facts `tool` and `withoutTool` name. Default: tool calls. */
     kind: z.enum(["tool", "skill", "compaction"]).default("tool"),
+    /** Count only sessions of this project id, or whose cwd contains this text. */
+    project: z.number().int().min(0).optional(), cwd: z.string().min(1).optional(),
+    /** Fire only when the newest matching session has been idle for at least this many days. */
+    idleDays: z.number().int().min(1).max(365).optional(),
   }),
   /** `shadow` rules only log what they would flag. A shadow rule that Wife proposed becomes `on` when you agree to its promote card. */
   status: z.enum(["on", "shadow"]).default("on"),
@@ -38,11 +42,12 @@ export const DEFAULT_TIPS: WifeTip[] = [
 export type ToolCounts = Map<string, { calls: number; sessions: number }>;
 
 /** `counts` must cover the widest window of any tip; `countsIn` gives the counts for one window. */
-export function matchTips(tips: WifeTip[], countsIn: (withinDays: number, kind: WifeTip["when"]["kind"]) => ToolCounts, enabled: (extension: string) => boolean = () => false, shadow = false): NewSuggestion[] {
+export function matchTips(tips: WifeTip[], countsIn: (withinDays: number, kind: WifeTip["when"]["kind"], tip: WifeTip) => ToolCounts, enabled: (extension: string) => boolean = () => false, shadow = false, idleDays: (tip: WifeTip) => number | null = () => null): NewSuggestion[] {
   const out: NewSuggestion[] = [];
   for (const t of tips) {
     if ((t.status === "shadow") !== shadow) continue;
-    const counts = countsIn(t.when.withinDays, t.when.kind);
+    const counts = countsIn(t.when.withinDays, t.when.kind, t);
+    if (t.when.idleDays !== undefined) { const idle = idleDays(t); if (idle === null || idle < t.when.idleDays) continue; }
     const used = counts.get(t.when.tool);
     if (!used || used.calls < t.when.minCalls || used.sessions < t.when.minSessions) continue;
     if (t.when.withoutTool && (counts.get(t.when.withoutTool)?.calls ?? 0) > 0) continue;

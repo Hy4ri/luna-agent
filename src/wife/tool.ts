@@ -6,7 +6,7 @@ import type { WifeService } from "./service.js";
 import type { NewSuggestion } from "./store.js";
 import { TipSchema } from "./tips.js";
 
-const KINDS = ["skill", "memory", "feature_tip", "new_project", "new_rule", "reminder_unscheduled"] as const;
+const KINDS = ["skill", "memory", "feature_tip", "new_project", "new_rule", "rule_idea", "reminder_unscheduled"] as const;
 const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
@@ -16,7 +16,7 @@ const Params = Type.Object({
   title: Type.Optional(Type.String({ description: "suggest: short title." })),
   body: Type.Optional(Type.String({ description: "suggest: why, in one or two sentences." })),
   evidence: Type.Optional(Type.Array(Type.Object({ sessionId: Type.Number(), note: Type.String() }), { description: "suggest: sessions that show the pattern. Each must exist." })),
-  payload: Type.Optional(Type.Object({}, { additionalProperties: true, description: "memory: {key?, content}. skill: {name, existing?, outline}. new_project: {name, cwd, worker, sessionIds}. feature_tip: {}. new_rule: {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool?,kind?:tool|skill|compaction}}}. reminder_unscheduled: {sessionId, content, dueAt (epoch ms, future)}." })),
+  payload: Type.Optional(Type.Object({}, { additionalProperties: true, description: "memory: {key?, content}. skill: {name, existing?, outline}. new_project: {name, cwd, worker, sessionIds}. feature_tip: {}. new_rule: {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool?,kind?:tool|skill|compaction}}}. rule_idea (a rule that needs data Wife lacks): {idea}. reminder_unscheduled: {sessionId, content, dueAt (epoch ms, future)}." })),
 });
 type Args = Static<typeof Params>;
 
@@ -43,6 +43,9 @@ export function buildCard(a: Args, sessionExists: (id: number) => boolean): NewS
     const t = TipSchema.safeParse({ ...(p.tip as object), status: "shadow" });
     if (!t.success) return `new_rule payload.tip is not valid: ${t.error.issues[0]?.message}`;
     key = t.data.id;
+  } else if (a.kind === "rule_idea") {
+    if (typeof p.idea !== "string" || !p.idea.trim()) return "rule_idea payload needs idea";
+    key = slug(a.title);
   } else if (a.kind === "reminder_unscheduled") {
     if (!Number.isSafeInteger(p.sessionId) || !sessionExists(p.sessionId as number)) return "reminder payload needs an existing sessionId";
     if (typeof p.content !== "string" || !p.content.trim() || p.content.startsWith("/")) return "reminder payload needs plain content";
