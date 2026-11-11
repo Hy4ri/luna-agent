@@ -10,11 +10,12 @@ const DAY = 86_400_000, NOW = 100 * DAY;
 const sess = (id: number, project: number, cost: number, turns: number, extra = {}) => ({ id, projectId: project, projectName: `p${project}`, deletedAt: null, archived: false, lastActivity: NOW - DAY, title: null,
   assistantTurns: turns, usage: { cost: { total: cost } }, modelUsage: { "m/x": { cost: { total: cost } } }, ...extra }) as never;
 
-test("cost_habit flags only a project above 2x the median", () => {
-  const s = [sess(1, 1, 1, 100), sess(2, 2, 1, 100), sess(3, 3, 1, 100), sess(4, 4, 5, 100)];
-  const c = costHabit(s, NOW, "w");
-  assert.deepEqual(c.map(x => x.payload.project), [4]);
-  assert.equal(costHabit(s.slice(0, 3), NOW, "w").length, 0);
+test("cost_habit uses window rows only and flags only a project above 2x the median", () => {
+  const ss = [sess(1, 1, 0, 0), sess(2, 2, 0, 0), sess(3, 3, 0, 0), sess(4, 4, 0, 0)];
+  const row = (session: number, cost: number) => ({ session, model: "m/x", cost, turns: 100 });
+  assert.deepEqual(costHabit([row(1, 1), row(2, 1), row(3, 1), row(4, 5)], ss, "w").map(x => x.payload.project), [4]);
+  assert.equal(costHabit([row(1, 1), row(2, 1), row(3, 1)], ss, "w").length, 0);
+  assert.equal(costHabit([row(1, 1), row(2, 1), row(3, 1), { ...row(4, 50), turns: 5 }], ss, "w").length, 0);
 });
 
 test("compaction_heavy needs 3 compactions in a live session", () => {

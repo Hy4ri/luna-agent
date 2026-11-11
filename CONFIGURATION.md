@@ -467,7 +467,7 @@ Cost and context: `cost_habit` flags a project whose cost per turn is over 2x th
 
 Rule trials: the daily model pass can file `new_rule` cards with a rule in the `tips` format. Agree adds it with `status: "shadow"`. A shadow rule only logs what it would flag. After 7 days a `promote_rule` card lists those hits. Agree turns the rule on, and Dismiss deletes it. A tip's `when.kind` can be `tool`, `skill` or `compaction`. The `reminder_unscheduled` card (model-found) schedules a message into a session on Agree.
 
-Not built yet: leftover browser tabs (only terminals are checked), rules on idle time, project or cwd, and the crew and subagent tips (they need the model pass to know what crew is for).
+Not built yet: leftover browser tabs (only terminals are checked), rules on idle time, project or cwd, and nothing opens a work session on a branch for ideas that need new data. Crew and subagent tips ship as default tips (`subagents`, `crew`); an existing saved `tips` list must add them by hand.
 
 ## Learning from a source
 

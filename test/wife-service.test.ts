@@ -14,7 +14,7 @@ import { WifeService } from "../src/wife/service.js";
 
 function emptyAnalytics() {
   const db = new Database(":memory:");
-  db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
+  db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0, cost_total REAL); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
   return db;
 }
 async function fixture() {
@@ -90,10 +90,10 @@ test("deleting needs confirm and a session that is archived and unpinned", async
 test("a feature tip needs heavy use of one tool and none of the other, and agree enables its extension", async () => {
   const { matchTips, DEFAULT_TIPS, TipSchema } = await import("../src/wife/tips.js");
   const heavy = (extra: [string, number][] = []) => () => new Map<string, { calls: number; sessions: number }>([["bash", { calls: 500, sessions: 40 }], ...extra.map(([n, c]) => [n, { calls: c, sessions: 3 }] as [string, { calls: number; sessions: number }])]);
-  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy()).map(c => c.fingerprint), ["feature_tip:codemode", "feature_tip:background-processes"]);
-  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy([["codemode", 1]])).map(c => c.fingerprint), ["feature_tip:background-processes"]);
+  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy()).map(c => c.fingerprint), ["feature_tip:codemode", "feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
+  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy([["codemode", 1]])).map(c => c.fingerprint), ["feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
   assert.deepEqual(matchTips(DEFAULT_TIPS, () => new Map([["bash", { calls: 10, sessions: 2 }]])), []);
-  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy(), n => n === "codemode").map(c => c.fingerprint), ["feature_tip:background-processes"]);
+  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy(), n => n === "codemode").map(c => c.fingerprint), ["feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
   const bad = TipSchema.safeParse({ id: "x", title: "t", body: "b", when: { tool: "bash", minCalls: 0 } });
   assert.equal(bad.success, false);
   assert.match(JSON.stringify(bad.error!.issues[0]!.path), /minCalls/);

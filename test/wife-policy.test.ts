@@ -26,7 +26,7 @@ test("project scope: all, only, except", () => {
 
 function service(cfg: Record<string, unknown>, sessions: unknown[], clock: { t: number }) {
   const db = new Database(":memory:");
-  db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
+  db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0, cost_total REAL); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
   const store = new WifeStore(":memory:", () => clock.t);
   const conversations = { projects: { list: () => [], links: () => new Map() }, board: { list: () => [] } } as never;
   const wife = new WifeService({ store, conversations, analytics: () => ({ sessions: () => sessions, db }) as never, now: () => clock.t,

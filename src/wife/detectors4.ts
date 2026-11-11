@@ -5,14 +5,16 @@ import type { NewSuggestion } from "./store.js";
 const DAY = 86_400_000;
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2; };
 
-/** A project whose cost per assistant turn is more than `factor` times the median of all projects, over the last 30 days. */
-export function costHabit(sessions: AnalyticsSessionRecord[], now: number, week: string, factor = 2, minTurns = 20): NewSuggestion[] {
-  const by = new Map<number, { name: string; cost: number; turns: number; models: Map<string, number>; sessions: number[] }>();
-  for (const s of sessions) {
-    if (s.deletedAt !== null || s.projectId === 0 || (s.lastActivity ?? 0) < now - 30 * DAY) continue;
-    const g = by.get(s.projectId) ?? { name: s.projectName, cost: 0, turns: 0, models: new Map<string, number>(), sessions: [] as number[] };
-    g.cost += s.usage?.cost?.total ?? 0; g.turns += s.assistantTurns; g.sessions.push(s.id);
-    for (const [m, u] of Object.entries(s.modelUsage ?? {})) g.models.set(m, (g.models.get(m) ?? 0) + (u.cost?.total ?? 0));
+export interface CostRow { session: number; model: string; cost: number; turns: number }
+/** A project whose cost per response in the window (rows must already be limited to it) is more than `factor` times the median of all projects. */
+export function costHabit(rows: CostRow[], sessions: AnalyticsSessionRecord[], week: string, factor = 2, minTurns = 20): NewSuggestion[] {
+  const byId = new Map(sessions.map(s => [s.id, s]));
+  const by = new Map<number, { name: string; cost: number; turns: number; models: Map<string, number>; sessions: Set<number> }>();
+  for (const r of rows) {
+    const s = byId.get(r.session);
+    if (!s || s.deletedAt !== null || s.projectId === 0) continue;
+    const g = by.get(s.projectId) ?? { name: s.projectName, cost: 0, turns: 0, models: new Map<string, number>(), sessions: new Set<number>() };
+    g.cost += r.cost; g.turns += r.turns; g.sessions.add(r.session); g.models.set(r.model, (g.models.get(r.model) ?? 0) + r.cost);
     by.set(s.projectId, g);
   }
   const eligible = [...by.entries()].filter(([, g]) => g.turns >= minTurns && g.cost > 0);
@@ -22,9 +24,9 @@ export function costHabit(sessions: AnalyticsSessionRecord[], now: number, week:
   return eligible.filter(([, g]) => g.cost / g.turns > factor * med).map(([id, g]) => {
     const top = [...g.models.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "unknown";
     const per = g.cost / g.turns;
-    return { kind: "cost_habit" as const, fingerprint: `cost_habit:${id}:${week}`, source: "detector" as const, title: `Project "${g.name}" costs ${(per / med).toFixed(1)}x the median per turn`,
-      body: `$${per.toFixed(3)} per turn over ${g.turns} turns in 30 days, against a median of $${med.toFixed(3)}. Most of it went to ${top}. Agree opens a session to look at a cheaper model or thinking level.`,
-      evidence: g.sessions.slice(0, 3).map(sid => ({ sessionId: sid, note: "in this project" })), payload: { project: id, model: top, perTurn: per, median: med } };
+    return { kind: "cost_habit" as const, fingerprint: `cost_habit:${id}:${week}`, source: "detector" as const, title: `Project "${g.name}" costs ${(per / med).toFixed(1)}x the median per response`,
+      body: `$${per.toFixed(3)} per response over ${g.turns} responses in 30 days, against a median of $${med.toFixed(3)}. Most of it went to ${top}. Agree opens a session to look at a cheaper model or thinking level.`,
+      evidence: [...g.sessions].slice(0, 3).map(sid => ({ sessionId: sid, note: "in this project" })), payload: { project: id, model: top, perTurn: per, median: med } };
   });
 }
 

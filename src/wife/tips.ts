@@ -27,6 +27,12 @@ export const DEFAULT_TIPS: WifeTip[] = [
   { id: "background-processes", title: "Run long commands in the background",
     body: "You call bash a lot, and you never use process_manage. Background mode returns at once and wakes the chat when the command ends.",
     when: { tool: "bash", minCalls: 100, minSessions: 5, withinDays: 30, withoutTool: "process_manage", kind: "tool" }, status: "on" },
+  { id: "subagents", title: "Delegate side work to subagents",
+    body: "You run long tool-heavy sessions and never use subagent. A subagent does a side task in its own context and returns only the answer, so the main session stays small.",
+    when: { tool: "bash", minCalls: 300, minSessions: 8, withinDays: 30, withoutTool: "subagent", kind: "tool" }, status: "on" },
+  { id: "crew", title: "Try a crew for parallel work",
+    body: "You run many heavy sessions and never use session_crew. A crew lets one lead session hand tasks to full sessions you can watch in the sidebar.",
+    when: { tool: "bash", minCalls: 300, minSessions: 8, withinDays: 30, withoutTool: "session_crew", kind: "tool" }, status: "on" },
 ];
 
 export type ToolCounts = Map<string, { calls: number; sessions: number }>;

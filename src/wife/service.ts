@@ -6,7 +6,7 @@ import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorR
 import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "./detectors2.js";
 import { inQuietHours, inScope, startOfLocalDay, type WifePolicy } from "./policy.js";
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
-import { compactionHeavy, costHabit, weeklyRecap } from "./detectors4.js";
+import { type CostRow, compactionHeavy, costHabit, weeklyRecap } from "./detectors4.js";
 import { matchTips, TipSchema, type ToolCounts, type WifeTip } from "./tips.js";
 import type { NewSuggestion, Inverse, Suggestion, WifeStore } from "./store.js";
 
@@ -87,7 +87,9 @@ export class WifeService {
       ownerSession: /^session (\d+)$/.exec(c.owner ?? "")?.[1] ? Number(/^session (\d+)$/.exec(c.owner!)![1]) : null })));
     found.push(...boardStuck(cards, idleSession, now));
     const week = String(Math.floor(now / (7 * DAY)));
-    found.push(...costHabit(sessions, now, week), ...weeklyRecap(cards, now, week));
+    const scopeNow = this.o.config().projects ?? { mode: "all" as const, ids: [] };
+    const costRows = store.db.query<CostRow, [number]>("SELECT session_id AS session, COALESCE(model,'unknown') AS model, COALESCE(SUM(cost_total),0) AS cost, COUNT(*) AS turns FROM analytics_facts WHERE kind='response' AND ts>=? GROUP BY session_id, 2").all(now - 30 * DAY);
+    found.push(...costHabit(costRows, sessions, week), ...weeklyRecap(cards.filter(c => inScope(scopeNow, c.project)), now, week));
     const compRows = store.db.query<{ session: number; n: number }, []>("SELECT f.session_id AS session, COUNT(*) AS n FROM analytics_facts f WHERE f.kind='compaction' GROUP BY f.session_id HAVING n>=3").all();
     found.push(...compactionHeavy(compRows, sessions, now));
     if (this.o.worktrees) found.push(...worktreeOrphans(this.o.worktrees().map(w => {
@@ -162,7 +164,8 @@ export class WifeService {
     if ((cfg.mutedRules ?? []).includes(card.ruleId ?? card.kind) || (cfg.mutedKinds ?? []).includes(card.kind)) return "skip";
     const projectOf = new Map(this.o.analytics().sessions().map(x => [x.id, x.projectId]));
     const scope = cfg.projects ?? { mode: "all" as const, ids: [] };
-    if (!card.evidence.every(e => inScope(scope, projectOf.get(e.sessionId) ?? 0))) return "skip";
+    const targets = [...card.evidence.map(e => e.sessionId), ...(card.payload.sessionId !== undefined ? [Number(card.payload.sessionId)] : []), ...(Array.isArray(card.payload.sessionIds) ? (card.payload.sessionIds as number[]) : [])];
+    if (!targets.every(i => inScope(scope, projectOf.get(i) ?? 0))) return "skip";
     return !inQuietHours(cfg.quietHours ?? null, now) && this.o.store.shownSince(startOfLocalDay(now)) < (cfg.maxNewPerDay ?? 10) ? "show" : "hold";
   }
   /** The text a Discuss session starts with: the card, its evidence, and the action Wife proposes. */
@@ -321,7 +324,10 @@ export class WifeService {
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;
       } else if (card.kind === "goal_unfinished" || card.kind === "tool_error_repeat" || card.kind === "quota_waits") {
-        const sid3 = await this.discuss(id);
+        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        const first3 = card.evidence[0]?.sessionId;
+        const sid3 = await this.o.startSession(first3 === undefined ? null : conv.projects.projectOf(first3) ?? null, `Wife: ${card.title}`.slice(0, 100),
+          `${this.seedMessage(card).replace(/\n\nLet's talk it through\..*$/s, "")}\n\nI agreed to this. Do the work: read the evidence, fix the cause or finish the task, and report what you changed. Do not merge or delete anything.`, `wife-${id}`);
         this.o.store.setStatus(id, "working", { sessionId: sid3, result: "Working on it in a session." });
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;

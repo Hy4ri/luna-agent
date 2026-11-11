@@ -6,7 +6,7 @@ import { WifeStore } from "../src/wife/store.js";
 import { WifeService } from "../src/wife/service.js";
 
 const db = new Database(":memory:");
-db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
+db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0, cost_total REAL); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
 function setup(over: { records?: { id: number; status: string }[]; skills?: Set<string> } = {}) {
   const sent: { project: number | null; title: string; content: string }[] = [];
   const store = new WifeStore(":memory:");
@@ -83,4 +83,21 @@ test("admit skips muted kinds and holds model cards over the daily cap", () => {
   assert.equal(a.wife.admit(base), "skip");
   cfg.config = () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, maxNewPerDay: 0 });
   assert.equal(a.wife.admit(base), "hold");
+});
+
+test("the agree seed for a goal card authorizes the work", async () => {
+  const a = setup({ records: [{ id: 901, status: "finished" }] });
+  const g = a.store.file({ kind: "goal_unfinished", fingerprint: "goal_unfinished:6", title: "Resume", body: "b", evidence: [{ sessionId: 5, note: "n" }], payload: { sessionId: 5 }, source: "detector" })!;
+  await a.wife.agree(g.id);
+  assert.doesNotMatch(a.sent[0]!.content, /Do not change anything/);
+  assert.match(a.sent[0]!.content, /Do the work/);
+});
+
+test("admit checks the action target session, not only the evidence", () => {
+  const a = setup();
+  (a.wife as unknown as { o: { config: () => Record<string, unknown>; analytics: () => unknown } }).o.config = () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, projects: { mode: "only", ids: [1] } });
+  (a.wife as unknown as { o: { analytics: () => unknown } }).o.analytics = () => ({ sessions: () => [{ id: 1, projectId: 1 }, { id: 2, projectId: 2 }] });
+  const card = { kind: "reminder_unscheduled" as const, fingerprint: "r", title: "t", body: "b", evidence: [{ sessionId: 1, note: "n" }], payload: { sessionId: 2 }, source: "model" as const };
+  assert.equal(a.wife.admit(card), "skip");
+  assert.equal(a.wife.admit({ ...card, payload: { sessionId: 1 } }), "show");
 });
