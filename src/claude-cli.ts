@@ -1,5 +1,5 @@
 // Claude Code owns authentication; Luna owns tools and the authoritative transcript.
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { query } from "@anthropic-ai/claude-agent-sdk";
 import { LIMIT_DIAGNOSTIC } from "./provider-limits.js";
 import { ClaudeTransportError } from "./claude-native/types.js";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
@@ -180,6 +180,7 @@ export function claudeCliProvider() {
       let session: ReturnType<typeof query> | undefined;
       try {
         // An empty iterable sends no user frame. Only the initialize handshake is used.
+        const { query } = await import("@anthropic-ai/claude-agent-sdk");
         session = query({ prompt: (async function* () {})(), options: {
           pathToClaudeCodeExecutable: executable, tools: [], settingSources: [], env,
           abortController: controller,
