@@ -1,7 +1,7 @@
 // Shared user settings. Credentials and generated OAuth device state are not user configuration.
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, chmodSync, unlinkSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ConfigSchema, parseConfig, type LunaConfig } from "./config.js";
+import { ConfigSchema, configDiagnostic, parseConfig, type LunaConfig } from "./config.js";
 
 export type Settings = ReturnType<typeof ConfigSchema.parse>;
 export interface SettingsView {
@@ -21,6 +21,10 @@ const RESOLVE_ENV = ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LU
 
 export class SettingsStore {
   private applied: Settings;
+  private lastValid: Settings;
+  private error?: string;
+  /** Refresh diagnostics without allowing an invalid external edit to break live policy readers. */
+  get configError(): string | undefined { this.shared(); return this.error; }
   private resolvedCache?: { file: string; env: string; value: LunaConfig };
   private viewCache?: { file: string; serialized: string; view: SettingsView; revision: string };
   private listeners: ((old: Settings, next: Settings) => Promise<string[]>)[] = [];
@@ -50,12 +54,23 @@ export class SettingsStore {
       changed = true;
     }
     this.applied = ConfigSchema.parse(raw);
+    this.lastValid = this.applied;
     if (changed) this.write(this.applied);
+    this.shared();
   }
   private readRaw(): Record<string, any> {
     return existsSync(this.path) ? JSON.parse(readFileSync(this.path, "utf8")) : {};
   }
-  read(): Settings { return ConfigSchema.parse(this.readRaw()); }
+  private readValidated(): Settings {
+    // A deleted live file is not a request to reset all settings to defaults.
+    const value = ConfigSchema.parse(JSON.parse(readFileSync(this.path, "utf8")));
+    this.lastValid = structuredClone(value);
+    return value;
+  }
+  read(): Settings {
+    try { return this.readValidated(); }
+    catch (e) { this.error = configDiagnostic(e); return structuredClone(this.lastValid); }
+  }
   /**
    * Live policy reads call this many times per request. Reuse the validated result until the file changes.
    * The file identity includes inode and nanosecond change time, so atomic saves and external edits both refresh it.
@@ -70,9 +85,16 @@ export class SettingsStore {
     const file = this.fileIdentity(), envKey = RESOLVE_ENV.map(k => env[k] ?? "\0").join("\n");
     const cached = this.resolvedCache;
     if (cached && cached.file === file && cached.env === envKey) return cached.value;
-    const value = deepFreeze(parseConfig(this.read(), dirname(this.path), env));
-    this.resolvedCache = { file, env: envKey, value };
-    return value;
+    try {
+      const value = deepFreeze(parseConfig(this.readValidated(), dirname(this.path), env));
+      this.resolvedCache = { file, env: envKey, value };
+      this.error = undefined;
+      return value;
+    } catch (e) {
+      this.error = configDiagnostic(e);
+      if (cached) return cached.value;
+      throw e; // No last-known-good policy exists during initial construction.
+    }
   }
   private fileIdentity() {
     try {
@@ -100,7 +122,7 @@ export class SettingsStore {
     return warnings;
   }
   update(fn: (s: Settings) => void) {
-    const next = this.read(); fn(next);
+    const next = this.readValidated(); fn(next);
     this.write(ConfigSchema.parse(next));
   }
   revision() { return new Bun.CryptoHasher("sha256").update(readFileSync(this.path)).digest("hex"); }
@@ -119,7 +141,7 @@ export class SettingsStore {
     if (this.viewCache && this.viewCache.file === file) {
       return this.viewCache;
     }
-    const config = this.read();
+    const config = this.readValidated();
     for (const s of config.mcpServers) {
       if (s.transport === "stdio") { for (const k of Object.keys(s.env ?? {})) s.env![k] = HIDDEN; }
       else { for (const k of Object.keys(s.headers ?? {})) s.headers![k] = HIDDEN; s.url = hideUrl(s.url); }
@@ -142,7 +164,7 @@ export class SettingsStore {
     if (revision !== this.revision()) throw new Error("Settings changed. Reload before saving.");
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("config must be an object");
     const raw = structuredClone(input) as Settings;
-    const old = this.read();
+    const old = this.readValidated();
     for (const s of raw.mcpServers ?? []) {
       const prev = old.mcpServers.find(p => p.name === s.name && p.transport === s.transport);
       if (s.transport === "stdio") restoreMap(s.env, prev?.transport === "stdio" ? prev.env : undefined);

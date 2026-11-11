@@ -345,6 +345,13 @@ export function bindRefusal(host: string, token: string | undefined): string | u
   return "refusing to bind non-loopback host without LUNA_TOKEN";
 }
 
+/** JSON parser errors can include source text (and secrets); never send those snippets to a client. */
+export function configDiagnostic(error: unknown): string {
+  if (error instanceof SyntaxError) return "Invalid JSON. Check commas, quotes, and brackets in the config file.";
+  if (error instanceof z.ZodError) return "invalid luna config:\n" + error.issues.map(i => `  ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n");
+  return error instanceof Error ? error.message : "Cannot read Luna configuration.";
+}
+
 /** Load LUNA_CONFIG (default ~/.luna/luna.config.json). A missing default file means all defaults. */
 export function loadConfig(path = process.env.LUNA_CONFIG): LunaConfig {
   const file = resolve(path ?? join(homedir(), ".luna", "luna.config.json"));
@@ -353,6 +360,6 @@ export function loadConfig(path = process.env.LUNA_CONFIG): LunaConfig {
     return { ...parseConfig({}), configPath: file };
   }
   let raw: unknown;
-  try { raw = JSON.parse(readFileSync(file, "utf8")); } catch (e) { throw new Error(`${file}: ${(e as Error).message}`); }
+  try { raw = JSON.parse(readFileSync(file, "utf8")); } catch (e) { throw new Error(`${file}: ${configDiagnostic(e)}`); }
   return { ...parseConfig(raw, dirname(file)), configPath: file };
 }

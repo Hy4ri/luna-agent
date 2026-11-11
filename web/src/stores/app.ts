@@ -296,6 +296,14 @@ export async function boot() {
     const hl = await response.json();
     if (own !== bootGeneration) return;
     if (hl.auth && !token.value) return showLogin();
+    if (hl.ready === false) {
+      // Recovery is a reachable daemon, not a network outage. Keep the config banner visible.
+      needsBoot = true; chat.chat.connected = false;
+      chat.chat.bootError = "Configuration error. Fix the config file to resume.";
+      reportConnectionFailure(bootFailureSource, false);
+      retryBoot();
+      return;
+    }
     // Remembering addresses is a separate read that never fails. Do not delay the transcript behind it.
     remembered = rememberConnection();
     // The list stream registers before its initial invalidation. Let that event load the list once.

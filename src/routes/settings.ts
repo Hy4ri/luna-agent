@@ -8,6 +8,11 @@ import { supportedSpeeds } from "../speed.js";
 export function registerSettings(app: Hono, ctx: RouteCtx): void {
   const { opts, err, baseAgent, thinkingDefaults } = ctx;
 
+  app.get("/v1/config/status", c => {
+    c.header("cache-control", "no-store");
+    return c.json({ error: opts.settings?.configError ?? null, path: opts.settings?.path ?? null, recovery: false });
+  });
+
   // The view is cached until the file changes; the revision doubles as a strong ETag, so a reload can answer 304.
   app.get("/v1/settings", (c) => {
     if (!opts.settings) return err(c, 404, "settings disabled");
