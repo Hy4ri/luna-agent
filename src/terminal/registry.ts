@@ -138,7 +138,16 @@ export class TerminalRegistry {
     if (entry.info.status !== "running") return;
     entry.ring.push(chunk);
     entry.ringBytes += chunk.length;
-    while (entry.ringBytes > this.ringLimit && entry.ring.length > 1) entry.ringBytes -= entry.ring.shift()!.length;
+    while (entry.ringBytes > this.ringLimit && entry.ring.length) {
+      const first = entry.ring[0]!;
+      const excess = entry.ringBytes - this.ringLimit;
+      if (first.length <= excess) entry.ringBytes -= entry.ring.shift()!.length;
+      else {
+        // Copy the retained tail so an oversized PTY callback is not kept alive.
+        entry.ring[0] = Buffer.from(first.subarray(excess));
+        entry.ringBytes -= excess;
+      }
+    }
     entry.lastOutput = Date.now();
     if (entry.vt) {
       entry.vt.write(chunk);

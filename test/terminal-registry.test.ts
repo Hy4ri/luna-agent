@@ -97,20 +97,36 @@ test("concurrent creates cannot pass the limit", async () => {
 });
 
 test("re-attaching replays earlier output once and the ring buffer is bounded", async () => {
-  const r = registry({ ringBytes: 4096 });
+  // PTY chunk sizes vary by host. Drive the launcher boundary so an oversized
+  // callback and a partially retained oldest chunk are exercised on every run.
+  let emit!: (chunk: Buffer) => void;
+  const r = registry({ ringBytes: 4096, launcher: async () => ({
+    pid: undefined,
+    onData: listener => { emit = listener; },
+    onExit() {}, write() {}, resize() {}, kill() {},
+  }) });
   const info = await r.create({ session: 1, worker: null, cwd: "/tmp" });
   const first = collect(r, info.id);
-  r.write(info.id, "echo marker-one\n");
-  await until(() => first.state.text.includes("marker-one"), "first output");
+  emit(Buffer.from("marker-one\r\n"));
   first.attached.detach();
-  r.write(info.id, "echo marker-two\n");
-  await new Promise(res => setTimeout(res, 300));
+  emit(Buffer.from("marker-two\r\n"));
   const second = collect(r, info.id);
-  assert.equal(second.state.text.split("marker-one").length - 1, 2, "echoed command line plus output, each once");
-  assert.ok(second.state.text.includes("marker-two"));
-  r.write(info.id, "head -c 20000 /dev/zero | tr '\\0' 'x'; echo\n");
-  await until(() => (second.state.text.match(/x/g)?.length ?? 0) >= 20000, "bulk output");
-  assert.ok(r.attach(info.id, { data() {}, exit() {}, closed() {} }).replay.length <= 4096 + 8192);
+  assert.equal(first.state.text, "marker-one\r\n");
+  assert.equal(second.state.text, "marker-one\r\nmarker-two\r\n");
+
+  const large = Buffer.alloc(20000, "x");
+  emit(large);
+  assert.equal(second.state.text, "marker-one\r\nmarker-two\r\n" + large.toString());
+  const replay = () => {
+    const attached = r.attach(info.id, { data() {}, exit() {}, closed() {} });
+    attached.detach();
+    return attached.replay;
+  };
+  assert.deepEqual(replay(), Buffer.alloc(4096, "x"));
+  emit(Buffer.from("tail"));
+  assert.deepEqual(replay(), Buffer.from("x".repeat(4092) + "tail"));
+  emit(Buffer.alloc(4096, "y"));
+  assert.deepEqual(replay(), Buffer.alloc(4096, "y"));
   r.closeAll();
 });
 

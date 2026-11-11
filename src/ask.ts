@@ -4,6 +4,7 @@
 // The tool call waits durably (replay-safe: after a restart it waits again for the same question).
 import { Type, type Static } from "typebox";
 import { defineDoc, defineExtension, defineTool } from "@earendil-works/pi-durable";
+import { closeWait, startWait, type WaitOutcome } from "./analytics/waits.js";
 import { StringEnum } from "./string-enum.js";
 
 export const MAX_QUESTIONS = 4, MIN_OPTIONS = 2, MAX_OPTIONS = 4, MAX_HEADER = 16, MAX_LABEL = 60, MAX_CONTEXT = 600;
@@ -150,35 +151,46 @@ export function createAskExtension(o: AskOptions = {}) {
           const opened = await api.commit(async (tx) => {
             const doc = await tx.doc(AskDoc, api.conversationId);
             if (doc.pending.some((p) => p.callId === callId) || doc.answers[callId]) return false;
-            doc.pending.push({ callId, purpose: args.purpose ?? "input", questions: JSON.parse(JSON.stringify(args.questions)), at: Date.now() } as never);
+            const now = Date.now();
+            doc.pending.push({ callId, purpose: args.purpose ?? "input", questions: JSON.parse(JSON.stringify(args.questions)), at: now } as never);
+            await startWait(tx, api.conversationId, {
+              callId,
+              kind: "ask_user_question",
+              purpose: args.purpose ?? "input",
+              tool: "ask_user_question",
+              startedAt: now,
+            });
             return true;
           }, context);
           if (opened && o.onAsk) void Promise.resolve(o.onAsk(api.conversationId as number, { callId, questions: args.questions, at: Date.now() })).catch(() => {});
           const deadline = Date.now() + timeoutMs;
-          const close = () => api.commit(async (tx) => {
+          const close = (outcome: WaitOutcome) => api.commit(async (tx) => {
             const doc = await tx.doc(AskDoc, api.conversationId);
             const i = doc.pending.findIndex((p) => p.callId === callId);
             if (i >= 0) doc.pending.splice(i, 1);
             const r = doc.answers[callId] as AskResult | undefined;
             delete doc.answers[callId];
+            await closeWait(tx, api.conversationId, { callId, outcome });
             return r ? (JSON.parse(JSON.stringify(r)) as AskResult) : undefined;
           }, context);
           try {
             for (;;) {
               const snap = await api.snapshot(AskDoc, api.conversationId, context);
               if (snap?.answers[callId]) {
-                const r = (await close()) ?? { answers: [], cancelled: true };
+                const isCancelled = Boolean(snap.answers[callId]?.cancelled);
+                const outcome: WaitOutcome = isCancelled ? "cancelled" : "answered";
+                const r = (await close(outcome)) ?? { answers: [], cancelled: true };
                 return { output: [{ type: "text", text: envelope(r, args.questions) }], details: r as never };
               }
               if (Date.now() > deadline) {
-                await close();
+                await close("timeout");
                 return { output: [{ type: "text", text: "No answer: the user did not respond in time. Continue with your best judgment or ask again later." }], isError: true };
               }
               if (context.abortSignal?.aborted) throw new Error("aborted");
               await new Promise((r) => setTimeout(r, pollMs));
             }
           } catch (e) {
-            if (context.abortSignal?.aborted) await close().catch(() => {});
+            if (context.abortSignal?.aborted) await close("stopped").catch(() => {});
             throw e;
           }
         },

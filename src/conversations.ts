@@ -20,12 +20,13 @@ export class ConversationError extends Error {
 }
 export class ConversationStore {
   private readonly db: Database;
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(ids?: readonly number[]) => void>();
   readonly projects: ProjectStore;
   readonly board: BoardStore;
   readonly projectSkills: ProjectSkills;
   private readonly boardListeners = new Set<() => void>();
   private readonly deletionListeners = new Set<(ids: number[]) => void>();
+  private readonly beforeDeletionListeners = new Set<(ids: number[]) => void>();
   constructor(private readonly harness: Harness, private readonly recall?: RecallIndex, uploads?: UploadStore) {
     this.db = conversationStorage(harness).db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS luna_conversations (
@@ -38,7 +39,7 @@ export class ConversationStore {
     this.projects = new ProjectStore(this.db, id => { this.board.deleteProject(id); this.projectSkills.clear(id); });
     this.board = new BoardStore(this.db, uploads);
   }
-  subscribeChanges(cb: () => void): () => void {
+  subscribeChanges(cb: (ids?: readonly number[]) => void): () => void {
     this.listeners.add(cb);
     return () => { this.listeners.delete(cb); };
   }
@@ -47,15 +48,23 @@ export class ConversationStore {
     this.deletionListeners.add(cb);
     return () => { this.deletionListeners.delete(cb); };
   }
+  /** Synchronous maintenance-barrier hooks: preserve derived history before physical deletion.
+   * Hooks must never queue a harness read here. Errors refuse deletion rather than lose history. */
+  subscribeBeforeDelete(cb: (ids: number[]) => void): () => void {
+    this.beforeDeletionListeners.add(cb);
+    return () => { this.beforeDeletionListeners.delete(cb); };
+  }
   subscribeBoard(cb: () => void): () => void {
     this.boardListeners.add(cb);
     return () => { this.boardListeners.delete(cb); };
   }
   /** Tell connected viewers a board changed. */
   touch() { for (const cb of [...this.boardListeners]) { try { cb(); } catch {} } }
-  private notify() {
+  /** Invalidate denormalized project labels without scanning transcript history. */
+  projectsChanged() { this.notify(); }
+  private notify(ids?: readonly number[]) {
     for (const cb of [...this.listeners]) {
-      try { cb(); } catch {}
+      try { cb(ids); } catch {}
     }
   }
   get(id: number): ConversationMeta {
@@ -73,7 +82,7 @@ export class ConversationStore {
         .run(id, next.title, Number(next.archived), Number(next.pinned), source);
       return next;
     }, context);
-    this.notify();
+    this.notify([id]);
     return res;
   }
   /** Link a session to another project. Its directory and machine stay as they are. */
@@ -83,7 +92,7 @@ export class ConversationStore {
       if (!await tx.conversation(id as never)) throw new ConversationError(404, "no such session");
       this.projects.link(id, projectId);
     }, context);
-    this.notify();
+    this.notify([id]);
   }
   /** Where the stored title came from: "derived" (instant), "auto" (model), "user", or null when untitled. */
   titleSource(id: number): "derived" | "auto" | "user" | null {
@@ -106,7 +115,7 @@ export class ConversationStore {
           OR (excluded.title_source='auto' AND luna_conversations.title_source='auto')`).run(id, title, source, Number(!!o.force));
       return Number(r.changes) > 0;
     }, context);
-    if (written) this.notify();
+    if (written) this.notify([id]);
     return written;
   }
   /**
@@ -235,6 +244,7 @@ export class ConversationStore {
         const add = this.db.prepare("INSERT INTO purge_conversations VALUES (?)"); for (const n of ids) add.run(n);
         const busy = this.db.prepare("SELECT id FROM tasks WHERE conversation_id IN (SELECT id FROM purge_conversations) AND status <> 'terminal' LIMIT 1").get();
         if (busy) throw new ConversationError(409, "Stop the conversation and its child tasks before deleting it.");
+        for (const cb of this.beforeDeletionListeners) cb(ids);
         this.db.exec(`
           CREATE TEMP TABLE IF NOT EXISTS purge_tasks(id INTEGER PRIMARY KEY); DELETE FROM purge_tasks;
           INSERT INTO purge_tasks SELECT id FROM tasks WHERE conversation_id IN (SELECT id FROM purge_conversations);
@@ -275,7 +285,7 @@ export class ConversationStore {
       this.recall?.forget(ids);
       this.forgetLinks(ids);
       for (const cb of [...this.deletionListeners]) { try { cb(ids); } catch {} }
-      this.notify();
+      this.notify(ids);
       return ids;
     });
   }

@@ -1,17 +1,63 @@
 import type { Hono } from "hono";
-import { createAnalyticsReader } from "../analytics.js";
+import { legacyAnalyticsSnapshot } from "../analytics/compatibility.js";
 import type { RouteCtx } from "./context.js";
+import { analyticsService } from "../analytics/index.js";
+import { ANALYTICS_TABS, type AnalyticsTab } from "../analytics/types.js";
+import { analyticsDetail, analyticsExport, analyticsFilterOptions, parseAnalyticsFilters, queryAnalytics } from "../analytics/query.js";
 
 export function registerAnalytics(app: Hono, ctx: RouteCtx): void {
   const { opts, harness, err } = ctx;
-  const analytics = createAnalyticsReader(harness, opts.models);
-  // Delay the first scan until startup settles. The scan shares its in-flight work
-  // with requests and releases the harness queue between conversations.
-  const warmup = setTimeout(() => {
-    void analytics().catch(() => { console.warn("analytics warm-up failed; the next request can retry"); });
-  }, 5_000);
-  warmup.unref();
-
+  const service = analyticsService(harness, opts.conversations);
+  const analytics = async (refresh = false) => {
+    if (refresh) await service.refresh();
+    else await service.ready();
+    return legacyAnalyticsSnapshot(service.store);
+  };
+  const tabOf = (value: string): AnalyticsTab => {
+    if (!(ANALYTICS_TABS as readonly string[]).includes(value)) throw new Error("Unknown analytics tab");
+    return value as AnalyticsTab;
+  };
+  app.get("/v1/analytics/v2/filters", async c => {
+    await service.ready();
+    c.header("Cache-Control", "no-store");
+    return c.json(analyticsFilterOptions(service.store));
+  });
+  app.get("/v1/analytics/v2/:tab/export", async c => {
+    let filters, tab;
+    try { filters = parseAnalyticsFilters(new URL(c.req.url).searchParams); tab = tabOf(c.req.param("tab")); }
+    catch (error) { return err(c, 400, (error as Error).message); }
+    const format = c.req.query("format") ?? "csv";
+    if (format !== "csv" && format !== "json") return err(c, 400, "Invalid analytics export format");
+    await service.ready();
+    let body: string;
+    try { body = analyticsExport(service.store, tab, filters, format); }
+    catch (error) { return err(c, 400, (error as Error).message); }
+    c.header("Cache-Control", "no-store");
+    c.header("Content-Disposition", `attachment; filename="analytics-${tab}.${format}"`);
+    return c.body(body, 200, { "Content-Type": format === "csv" ? "text/csv; charset=utf-8" : "application/json; charset=utf-8" });
+  });
+  app.get("/v1/analytics/v2/:tab/:kind/:id", async c => {
+    let filters, tab;
+    try { filters = parseAnalyticsFilters(new URL(c.req.url).searchParams); tab = tabOf(c.req.param("tab")); }
+    catch (error) { return err(c, 400, (error as Error).message); }
+    await service.ready();
+    const detail = analyticsDetail(service.store, tab, c.req.param("kind"), c.req.param("id"), filters);
+    c.header("Cache-Control", "no-store");
+    return detail ? c.json(detail) : err(c, 404, "Analytics detail not found in the selected scope");
+  });
+  app.get("/v1/analytics/v2/:tab", async c => {
+    let filters, tab;
+    try { filters = parseAnalyticsFilters(new URL(c.req.url).searchParams); tab = tabOf(c.req.param("tab")); }
+    catch (error) { return err(c, 400, (error as Error).message); }
+    await service.ready();
+    let result;
+    try { result = queryAnalytics(service.store, tab, filters); }
+    catch (error) { return err(c, 400, (error as Error).message); }
+    result.performance.indexedAt = service.indexedAt ?? result.performance.indexedAt;
+    c.header("Cache-Control", "no-store");
+    c.header("Server-Timing", `analytics;dur=${result.performance.queryMs.toFixed(2)}`);
+    return c.json(result);
+  });
   app.get("/v1/analytics", async (c) => {
     const started = performance.now();
     const snapshot = await analytics(c.req.query("refresh") === "true");

@@ -48,7 +48,9 @@ export function registerProjects(app: Hono, ctx: RouteCtx): void {
   app.patch("/v1/projects/:id", async (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
     const b = (await c.req.json().catch(() => ({}))) as { name?: unknown; cwd?: unknown; favorite?: unknown; color?: unknown; icon?: unknown; autoWorktree?: unknown; worktreeSetup?: unknown };
-    return c.json(opts.conversations.projects.update(projectId(c), b));
+    const project = opts.conversations.projects.update(projectId(c), b);
+    opts.conversations.projectsChanged();
+    return c.json(project);
   });
 
   // Link a project to a machine: one project, one board, a working directory per machine.
@@ -81,6 +83,7 @@ export function registerProjects(app: Hono, ctx: RouteCtx): void {
   app.delete("/v1/projects/:id", (c) => {
     if (!opts.conversations) return err(c, 404, "projects disabled");
     opts.conversations.projects.delete(projectId(c));
+    opts.conversations.projectsChanged();
     opts.conversations.touch();
     return c.json({ ok: true });
   });
