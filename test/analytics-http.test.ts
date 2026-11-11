@@ -238,16 +238,18 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
       await service.refresh();
 
       let buffer = "";
-      const timeoutDeadline = Date.now() + 800; // <1s timeout
+      // Monotonic budget: this host suspends in short bursts. Date.now() jumps across a suspend and ended
+      // the wait after only ~0.3 s of process time (#526). performance.now() pauses with the process.
+      const timeoutDeadline = performance.now() + 2000;
       let receivedAnalyticsChanged = false;
 
       try {
-        while (Date.now() < timeoutDeadline && !receivedAnalyticsChanged) {
+        while (performance.now() < timeoutDeadline && !receivedAnalyticsChanged) {
           let timeout: ReturnType<typeof setTimeout> | undefined;
           const { value, done } = await Promise.race([
             reader.read(),
             new Promise<{ value: undefined; done: true }>((resolve) => {
-              timeout = setTimeout(() => resolve({ value: undefined, done: true }), Math.max(0, timeoutDeadline - Date.now()));
+              timeout = setTimeout(() => resolve({ value: undefined, done: true }), Math.max(0, timeoutDeadline - performance.now()));
             }),
           ]);
           clearTimeout(timeout);
