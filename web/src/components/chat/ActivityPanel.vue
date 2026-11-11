@@ -7,7 +7,7 @@ import { json } from "@/lib/api";
 import { railCollapsed } from "@/lib/rail-collapse";
 import { activityVisible, reviewJobs, chat, childLive, sortChildren, sortProcesses, openSession, stopChild, stopProcess, type ChildRow, type ProcessRow } from "@/stores/chat";
 
-// Docked in the session rail: independently collapsible cards.
+// Docked in the session rail: collapsing hides inactive rows, not live work.
 const props = defineProps<{ docked?: boolean }>();
 
 const todos = computed(() => (chat.extras?.todos || []).filter((t: any) => t.status !== "deleted"));
@@ -100,8 +100,8 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
           </button>
           <template v-else>Tasks <span>{{ doneTasks }}/{{ todos.length }}</span></template>
         </h4>
-        <div v-show="!docked || !collapsed.tasks">
-          <div v-for="t in todos" :key="t.id" class="todo-item" :class="{ done: t.status === 'completed' }">
+        <div>
+          <div v-for="t in todos" v-show="!docked || !collapsed.tasks || t.status === 'in_progress'" :key="t.id" class="todo-item" :class="{ done: t.status === 'completed' }">
             <Check v-if="t.status === 'completed'" :size="14" aria-label="Complete" />
             <LoaderCircle v-else-if="t.status === 'in_progress'" :size="14" class="spin" aria-label="In progress" />
             <Circle v-else :size="14" aria-label="Pending" />
@@ -118,8 +118,8 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
           </button>
           <template v-else>Processes <span>{{ liveProcesses.length }} running</span></template>
         </h4>
-        <div v-show="!docked || !collapsed.processes">
-          <div v-for="p in sortedProcesses" :key="p.id" class="activity-row" :data-process="p.id" :data-status="p.status">
+        <div>
+          <div v-for="p in sortedProcesses" v-show="!docked || !collapsed.processes || p.running" :key="p.id" class="activity-row" :data-process="p.id" :data-status="p.status">
             <div class="activity-line">
               <LoaderCircle v-if="p.running" :size="14" class="spin" aria-label="Running" />
               <CircleAlert v-else-if="bad(p.status)" :size="14" class="bad" :aria-label="p.status" />
@@ -163,8 +163,8 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
           </button>
           <template v-else>Subagents <span>{{ liveChildren.length }} running</span></template>
         </h4>
-        <div v-show="!docked || !collapsed.children">
-          <div v-for="c in sortedChildren" :key="c.id" class="activity-row" :data-child="c.id" :data-status="c.status">
+        <div>
+          <div v-for="c in sortedChildren" v-show="!docked || !collapsed.children || childLive(c)" :key="c.id" class="activity-row" :data-child="c.id" :data-status="c.status">
             <div class="activity-line">
               <LoaderCircle v-if="childLive(c)" :size="14" class="spin" aria-label="Running" />
               <CircleAlert v-else-if="bad(c.status)" :size="14" class="bad" :aria-label="c.status" />
