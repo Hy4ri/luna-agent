@@ -14,9 +14,9 @@ const injectedChoicesRef = computed(() => {
   return [] as { value: string; label: string }[];
 });
 const effectiveModels = computed<ModelInfo[]>(() => {
-  const base = models.list.slice();
   const choices = injectedChoicesRef.value;
-  if (!choices.length) return base;
+  if (!choices.length) return models.list;
+  const base = models.list.slice();
   const seen = new Set(base.map(m => modelKey(m)));
   for (const c of choices) {
     if (!c?.value || seen.has(c.value)) continue;
@@ -138,8 +138,9 @@ const filtered = computed(() => {
 const providerGroups = computed(() => {
   const searching = !!query.value.trim();
   const groups = new Map<string, ModelInfo[]>();
+  const pinned = new Set(models.pins);
   for (const m of filtered.value) {
-    if (!searching && models.pins.includes(modelKey(m))) continue;
+    if (!searching && pinned.has(modelKey(m))) continue;
     const entries = groups.get(m.provider) || [];
     entries.push(m);
     groups.set(m.provider, entries);

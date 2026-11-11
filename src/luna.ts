@@ -12,7 +12,7 @@ import { createSkillsExtension } from "./skills.js";
 import { createMemoryExtension, MemoryStore } from "./memory.js";
 import { SessionStatusExtension } from "./session-status.js";
 import { ULTRA_SECTION } from "./thinking.js";
-import { catalogModels, nativeCompaction, STOCK_POLICY } from "./compaction-limits.js";
+import { catalogCompaction, STOCK_POLICY } from "./compaction-limits.js";
 import { GenUiExtension } from "./genui.js";
 import { MessageTimeExtension } from "./message-time.js";
 import { ExecTarget } from "./workers.js";
@@ -60,6 +60,7 @@ export interface LunaOptions {
 export async function openLuna(opts: LunaOptions) {
   const defaultCompaction = ConfigSchema.shape.compaction.parse({});
   const registry = opts.registry ?? createRegistry();
+  const sessionCompaction = catalogCompaction(opts.models);
   let harnessRef: Harness | undefined;
   const busyTools = new BusyExecutions(async (id, message, requestId, owner) => {
     const conv = await harnessRef?.conversation(id, context);
@@ -117,7 +118,7 @@ export async function openLuna(opts: LunaOptions) {
         // their own per-model subagent table in agent state (see delegate.ts).
         get compaction() {
           const limits = (opts.compaction?.() ?? defaultCompaction).sessions;
-          return { ...STOCK_POLICY, ...nativeCompaction(limits, catalogModels(opts.models)) };
+          return { ...STOCK_POLICY, ...sessionCompaction(limits) };
         },
         steeringMode: "all",
         followUpMode: "one-at-a-time",

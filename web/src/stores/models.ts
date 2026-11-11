@@ -1,8 +1,8 @@
 // Model list, selection, pins, and thinking level. Port of vanilla models.js state.
-import { computed, reactive } from "vue";
+import { computed, markRaw, reactive } from "vue";
 import { json, post, serverUrl, token } from "@/lib/api";
 import type { ModelInfo } from "@/lib/types";
-import { FALLBACK_LEVEL, LEVELS, clampTo, findModel, levelsOf, startLevel, type ModelRef } from "@/lib/thinking-levels";
+import { FALLBACK_LEVEL, LEVELS, clampTo, levelsOf, startLevel, type ModelRef } from "@/lib/thinking-levels";
 import { addErr, chat } from "./chat";
 
 export { FALLBACK_LEVEL, LEVELS, type ModelRef };
@@ -33,14 +33,21 @@ export const models = reactive({
 });
 
 export const modelKey = (m: Pick<ModelInfo, "provider" | "id">) => m.provider + "/" + m.id;
+/** "provider/id" to model, rebuilt once per catalog load. Lookups stay O(1) with catalogs of thousands of models. */
+export const modelIndex = computed(() => {
+  const index = new Map<string, ModelInfo>();
+  for (const m of models.list) { const key = modelKey(m); if (!index.has(key)) index.set(key, m); }
+  return index;
+});
+export const modelByKey = (key: string) => modelIndex.value.get(key);
 export const selectedKey = computed(() => (models.selected ? models.selected.provider + "/" + models.selected.modelId : ""));
 export const modelLabel = computed(() => {
   const key = selectedKey.value;
-  const m = models.list.find(m => modelKey(m) === key);
+  const m = modelByKey(key);
   return m ? m.provider + " · " + (m.name || m.id) : key || "Choose model";
 });
 
-export const modelInfo = (ref: ModelRef | null | undefined) => findModel(models.list, ref);
+export const modelInfo = (ref: ModelRef | null | undefined) => (ref ? modelByKey(ref.provider + "/" + ref.modelId) : undefined);
 export const levelsFor = (ref: ModelRef | null | undefined) => levelsOf(modelInfo(ref));
 export const availableLevels = computed(() => levelsFor(models.selected));
 /** Speeds the selected model offers; empty hides the speed button. */
@@ -121,7 +128,8 @@ export async function loadModels(options?: LoadModelsOptions): Promise<boolean> 
     try {
       const r = await json<{ models: ModelInfo[]; default: ModelRef | null; defaultThinkingLevel?: string; refresh: typeof models.refresh }>("/v1/models");
       if (generation !== modelsRequest || origin !== serverUrl.value || credential !== token.value) return false;
-      models.list = r.models; models.defaultModel = r.default; models.refresh = r.refresh;
+      // The list is replaced, never mutated. markRaw keeps Vue from proxying every model and its nested arrays.
+      models.list = markRaw(r.models); models.defaultModel = r.default; models.refresh = r.refresh;
       models.defaultThinkingLevel = r.defaultThinkingLevel ?? FALLBACK_LEVEL;
       catalogFresh = { origin, credential, expires: Date.now() + 30_000 };
     } catch {

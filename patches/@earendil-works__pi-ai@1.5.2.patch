@@ -62,6 +62,111 @@ index 0977a46594d2caa8c92b90e267158ee5efb74938..624bdd56eec4bbee630811a91110c249
          default:
              return 1;
      }
+diff --git a/dist/models.js b/dist/models.js
+index c61de8788a8f8d1a5921823360cbfbbac7814921..caf38d90ddc69305ca1d1078f56fc211dee8ff1a 100644
+--- a/dist/models.js
++++ b/dist/models.js
+@@ -43,6 +43,7 @@ class ModelsImpl {
+     refreshGenerations = new Map();
+     refreshControllers = new Map();
+     publicationChains = new Map();
++    modelIndexes = new WeakMap();
+     constructor(options) {
+         this.credentials = options?.credentials ?? new InMemoryCredentialStore();
+         this.modelsStore = options?.modelsStore ?? new InMemoryModelsStore();
+@@ -119,7 +120,20 @@ class ModelsImpl {
+         return this.getAllModels(provider).filter((model) => isModelType(model, type));
+     }
+     getModel(provider, id) {
+-        return this.getModels(provider).find((model) => model.id === id);
++        const models = this.getModels(provider);
++        // Luna patch: index large catalogs once per published array instead of scanning on every lookup.
++        if (models.length < 64)
++            return models.find((model) => model.id === id);
++        let index = this.modelIndexes.get(models);
++        if (!index) {
++            index = new Map();
++            for (const model of models) {
++                if (!index.has(model.id))
++                    index.set(model.id, model);
++            }
++            this.modelIndexes.set(models, index);
++        }
++        return index.get(id);
+     }
+     getModelOfType(type, provider, id) {
+         return this.getModelsOfType(type, provider).find((model) => model.id === id);
+@@ -562,17 +576,39 @@ export function createProvider(input) {
+     const baselineModels = input.models;
+     let dynamicModels = [];
+     const fetchModels = input.fetchModels;
++    // Luna patch: merge once per published catalog and find replacements through a Map. The rebuilt-per-call
++    // findIndex merge was quadratic and blocked the event loop for seconds with thousands of models.
++    let mergedModels;
++    let chatModels;
++    const setDynamicModels = (models) => {
++        dynamicModels = models;
++        mergedModels = undefined;
++        chatModels = undefined;
++    };
+     const currentModels = () => {
++        if (mergedModels)
++            return mergedModels;
+         const merged = [...baselineModels];
++        const positions = new Map();
++        const keyOf = (model) => `${getModelType(model)}\u0000${model.id}`;
++        merged.forEach((entry, index) => {
++            const key = keyOf(entry);
++            if (!positions.has(key))
++                positions.set(key, index);
++        });
+         for (const model of dynamicModels) {
+-            const index = merged.findIndex((entry) => getModelType(entry) === getModelType(model) && entry.id === model.id);
+-            if (index >= 0)
++            const key = keyOf(model);
++            const index = positions.get(key);
++            if (index !== undefined)
+                 merged[index] = model;
+-            else
++            else {
++                positions.set(key, merged.length);
+                 merged.push(model);
++            }
+         }
+-        return merged;
++        return (mergedModels = merged);
+     };
++    const currentChatModels = () => (chatModels ??= currentModels().filter((model) => isModelType(model, "chat")));
+     const apiFor = (model) => single ?? byApi?.[model.api];
+     const dispatch = (model, run, signal) => {
+         const streams = apiFor(model);
+@@ -589,7 +625,7 @@ export function createProvider(input) {
+         baseUrl: input.baseUrl,
+         headers: input.headers,
+         auth: input.auth,
+-        getModels: () => currentModels().filter((model) => isModelType(model, "chat")),
++        getModels: currentChatModels,
+         getAllModels: currentModels,
+         refreshModels: fetchModels
+             ? async (context) => {
+@@ -599,7 +635,7 @@ export function createProvider(input) {
+                         .map((model) => model);
+                     if (!(await context.publish({
+                         update: () => {
+-                            dynamicModels = restored;
++                            setDynamicModels(restored);
+                         },
+                     }))) {
+                         return;
+@@ -614,7 +650,7 @@ export function createProvider(input) {
+                 await context.publish({
+                     persist: { models: refreshed, checkedAt: Date.now() },
+                     update: () => {
+-                        dynamicModels = refreshed;
++                        setDynamicModels(refreshed);
+                     },
+                 });
+             }
 diff --git a/dist/utils/provider-retry.js b/dist/utils/provider-retry.js
 index 5960cf7f5e992eef7d1b96530cea66c6f616a6d2..0d7629d77faffd0e407eeb5383d6a715fac91113 100644
 --- a/dist/utils/provider-retry.js

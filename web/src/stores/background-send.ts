@@ -3,7 +3,7 @@ import { reactive, watch } from "vue";
 import { json, serverUrl, token, type HttpError } from "@/lib/api";
 import { chat } from "./chat";
 import { composer, randomId, buildMessageContent, saveDraft } from "./composer";
-import { models, LEVELS } from "./models";
+import { models, LEVELS, modelByKey } from "./models";
 import { loadSessions } from "./sessions";
 import { getTargetScope } from "@/lib/background-identity";
 import { type BackgroundSendRecord as Record, putOutboxRecord, getOutboxRecord, listOutboxRecords,
@@ -75,7 +75,7 @@ export async function captureBackgroundSend(project?: number | null): Promise<bo
   if (/^\/(models?|compact|compress)(?:\s|$)/i.test(text))
     throw new Error("This command is available only in the visible session. Use normal Send.");
   const model = models.selected ?? models.draft.model ?? models.defaultModel;
-  if (!model || !models.list.some(item => item.provider === model.provider && item.id === model.modelId))
+  if (!model || !modelByKey(model.provider + "/" + model.modelId))
     throw new Error("Choose an available model before sending in background.");
   if (!(LEVELS as readonly string[]).includes(models.thinking))
     throw new Error("Choose a valid thinking level before sending in background.");

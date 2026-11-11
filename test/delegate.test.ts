@@ -67,3 +67,41 @@ for (const fork of [false, true]) {
     }
   });
 }
+
+// Large catalogs (#531): a child's agent state holds compaction limits for its own model, not the whole catalog.
+test("subagent compaction state covers only the child's model", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-delegate-compaction-"));
+  const extra = Array.from({ length: 200 }, (_, i) => ({ id: `extra-${i}`, contextWindow: 200_000 }));
+  const faux = fauxProvider({ models: [{ id: "parent" }, { id: "child", contextWindow: 200_000 }, ...extra] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const parentModel = faux.getModel("parent")!;
+  const modelRef = { provider: parentModel.provider, modelId: parentModel.id };
+  let parentCalls = 0;
+  const respond: FauxResponseFactory = (_request, _options, _state, model) => {
+    if (model.id === "child") return fauxAssistantMessage([fauxText("child done")]);
+    return parentCalls++ === 0
+      ? fauxAssistantMessage([fauxToolCall("subagent", { action: "spawn", task: "Say done." })], { stopReason: "toolUse" })
+      : fauxAssistantMessage([fauxText("parent finished")]);
+  };
+  faux.setResponses(Array.from({ length: 8 }, () => respond));
+  let rt: Awaited<ReturnType<typeof startRuntime>> | undefined;
+  try {
+    rt = await startRuntime(parseConfig({ dataDir: dir, cwd: dir, extensions: ["coding", "delegate"],
+      subagents: { provider: parentModel.provider, model: "child" },
+    }), { models, model: modelRef });
+    const session = await rt.harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: modelRef } }, context);
+    const run = await (await session.submit({ type: "input", content: "Delegate." }, context)).wait(context);
+    assert.equal(run.status, "done");
+    const entries = (await session.entries({}, 50, undefined, context)).items;
+    const spawned = JSON.stringify(entries.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult")).match(/spawned child (\S+?)(?:\\| |")/);
+    assert.ok(spawned, "spawn result names the child");
+    const child = await rt.harness.conversation(spawned[1] as never, context);
+    assert.ok(child, "child conversation exists");
+    const overrides = (await child.agent(context)).compaction?.modelOverrides ?? {};
+    assert.deepEqual(Object.keys(overrides), [`${parentModel.provider}/child`]);
+  } finally {
+    await rt?.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

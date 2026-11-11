@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useModelRefresh } from "@/lib/use-model-refresh";
 import ModelSelector from "@/components/ModelSelector.vue";
 import ModelRefreshButton from "@/components/ModelRefreshButton.vue";
-import { models, modelKey } from "@/stores/models";
+import { modelByKey } from "@/stores/models";
 import { cn } from "@/lib/utils";
 
 const props = withDefaults(defineProps<{
@@ -45,7 +45,7 @@ const displayLabel = computed(() => {
   if (!props.modelValue) return props.emptyLabel;
   const found = choices.value.find(c => c.value === props.modelValue);
   if (found) return found.label;
-  const listed = models.list.find(m => modelKey(m) === props.modelValue);
+  const listed = modelByKey(props.modelValue);
   if (listed) return `${listed.provider} · ${listed.name || listed.id}`;
   // fallback: provider · id
   const slash = props.modelValue.indexOf("/");

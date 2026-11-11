@@ -97,8 +97,7 @@ export function registerSettings(app: Hono, ctx: RouteCtx): void {
       if (m) avail.unshift(m);
     }
     const defaults = thinkingDefaults();
-    // getModel() rebuilds a provider's merged catalog. Reuse this request's models
-    // so projecting a large catalog does not repeat that work for every entry.
+    // Resolve thinking defaults against this request's list, so each entry is one Map lookup.
     const byRef = new Map(avail.map(m => [`${m.provider}/${m.id}`, m]));
     const catalog = { getModel: (provider: string, id: string) => byRef.get(`${provider}/${id}`) };
     const list = avail.map((m) => ({

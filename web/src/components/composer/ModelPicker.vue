@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from "vue";
-import { models, chooseModel, selectedKey } from "@/stores/models";
+import { models, chooseModel, selectedKey, modelByKey } from "@/stores/models";
 import { useModelRefresh } from "@/lib/use-model-refresh";
 import ModelSelector from "@/components/ModelSelector.vue";
 import ModelRefreshButton from "@/components/ModelRefreshButton.vue";
@@ -50,7 +50,7 @@ async function handleSelect(key: string, _model: ModelInfo | null) {
   const opening = openGeneration;
   const [provider, ...rest] = key.split("/");
   const id = rest.join("/");
-  const m = models.list.find(x => x.provider === provider && x.id === id) || { provider, id, name: id } as ModelInfo;
+  const m = modelByKey(key) || { provider, id, name: id } as ModelInfo;
   selecting.value = true;
   selectError.value = "";
   try {

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { ExecTarget } from "./workers.js";
 import { AskDoc } from "./ask.js";
 import { readSessionHandoff } from "./session-status.js";
-import { catalogModels, nativeCompaction, type CompactionLimits } from "./compaction-limits.js";
+import { nativeCompaction, type CompactionLimits } from "./compaction-limits.js";
 import { Type } from "typebox";
 import { configure, defineExtension, defineTool, type AgentChange, type ConversationId, type Extension, type TaskId } from "@earendil-works/pi-durable";
 import { Children, ChildResult, childRequests, childNotificationId, readChildReport, DELEGATE_CHILD, DELEGATE_MESSAGE, type ChildRow, type ChildReport } from "./delegate-state.js";
@@ -232,13 +232,16 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
                 catch (error) { return text(`worktree failed: ${(error as Error).message}`, true); }
               }
               const maxTurns = profile?.maxTurns ?? defaults.maxTurns ?? parent.maxTurns;
+              const childRef = model ?? parent.model;
+              const childModel = childRef ? api.models.getModel(childRef.provider, childRef.modelId) : undefined;
               const agent: AgentChange = {
                 ...(model ? { model } : {}),
                 // Clamp to the child's model: a profile level can exceed what that model supports.
                 thinkingLevel: resolveThinkingLevel(api.models, model ?? parent.model, undefined, profile?.thinkingLevel ?? defaults.thinkingLevel ?? parent.thinkingLevel),
                 ...(maxTurns === undefined ? {} : { maxTurns }),
-                // Subagent limits live in the child's agent state as per-model overrides; sessions use the harness-wide policy.
-                ...(compaction ? { compaction: nativeCompaction(compaction(), catalogModels(api.models)) } : {}),
+                // Subagent limits live in the child's agent state as a per-model override; sessions use the harness-wide policy.
+                // Only the child's own model: a whole-catalog table is ~1 MB of durable state per child at 10k models.
+                ...(compaction ? { compaction: nativeCompaction(compaction(), childModel ? [childModel] : []) } : {}),
                 // Children keep task policy, but never the runtime's personal identity block.
                 extensions: { remove: [extension, ...parent.extensions.filter(e => e.name === "identity" || e.name === "board" || e.name === "ask-user")] },
                 tools, modelTools: tools,
