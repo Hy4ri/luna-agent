@@ -1549,9 +1549,14 @@ export function analyticsFilterOptions(store: AnalyticsStore): AnalyticsFilterOp
 
   const providerRows = store.db
     .query(
-      `SELECT DISTINCT ${providerExpr("f")} AS value
-       FROM analytics_facts f
-       WHERE ${providerExpr("f")} IS NOT NULL
+      // Same rule as providerExpr (explicit data.provider, else model prefix) without a second JSON parse per fact:
+      // explicit providers in one pass, plus the prefix of each model that has a fact without one (index probe).
+      `SELECT value FROM (
+         SELECT json_extract(data, '$.provider') AS value FROM analytics_facts WHERE json_extract(data, '$.provider') IS NOT NULL
+         UNION
+         SELECT substr(m.model, 1, instr(m.model, '/') - 1) FROM (SELECT DISTINCT model FROM analytics_facts WHERE instr(model, '/') > 0) m
+         WHERE EXISTS (SELECT 1 FROM analytics_facts f WHERE f.model = m.model AND json_extract(f.data, '$.provider') IS NULL)
+       )
        ORDER BY value ASC`,
     )
     .all() as { value: string }[];
