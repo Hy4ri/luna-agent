@@ -859,6 +859,22 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .chat-extras .grow { flex: 1; }
 .chat-extras .pill { font-size: 12px; color: var(--primary-text); }
 .chat-extras button:not(.icon-button), .chat-extras input:not([type='radio']):not([type='checkbox']) { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); font-size: 14px; }
+.chat-extras .goal-card { padding: 16px; }
+.goal-header, .goal-counters, .goal-actions { display: flex; align-items: center; gap: 8px; }
+.goal-header, .goal-counters { justify-content: space-between; flex-wrap: wrap; }
+.goal-header > *, .goal-counters > * { min-width: 0; overflow-wrap: anywhere; }
+.goal-objective { margin: 16px 0 10px; line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.goal-counters, .goal-budget { font-size: 12px; line-height: 1.6; }
+.goal-progress { display: block; appearance: none; width: 100%; height: 4px; margin: 10px 0; border: 0; border-radius: 1px; overflow: hidden; background: var(--secondary); color: var(--primary); }
+.goal-progress::-webkit-progress-bar { background: var(--secondary); }
+.goal-progress::-webkit-progress-value { background: var(--primary); }
+.goal-progress::-moz-progress-bar { background: var(--primary); }
+.goal-details { margin-top: 8px; font-size: 12px; color: var(--muted-foreground); }
+.goal-details summary { cursor: pointer; min-height: 44px; align-content: center; }
+.goal-details p, .goal-reason { margin: 8px 0 0; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.goal-actions { margin-top: 12px; flex-wrap: wrap; }
+.goal-actions button { min-height: 44px; }
+.chat-extras .goal-actions .goal-clear { background: transparent; color: var(--muted-foreground); }
 .chat-extras .opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; background: var(--card); font-size: 14.5px; }
 .chat-extras .opt:has(input:checked) { border-color: var(--primary); background: var(--acc-soft); }
 .chat-extras .opt input { margin-top: 3px; flex-shrink: 0; }
