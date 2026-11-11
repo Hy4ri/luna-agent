@@ -2,7 +2,6 @@
 // Snap tool (#437): select a region of the UI, then start a new session with a screenshot and the DOM of that region.
 import { ref, computed, nextTick, onUnmounted, watch } from "vue";
 import { Crop, X, Send, Loader2 } from "@lucide/vue";
-import { domToCanvas } from "modern-screenshot";
 import { chat, newSession, addErr } from "@/stores/chat";
 import { composer, addAttachment, send } from "@/stores/composer";
 import { history, loadProjects } from "@/stores/sessions";
@@ -134,6 +133,8 @@ function domOf(root: Element, r: Rect): string {
 async function capture(r: Rect) {
   const { el: root, box: b, forced } = captureRoot(r);
   const scale = Math.min(2, window.devicePixelRatio || 1);
+  // Loaded on the first capture: most sessions never take a snapshot.
+  const { domToCanvas } = await import("modern-screenshot");
   const canvas = await domToCanvas(root as HTMLElement, {
     ...(forced ? { width: b.width, height: b.height } : {}),
     // Without restoreScrollPosition, scrolled containers render from the top and the crop shows other content.

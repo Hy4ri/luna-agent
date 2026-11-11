@@ -29,7 +29,7 @@ test("shipped worker installs entry imports and assets, but defers dynamic and u
     for (const file of ["main.js", "main.css", "shared.js", "font.woff2", "lazy.js", "lazy.css", "unused.js"]) {
       writeFileSync(join(dir, "assets", file), file);
     }
-    for (const file of ["index.html", "manifest.webmanifest", "icon.svg", "icon.png"]) writeFileSync(join(dir, file), file);
+    for (const file of ["index.html", "manifest.webmanifest", "icon.svg", "icon.png", "favicon.png"]) writeFileSync(join(dir, file), file);
     writeFileSync(join(dir, "sw.js"), source);
     writeFileSync(join(dir, ".vite", "manifest.json"), JSON.stringify({
       "index.html": { isEntry: true, file: "assets/main.js", css: ["assets/main.css"], assets: ["assets/font.woff2"], imports: ["shared"], dynamicImports: ["lazy"] },
@@ -42,7 +42,11 @@ test("shipped worker installs entry imports and assets, but defers dynamic and u
     const handlers = worker(await response.text(), { caches: { open: async () => ({ addAll: async (paths: string[]) => { installed.push(...paths); } }) } });
     handlers.get("install")!({ waitUntil: promise => waits.push(promise), respondWith: () => {} });
     await Promise.all(waits);
-    assert.deepEqual(installed.sort(), ["/", "/manifest.webmanifest", "/icon.svg", "/icon.png", "/assets/main.js", "/assets/main.css", "/assets/shared.js", "/assets/font.woff2"].sort());
+    assert.deepEqual(installed.sort(), ["/", "/manifest.webmanifest", "/favicon.png", "/icon.png", "/assets/main.js", "/assets/main.css", "/assets/shared.js", "/assets/font.woff2"].sort());
+    // The legacy SVG wrapper is still served to old pages, but a new install does not download it.
+    assert.equal((await app.request("/icon.svg")).status, 200);
+    assert.equal((await app.request("/favicon.png")).headers.get("content-type"), "image/png");
+    assert.equal((await app.request("/assets/font.woff2")).headers.get("content-type"), "font/woff2");
     const root = await app.request("/"), pane = await app.request("/?pane=session&session=42");
     assert.equal(root.headers.get("x-frame-options"), "DENY");
     assert.equal(root.headers.get("content-security-policy"), "frame-ancestors 'none'");

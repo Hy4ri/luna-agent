@@ -3,7 +3,7 @@ import { nextTick, reactive, ref, watch } from "vue";
 import { isDesktop, onUnauthorized, serverUrl, setServerUrl, setToken, token, url } from "@/lib/api";
 import { activeAddress, connection, connectionFailure, findWorkingAddress, preferredAddress, recoveryOpen, rememberConnection, reportConnectionFailure } from "@/lib/connections";
 import { isMobile } from "@/lib/dom";
-import { resolveSettingsRoute } from "@/pages/settings/catalog";
+import { resolveSettingsRoute } from "@/pages/settings/routes";
 import { registerPush } from "@/lib/platform";
 import { sessionPane } from "@/lib/pane";
 import * as chatStore from "./chat";
