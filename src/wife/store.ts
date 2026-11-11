@@ -90,8 +90,8 @@ export class WifeStore {
     return Number(this.db.prepare("UPDATE suggestions SET status='open', snooze_until=NULL, updated=? WHERE status='snoozed' AND snooze_until IS NOT NULL AND snooze_until<=?").run(now, now).changes);
   }
   /** A detector withdraws an open card when its condition no longer holds. Only `open` rows are deleted. */
-  withdrawOpen(kind: WifeKind, keep: Set<string>): number {
-    const rows = this.db.prepare("SELECT id, fingerprint FROM suggestions WHERE kind=? AND status='open'").all(kind) as { id: number; fingerprint: string }[];
+  withdrawOpen(ruleId: string, keep: Set<string>): number {
+    const rows = this.db.prepare("SELECT id, fingerprint FROM suggestions WHERE rule_id=? AND source='detector' AND status='open'").all(ruleId) as { id: number; fingerprint: string }[];
     let n = 0;
     for (const r of rows) if (!keep.has(r.fingerprint)) { this.db.prepare("DELETE FROM suggestions WHERE id=? AND status='open'").run(r.id); n++; }
     return n;

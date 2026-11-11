@@ -1,9 +1,10 @@
 // Runs the detectors, files their cards, and carries out an agreed card.
 import type { AnalyticsStore } from "../analytics/store.js";
 import type { ConversationStore } from "../conversations.js";
-import { staleSessions, type DetectorConfig } from "./detectors.js";
+import { misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
 import type { Suggestion, WifeStore } from "./store.js";
 
+const DETECTOR_RULES = ["archive_session", "delete_session", "move_session", "new_project"];
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
 export interface WifeServiceOptions {
@@ -21,7 +22,8 @@ export class WifeService {
     const now = (this.o.now ?? Date.now)();
     this.o.store.expireSnoozed(now);
     const sessions = this.o.analytics().sessions();
-    const found = staleSessions(sessions, this.o.config(), now);
+    const projects = this.o.conversations.projects.list();
+    const found = [...staleSessions(sessions, this.o.config(), now), ...misfiledSessions(sessions, projects), ...newProjects(sessions, projects, now)];
     let filed = 0;
     for (const f of found) {
       const isNew = !this.o.store.has(f.fingerprint);
@@ -29,8 +31,8 @@ export class WifeService {
       if (isNew) filed++;
     }
     let withdrawn = 0;
-    for (const kind of ["archive_session", "delete_session"] as const)
-      withdrawn += this.o.store.withdrawOpen(kind, new Set(found.filter(f => f.kind === kind).map(f => f.fingerprint)));
+    for (const rule of DETECTOR_RULES)
+      withdrawn += this.o.store.withdrawOpen(rule, new Set(found.filter(f => (f.ruleId ?? f.kind) === rule).map(f => f.fingerprint)));
     return { filed, withdrawn };
   }
 
@@ -49,7 +51,7 @@ export class WifeService {
     if (card.status !== "open" && card.status !== "snoozed") throw new WifeError(409, `suggestion is ${card.status}`);
     try {
       let result: string;
-      const sid = Number(card.payload.sessionId);
+      const sid = Number(card.payload.sessionId);  // not used by every kind
       if (card.kind === "archive_session") {
         const meta = this.o.conversations.get(sid);
         if (meta.pinned) throw new WifeError(409, "session is pinned now");
@@ -61,6 +63,22 @@ export class WifeService {
         if (this.o.conversations.get(sid).pinned) throw new WifeError(409, "session is pinned now");
         await this.o.conversations.delete(sid);
         result = "Deleted.";
+      } else if (card.kind === "move_session") {
+        const projectId = Number(card.payload.projectId);
+        if (!this.o.conversations.projects.get(projectId)) throw new WifeError(409, "the project no longer exists");
+        await this.o.conversations.move(sid, projectId);
+        result = "Moved.";
+      } else if (card.kind === "new_project") {
+        const p = card.payload as { name: string; cwd: string; worker: string; sessionIds: number[] };
+        const projects = this.o.conversations.projects;
+        let project, name = p.name;
+        for (let n = 2; !project; n++) {
+          try { project = p.worker === "main" || p.worker === "" ? projects.create(name, p.cwd) : projects.create(name, "", { worker: Number(p.worker), workerCwd: p.cwd }); }
+          catch (e) { if (n > 20 || !/exist|taken|already/i.test((e as Error).message)) throw e; name = `${p.name}-${n}`; }
+        }
+        let moved = 0;
+        for (const id of p.sessionIds) { try { await this.o.conversations.move(id, project.id); moved++; } catch { /* session gone */ } }
+        result = `Created project ${project.name} and moved ${moved} sessions.`;
       } else throw new WifeError(400, `${card.kind} cards cannot be agreed yet`);
       this.o.store.setStatus(id, "done", { result });
       this.o.store.record(card, "agree");
