@@ -42,6 +42,7 @@ export class BusyExecutions {
   private closing = false;
   private started = false;
   private closePromise?: Promise<void>;
+  private dirtyProcesses = new Set<Process>();
   private snapshotTimer?: ReturnType<typeof setInterval>;
   private pruneTimer?: ReturnType<typeof setInterval>;
   private readonly maxBytes: number;
@@ -72,7 +73,7 @@ export class BusyExecutions {
     const bytes = Buffer.from(p.output + chunk, "utf8");
     let start = Math.max(0, bytes.length - this.maxBytes);
     if (start) { p.truncated = true; while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start++; }
-    p.output = bytes.subarray(start).toString("utf8"); p.dirty = true;
+    p.output = bytes.subarray(start).toString("utf8"); p.dirty = true; this.dirtyProcesses.add(p);
   }
   private save(p: Process) {
     if (!p.background || !this.options.directory) { p.dirty = false; return; }
@@ -81,7 +82,7 @@ export class BusyExecutions {
     try {
       writeFileSync(tmp, JSON.stringify({ version, id, session, owner, command, createdAt, finishedAt, status, exitCode, error, output, truncated, delivered }), { mode: 0o600 });
       renameSync(tmp, file); p.dirty = false;
-    } catch (error) { this.log(`Cannot save process ${p.id}: ${String(error)}`); }
+    } catch (error) { this.dirtyProcesses.add(p); this.log(`Cannot save process ${p.id}: ${String(error)}`); }
     finally { try { rmSync(tmp, { force: true }); } catch {} }
   }
   private prune() {
@@ -97,7 +98,7 @@ export class BusyExecutions {
   async start() {
     if (this.started || this.closing) return;
     this.started = true;
-    this.snapshotTimer = setInterval(() => { for (const p of this.processes.values()) if (p.dirty) this.save(p); }, 250);
+    this.snapshotTimer = setInterval(() => { for (const p of this.dirtyProcesses) { this.dirtyProcesses.delete(p); if (p.dirty) this.save(p); } }, 250);
     this.pruneTimer = setInterval(() => this.prune(), 3600000);
     this.snapshotTimer.unref(); this.pruneTimer.unref();
     this.retryDelivery(); await Promise.all(this.deliveries);

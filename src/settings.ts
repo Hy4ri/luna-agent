@@ -50,13 +50,18 @@ export class SettingsStore {
    * The file identity includes inode and nanosecond change time, so atomic saves and external edits both refresh it.
    * Callers receive a private copy and may change it freely.
    */
-  resolved(env: NodeJS.ProcessEnv = process.env): LunaConfig {
+  resolved(env: NodeJS.ProcessEnv = process.env): LunaConfig { return structuredClone(this.shared(env)); }
+  /**
+   * Read-only fast path for hot policy getters: the cached value itself, deeply frozen, with no copy.
+   * Use resolved() when the caller needs to change the result.
+   */
+  shared(env: NodeJS.ProcessEnv = process.env): LunaConfig {
     const file = this.fileIdentity(), envKey = RESOLVE_ENV.map(k => env[k] ?? "\0").join("\n");
     const cached = this.resolvedCache;
-    if (cached && cached.file === file && cached.env === envKey) return structuredClone(cached.value);
-    const value = parseConfig(this.read(), dirname(this.path), env);
+    if (cached && cached.file === file && cached.env === envKey) return cached.value;
+    const value = deepFreeze(parseConfig(this.read(), dirname(this.path), env));
     this.resolvedCache = { file, env: envKey, value };
-    return structuredClone(value);
+    return value;
   }
   private fileIdentity() {
     try {
@@ -132,4 +137,12 @@ function structural(s: Settings) {
   // Only these fields are read once at startup. Everything else applies live.
   const { dataDir, cwd, skillDirs, processes, server } = s;
   return JSON.stringify({ dataDir, cwd, skillDirs, processes, server });
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const v of Object.values(value)) deepFreeze(v);
+  }
+  return value;
 }
