@@ -811,7 +811,7 @@ The separate token totals remain cumulative usage.
 
 ## Runtime compaction policy
 
-Luna translates these absolute token thresholds into native `pi-durable` per-model `CompactionSettings` (`modelOverrides`) for every model in the live catalog, clamped to stock model-capacity safety limits. Models outside the catalog use stock window-relative thresholds.
+Luna translates these absolute token thresholds into native `pi-durable` per-model `CompactionSettings` (`modelOverrides`) for every model in the live catalog, clamped to stock model-capacity safety limits. The session table is rebuilt only when the limits or a provider's catalog change. Models outside the catalog use stock window-relative thresholds.
 Configure them in `luna.config.json` (or through the shared settings API):
 
 ```json
@@ -822,7 +822,7 @@ Configure them in `luna.config.json` (or through the shared settings API):
 ```
 
 These are the defaults. Partial overrides are accepted. All values must be positive integers, with
-`keepRecentTokens < backgroundAtTokens < blockAtTokens`. For main sessions, settings apply on the next preparation or compaction selection; an already-running model request is not interrupted. Delegates snapshot their per-model table in agent state when spawned; forks and children inherit it.
+`keepRecentTokens < backgroundAtTokens < blockAtTokens`. For main sessions, settings apply on the next preparation or compaction selection; an already-running model request is not interrupted. Delegates snapshot the entry for their own model in agent state when spawned; forks and children inherit it. A delegate switched to another model afterwards uses the session thresholds for that model.
 
 At the background threshold, summarization starts without delaying the current turn. At the blocking threshold,
 the next model request waits for blocking compaction. Thresholds use estimated active context tokens, not cumulative usage (stock `pi-durable` triggers strictly above `>` the threshold).

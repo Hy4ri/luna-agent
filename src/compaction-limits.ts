@@ -38,10 +38,24 @@ export function nativeCompaction(
   return { keepRecentTokens: limits.keepRecentTokens, modelOverrides };
 }
 
-export function catalogModels(models: Models) {
-  const result: Array<{ provider: string; id: string; contextWindow?: number }> = [];
-  for (const provider of models.getProviders()) {
-    for (const model of provider.getModels()) result.push(model);
-  }
-  return result;
+/**
+ * Memoized `nativeCompaction` over the whole catalog. The harness reads `settings.compaction` on every task schedule;
+ * rebuilding a per-model table there costs ~10 ms and ~1 MB at 10k models. The table is rebuilt only when the limits
+ * change or a provider publishes a new model array (pi-ai keeps a provider's array stable between refreshes).
+ */
+export function catalogCompaction(models: Models) {
+  let limitsKey: string | undefined;
+  let lists: readonly unknown[] = [];
+  let value: ReturnType<typeof nativeCompaction> | undefined;
+  return (limits: CompactionLimits) => {
+    const current = models.getProviders().map(provider => provider.getModels());
+    const key = `${limits.backgroundAtTokens}/${limits.blockAtTokens}/${limits.keepRecentTokens}`;
+    if (value && key === limitsKey && current.length === lists.length && current.every((list, i) => list === lists[i])) return value;
+    const all: Array<{ provider: string; id: string; contextWindow?: number }> = [];
+    for (const list of current) all.push(...list);
+    limitsKey = key;
+    lists = current;
+    value = nativeCompaction(limits, all);
+    return value;
+  };
 }

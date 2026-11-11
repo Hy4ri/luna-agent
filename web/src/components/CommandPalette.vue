@@ -8,8 +8,9 @@ import { chat, openSession, scheduleContext } from '@/stores/chat';
 import { terminal, toggleTerminal } from '@/stores/terminal';
 import { sessionPane } from '@/lib/pane';
 import { history, sessionTitle, projectName, querySessions } from '@/stores/sessions';
-import type { SessionMeta } from '@/lib/types';
-import { models, modelKey, selectedKey, chooseModel, availableLevels, levelLabel, setThinking } from '@/stores/models';
+import type { ModelInfo, SessionMeta } from '@/lib/types';
+import { models, modelKey, modelByKey, selectedKey, chooseModel, availableLevels, levelLabel, setThinking } from '@/stores/models';
+import { compactNumber } from '@/lib/numbers';
 import { PANELS } from '@/components/panels';
 import { sections, labelFor, isVisibleSetting, settingRoute } from '@/pages/settings/catalog';
 import { fieldLocation } from '@/pages/settings/settingsSearch';
@@ -30,8 +31,14 @@ interface Item {
   disabled?: string;
   /** Keep the palette open after the action, so the new state is visible. */
   keep?: boolean;
+  /** Model row for the current or a pinned model, shown before the query narrows the catalog. */
+  quick?: boolean;
+  /** Lowercase text the query matches, built once per item list. */
+  search?: string;
   run: () => unknown;
 }
+/** Model rows shown while typing. Catalogs can list thousands of models; the model picker shows them all. */
+const MODEL_ROWS = 50;
 interface SettingsView { schema: any; config: any; revision: string; restartRequired: boolean }
 interface SettingField { path: string[]; kind: 'boolean' | 'enum'; values: string[]; fallback: unknown }
 
@@ -154,10 +161,15 @@ const items = computed<Item[]>(() => {
     add({ id: 'session:' + id, group: 'Conversations', label: sessionTitle(s), hint: projectName(s.project), current: id === chat.session, run: () => { navigate('chat'); return openSession(id); } });
   }
 
-  for (const m of models.list) {
+  // Current and pinned models first: with an empty query only they show, so they are the quick switches.
+  const quick = [selectedKey.value, ...models.pins].filter((key, i, keys) => key && keys.indexOf(key) === i && modelByKey(key));
+  const addModel = (m: ModelInfo, isQuick: boolean) => {
     const key = modelKey(m);
-    add({ id: 'model:' + key, group: 'Model', label: `${m.provider} · ${m.name || m.id}`, current: key === selectedKey.value, run: () => chooseModel(m) });
-  }
+    add({ id: 'model:' + key, group: 'Model', label: `${m.provider} · ${m.name || m.id}`, current: key === selectedKey.value, quick: isQuick, run: () => chooseModel(m) });
+  };
+  for (const key of quick) addModel(modelByKey(key)!, true);
+  const quickKeys = new Set(quick);
+  for (const m of models.list) if (!quickKeys.has(modelKey(m))) addModel(m, false);
   for (const level of availableLevels.value) add({ id: 'thinking:' + level, group: 'Thinking', label: 'Thinking: ' + levelLabel(level), current: models.thinking === level, keep: true, run: () => setThinking(level) });
 
   const view = settings.value;
@@ -176,24 +188,51 @@ const items = computed<Item[]>(() => {
       }
     }
   }
+  for (const item of list) item.search = `${item.id} ${item.group} ${item.label} ${item.hint || ''}`.toLowerCase();
   return list;
 });
 
-const results = computed(() => {
+/** Matching items, with the Model group capped, and the number of matching models left out. */
+const filtered = computed(() => {
   const terms = query.value.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return items.value;
-  return items.value.filter(item => {
-    const text = `${item.id} ${item.group} ${item.label} ${item.hint || ''}`.toLowerCase();
-    return terms.every(term => text.includes(term));
-  });
+  const list: Item[] = [];
+  // A small catalog lists every model; a large one shows only the quick switches until the query narrows it.
+  const quickOnly = !terms.length && models.list.length > MODEL_ROWS;
+  let shownModels = 0, hiddenModels = 0;
+  for (const item of items.value) {
+    if (terms.length && !terms.every(term => item.search!.includes(term))) continue;
+    if (item.group === 'Model') {
+      if (quickOnly ? !item.quick : shownModels >= MODEL_ROWS) { hiddenModels++; continue; }
+      shownModels++;
+    }
+    list.push(item);
+  }
+  return { list, hiddenModels, searching: terms.length > 0 };
+});
+const results = computed(() => filtered.value.list);
+const hiddenModelsNote = computed(() => {
+  const { hiddenModels, searching } = filtered.value;
+  if (!hiddenModels) return '';
+  const count = compactNumber(hiddenModels);
+  return searching ? `${count} more matching models. Type more to narrow.` : `${count} models. Type to search.`;
 });
 const groups = computed(() => {
-  const out: { name: string; items: { item: Item; index: number }[] }[] = [];
+  const out: { name: string; items: { item: Item; index: number }[]; note?: string }[] = [];
   results.value.forEach((item, index) => {
     const last = out.at(-1);
     if (last?.name === item.group) last.items.push({ item, index });
     else out.push({ name: item.group, items: [{ item, index }] });
   });
+  const note = hiddenModelsNote.value;
+  if (note) {
+    const model = out.find(group => group.name === 'Model');
+    if (model) model.note = note;
+    else {
+      // Keep the note where the Model group sits: before Thinking and Settings.
+      const next = out.findIndex(group => ['Thinking', 'Open setting', 'Settings'].includes(group.name));
+      out.splice(next < 0 ? out.length : next, 0, { name: 'Model', items: [], note });
+    }
+  }
   return out;
 });
 watch(query, () => { active.value = 0; });
@@ -248,8 +287,9 @@ const optionId = (index: number) => 'palette-option-' + index;
               <span v-if="item.disabled || item.hint" class="palette-hint">{{ item.disabled || item.hint }}</span>
               <span v-if="item.state" class="palette-state" :data-state="item.state">{{ item.state }}</span>
             </div>
+            <p v-if="group.note" class="palette-note" data-palette-note>{{ group.note }}</p>
           </div>
-          <p v-if="!results.length" class="palette-empty">No matching commands.</p>
+          <p v-if="!results.length && !hiddenModelsNote" class="palette-empty">No matching commands.</p>
         </div>
         <p v-if="sessionLoading" class="palette-status" role="status">Searching conversations…</p>
         <p v-else-if="sessionError" class="palette-status" role="alert" data-error>{{ sessionError }} <button type="button" @click="searchSessions">Retry</button></p>
@@ -279,6 +319,7 @@ const optionId = (index: number) => 'palette-option-' + index;
 .palette-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted-foreground); }
 .palette-state { margin-left: auto; flex: none; font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: var(--r-sm); border: 1px solid var(--border); color: var(--muted-foreground); }
 .palette-state[data-state="On"] { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.palette-note { margin: 0; padding: 6px 8px 6px 30px; font-size: 12px; color: var(--muted-foreground); }
 .palette-empty { padding: 18px 8px; text-align: center; color: var(--muted-foreground); font-size: 13px; }
 .palette-status { margin: 0; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }
 .palette-status:empty { display: none; }

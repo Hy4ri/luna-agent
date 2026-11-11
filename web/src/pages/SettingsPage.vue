@@ -2,7 +2,7 @@
 import { computed, ref, provide, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { ui, setSettingsGuard, setDrawer, navigate, openPanel, setSettingsTab, settingsChanged } from '@/stores/app'
 import { scheduleContext } from '@/stores/chat'
-import { loadModels, models, refreshCatalog } from '@/stores/models'
+import { loadModels, modelIndex, models, refreshCatalog } from '@/stores/models'
 import { json, post } from '@/lib/api'
 import { useMobile } from '@/lib/dom'
 import ConnectionRoutes from '@/components/ConnectionRoutes.vue'
@@ -57,11 +57,14 @@ function openRelated(id: string) {
   if (!disabled.value && !loading.value) openPanel(id, { keepSettings: true })
 }
 const thinkingLevels = computed<string[]>(() => saved.value?.schema.properties.thinkingLevel.enum || [])
+// Only draft custom-provider models that /v1/models does not list yet. Pickers read catalog models from the store,
+// so copying a catalog of thousands of models here would re-merge it in every picker.
 const choices = computed(() => {
   const result = new Map<string, string>()
-  for (const m of models.list) result.set(`${m.provider}/${m.id}`, `${m.provider} · ${m.name || m.id}`)
+  const catalog = modelIndex.value
   for (const p of draft.value?.providers || []) for (const m of p.models || []) {
-    if (p.id && m.id) result.set(`${p.id}/${m.id}`, `${p.name || p.id} · ${m.name || m.id}`)
+    const key = `${p.id}/${m.id}`
+    if (p.id && m.id && !catalog.has(key)) result.set(key, `${p.name || p.id} · ${m.name || m.id}`)
   }
   return [...result].map(([value, label]) => ({ value, label }))
 })

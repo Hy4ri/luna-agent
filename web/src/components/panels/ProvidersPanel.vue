@@ -6,9 +6,16 @@ import ConnectionDefinitionEditor from "@/pages/settings/ConnectionDefinitionEdi
 import { ChevronRight } from "@lucide/vue";
 import { json, post } from "@/lib/api";
 import { loadModels } from "@/stores/models";
+import { compactNumber } from "@/lib/numbers";
 import { useToast } from "@/lib/toast";
 
 import { useSettingsMutation } from "./useSettingsMutation";
+
+/** A short sample of a custom provider's model ids. Live catalogs can list thousands. */
+function modelIds(list: Array<{ id: string }>, shown = 5) {
+  const ids = list.slice(0, shown).map(m => m.id).join(", ");
+  return list.length > shown ? `${ids} and ${compactNumber(list.length - shown)} more` : ids;
+}
 const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();
 const { pending, run } = useSettingsMutation(() => emit("changed"));
 const loading = ref(true);
@@ -245,7 +252,7 @@ onUnmounted(() => {
           <span class="pill" :class="{ ok: p.connected }">
             {{ p.connected ? ((p.via === 'oauth' ? 'subscription' : 'key') + (p.source ? ' · ' + p.source : '')) : (p.error ? 'error' : 'not connected') }}
           </span>
-          <span class="muted">{{ p.models }} models</span>
+          <span class="muted" :title="`${p.models} models`">{{ compactNumber(p.models) }} models</span>
         </summary><div class="grid manager-body">
         <pre v-if="p.error">{{ p.error }}</pre>
         <div v-if="p.oauth" class="row">
@@ -280,9 +287,9 @@ onUnmounted(() => {
         <summary class="row"><ChevronRight :size="16" />
           <b class="grow">{{ p.name }}</b>
           <span class="pill" :class="{ ok: p.connected }">{{ p.def.api }}</span>
-          <span class="muted">{{ p.models }} models</span>
+          <span class="muted" :title="`${p.models} models`">{{ compactNumber(p.models) }} models</span>
         </summary><div class="grid manager-body">
-        <div class="muted">{{ p.def.baseUrl }} · {{ p.def.models.map((m: any) => m.id).join(', ') }}</div>
+        <div class="muted">{{ p.def.baseUrl }} · {{ modelIds(p.def.models) }}</div>
         <div v-if="p.apiKey" class="row"><label class="field-label flex-1"><span>API key</span><input v-model="apiKeys[p.id]" type="password" autocomplete="new-password" :aria-label="p.name + ' API key'" /></label><button type="button" @click="run(() => saveApiKey(p.id))">Save key</button></div>
         <button v-if="p.connected && p.source && /stored|OAuth/i.test(p.source)" type="button" @click="run(() => disconnectProvider(p.id, p.name))">Disconnect</button>
         <ConnectionDefinitionEditor collection="providers" :name="p.id" @busy="emit('busy', $event)" @changed="run(fetchData)" />

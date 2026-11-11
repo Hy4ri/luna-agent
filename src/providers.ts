@@ -110,10 +110,13 @@ export function customProvider(def: CustomProviderDef, fetchImpl: typeof fetch =
     ...(def.compat ? { compat: def.compat } : {}),
   } as Model<CustomApi>);
   const models = def.models.map(toModel);
+  // Index saved definitions once: a per-model scan is quadratic for endpoints with thousands of models.
+  const saved = new Map<string, CustomModelDef>();
+  for (const m of def.models) if (!saved.has(m.id)) saved.set(m.id, m);
   // Discover models, limits, and image input support. Explicit saved definitions still win.
   const fetchModels = def.api === "anthropic-messages" ? undefined : async ({ credential, signal }: { credential?: { type: string; key?: string }; signal: AbortSignal }) => {
     const live = await detectModels(baseUrl, credential?.type === "api_key" ? credential.key : undefined, fetchImpl, signal);
-    return live.map((m) => toModel({ ...m, ...def.models.find((saved) => saved.id === m.id) }));
+    return live.map((m) => toModel({ ...m, ...saved.get(m.id) }));
   };
   return createProvider({
     id: def.id, name: def.name, baseUrl,
