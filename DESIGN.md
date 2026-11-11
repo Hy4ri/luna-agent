@@ -143,6 +143,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - `#composer` uses `background: var(--card)`, `border: 1px solid var(--input)`, `border-radius: var(--radius)`, shifting border to `color-mix(in srgb, var(--primary) 55%, var(--border))` on `:focus-within`.
   - **Attachment strip (`#atts`):** Thumbnail previews (`height: 54px`) with circular remove buttons above the textarea.
   - **Auto-sizing input (`#input`):** `min-height: 38px`, `max-height: 22dvh`, transparent background.
+  - **Input Integrity:** Never modify, prefill, or inject text into the composer input box without explicit user consent or a direct user-initiated action.
 - **Bottom Action Bar (`.compose-bar`):**
   - Left: Attachment trigger (`#attach`), Model picker trigger (`#model`, truncated `max-width: 240px`, `160px` on mobile), and Reasoning gauge button (`#think`, SVG dial with 7 colored ticks and needle).
   - Right (`.compose-actions`): Stop button (`#stop`, secondary surface) and Send button (`#send`, primary fill).
@@ -214,6 +215,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 - **DON'T** nest `<button>` elements inside `<button>` or `<summary>` interactive targets in ways that break keyboard focus or click routing.
 - **DON'T** use blind cycle buttons when a `<select>`, popover, or radio group lets the user see and pick the target state directly.
 - **DON'T** place session token/context usage bars underneath the composer; keep session usage inside `#statusbar` in `#top`.
+- **DON'T** modify, prefill, or inject text into the composer/input box without explicit user consent or a direct user-initiated action.
 
 ---
 
