@@ -463,7 +463,11 @@ It is the only part that costs model calls. Run it by hand with `cron action=run
 - Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Wife never does it alone.
 - The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap.
 
-Not built yet: leftover browser tabs (only terminals are checked). The model-only rules (overlapping skills, conflicting memory, repeated corrections) are part of the `luna-wife` prompt and file skill or memory cards.
+Cost and context: `cost_habit` flags a project whose cost per turn is over 2x the median of projects (30 days). `compaction_heavy` flags a live session that compacted 3 or more times. Agree opens a session that advises. It changes nothing itself. `weekly_recap` files one card a week from your boards. Agree opens a planning session.
+
+Rule trials: the daily model pass can file `new_rule` cards with a rule in the `tips` format. Agree adds it with `status: "shadow"`. A shadow rule only logs what it would flag. After 7 days a `promote_rule` card lists those hits. Agree turns the rule on, and Dismiss deletes it. A tip's `when.kind` can be `tool`, `skill` or `compaction`. The `reminder_unscheduled` card (model-found) schedules a message into a session on Agree.
+
+Not built yet: leftover browser tabs (only terminals are checked), rules on idle time, project or cwd, and the crew and subagent tips (they need the model pass to know what crew is for).
 
 ## Learning from a source
 

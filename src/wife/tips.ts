@@ -9,7 +9,12 @@ export const TipSchema = z.strictObject({
   when: z.strictObject({
     tool: z.string().min(1), minCalls: z.number().int().min(1).default(50), minSessions: z.number().int().min(1).default(5),
     withinDays: z.number().int().min(1).max(365).default(30), withoutTool: z.string().min(1).optional(),
+    /** Which analytics facts `tool` and `withoutTool` name. Default: tool calls. */
+    kind: z.enum(["tool", "skill", "compaction"]).default("tool"),
   }),
+  /** `shadow` rules only log what they would flag. A shadow rule that Wife proposed becomes `on` when you agree to its promote card. */
+  status: z.enum(["on", "shadow"]).default("on"),
+  shadowSince: z.number().int().optional(),
   /** Agree turns this extension on through settings. */
   enable: z.strictObject({ extension: z.string().min(1) }).optional(),
 });
@@ -18,19 +23,20 @@ export type WifeTip = z.infer<typeof TipSchema>;
 export const DEFAULT_TIPS: WifeTip[] = [
   { id: "codemode", title: "Try codemode for batch tool work",
     body: "You call bash a lot, and you never use codemode. One codemode script can run many tool calls and return only the result you need.",
-    when: { tool: "bash", minCalls: 100, minSessions: 5, withinDays: 30, withoutTool: "codemode" }, enable: { extension: "codemode" } },
+    when: { tool: "bash", minCalls: 100, minSessions: 5, withinDays: 30, withoutTool: "codemode", kind: "tool" }, status: "on", enable: { extension: "codemode" } },
   { id: "background-processes", title: "Run long commands in the background",
     body: "You call bash a lot, and you never use process_manage. Background mode returns at once and wakes the chat when the command ends.",
-    when: { tool: "bash", minCalls: 100, minSessions: 5, withinDays: 30, withoutTool: "process_manage" } },
+    when: { tool: "bash", minCalls: 100, minSessions: 5, withinDays: 30, withoutTool: "process_manage", kind: "tool" }, status: "on" },
 ];
 
 export type ToolCounts = Map<string, { calls: number; sessions: number }>;
 
 /** `counts` must cover the widest window of any tip; `countsIn` gives the counts for one window. */
-export function matchTips(tips: WifeTip[], countsIn: (withinDays: number) => ToolCounts, enabled: (extension: string) => boolean = () => false): NewSuggestion[] {
+export function matchTips(tips: WifeTip[], countsIn: (withinDays: number, kind: WifeTip["when"]["kind"]) => ToolCounts, enabled: (extension: string) => boolean = () => false, shadow = false): NewSuggestion[] {
   const out: NewSuggestion[] = [];
   for (const t of tips) {
-    const counts = countsIn(t.when.withinDays);
+    if ((t.status === "shadow") !== shadow) continue;
+    const counts = countsIn(t.when.withinDays, t.when.kind);
     const used = counts.get(t.when.tool);
     if (!used || used.calls < t.when.minCalls || used.sessions < t.when.minSessions) continue;
     if (t.when.withoutTool && (counts.get(t.when.withoutTool)?.calls ?? 0) > 0) continue;

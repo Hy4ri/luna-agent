@@ -3,7 +3,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 
-export const WIFE_KINDS = ["skill", "memory", "new_project", "move_session", "archive_session", "delete_session", "feature_tip", "tune_rule", "mute_rule", "mute_kind", "goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat"] as const;
+export const WIFE_KINDS = ["skill", "memory", "new_project", "move_session", "archive_session", "delete_session", "feature_tip", "tune_rule", "mute_rule", "mute_kind", "goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "new_rule", "promote_rule", "cost_habit", "compaction_heavy", "weekly_recap", "reminder_unscheduled", "worktree_orphan", "bg_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat"] as const;
 export type WifeKind = (typeof WIFE_KINDS)[number];
 export const WIFE_STATUSES = ["open", "snoozed", "dismissed", "working", "done", "failed"] as const;
 export const DISMISS_REASONS = ["wrong", "not_now", "already_done", "dont_care_kind", "too_aggressive"] as const;
@@ -58,6 +58,7 @@ export class WifeStore {
         action TEXT NOT NULL CHECK (action IN ('agree','dismiss','snooze','undo','failed')), reason TEXT, note TEXT, ts INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS outcomes_rule ON outcomes(rule_id, ts);
+      CREATE TABLE IF NOT EXISTS shadow_hits (tip_id TEXT NOT NULL, day INTEGER NOT NULL, title TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (tip_id, day));
       CREATE TABLE IF NOT EXISTS undo (suggestion_id INTEGER PRIMARY KEY, inverse TEXT NOT NULL, expires INTEGER NOT NULL);
     `);
     // shown_at null: the card is held back by quiet hours or the daily cap.
@@ -65,6 +66,11 @@ export class WifeStore {
     if (!cols.includes("shown_at")) this.db.exec("ALTER TABLE suggestions ADD COLUMN shown_at INTEGER; UPDATE suggestions SET shown_at=created;");
   }
   close() { this.db.close(); }
+  /** A shadow rule would have flagged something now. One row per rule per day. */
+  logShadow(tipId: string, title: string, ts: number) { this.db.prepare("INSERT OR IGNORE INTO shadow_hits(tip_id, day, title, ts) VALUES (?,?,?,?)").run(tipId, Math.floor(ts / 86_400_000), title, ts); }
+  shadowHits(tipId: string, since = 0): { day: number; title: string; ts: number }[] {
+    return this.db.prepare("SELECT day, title, ts FROM shadow_hits WHERE tip_id=? AND ts>=? ORDER BY ts").all(tipId, since) as never;
+  }
 
   get(id: number): Suggestion | undefined {
     const r = this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.id=?").get(id) as Row | null;

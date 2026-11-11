@@ -4,8 +4,9 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { StringEnum } from "../string-enum.js";
 import type { WifeService } from "./service.js";
 import type { NewSuggestion } from "./store.js";
+import { TipSchema } from "./tips.js";
 
-const KINDS = ["skill", "memory", "feature_tip", "new_project"] as const;
+const KINDS = ["skill", "memory", "feature_tip", "new_project", "new_rule", "reminder_unscheduled"] as const;
 const text = (t: string, isError = false) => ({ output: [{ type: "text" as const, text: t }], ...(isError ? { isError: true } : {}) });
 export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
@@ -15,7 +16,7 @@ const Params = Type.Object({
   title: Type.Optional(Type.String({ description: "suggest: short title." })),
   body: Type.Optional(Type.String({ description: "suggest: why, in one or two sentences." })),
   evidence: Type.Optional(Type.Array(Type.Object({ sessionId: Type.Number(), note: Type.String() }), { description: "suggest: sessions that show the pattern. Each must exist." })),
-  payload: Type.Optional(Type.Object({}, { additionalProperties: true, description: "memory: {key?, content}. skill: {name, existing?, outline}. new_project: {name, cwd, worker, sessionIds}. feature_tip: {}." })),
+  payload: Type.Optional(Type.Object({}, { additionalProperties: true, description: "memory: {key?, content}. skill: {name, existing?, outline}. new_project: {name, cwd, worker, sessionIds}. feature_tip: {}. new_rule: {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool?,kind?:tool|skill|compaction}}}. reminder_unscheduled: {sessionId, content, dueAt (epoch ms, future)}." })),
 });
 type Args = Static<typeof Params>;
 
@@ -38,6 +39,15 @@ export function buildCard(a: Args, sessionExists: (id: number) => boolean): NewS
   } else if (a.kind === "new_project") {
     if (typeof p.name !== "string" || typeof p.cwd !== "string" || !Array.isArray(p.sessionIds) || !p.sessionIds.every(Number.isSafeInteger)) return "new_project payload needs name, cwd, worker, sessionIds";
     key = slug(p.name);
+  } else if (a.kind === "new_rule") {
+    const t = TipSchema.safeParse({ ...(p.tip as object), status: "shadow" });
+    if (!t.success) return `new_rule payload.tip is not valid: ${t.error.issues[0]?.message}`;
+    key = t.data.id;
+  } else if (a.kind === "reminder_unscheduled") {
+    if (!Number.isSafeInteger(p.sessionId) || !sessionExists(p.sessionId as number)) return "reminder payload needs an existing sessionId";
+    if (typeof p.content !== "string" || !p.content.trim() || p.content.startsWith("/")) return "reminder payload needs plain content";
+    if (typeof p.dueAt !== "number" || !(p.dueAt > Date.now())) return "reminder payload needs a future dueAt";
+    key = slug(`${p.sessionId}-${p.content}`);
   } else key = slug(a.title);
   if (!key) return "title or name gives an empty id";
   return { kind: a.kind, fingerprint: `${a.kind}:${key}`, title: a.title.trim().slice(0, 120), body: a.body.trim().slice(0, 1000), evidence: evidence.map(e => ({ sessionId: e.sessionId, note: e.note.slice(0, 200) })),
@@ -49,7 +59,7 @@ export function createWifeExtension(wife: () => WifeService | undefined, session
     name: "wife",
     tools: [defineTool({
       name: "wife",
-      description: "Wife suggestion cards. list shows open and dismissed cards so you do not file them again. suggest files one card (kind skill, memory, feature_tip, new_project) with evidence sessions. Filing again with the same name is safe.",
+      description: "Wife suggestion cards. list shows open and dismissed cards so you do not file them again. suggest files one card (kind skill, memory, feature_tip, new_project, new_rule, reminder_unscheduled) with evidence sessions. Filing again with the same name is safe.",
       parameters: Params,
       execute: async (a: Args) => {
         const w = wife();

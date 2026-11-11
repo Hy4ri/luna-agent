@@ -350,6 +350,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
       disable: id => { store.setEnabled(id, false); scheduler?.rearm(); } } : undefined,
     startSession: (project, title, content, requestId) => webhookTargets!.newSession(project ?? 0, title, content, requestId),
+    scheduleMessage: async (sessionId, content, dueAt, requestId) => {
+      await harness.commit(tx => scheduledMessages.create(tx, { conversationId: sessionId, content, dueAt, requestId, source: { kind: "user" } }), context);
+      await scheduledMessages.scheduleChanged();
+    },
     worktrees: () => listSessionWorktrees([...new Set([cfg.cwd ?? "", ...conversations.projects.list().map(p => p.cwd)])]),
     removeWorktree: async (path, branch) => removeSessionWorktree(path, branch),
     terminals: () => terminals.registry.all().map(t => ({ id: t.id, session: t.session, command: t.command, status: t.status })),

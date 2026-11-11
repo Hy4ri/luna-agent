@@ -6,10 +6,11 @@ import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorR
 import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "./detectors2.js";
 import { inQuietHours, inScope, startOfLocalDay, type WifePolicy } from "./policy.js";
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
-import { matchTips, type ToolCounts, type WifeTip } from "./tips.js";
+import { compactionHeavy, costHabit, weeklyRecap } from "./detectors4.js";
+import { matchTips, TipSchema, type ToolCounts, type WifeTip } from "./tips.js";
 import type { NewSuggestion, Inverse, Suggestion, WifeStore } from "./store.js";
 
-const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
+const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat", "cost_habit", "compaction_heavy", "weekly_recap", "promote_rule", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
 export interface WifeServiceOptions {
@@ -35,6 +36,8 @@ export interface WifeServiceOptions {
   /** User messages from the recall index since `since`. `first` keeps one message per session: its first. */
   userMessages?: (since: number, first: boolean) => { conv: number; ts: number; text: string }[];
   skillExists?: (name: string) => boolean;
+  /** Schedule a message into a session. Throws when the time is past. */
+  scheduleMessage?: (sessionId: number, content: string, dueAt: number, requestId: string) => Promise<void>;
   restoreMemory?: (key: string, content: string | null) => Promise<void> | void;
   extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
 }
@@ -56,13 +59,24 @@ export class WifeService {
     const found = [...batchCards([...staleSessions(sessions, this.o.config(), now), ...misfiledSessions(sessions, projects)]), ...newProjects(sessions, projects, now)];
     const store = this.o.analytics();
     const tips = this.o.config().tips ?? [];
-    const toolCounts = (days: number): ToolCounts => {
+    const FACT = { tool: "tool", skill: "skill", compaction: "compaction" } as const;
+    const toolCounts = (days: number, kind: keyof typeof FACT = "tool"): ToolCounts => {
       const rows = store.db.query<{ name: string; calls: number; sessions: number }, [number]>(
-        "SELECT f.name AS name, COUNT(*) AS calls, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='tool' AND f.ts>=? AND s.deleted_at IS NULL GROUP BY f.name").all(now - days * 86_400_000);
+        `SELECT f.name AS name, COUNT(*) AS calls, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='${FACT[kind]}' AND f.ts>=? AND s.deleted_at IS NULL GROUP BY f.name`).all(now - days * 86_400_000);
       return new Map(rows.map(r => [r.name, { calls: r.calls, sessions: r.sessions }]));
     };
     const tipCards = matchTips(tips, toolCounts, n => this.o.extensions?.enabled(n) ?? false);
     found.push(...tipCards, ...goalUnfinished(sessions, now));
+    // Shadow rules only log. After 7 days a promote card shows what they would have flagged.
+    for (const t of tips.filter(x => x.status === "shadow")) {
+      for (const c of matchTips([t], toolCounts, n => this.o.extensions?.enabled(n) ?? false, true)) this.o.store.logShadow(t.id, c.title, now);
+      if (t.shadowSince !== undefined && now - t.shadowSince >= 7 * DAY) {
+        const hits = this.o.store.shadowHits(t.id, t.shadowSince);
+        found.push({ kind: "promote_rule", ruleId: "promote_rule", fingerprint: `promote_rule:${t.id}`, source: "detector", title: `Turn on your rule "${t.title}"?`,
+          body: hits.length ? `It would have flagged ${hits.length} time${hits.length === 1 ? "" : "s"} in 7 days:\n${hits.slice(0, 7).map(h => `- ${new Date(h.ts).toISOString().slice(0, 10)}: ${h.title}`).join("\n")}\nAgree turns it on. Dismiss deletes it.`
+            : "It would not have flagged anything in 7 days. Agree turns it on anyway. Dismiss deletes it.", evidence: [], payload: { tipId: t.id } });
+      }
+    }
     if (this.o.cron) found.push(...cronFailing(this.o.cron.jobs()));
     const waitRows = store.db.query<{ model: string; waits: number; sessions: number }, [number]>(
       "SELECT COALESCE(f.model,'unknown') AS model, COUNT(*) AS waits, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f WHERE f.kind='quota_wait' AND f.ts>=? GROUP BY 1").all(now - 7 * DAY);
@@ -72,6 +86,10 @@ export class WifeService {
     const cards = projects.flatMap(p => this.o.conversations.board.list(p.id).map(c => ({ project: p.id, id: c.id, subject: c.subject, status: c.status, updated: c.updated,
       ownerSession: /^session (\d+)$/.exec(c.owner ?? "")?.[1] ? Number(/^session (\d+)$/.exec(c.owner!)![1]) : null })));
     found.push(...boardStuck(cards, idleSession, now));
+    const week = String(Math.floor(now / (7 * DAY)));
+    found.push(...costHabit(sessions, now, week), ...weeklyRecap(cards, now, week));
+    const compRows = store.db.query<{ session: number; n: number }, []>("SELECT f.session_id AS session, COUNT(*) AS n FROM analytics_facts f WHERE f.kind='compaction' GROUP BY f.session_id HAVING n>=3").all();
+    found.push(...compactionHeavy(compRows, sessions, now));
     if (this.o.worktrees) found.push(...worktreeOrphans(this.o.worktrees().map(w => {
       const sid = /^luna\/s(\d+)(?:-|$)/.exec(w.branch)?.[1]; const sessionId = sid ? Number(sid) : null;
       const rec = sessionId === null ? undefined : sessionById.get(sessionId);
@@ -132,6 +150,12 @@ export class WifeService {
   }
   stop() { if (this.timer) clearInterval(this.timer); }
 
+  /** Dismissing a promote card deletes the trial rule. */
+  onDismiss(card: Suggestion) {
+    if (card.kind !== "promote_rule" || !this.o.setConfig) return;
+    const tid = String(card.payload.tipId);
+    this.o.setConfig(w => { w.tips = ((w.tips as { id: string }[] | undefined) ?? []).filter(t => t.id !== tid); });
+  }
   /** Apply the delivery policy to a card the model filed: "skip" when muted or out of scope, "show" when it may appear now, else "hold". */
   admit(card: NewSuggestion): "skip" | "show" | "hold" {
     const cfg = this.o.config(), now = (this.o.now ?? Date.now)();
@@ -186,6 +210,7 @@ export class WifeService {
 
   /** Carry out an open card. The target is checked again first. A failure is recorded on the card and thrown. */
   async agree(id: number, opts: { confirm?: boolean; targets?: number[] } = {}): Promise<Suggestion> {
+    const now = (this.o.now ?? Date.now)();
     const card = this.o.store.get(id);
     if (!card) throw new WifeError(404, "no such suggestion");
     if (card.status !== "open" && card.status !== "snoozed") throw new WifeError(409, `suggestion is ${card.status}`);
@@ -250,6 +275,36 @@ export class WifeService {
         else if (opts.confirm !== true) throw new WifeError(400, "removing a worktree needs confirm:true");
         else if (live.dirty) throw new WifeError(409, "The worktree has uncommitted changes. Clean it up by hand.");
         else { await this.o.removeWorktree!(p.path, p.branch); result = `Removed ${p.branch}.`; }
+      } else if (card.kind === "new_rule") {
+        if (!this.o.setConfig) throw new WifeError(409, "settings are not available");
+        const parsed = TipSchema.safeParse({ ...(card.payload.tip as object), status: "shadow", shadowSince: now });
+        if (!parsed.success) throw new WifeError(400, `the rule is not valid: ${parsed.error.issues[0]?.message}`);
+        const tip = parsed.data;
+        if ((this.o.config().tips ?? []).some(t => t.id === tip.id)) throw new WifeError(409, `a rule named ${tip.id} already exists`);
+        this.o.setConfig(w => { w.tips = [...((w.tips as unknown[] | undefined) ?? []), tip]; });
+        result = `Rule ${tip.id} is on trial for 7 days. It only logs what it would flag.`;
+      } else if (card.kind === "promote_rule") {
+        if (!this.o.setConfig) throw new WifeError(409, "settings are not available");
+        const tid = String(card.payload.tipId);
+        this.o.setConfig(w => { w.tips = ((w.tips as { id: string }[] | undefined) ?? []).map(t => t.id === tid ? { ...t, status: "on" } : t); });
+        result = `Rule ${tid} is on.`;
+      } else if (card.kind === "cost_habit" || card.kind === "compaction_heavy" || card.kind === "weekly_recap") {
+        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        const text = card.kind === "weekly_recap" ? `Help me plan my week. Here is the recap from my boards.\n\n${card.payload.recap}\n\nPick what to finish first and what to drop.`
+          : card.kind === "cost_habit" ? `${card.body}\n\nLook at this project's recent sessions. Tell me whether a cheaper model or a lower thinking level would do, and show the project setting to change. Change nothing yourself.`
+          : `Session ${card.payload.sessionId} has compacted many times. Read it and propose how to split the remaining work into smaller sessions. Change nothing yourself.`;
+        const first = card.evidence[0]?.sessionId;
+        const project = card.kind === "cost_habit" ? Number(card.payload.project) : first === undefined ? null : conv.projects.projectOf(first) ?? null;
+        const sidW = await this.o.startSession(project, `Wife: ${card.title}`.slice(0, 100), text, `wife-${id}`);
+        this.o.store.setStatus(id, "working", { sessionId: sidW, result: "Working on it in a session." });
+        this.o.store.record(card, "agree", null, "work session");
+        return this.o.store.get(id)!;
+      } else if (card.kind === "reminder_unscheduled") {
+        const p = card.payload as { sessionId: number; content: string; dueAt: number };
+        if (!this.o.scheduleMessage) throw new WifeError(409, "scheduled messages are not available");
+        if (!(p.dueAt > now)) throw new WifeError(409, "that time has passed");
+        await this.o.scheduleMessage(p.sessionId, p.content, p.dueAt, `wife-reminder-${id}`);
+        result = `Scheduled for ${new Date(p.dueAt).toISOString().slice(0, 16).replace("T", " ")} UTC.`;
       } else if (card.kind === "bg_leftover") {
         this.o.closeTerminal?.(String(card.payload.terminalId)); result = "Stopped the terminal.";
       } else if (card.kind === "skill_unused") {

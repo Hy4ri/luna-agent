@@ -62,6 +62,7 @@ export function registerWife(app: Hono, ctx: RouteCtx): void {
     if (b.note !== undefined && typeof b.note !== "string") return err(c, 400, "note must be text");
     const note = typeof b.note === "string" ? redact(b.note.trim().slice(0, 500)) : undefined;
     wife.store.dismiss(n, b.reason as DismissReason | undefined, note);
+    wife.onDismiss(card);
     return c.json(wife.store.get(n));
   });
   app.post("/v1/wife/:id/snooze", async c => {
