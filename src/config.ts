@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
+import { DEFAULT_TIPS, TipSchema } from "./wife/tips.js";
 import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
 export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks"] as const;
@@ -238,6 +239,8 @@ export const ConfigSchema = z
     wife: z.strictObject({
       enabled: z.boolean().default(true), detectEveryMinutes: z.number().int().min(1).max(1440).default(30),
       staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
+      /** Feature tips. Edit, add or remove rules here. */
+      tips: z.array(TipSchema).default(() => structuredClone(DEFAULT_TIPS)),
     }).prefault({}),
     /** `improve.allowCommandBenchmarks` gates shell benchmarks in `skill action=propose`. */
     improve: z.strictObject({ allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),

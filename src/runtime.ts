@@ -341,7 +341,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
   const wifeStore = new WifeStore(join(cfg.dataDir, "wife.db"));
-  const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log });
+  const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log,
+    extensions: settings ? { enabled: n => settings.read().extensions.includes(n as never), enable: n => settings.update(c => { if (!c.extensions.includes(n as never)) c.extensions.push(n as never); }) } : undefined });
   conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });
   harnessRef = harness;
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.

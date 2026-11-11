@@ -2,14 +2,17 @@
 import type { AnalyticsStore } from "../analytics/store.js";
 import type { ConversationStore } from "../conversations.js";
 import { misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
+import { matchTips, type ToolCounts, type WifeTip } from "./tips.js";
 import type { Suggestion, WifeStore } from "./store.js";
 
-const DETECTOR_RULES = ["archive_session", "delete_session", "move_session", "new_project"];
+const DETECTOR_RULES = ["archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
 export interface WifeServiceOptions {
   store: WifeStore; analytics: () => AnalyticsStore; conversations: ConversationStore;
-  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number }; now?: () => number; log?: (m: string) => void;
+  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[] };
+  /** Settings mutation used by a tip that enables an extension. */
+  extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
 }
 
 export class WifeService {
@@ -24,6 +27,15 @@ export class WifeService {
     const sessions = this.o.analytics().sessions();
     const projects = this.o.conversations.projects.list();
     const found = [...staleSessions(sessions, this.o.config(), now), ...misfiledSessions(sessions, projects), ...newProjects(sessions, projects, now)];
+    const store = this.o.analytics();
+    const tips = this.o.config().tips ?? [];
+    const toolCounts = (days: number): ToolCounts => {
+      const rows = store.db.query<{ name: string; calls: number; sessions: number }, [number]>(
+        "SELECT f.name AS name, COUNT(*) AS calls, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='tool' AND f.ts>=? AND s.deleted_at IS NULL GROUP BY f.name").all(now - days * 86_400_000);
+      return new Map(rows.map(r => [r.name, { calls: r.calls, sessions: r.sessions }]));
+    };
+    const tipCards = matchTips(tips, toolCounts, n => this.o.extensions?.enabled(n) ?? false);
+    found.push(...tipCards);
     let filed = 0;
     for (const f of found) {
       const isNew = !this.o.store.has(f.fingerprint);
@@ -31,7 +43,7 @@ export class WifeService {
       if (isNew) filed++;
     }
     let withdrawn = 0;
-    for (const rule of DETECTOR_RULES)
+    for (const rule of [...DETECTOR_RULES, ...tips.map(t => `tip:${t.id}`)])
       withdrawn += this.o.store.withdrawOpen(rule, new Set(found.filter(f => (f.ruleId ?? f.kind) === rule).map(f => f.fingerprint)));
     return { filed, withdrawn };
   }
@@ -79,6 +91,10 @@ export class WifeService {
         let moved = 0;
         for (const id of p.sessionIds) { try { await this.o.conversations.move(id, project.id); moved++; } catch { /* session gone */ } }
         result = `Created project ${project.name} and moved ${moved} sessions.`;
+      } else if (card.kind === "feature_tip") {
+        const ext = card.payload.enable as string | null;
+        if (ext && this.o.extensions && !this.o.extensions.enabled(ext)) { this.o.extensions.enable(ext); result = `Enabled ${ext}. It loads on the next session.`; }
+        else result = "Noted.";
       } else throw new WifeError(400, `${card.kind} cards cannot be agreed yet`);
       this.o.store.setStatus(id, "done", { result });
       this.o.store.record(card, "agree");

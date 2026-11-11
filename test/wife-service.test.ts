@@ -80,3 +80,26 @@ test("deleting needs confirm and a session that is archived and unpinned", async
     assert.equal((await f.wife.agree(card.id, { confirm: true })).status, "done");
   } finally { await f.close(); }
 });
+
+test("a feature tip needs heavy use of one tool and none of the other, and agree enables its extension", async () => {
+  const { matchTips, DEFAULT_TIPS, TipSchema } = await import("../src/wife/tips.js");
+  const heavy = (extra: [string, number][] = []) => () => new Map<string, { calls: number; sessions: number }>([["bash", { calls: 500, sessions: 40 }], ...extra.map(([n, c]) => [n, { calls: c, sessions: 3 }] as [string, { calls: number; sessions: number }])]);
+  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy()).map(c => c.fingerprint), ["feature_tip:codemode", "feature_tip:background-processes"]);
+  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy([["codemode", 1]])).map(c => c.fingerprint), ["feature_tip:background-processes"]);
+  assert.deepEqual(matchTips(DEFAULT_TIPS, () => new Map([["bash", { calls: 10, sessions: 2 }]])), []);
+  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy(), n => n === "codemode").map(c => c.fingerprint), ["feature_tip:background-processes"]);
+  const bad = TipSchema.safeParse({ id: "x", title: "t", body: "b", when: { tool: "bash", minCalls: 0 } });
+  assert.equal(bad.success, false);
+  assert.match(JSON.stringify(bad.error!.issues[0]!.path), /minCalls/);
+
+  const f = await fixture();
+  try {
+    const enabled = new Set<string>();
+    const card = f.store.file({ kind: "feature_tip", fingerprint: "feature_tip:codemode", title: "t", body: "b", evidence: [], source: "detector", payload: { tipId: "codemode", enable: "codemode" } })!;
+    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({}) as never, config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }),
+      extensions: { enabled: n => enabled.has(n), enable: n => void enabled.add(n) } });
+    const done = await wife.agree(card.id);
+    assert.equal(done.status, "done");
+    assert.ok(enabled.has("codemode"));
+  } finally { await f.close(); }
+});
