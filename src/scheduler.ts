@@ -398,7 +398,7 @@ export class CronStore {
   }
 
   /** Atomically claim a slot: insert run row + advance next_run. Returns undefined if already claimed, missing, or slot mismatch. */
-  claim(job: Job, now: number): Run | undefined {
+  claim(job: Job, now: number, unchanged?: string | null): Run | undefined {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const freshJob = this.db.prepare("SELECT * FROM jobs WHERE id=? AND deleted_at IS NULL").get(job.id) as JobDbRow | undefined;
@@ -415,14 +415,14 @@ export class CronStore {
       const activeRun = this.db.prepare("SELECT id FROM runs WHERE job_id=? AND status='running'").get(job.id);
       const dueSlot = freshJob.next_run ?? now;
       const missed = freshJob.grace_ms != null && now - dueSlot > freshJob.grace_ms;
-      if (activeRun || missed) {
+      if (activeRun || missed || unchanged) {
         const slot = dueSlot;
         // Record the skip so history shows why nothing ran.
         this.db.prepare(
           "INSERT OR IGNORE INTO runs(job_id,slot,started_at,ended_at,status,error,reason,job_name,report,read_at) VALUES(?,?,?,?,'skipped',?,?,?,0,NULL)"
         ).run(job.id, slot, now, now,
-          missed ? `skipped: slot ${new Date(slot).toISOString()} was ${Math.round((now - slot) / 1000)}s late (grace ${Math.round((freshJob.grace_ms ?? 0) / 1000)}s)` : "skipped: previous run still running",
-          missed ? "missed" : "overlap", freshJob.name);
+          unchanged && !activeRun && !missed ? `skipped: ${unchanged}` : missed ? `skipped: slot ${new Date(slot).toISOString()} was ${Math.round((now - slot) / 1000)}s late (grace ${Math.round((freshJob.grace_ms ?? 0) / 1000)}s)` : "skipped: previous run still running",
+          unchanged && !activeRun && !missed ? "unchanged" : missed ? "missed" : "overlap", freshJob.name);
         this.db.prepare("UPDATE jobs SET next_run=? WHERE id=?").run(
           freshJob.interval_ms ? Math.max(now, slot) + freshJob.interval_ms : nextRun(freshJob.expr, Math.max(now, slot)),
           job.id
@@ -720,6 +720,8 @@ export interface SchedulerOptions {
   onFinish?: (job: Job | undefined, run: Run) => void | Promise<void>;
   /** Extensions removed from cron conversations, e.g. tools that wait for a human. */
   exclude?: Extension[];
+  /** Called when a slot comes due. A returned reason records the slot as skipped (reason "unchanged") and runs nothing. Manual runs ignore it. */
+  skipRun?: (job: Job) => string | null;
 }
 
 const MAX_TIMER = 2 ** 31 - 1;
@@ -743,7 +745,7 @@ export class Scheduler {
   private active = new Map<number, ActiveRun>();
   private wakers = new Set<() => void>();
   private stopped = true;
-  private o: Required<Omit<SchedulerOptions, "thinkingLevel">> & Pick<SchedulerOptions, "thinkingLevel">;
+  private o: Required<Omit<SchedulerOptions, "thinkingLevel" | "skipRun">> & Pick<SchedulerOptions, "thinkingLevel" | "skipRun">;
   constructor(o: SchedulerOptions) { this.o = { ...o, runTimeoutMs: o.runTimeoutMs ?? 30 * 60_000, retention: o.retention ?? (() => defaultRetention), log: o.log ?? (() => {}), onFinish: o.onFinish ?? (() => {}), exclude: o.exclude ?? [] }; }
 
   /** Re-arm the timer after jobs change (e.g. the model added a job). */
@@ -799,7 +801,7 @@ export class Scheduler {
   async tick(now = Date.now()) {
     if (this.stopped) return;
     for (const job of this.o.store.dueJobs(now)) {
-      const run = this.o.store.claim(job, now);
+      const run = this.o.store.claim(job, now, this.o.skipRun?.(job) ?? null);
       if (run) this.launch(run, (a) => this.execute(job, run, a));
     }
     this.arm();

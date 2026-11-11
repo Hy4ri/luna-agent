@@ -12,9 +12,9 @@ The page has eight task-based categories:
 - **Models:** main model, subagent defaults, task-specific models, and model catalog refresh.
 - **Accounts & connections:** provider accounts, custom providers, MCP connections, and execution machines.
 - **Tools:** web access, browser control, background commands, Code Mode sandbox, built-in tool groups, and disabled tools.
-- **Memory & skills:** extra skill directories, disabled skills, conversation learning, and links to saved memory, skills, and lessons.
+- **Memory & skills:** extra skill directories, disabled skills, and links to saved memory and skills.
 - **Media:** image analysis, image generation, and video analysis.
-- **Automation:** scheduled-run defaults, skill improvement, and a link to Cron jobs and reports.
+- **Automation:** scheduled-run defaults, skill benchmark access, and a link to Cron jobs and reports.
 - **System:** daemon LAN/Tailscale addresses, data directory, working directory, HTTP server, and configuration-file information.
 
 Desktop uses a category sidebar. Mobile uses a vertical category index and an **All settings** back action.
@@ -30,13 +30,13 @@ Account and connection actions apply immediately through their own buttons; they
 Save or discard the preference draft before changing accounts or connections.
 Provider definitions and MCP definitions have structured **Edit definition** forms with explicit **Save definition** actions.
 These forms retain all schema-supported options, revision protection, and secret markers.
-Saved memory, skills, lessons, current subagents, execution machines, and Cron open their management panels.
+Saved memory, skills, current subagents, execution machines, and Cron open their management panels.
 Opening a related manager preserves the Settings draft. Analytics remains a separate main-navigation page.
 
 Main and subagent thinking selectors are independent. Subagents can inherit the parent thinking level.
 Disabled tools and skills use searchable pickers. Saved disabled items remain available to re-enable even when absent from the current catalog.
 Field help shows defaults and readable units. Environment override names appear beside affected fields.
-The legacy `learn.schedule` field is preserved but not editable. The fixed image-generation model is not an editable setting.
+The fixed image-generation model is not an editable setting.
 No JSON editing is required.
 
 ## LAN and Tailscale addresses for one daemon
@@ -264,7 +264,7 @@ transactional submission API, not a host callback stored in a submission.
   `deletedJobDays` (default thirty days) for the runs of a deleted job. The cleanup runs in the background in small batches and never holds the
   daemon up. It never removes a running run or the report waiting in the inbox. Edit it under **Settings → Automation → Scheduled runs**.
   Changes apply live.
-- `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `learn`, `server`: runtime settings.
+- `dataDir`, `cwd`, `extensions`, `skillDirs`, `cron`, `improve`, `server`: runtime settings.
 
 Relative paths use the config file's directory. `~` expands to the user's home directory.
 
@@ -405,7 +405,7 @@ The live gate uses a scripted model; it verifies tool execution, not real-model 
 
 ## Skill management
 
-The `skills` extension gives the agent one `skill` tool and the skills catalog. The `skill` tool also loads with the `improve` extension; there `view` is refused until `skills` is on.
+The `skills` extension gives the agent one `skill` tool and the skills catalog.
 
 - Only skills under `<dataDir>/skills` can change. Skills from `skillDirs` are read-only.
 - `skill` actions: `view` (`name`, optional `file_path` for a linked file), `list`, `create`, `edit` (full content, or one exact `old_text` → `new_text`), `propose`,
@@ -422,115 +422,52 @@ The `skills` extension gives the agent one `skill` tool and the skills catalog. 
   no `SKILL.md`, and no path inside a nested skill. A skill that contains nested skills cannot be deleted.
 - Changes reach the prompt catalog on the next model call.
 
-## Session learning
+## Removed: session learning and self-improve
 
-The `learn` extension captures contextual evidence without a background model call. A learning proposal is a
-reviewable change, not a new authority to write. **All proposals require user approval.** No automatic-write
-policy is enabled. The existing `memory`, file, and skill tools retain their separate permission scope;
-this feature is not an OS sandbox around those tools.
-The model-facing `lesson_signal` and `lesson_curate` tools were removed (zero calls in use); capture, review, and proposals run through the daemon and web UI.
+The `learn` and `improve` extensions, the `/v1/lessons` routes, the Lessons panel and `cron action=lessons` were removed.
+Saved configs that still list them load unchanged: the keys are dropped. `improve.allowCommandBenchmarks` stays and gates
+shell benchmarks in `skill action=propose`. On start the old `luna-learn` and `luna-self-improve` cron jobs are disabled,
+with their history kept. `learn.db` stays on disk, unused.
 
-### Capture and diagnosis
+## Wife
 
-- `learn.captureEnabled` (default `true`) enables idle scanning after `learn.idleMinutes` (default `30`).
-  Capture stores source pointers, a bounded redacted summary, preceding task/action pointers, loaded skills,
-  and a normalized content fingerprint. Full transcripts stay in conversation storage.
-- Compaction entries, background notices, peer messages, delegated conversations, and scheduled prompts are
-  not independent user statements. Quoted blocks are excluded from rule matching. Message length is not a filter.
-- Tool errors stay signals, not automatic lessons. A signal key is the tool, the program (for `bash`, the last
-  command of the line, plus the subcommand for `git`, `gh`, `pm2`, `bun`, `pnpm`, `npm`, `cargo`, `systemctl`), and the
-  normalized message. A bare exit code is its own cause, so `grep` exit 1 and `node` exit 1 never share a key.
-  The failed call's arguments are stored in the signal context. Three kinds of failure create no signal: an
-  expected result exit (exit 1 from `grep`, `rg`, `diff`, `cmp`, `test`, `git grep`, `pgrep`, or `git diff --quiet`),
-  a stop signal (exit 130 or 143), and a harness interruption. Patterns from at least two conversations become
-  visible for review. Legacy signals whose key ends in `:<harness>` stay in the ledger but are hidden from the
-  queue. A later success from the same tool is only a recovery heuristic; it does not prove the same problem was fixed.
-- Causes: `missing` (missing fact/procedure), `stale`, `not_loaded` (retrieval), `ignored` (available rule not followed),
-  `wrong`, `conflict`, `project` (project-only knowledge), and `uncertain`. Ignored rules need a proposed code check,
-  not more text. Conflicting and uncertain diagnoses cannot produce writes.
+Wife is a page of suggestion cards built from your session activity. A card can be agreed (Wife does the work), discussed
+(opens a session seeded with the card), snoozed, or dismissed with a reason. State lives in `wife.db`.
+Wife only suggests. She never edits her own rules or code, merges, or acts alone. Agreeing to a delete needs `confirm:true`
+(the page asks first); deleting a session cannot be undone. Other direct actions can be undone for 7 days (archive, move,
+new project, memory).
 
-### Storage and write destinations
-
-`learn.db` stores sources, assessments, observations, before/after change journals, and history. `memory.db`
-stores facts and notes, plus keyed fact provenance and history. Both database files use mode `0600`.
-Existing ledger records are retained, not reset.
-
-| Scope | Destination and rule |
-| --- | --- |
-| `memory` | One global fact in `memory.db`; `fact` and stable `fact_key` are required. Versioned snapshots detect stale approvals. A `user.*` key requires an explicitly assessed user statement; inferences do not qualify. |
-| `skill` | One managed `SKILL.md`; `skill` and complete `content` required. External skills remain read-only. Lint and a 1500-character growth budget apply. Retrieval fixes change the description. |
-| `project` | One explicitly enrolled file, with a matching non-global domain. Project-only knowledge cannot enter a global destination. |
-
-`SOUL.md` cannot be written through learning proposals. Identity changes remain a separate explicit task.
-Enrol project files in `learn.files`, for example:
+Detectors run every `wife.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
+misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, stuck board cards, orphan session worktrees (merged branch or deleted session, and clean), leftover terminals in idle sessions, tools that fail in 3 or more sessions a week, managed skills unused for 60 days, a prompt you send on a regular rhythm, and a session opening you repeat in one project. Agreeing to the last two starts a work session. Agreeing to a worktree card removes the worktree and its branch.
+A daily model pass, the built-in cron job `luna-wife`, files skill and memory cards through the `wife` tool.
+It is the only part that costs model calls. Run it by hand with `cron action=run`.
 
 ```json
-{ "learn": { "captureEnabled": true, "idleMinutes": 30,
-  "files": [{ "path": "/absolute/project/AGENTS.md", "domain": "project-name" }] } }
+"wife": {
+  "enabled": true,
+  "detectEveryMinutes": 30,
+  "staleDays": 14,
+  "deleteArchivedAfterDays": 60,
+  "modelSchedule": "0 4,10,16,22 * * *",
+  "maxNewPerDay": 10,
+  "quietHours": { "enabled": false, "from": "22:00", "to": "08:00" },
+  "projects": { "mode": "all", "ids": [] },
+  "mutedRules": [], "mutedKinds": [], "tips": []
+}
 ```
 
-Enrollment is not approval of a change. Targets must be regular text files; symlink paths, binary files, and
-files over 100 KB are refused. Learning refuses proposals whose snapshots contain recognizable credentials.
-Redaction is heuristic, not a guarantee that every secret format is detected. Store databases and backups securely.
+- `modelSchedule`: cron expression for the model pass (default four times a day). A slot is recorded as skipped, with reason `unchanged`, when no non-cron session was active since the last run; a manual run always runs. Empty turns it off. Add `"wife"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
+- `maxNewPerDay`: new cards over the cap wait and show up on the next day. Quiet hours hide new cards the same way.
+- `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Wife watches.
+- `tips`: editable catalog of feature tips. Each rule is `{id, title, body, docs?, when, enable?}`.
+- Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Wife never does it alone.
+- The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap.
 
-`critical` (review explanation). It saves a before/after snapshot and waits for the user. `must_contain` checks
-text only; it is not behavioral verification. Proposals do not run shell commands or paid model benchmarks.
-Skill learning rollback uses the learning journal, not the separate `skill` `rollback` version series.
+Cost and context: `cost_habit` flags a project whose cost per turn is over 2x the median of projects (30 days). `compaction_heavy` flags a live session that compacted 3 or more times. Agree opens a session that advises. It changes nothing itself. `weekly_recap` files one card a week from your boards. Agree opens a planning session.
 
-### Review, concurrency, and recovery
+Rule trials: the daily model pass can file `new_rule` cards with a rule in the `tips` format. Agree adds it with `status: "shadow"`. A shadow rule only logs what it would flag. After 7 days a `promote_rule` card lists those hits. Agree turns the rule on, and Dismiss deletes it. A tip's `when.kind` can be `tool`, `skill` or `compaction`. The `reminder_unscheduled` card (model-found) schedules a message into a session on Agree.
 
-**Settings → Automation → Lessons** shows proposals, original source pointers, assessments, target changes,
-observations, and review-due notices. Approve applies the exact reviewed change; Reject preserves the evidence.
-
-- Memory application uses an immediate SQLite transaction and compares the complete prior snapshot.
-- File application checks the exact reviewed contents, takes a cooperating-writer lock, and atomically replaces
-  the target. It checks contents again before replacement and reads the result back. External editors do not use
-  this lock: there is a narrow check/rename race. This is not a filesystem transaction against arbitrary writers.
-- The journal records intent before apply and rollback. An interrupted change remains `applying` or `blocked` and needs
-  explicit reconciliation; it is not automatically retried. Reconcile reads the target to distinguish not-applied,
-  applied, reverted, and conflicting states. A leftover `.luna-learning-lock` requires manual inspection before removal.
-- Rollback refuses a target changed after apply. A new skill/file can be removed only if its content still matches
-  the approved version. Memory rollback restores the original fact and metadata. Snapshot history remains available.
-- Legacy proposals lack reviewed source assessments and change snapshots, so they cannot be approved directly.
-  Reject and create a new candidate using recaptured original evidence. Legacy `confirmed` entries are displayed
-  as unverified legacy confirmations; loading a skill no longer confirms anything.
-- `memory { action: "forget" }` removes that fact's current memory, provenance, and memory history. Source transcripts and existing
-  learning journals are separate records and are not purged by this action.
-
-### Identity and user facts
-
-`<dataDir>/SOUL.md` is the only identity file in the prompt. The runtime does not read `USER.md` or `MEMORY.md`.
-Keep user preferences and other durable facts in `memory.db` (`memory` `save`, or a `memory` scope lesson). General
-`save` updates clear old learning provenance rather than falsely attributing new content to an older source.
-
-### Outcomes and cost
-
-`success`, `failure`, or `unknown`. Assistant claims alone cannot establish success. The observation is bound to
-an applied change and source timestamp. Repeated source content is deduplicated. Reported failures mark a change
-`ineffective`; no observations means effect unknown. The user can verify a successful observation only while the
-applied target still matches and no later failure contradicts it. This verifies that observation, not every future task.
-
-counts. Use `offset` for pagination, `history: true` for closed lessons and legacy signals, or `lesson_id` for evidence, change journal,
-and revision history. Legacy signals lack original-source fingerprints and stay outside the default queue.
-Metrics include reported outcomes, observed lesson/session pairs, and review-due items.
-They are not independent proof of improvement. Manual review usage remains in the host session's usage records.
-
-The legacy `learn.schedule` field is accepted only for configuration compatibility. It no longer schedules a
-model job. Startup and settings reconciliation disable the old `luna-learn` job without deleting its history.
-No replacement job is created. Idle capture makes **zero model calls**; review occurs in a requested normal
-session or after a relevant correction. There is no automatic replay evaluator or automatic policy promotion.
-
-HTTP routes:
-- `GET /v1/lessons`: active lessons, evidence, assessments, changes, observations, metrics, and `historyCount`.
-- `GET /v1/lessons?history=1&offset=0&limit=20`: lightweight history summaries for rejected, retired, and replaced lessons. Returns `historyCount` and `nextOffset` (null at the end). Offset must be nonnegative; limit is bounded to 1–100. Evidence is loaded through the detail route.
-- `GET /v1/lessons/:id`: full lesson detail, including evidence. The history panel fetches this on expansion.
-- `POST /v1/lessons/scan`: deterministic idle capture (respects capture configuration).
-- `POST /v1/lessons/:id/approve|reject|rollback|reconcile`: user decisions; `reject` accepts an optional `note`.
-- `POST /v1/lessons/:id/verify`: user confirmation, body `{ "observation": <id> }`.
-
-Implementation checks follow the repository's no-tests rule: compiler checks and frontend build only.
-No regression fixtures or runtime verification scripts are shipped. Behavioral and browser verification are
-still needed before claiming operational reliability or measured improvement.
+Rule conditions: a rule's `when` can also set `project` (project id), `cwd` (text the session directory contains) and `idleDays` (the newest matching call is at least that old). Leftover browser tabs in idle sessions are a `browser_leftover` card; Agree closes the tab. The model pass can file `rule_idea` cards for rules that need data Wife does not collect. Agree starts a work session that implements it as a detector on its own worktree branch. Nothing merges without you.
 
 ## Learning from a source
 
@@ -642,7 +579,7 @@ It uses a scripted model; it proves execution and result delivery, not real-mode
 
 Model, thinking, instruction, and subagent defaults apply to new sessions or children.
 Existing sessions retain their selected model and settings.
-**Save settings** applies every change to the running daemon, including providers, MCP connections, web and browser routes, `cron`, `improve`, `learn`, `video` and `vision`.
+**Save settings** applies every change to the running daemon, including providers, MCP connections, web and browser routes, `cron`, `improve`, `video` and `vision`.
 Saving connects, reconnects or disconnects changed MCP servers. A server that fails to connect is reported after the save.
 Removing a built-in from `extensions` applies live: sessions stop seeing its tools, sections and hooks on the next call. Its store and scheduler keep running. Adding one that did not start at boot needs a restart.
 These startup settings need a Luna restart: `dataDir`, `cwd`, `skillDirs`, `processes` and `server`.

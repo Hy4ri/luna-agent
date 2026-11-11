@@ -33,8 +33,8 @@ export const fieldTitles: Record<string, string> = {
   command: 'Command', args: 'Arguments', env: 'Environment variables', url: 'URL', headers: 'Headers',
   cron: 'Scheduled runs', notifyUrl: 'Notification URL', runTimeoutMinutes: 'Run timeout (minutes)',
   emptyRunDays: 'Empty run retention (days)', reportDays: 'Report retention (days)', reportsPerJob: 'Reports kept per job', deletedJobDays: 'Deleted job retention (days)', retention: 'Run log retention',
-  learn: 'Learning from conversations', idleMinutes: 'Idle time before a scan (minutes)', schedule: 'Schedule (cron expression)',
   improve: 'Skill improvement', allowCommandBenchmarks: 'Allow command benchmarks',
+  wife: 'Wife suggestions', detectEveryMinutes: 'Check every (minutes)', staleDays: 'Archive idle sessions after (days)', maxNewPerDay: 'New cards per day (at most)', quietHours: 'Quiet hours', from: 'From (HH:MM)', to: 'To (HH:MM)', ids: 'Project ids', projects: 'Watched projects', mutedRules: 'Muted rules', mutedKinds: 'Muted card kinds', tips: 'Feature tips', deleteArchivedAfterDays: 'Suggest deleting archived sessions after (days)',
   dataDir: 'Data directory', cwd: 'Working directory', server: 'HTTP server', host: 'Listen address', port: 'Port', push: 'Android push notifications', serviceAccountFile: 'Firebase service-account key file',
 }
 
@@ -144,11 +144,6 @@ const fieldHelp: Record<string, string> = {
   'cron.retention.reportDays': 'How long a report stays in the log. Reports newer than this stay whatever else the rules say.',
   'cron.retention.reportsPerJob': 'Newest reports kept for every job, however old they are. This keeps the last output of a busy job.',
   'cron.retention.deletedJobDays': 'How long the runs of a deleted job stay in the log. After that they are removed with the rest.',
-  'learn.idleMinutes': 'Scan a conversation for lesson signals after this many idle minutes.',
-  'learn.schedule': 'Legacy compatibility field. Does not schedule or enable model review.',
-  'learn.captureEnabled': 'Capture source pointers from idle sessions without model calls.',
-  'learn.files': 'Explicitly enrolled project files: absolute path and non-global domain. Writes still need approval.',
-  'improve.schedule': 'Optional five-field cron expression. Requires the cron and improve built-in tools.',
   'improve.allowCommandBenchmarks': 'Allow skill benchmarks to run shell commands on this host. Enable only for trusted benchmarks.',
   'dataDir': 'Stores Luna databases and managed skills. Relative paths use the configuration file\'s directory.',
   'cwd': 'Default working directory for tools. Projects and conversations can override it.',
@@ -195,8 +190,8 @@ export const summaries: Record<string, string> = {
   disabledTools: 'Choose individual tools that Luna must not use.', disabledSkills: 'Choose skills to hide from Luna.',
   skillDirs: 'Add local sources of reusable instructions.',
   cron: 'Set the limits, notifications, and log retention used by scheduled prompts.',
-  learn: 'Collect lesson signals from idle conversations. Review proposed changes and their evidence before applying them.',
-  improve: 'Schedule skill checks and control access to command benchmarks.',
+  improve: 'Control access to command benchmarks for skill checks.',
+  wife: 'Suggestion cards from your session activity. Wife only suggests; you decide.',
   dataDir: 'Choose where Luna stores its persistent data.', cwd: 'Choose the default directory for tool commands.', server: 'Choose where the HTTP server listens.',
   push: 'Send Android notifications through Firebase Cloud Messaging.',
 }
@@ -208,7 +203,6 @@ export const managers: Record<string, RelatedDestination[]> = {
   memory: [
     { id: 'memory', title: 'Saved memory', description: 'Search, save, and remove facts and notes.' },
     { id: 'skills', title: 'Skill library', description: 'Browse skills and read their instructions.' },
-    { id: 'lessons', title: 'Review lessons', description: 'Review proposed changes and their evidence.' },
   ],
   automation: [
     { id: 'cron', title: 'Cron jobs & reports', description: 'Manage scheduled work and read reports.' },

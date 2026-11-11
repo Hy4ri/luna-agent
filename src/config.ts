@@ -6,19 +6,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
-import { parseCron } from "./cron-expr.js";
+import { DEFAULT_TIPS, TipSchema } from "./wife/tips.js";
 import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
-export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "improve", "tool-search", "todo", "ask-user", "recall", "goal", "learn", "codemode", "webhooks"] as const;
+export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks", "wife"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /**
  * Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live.
- * The `cron` and `skill-manage` registry extensions also serve `improve`, so the runtime hides each only when both are off.
  */
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
   coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
-  cron: [], improve: ["improve"], "tool-search": ["tool-search", "deferred-tools"], todo: ["todo"], "ask-user": ["ask-user"],
-  recall: ["recall"], goal: ["goal"], learn: ["learn"], codemode: ["codemode"], webhooks: ["webhooks"],
+  cron: [], "tool-search": ["tool-search", "deferred-tools"], todo: ["todo"], "ask-user": ["ask-user"],
+  recall: ["recall"], goal: ["goal"], codemode: ["codemode"], webhooks: ["webhooks"], wife: ["wife"],
 };
 
 export const WEB_SEARCH_PROVIDERS = ["searxng", "freeserp", "ddgs"] as const;
@@ -49,7 +48,6 @@ export const CustomProviderSchema = z.strictObject({
     stableTools: z.boolean().optional(),
   }).optional(),
 });
-const cronExpr = z.string().refine((e) => { try { parseCron(e); return true; } catch { return false; } }, "invalid cron expression");
 
 /** Absolute input thresholds; stock model-capacity safety limits still apply. */
 const compactionLimits = (background: number, blocking: number) => z.strictObject({
@@ -237,16 +235,25 @@ export const ConfigSchema = z
     }).prefault({}),
     /** Android push through Firebase Cloud Messaging. Off until a service-account key file is set. */
     push: z.strictObject({ serviceAccountFile: z.string().min(1).optional() }).prefault({}),
-    improve: z.strictObject({ schedule: cronExpr.optional(), allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
-    /** Contextual learning capture. Model review is explicit; no built-in scheduled model pass. */
-    learn: z.strictObject({
-      idleMinutes: z.number().positive().default(30),
-      /** Legacy field accepted for compatibility; does not create or enable a job. */
-      schedule: cronExpr.optional(),
-      captureEnabled: z.boolean().default(true),
-      /** User-enrolled project files. Identity files remain separately protected. */
-      files: z.array(z.strictObject({ path: z.string().min(1).refine(isAbsolute, "learning file path must be absolute"), domain: z.string().min(1).refine(s => s !== "global", "project domain cannot be global") })).default([]),
+    /** Wife: suggestion cards from session activity. */
+    wife: z.strictObject({
+      enabled: z.boolean().default(true), detectEveryMinutes: z.number().int().min(1).max(1440).default(30),
+      staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
+      /** Rule ids and card kinds Wife no longer files. Agreeing to a mute card adds to these. */
+      mutedRules: z.array(z.string()).default([]), mutedKinds: z.array(z.string()).default([]),
+      /** Cron expression for the model pass. It skips a slot when no session was active since its last run (skill and memory cards). Empty turns it off. */
+      modelSchedule: z.string().default("0 4,10,16,22 * * *"),
+      /** New cards over this many a day wait until the next day. */
+      maxNewPerDay: z.number().int().min(1).max(1000).default(10),
+      /** Local-time window (HH:MM) in which new cards stay hidden. */
+      quietHours: z.strictObject({ enabled: z.boolean().default(false), from: z.string().regex(/^\d{2}:\d{2}$/).default("22:00"), to: z.string().regex(/^\d{2}:\d{2}$/).default("08:00") }).prefault({}),
+      /** Which projects Wife watches. ids hold project ids; 0 is General. */
+      projects: z.strictObject({ mode: z.enum(["all", "only", "except"]).default("all"), ids: z.array(z.number().int().min(0)).default([]) }).prefault({}),
+      /** Feature tips. Edit, add or remove rules here. */
+      tips: z.array(TipSchema).default(() => structuredClone(DEFAULT_TIPS)),
     }).prefault({}),
+    /** `improve.allowCommandBenchmarks` gates shell benchmarks in `skill action=propose`. */
+    improve: z.strictObject({ allowCommandBenchmarks: z.boolean().default(false) }).prefault({}),
     server: z.strictObject({ host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(8787),
       /** Public HTTPS origins that reach this daemon (tunnel or reverse proxy). Advertised to clients and allowed for CORS. */
       publicUrls: z.array(z.url().refine(u => { const p = new URL(u); return p.protocol === "https:" && p.pathname === "/" && !p.search && !p.hash && !p.username; }, "Use an HTTPS origin without a path")).default([]) }).prefault({}),
@@ -267,8 +274,6 @@ export const ConfigSchema = z
       seen.add(s.name);
     }
     if (new Set(c.extensions).size !== c.extensions.length) ctx.addIssue({ code: "custom", path: ["extensions"], message: "duplicate extension" });
-    if (c.improve.schedule && !c.extensions.includes("cron")) ctx.addIssue({ code: "custom", path: ["improve", "schedule"], message: "needs the cron extension" });
-    if (c.improve.schedule && !c.extensions.includes("improve")) ctx.addIssue({ code: "custom", path: ["improve", "schedule"], message: "needs the improve extension" });
     if (c.provider !== "faux" && !c.model) ctx.addIssue({ code: "custom", path: ["model"], message: `model is required for provider ${c.provider}` });
   });
 
@@ -297,6 +302,13 @@ function migrateToolNames(obj: Record<string, any>) {
   for (const profile of Object.values(obj.subagents?.profiles ?? {}) as any[]) if (profile?.tools) profile.tools = renameTools(profile.tools);
 }
 
+/** The session-learning and self-improve systems were replaced by Wife. Saved configs that still carry their keys keep loading. */
+function migrateRemovedLearning(obj: Record<string, any>) {
+  if (Array.isArray(obj.extensions)) obj.extensions = obj.extensions.filter((e: unknown) => e !== "improve" && e !== "learn");
+  delete obj.learn;
+  if (obj.improve && typeof obj.improve === "object") delete obj.improve.schedule;
+}
+
 export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.ProcessEnv = process.env): LunaConfig {
   const obj: Record<string, any> = raw && typeof raw === "object" ? structuredClone(raw as object) : {};
   if (env.LUNA_DATA) obj.dataDir = env.LUNA_DATA;
@@ -309,6 +321,7 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
     if (env.LUNA_PORT) obj.server.port = Number(env.LUNA_PORT);
   }
   migrateToolNames(obj);
+  migrateRemovedLearning(obj);
   const r = ConfigSchema.safeParse(obj);
   if (!r.success) throw new Error("invalid luna config:\n" + r.error.issues.map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n"));
   const c = r.data;

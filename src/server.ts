@@ -11,8 +11,6 @@ import { BusyCommandError, type BusyPolicy } from "./busy-input.js";
 import { ProjectError } from "./projects.js";
 import { BoardError } from "./board.js";
 import type { McpManager } from "./mcp.js";
-import type { SkillImprover } from "./improve.js";
-import type { LearnStore } from "./learn.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderManager } from "./providers.js";
 import { context, type MemoryStore } from "./luna.js";
@@ -27,6 +25,7 @@ import { createRouteCtx } from "./routes/context.js";
 import { registerUploads } from "./routes/uploads.js";
 import { registerSettings } from "./routes/settings.js";
 import { registerAnalytics } from "./routes/analytics.js";
+import { registerWife } from "./routes/wife.js";
 import { registerSessions } from "./routes/sessions.js";
 import { registerSessionConfig } from "./routes/session-config.js";
 import { registerSessionOps } from "./routes/session-ops.js";
@@ -61,6 +60,8 @@ export interface ServerOptions {
   busyInput?: () => BusyPolicy;
   sessionTalk?: () => SessionTalkPolicy;
   conversations?: ConversationStore;
+  /** Suggestion cards. Absent: the wife endpoints answer 404. */
+  wife?: import("./wife/service.js").WifeService;
   /** Extensions added to sessions created in a project (the board). */
   projectExtensions?: Extension[];
   /** Bearer token for /v1/*. When unset, auth is off (daemon then binds loopback only). */
@@ -89,8 +90,6 @@ export interface ServerOptions {
   cwd?: string;
   /** Webhooks in (POST /hooks/<slug>) and out (subscriptions). Absent: their endpoints answer 404. */
   webhooks?: Webhooks;
-  /** Session learning ledger and the improver that applies approved proposals. */
-  learn?: { store: LearnStore; improver: SkillImprover; scan?: () => Promise<unknown> | undefined };
 }
 
 const safeEq = (a: string, b: string) => {
@@ -157,6 +156,7 @@ export function createApp(opts: ServerOptions) {
   registerUploads(app, ctx);
   registerSettings(app, ctx);
   registerAnalytics(app, ctx);
+  registerWife(app, ctx);
   registerSessions(app, ctx);
   registerProjects(app, ctx);
   registerWorkers(app, ctx);

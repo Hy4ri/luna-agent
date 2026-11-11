@@ -10,6 +10,10 @@ import { createCodexImageAuth } from "./codex-image-auth.js";
 import { createMediaExtension } from "./media.js";
 import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
+import { analyticsService } from "./analytics/index.js";
+import { WifeStore } from "./wife/store.js";
+import { WifeService } from "./wife/service.js";
+import { createWifeExtension } from "./wife/tool.js";
 import { createBoardExtension } from "./board.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
@@ -18,7 +22,8 @@ import { createSkillViewer, scanSkills } from "./skills.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
-import { mkdirSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
+import { listSessionWorktrees, removeSessionWorktree } from "./wife/git.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
@@ -41,10 +46,8 @@ import { DelegateResults } from "./delegate-results.js";
 import { createGoalExtension } from "./goal.js";
 import { createRecallExtension, RecallIndex } from "./recall.js";
 import { Todo } from "./todo.js";
-import { cronRunSource, SkillImprover } from "./improve.js";
+import { SkillImprover } from "./improve.js";
 import { createSkillManageExtension, SkillManager } from "./skill-manage.js";
-import { LEARN_JOB, LearnStore, scanIdle } from "./learn.js";
-import { LearnFiles } from "./learn-files.js";
 import { context, MemoryStore, openLuna } from "./luna.js";
 import { McpManager, providerBackedServers } from "./mcp.js";
 import { createBrowserResolver, createBrowserToolsExtension } from "./browser-tools.js";
@@ -75,14 +78,6 @@ import { createWorkersExtension, ExecTarget, WorkerHub, WorkerStore } from "./wo
 import { WorkerMcpProxy } from "./worker-mcp-proxy.js";
 import { resolveThinkingLevel, withUltraModels } from "./thinking.js";
 import { createSpeedExtension, withSpeedPricing } from "./speed.js";
-
-/** Name of the built-in job that runs the self-improvement loop on `improve.schedule`. */
-export const IMPROVE_JOB = "luna-self-improve";
-export const IMPROVE_PROMPT =
-  "Self-improvement pass. 1) Call cron with action=lessons. 2) If it reports no recurring failure, answer 'nothing to improve' and stop. " +
-  "3) For each recurring failure, load related skills with skill action=view, then draft or update ONE focused skill with skill action=propose " +
-  "(full SKILL.md with name and description frontmatter, concrete steps that avoid the failure) and a must_contain benchmark " +
-  "listing the key steps. 4) Answer with what was applied or blocked and why.";
 
 export interface RuntimeOptions {
   /** Override the model catalog (tests). Default: built-in providers + <dataDir>/auth.json credentials. */
@@ -139,7 +134,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   for (const c of mcp.connections) log(`mcp ${c.name}: ${c.toolNames.length} tools`);
 
   const cronDb = join(cfg.dataDir, "cron.db");
-  const store = on("cron") || on("improve") || on("learn") ? new CronStore(cronDb) : undefined;
+  const store = on("cron") ? new CronStore(cronDb) : undefined;
   let scheduler: Scheduler | undefined;
 
   let harnessRef: Awaited<ReturnType<typeof openLuna>> | undefined;
@@ -244,27 +239,18 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let webhookTargets: WebhookTargets | undefined;
   const webhooks = new Webhooks(new WebhookStore(join(cfg.dataDir, "webhooks.db")), { targets: () => webhookTargets, fetch: o.fetch, log });
   if (on("webhooks")) extensions.push(createWebhookExtension(() => webhooks));
-  const improver = on("improve") || on("learn") || on("skills")
-    ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), sources: [cronRunSource(cronDb)], readDirs: cfg.allSkillDirs })
-    : undefined;
-  // cron: job actions need the cron extension; run history needs cron or improve; lessons need improve.
-  if (on("cron") || on("improve")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler, { jobs: () => live().extensions.includes("cron"), lessons: on("improve") ? improver : undefined }));
-  // The skill tool carries benchmark-gated propose and rollback, which the improve job needs even with "skills" off.
-  // One `skill` tool: view needs "skills"; the write actions also serve "improve".
+  const improver = on("skills") ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), readDirs: cfg.allSkillDirs }) : undefined;
+  if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler, { jobs: () => live().extensions.includes("cron") }));
   const disabledSkills = (id?: number) => {
     const global = live().disabledSkills;
     const pid = id === undefined ? undefined : conversationsRef?.projects.projectOf(id);
     return pid ? conversationsRef!.projectSkills.disabled(pid, global, () => scanSkills(cfg.allSkillDirs).map(s => s.name)) : global;
   };
-  if (on("skills") || on("improve")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs), improver!, {
+  if (on("skills")) extensions.push(createSkillManageExtension(new SkillManager(improver!, cfg.allSkillDirs), improver!, {
     allowCommandBenchmarks: () => live().improve.allowCommandBenchmarks,
     view: { load: createSkillViewer({ dirs: cfg.allSkillDirs, disabled: disabledSkills }), enabled: () => live().extensions.includes("skills") },
   }));
   const memory = on("memory") ? new MemoryStore(join(cfg.dataDir, "memory.db")) : false;
-  const learn = on("learn") ? new LearnStore(join(cfg.dataDir, "learn.db"), {
-    files: new LearnFiles(cfg.dataDir, () => live().learn.files),
-    skip: id => !!store?.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1").get(String(id)),
-  }) : undefined;
   if (on("tool-search")) extensions.push(createToolSearchExtension(), createDeferredToolsExtension());
   if (on("todo")) extensions.push(Todo);
   // All chat sessions get a board. Unlinked sessions use General. The store exists once the harness is open.
@@ -272,6 +258,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const board = createBoardExtension(() => conversationsRef);
   extensions.push(board);
   projectExtensions = [board];
+  let wifeRef: WifeService | undefined;
+  if (on("wife")) extensions.push(createWifeExtension(() => wifeRef, id => { try { conversationsRef?.get(id); return !!conversationsRef; } catch { return false; } }));
   extensions.push(createSessionWorktreeExtension({ projects: () => conversationsRef?.projects, title: id => conversationsRef?.get(id).title }));
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
   const notifyUrl = () => live().cron.notifyUrl;
@@ -347,8 +335,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     hiddenExtensions: () => {
       const on = live().extensions;
       const hidden = new Set(BUILTIN_EXTENSIONS.filter(e => !on.includes(e)).flatMap(e => BUILTIN_REGISTRY_NAMES[e]));
-      if (!on.includes("cron") && !on.includes("improve")) hidden.add("cron");
-      if (!on.includes("skills") && !on.includes("improve")) hidden.add("skill-manage");
+      if (!on.includes("cron")) hidden.add("cron");
+      if (!on.includes("skills")) hidden.add("skill-manage");
       return hidden;
     },
     extensions,
@@ -356,6 +344,40 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   uploads.bind(conversationStorage(harness).db);
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
+  const wifeStore = new WifeStore(join(cfg.dataDir, "wife.db"));
+  const skillMgr = improver ? new SkillManager(improver, cfg.allSkillDirs) : undefined;
+  const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log,
+    cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
+      disable: id => { store.setEnabled(id, false); scheduler?.rearm(); } } : undefined,
+    startSession: (project, title, content, requestId) => webhookTargets!.newSession(project ?? 0, title, content, requestId),
+    scheduleMessage: async (sessionId, content, dueAt, requestId) => {
+      await harness.commit(tx => scheduledMessages.create(tx, { conversationId: sessionId, content, dueAt, requestId, source: { kind: "user" } }), context);
+      await scheduledMessages.scheduleChanged();
+    },
+    worktrees: () => listSessionWorktrees([...new Set([cfg.cwd ?? "", ...conversations.projects.list().map(p => p.cwd)])]),
+    removeWorktree: async (path, branch) => removeSessionWorktree(path, branch),
+    terminals: () => terminals.registry.all().map(t => ({ id: t.id, session: t.session, command: t.command, status: t.status })),
+    closeTerminal: id => terminals.registry.close(id),
+    browserTabs: () => browserPanel.all().map(t => ({ tabId: t.tabId, session: t.session, url: t.url })),
+    closeBrowserTab: (session, tabId) => browserPanel.close(session, tabId),
+    skills: skillMgr ? () => skillMgr.list().map(s => ({ name: s.name, managed: s.managed, modified: statSync(s.path).mtimeMs })) : undefined,
+    trashSkill: skillMgr ? name => { skillMgr.deleteSkill(name); } : undefined,
+    userMessages: recall ? (since, first) => (first
+      ? recall.db.query<{ conv: number; ts: number; text: string }, [number]>("SELECT m.conv AS conv, m.ts AS ts, m.head AS text FROM messages m WHERE m.role='user' AND m.entry=(SELECT MIN(entry) FROM messages WHERE conv=m.conv AND role='user') AND m.ts>=?").all(since)
+      : recall.db.query<{ conv: number; ts: number; text: string }, [number]>("SELECT conv, ts, head AS text FROM messages WHERE role='user' AND tail='' AND length(head) BETWEEN 30 AND 600 AND ts>=? LIMIT 20000").all(since)) : undefined,
+    skillExists: name => scanSkills(cfg.allSkillDirs).some(sk => sk.name === name),
+    remember: memory ? ({ key, content }) => {
+      const old = key ? memory.recall(key, { kind: "fact" }).find(r => r.key === key) : undefined;
+      const row = memory.remember({ content, key });
+      return { key: row.key ?? null, before: old?.content ?? null };
+    } : undefined,
+    restoreMemory: memory ? (key, content) => {
+      for (const r of memory.recall(key, { kind: "fact" })) if (r.key === key) memory.forget(r.id);
+      if (content !== null) memory.remember({ key, content });
+    } : undefined,
+    setConfig: settings ? fn => settings.update(c => fn(c.wife as unknown as Record<string, unknown>)) : undefined,
+    extensions: settings ? { enabled: n => settings.read().extensions.includes(n as never), enable: n => settings.update(c => { if (!c.extensions.includes(n as never)) c.extensions.push(n as never); }) } : undefined });
+  wifeRef = wife;
   conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });
   harnessRef = harness;
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
@@ -432,9 +454,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
         const url = notifyUrl(); return url ? deliverRun(url, job, run, o.fetch) : undefined;
       },
       exclude: [board, ...(ask ? [ask] : [])],
+      // Wife's model pass stays home when no session (other than cron runs) was active since its last run.
+      skipRun: job => {
+        if (job.name !== WIFE_JOB_NAME || !wifeRef) return null;
+        const last = store!.queryRuns({ jobId: job.id, history: true, limit: 5 }).find(r => r.status === "ok" || r.status === "error");
+        if (!last) return null;
+        const cron = store!.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
+        return wifeRef.activitySince(last.startedAt, id => !!cron.get(String(id))) ? null : "no session activity since the last run";
+      },
     });
-    syncImproveJob(cfg, store!);
-    disableLegacyLearnJob(store!);
+    disableLegacyJobs(store!);
+    syncWifeJob(store!, live().wife, on("wife"));
     await scheduler.start();
   }
 
@@ -467,28 +497,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     },
   };
   webhooks.start();
-
-  // Session learning runs after a conversation goes idle, never inside a live turn.
-  let learnTimer: ReturnType<typeof setInterval> | undefined;
-  let learnRunning: Promise<unknown> | undefined;
-  const learnScan = () => {
-    if (!learn || !live().learn.captureEnabled || !live().extensions.includes("learn") || learnRunning) return learnRunning;
-    // One query per scan instead of one per conversation.
-    let cronIds: Set<string>;
-    try { cronIds = new Set((store?.db.prepare("SELECT DISTINCT conversation_id FROM runs").all() as { conversation_id: string }[] | undefined ?? []).map(r => String(r.conversation_id))); }
-    catch { cronIds = new Set(); }
-    learnRunning = scanIdle({
-      store: learn, idleMs: live().learn.idleMinutes * 60_000, log,
-      commit: (fn) => harness.commit(fn, context),
-      skip: (id) => cronIds.has(String(id)),
-    }).catch((e) => log(`learn: scan failed: ${(e as Error).message}`)).finally(() => { learnRunning = undefined; });
-    return learnRunning;
-  };
-  if (learn) {
-    learnTimer = setInterval(learnScan, 60_000);
-    learnTimer.unref();
-    void learnScan();
-  }
+  wife.start();
 
   // Settings saved while running: bring live state in line without a restart.
   settings?.onApply(async (_old, next) => {
@@ -503,8 +512,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     for (const f of await mcp.reconcile(next.mcpServers)) warnings.push(`mcp ${f.name}: ${f.error}`);
     mcp.syncExposure();
     if (scheduler && store) {
-      syncImproveJob(live(), store);
-      disableLegacyLearnJob(store);
+      disableLegacyJobs(store);
+      syncWifeJob(store, next.wife, next.extensions.includes("wife" as never));
       scheduler.rearm();
     }
     return warnings;
@@ -545,10 +554,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     memory: memory || undefined,
     skillDirs: on("skills") ? cfg.allSkillDirs : undefined,
     model: built.model,
-    learn,
     improver,
-    /** Run one idle scan now (tests and manual triggers). */
-    learnScan,
+    wife,
     store,
     scheduler,
     mcp,
@@ -557,8 +564,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     browserPanel,
     webhooks,
     async close() {
-      if (learnTimer) clearInterval(learnTimer);
-      await learnRunning;
+      wife.stop();
+      wifeStore.close();
       await limitRecovery.close();
       await scheduledMessages.close();
       await push?.notifier.close();
@@ -581,25 +588,33 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       store?.close();
       if (memory) memory.close();
       recall?.close();
-      learn?.close();
     },
   };
 }
 
-/** Keep the built-in improve job in line with config: create, update, or disable it. */
-function syncImproveJob(cfg: LunaConfig, store: CronStore) { syncJob(store, IMPROVE_JOB, cfg.improve.schedule, IMPROVE_PROMPT); }
-
-/** Never recreate or re-enable the legacy model pass. Keep its history intact. */
-function disableLegacyLearnJob(store: CronStore) {
-  const job = store.listJobs().find(j => j.name === LEARN_JOB);
-  if (job?.enabled) store.setEnabled(job.id, false);
+/** Session learning and the self-improve loop were replaced by Wife. Disable their old jobs and keep the history. */
+const LEGACY_JOBS = ["luna-learn", "luna-self-improve"];
+function disableLegacyJobs(store: CronStore) {
+  for (const job of store.listJobs()) if (LEGACY_JOBS.includes(job.name) && job.enabled) store.setEnabled(job.id, false);
 }
 
-/** Keep one built-in job in line with config: create, update, or disable it (`want` undefined = disabled). */
-function syncJob(store: CronStore, name: string, want: string | undefined, prompt: string) {
-  const existing = store.listJobs().find((j) => j.name === name);
-  if (!want) { if (existing?.enabled) store.setEnabled(existing.id, false); return; }
-  if (existing && (existing.expr !== want || existing.prompt !== prompt)) store.removeJob(existing.id);
-  else if (existing) { if (!existing.enabled) store.setEnabled(existing.id, true); return; }
-  store.addJob(name, want, prompt);
+/** Prompt of the daily model pass. Self-contained: a cron run starts with no other context. */
+export const WIFE_JOB_NAME = "luna-wife";
+export const WIFE_JOB_PROMPT = [
+  "You are Wife's daily review. File suggestion cards with the `wife` tool. Do not change anything else.",
+  "1. Call `wife action=list`. Never file a card whose fingerprint is listed.",
+  "2. Use `session_search` and recall to read sessions active since your last run. Read `skill action=list` and search memory first, so you do not duplicate what exists.",
+  "3. Procedures that repeat across sessions become kind=skill cards (payload {name, existing, outline}). Stable facts or preferences m57 stated more than once become kind=memory cards (payload {key, content}).",
+  "   Two skills that overlap or load together become a kind=skill card with existing=true and an outline that merges them. Facts or notes that contradict each other or are out of date become a kind=memory card with the corrected content for the same key. A correction m57 made in 3 or more sessions becomes a memory card (a fact) or a skill card (a procedure rule).",
+  "   Also: a repeated way m57 uses tools that a new rule could flag becomes kind=new_rule (payload {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool,kind,project,cwd,idleDays}}}); a good rule that needs data Wife does not collect becomes kind=rule_idea (payload {idea}). If m57 said remind me, later, or tomorrow in a session and nothing scheduled it, file kind=reminder_unscheduled with a future dueAt (payload {sessionId, content, dueAt}).",
+  "4. File at most 5 cards with `wife action=suggest`. Each needs real evidence sessions with a note. Prefer fewer, stronger cards.",
+  "5. Finish with one line: what you filed, or 'nothing'.",
+].join("\n");
+/** Keep the built-in luna-wife job in step with config: create it, change its schedule, or turn it off. */
+export function syncWifeJob(store: CronStore, wife: { enabled: boolean; modelSchedule?: string }, extensionOn: boolean) {
+  const want = wife.enabled && extensionOn && !!wife.modelSchedule;
+  const job = store.listJobs().find(j => j.name === WIFE_JOB_NAME);
+  if (!job) { if (want) store.addJob(WIFE_JOB_NAME, wife.modelSchedule!, WIFE_JOB_PROMPT, undefined, Date.now(), "changes"); return; }
+  if (want && (job.expr !== wife.modelSchedule || job.prompt !== WIFE_JOB_PROMPT)) store.updateJob(job.id, { expr: wife.modelSchedule, prompt: WIFE_JOB_PROMPT });
+  if (job.enabled !== want) store.setEnabled(job.id, want);
 }

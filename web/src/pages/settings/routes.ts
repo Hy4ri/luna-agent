@@ -5,9 +5,9 @@ export const sections = [
   { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'modelThinkingLevels', 'pinnedModels', 'subagents', 'auxiliary'] },
   { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
   { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'terminal', 'codemode', 'extensions', 'disabledTools'] },
-  { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge and learning from conversations.', keys: ['skillDirs', 'disabledSkills', 'learn'] },
+  { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge.', keys: ['skillDirs', 'disabledSkills'] },
   { id: 'media', title: 'Media', description: 'Configure image analysis, image generation, and video analysis.', keys: ['vision', 'image_gen', 'video'] },
-  { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill improvement behavior.', keys: ['cron', 'improve'] },
+  { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill benchmark access.', keys: ['cron', 'improve', 'wife'] },
   { id: 'system', title: 'System', description: 'Set LAN and Tailscale addresses, storage paths, and server access.', keys: ['dataDir', 'cwd', 'server', 'push'] },
 ] as const
 
@@ -26,5 +26,5 @@ export function settingRoute(path: (string | number)[]): string {
   return [section?.id || 'chat', groupFor(key), ...(['provider', 'model', 'thinkingLevel'].includes(key) ? [key] : path.slice(1))].map(part => encodeURIComponent(String(part))).join('/')
 }
 export function isVisibleSetting(path: (string | number)[]) {
-  return !['learn.schedule', 'image_gen.openai-codex.model'].includes(path.join('.'))
+  return !['image_gen.openai-codex.model'].includes(path.join('.'))
 }

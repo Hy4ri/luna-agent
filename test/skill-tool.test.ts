@@ -18,7 +18,7 @@ const setup = (child: boolean) => {
   mkdirSync(join(skills, "demo"), { recursive: true });
   writeFileSync(join(skills, "demo", "SKILL.md"), "---\nname: demo\ndescription: Demo skill.\n---\nDo the demo.\n");
   writeFileSync(join(skills, "demo", "notes.md"), "linked notes");
-  const imp = new SkillImprover({ skillsDir: skills, sources: [], readDirs: [skills] });
+  const imp = new SkillImprover({ skillsDir: skills, readDirs: [skills] });
   const ext = createSkillManageExtension(new SkillManager(imp, [skills]), imp, { view: { load: createSkillViewer({ dirs: [skills] }), enabled: () => true } });
   const tools = (ext as unknown as { tools: Tool[] }).tools;
   const api = { conversationId: 7, commit: async (fn: (tx: unknown) => unknown) => fn({ scanEntries: async () => ({ items: child ? [{ kind: "delegate.child" }] : [] }) }) };

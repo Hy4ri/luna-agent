@@ -204,3 +204,10 @@ test("retired recovery budget loads but never reappears in settings, disk saves,
     rejects({ autoContinue: { maxAttempts: 5, typo: true } }, /autoContinue/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("configs saved before Wife still load: removed learn/improve keys are dropped", () => {
+  const c = parseConfig({ extensions: ["coding", "improve", "learn", "skills"], learn: { idleMinutes: 5, files: [] }, improve: { schedule: "0 4 * * *", allowCommandBenchmarks: true } });
+  assert.deepEqual(c.extensions, ["coding", "skills"]);
+  assert.equal("learn" in c, false);
+  assert.deepEqual(c.improve, { allowCommandBenchmarks: true });
+});
