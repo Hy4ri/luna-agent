@@ -1,6 +1,6 @@
 // User-facing organization only. The server's ConfigSchema remains the source of validation and defaults.
-import { sections } from './routes'
-export { sections, resolveSettingsRoute, groupFor, settingRoute, isVisibleSetting } from './routes'
+import { sections } from './routes.js'
+export { sections, resolveSettingsRoute, groupFor, settingRoute, isVisibleSetting } from './routes.js'
 
 export function assertCatalogCoverage(schema: any) {
   const mapped = sections.flatMap(section => [...section.keys]) as string[]
