@@ -98,7 +98,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Archive, BellOff, SlidersHorizontal, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen } from "@lucide/vue";
+import { AlarmClock, Gauge, KanbanSquare, Target, Archive, BellOff, SlidersHorizontal, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { confirmAction, promptText } from "@/lib/confirm";
@@ -106,8 +106,8 @@ import { navigate, setDrawer } from "@/stores/app";
 import { openSession } from "@/stores/chat";
 import { decide, loadWife, scanWife, wife, wifeStats, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
 
-const icons: Record<WifeKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb, tune_rule: SlidersHorizontal, mute_rule: BellOff, mute_kind: BellOff };
-const kindLabels: Record<WifeKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips", tune_rule: "Tuning", mute_rule: "Mute", mute_kind: "Mute" };
+const icons: Record<WifeKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb, tune_rule: SlidersHorizontal, mute_rule: BellOff, mute_kind: BellOff, goal_unfinished: Target, cron_failing: AlarmClock, quota_waits: Gauge, board_stuck: KanbanSquare };
+const kindLabels: Record<WifeKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips", tune_rule: "Tuning", mute_rule: "Mute", mute_kind: "Mute", goal_unfinished: "Goals", cron_failing: "Cron", quota_waits: "Quota", board_stuck: "Board" };
 const status = ref<WifeStatus>("open");
 const kind = ref<WifeKind | "">("");
 const stats = computed(() => wifeStats.value);

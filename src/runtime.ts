@@ -342,6 +342,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   conversationsRef = conversations;
   const wifeStore = new WifeStore(join(cfg.dataDir, "wife.db"));
   const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log,
+    cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
+      disable: id => { store.setEnabled(id, false); scheduler?.rearm(); } } : undefined,
     setConfig: settings ? fn => settings.update(c => fn(c.wife as unknown as Record<string, unknown>)) : undefined,
     extensions: settings ? { enabled: n => settings.read().extensions.includes(n as never), enable: n => settings.update(c => { if (!c.extensions.includes(n as never)) c.extensions.push(n as never); }) } : undefined });
   conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });

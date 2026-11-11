@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { test } from "bun:test";
 import { createModels } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
@@ -11,6 +12,11 @@ import { ConversationStore } from "../src/conversations.js";
 import { WifeStore } from "../src/wife/store.js";
 import { WifeService } from "../src/wife/service.js";
 
+function emptyAnalytics() {
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
+  return db;
+}
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "luna-wife-"));
   const harness = await openLuna({ dbPath: join(dir, "luna.db"), models: createModels(), memory: false, coding: false });
@@ -19,11 +25,11 @@ async function fixture() {
   await mkdir(join(app, "src"), { recursive: true });
   const store = new WifeStore(":memory:");
   let records: unknown[] = [];
-  const wife = new WifeService({ store, conversations, analytics: () => ({ sessions: () => records }) as never,
+  const wife = new WifeService({ store, conversations, analytics: () => ({ sessions: () => records, db: emptyAnalytics() }) as never,
     config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }) });
   const session = async () => Number((await harness.createConversation({ ownership: { kind: "ownerless" } }, context)).id);
   const rec = (id: number, over: object = {}) => ({ id, title: `s${id}`, parentId: null, projectId: 0, projectName: "General", worker: "main", cwd: app,
-    createdAt: Date.now(), lastActivity: Date.now(), status: "idle", archived: false, pinned: false, deletedAt: null, ...over });
+    createdAt: Date.now(), lastActivity: Date.now(), status: "idle", workflow: { goals: 0, completedGoals: 0, todos: 0, completedTodos: 0 }, archived: false, pinned: false, deletedAt: null, ...over });
   return { dir, app, harness, conversations, store, wife, session, rec, set(r: unknown[]) { records = r; }, async close() { store.close(); await harness.close(context); await rm(dir, { recursive: true, force: true }); } };
 }
 
@@ -159,7 +165,7 @@ test("an outcome history makes exactly one tune card, agreeing changes the confi
   const f = await fixture();
   try {
     const cfg: Record<string, unknown> = { enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, mutedRules: [], mutedKinds: [] };
-    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => cfg as never,
+    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({ sessions: () => [], db: emptyAnalytics() }) as never, config: () => cfg as never,
       setConfig: fn => fn(cfg) });
     for (let i = 0; i < 6; i++) {
       const c = f.store.file({ kind: "archive_session", ruleId: "archive_session", fingerprint: `archive_session:${i}`, title: "t", body: "b", evidence: [], source: "detector", payload: { sessionId: 1000 + i } })!;
@@ -182,7 +188,7 @@ test("five decisions with no agree make a mute card; three 'don't care' make a k
   const f = await fixture();
   try {
     const cfg: Record<string, unknown> = { enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, mutedRules: [], mutedKinds: [] };
-    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => cfg as never, setConfig: fn => fn(cfg) });
+    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({ sessions: () => [], db: emptyAnalytics() }) as never, config: () => cfg as never, setConfig: fn => fn(cfg) });
     for (let i = 0; i < 5; i++) {
       const c = f.store.file({ kind: "feature_tip", ruleId: "tip:codemode", fingerprint: `feature_tip:${i}`, title: "t", body: "b", evidence: [], source: "detector", payload: {} })!;
       f.store.dismiss(c.id, i < 3 ? "dont_care_kind" : "wrong");
@@ -193,5 +199,22 @@ test("five decisions with no agree make a mute card; three 'don't care' make a k
     for (const c of f.store.list("open")) await wife.agree(c.id);
     assert.deepEqual(cfg.mutedRules, ["tip:codemode"]);
     assert.deepEqual(cfg.mutedKinds, ["feature_tip"]);
+  } finally { await f.close(); }
+});
+
+test("agreeing a failing-cron card disables the job; a stuck board card moves to todo", async () => {
+  const f = await fixture();
+  try {
+    let enabled = true;
+    const runs = [1, 2, 3].map(i => ({ status: "error", output: null, startedAt: i }));
+    const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({ sessions: () => [], db: emptyAnalytics() }) as never,
+      config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }) as never,
+      cron: { jobs: () => [{ id: 7, name: "j", enabled, runs }], disable: () => { enabled = false; } } });
+    wife.scan();
+    const card = f.store.list("open").find(c => c.kind === "cron_failing")!;
+    await wife.agree(card.id);
+    assert.equal(enabled, false);
+    wife.scan();
+    assert.equal(f.store.list("open").filter(c => c.kind === "cron_failing").length, 0);
   } finally { await f.close(); }
 });

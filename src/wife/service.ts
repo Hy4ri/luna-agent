@@ -2,23 +2,27 @@
 import type { AnalyticsStore } from "../analytics/store.js";
 import { ConversationError, type ConversationStore } from "../conversations.js";
 import { batchCards, misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
+import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "./detectors2.js";
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
 import { matchTips, type ToolCounts, type WifeTip } from "./tips.js";
 import type { Inverse, Suggestion, WifeStore } from "./store.js";
 
-const DETECTOR_RULES = ["archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
+const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
 export interface WifeServiceOptions {
   store: WifeStore; analytics: () => AnalyticsStore; conversations: ConversationStore;
   config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[]; mutedRules?: string[]; mutedKinds?: string[] };
   /** Change a value in the `wife` config block. Used by tune and mute cards. */
+  /** Cron jobs and their latest runs, newest first, and a way to disable one. */
+  cron?: { jobs: () => { id: number; name: string; enabled: boolean; runs: { status: string; output: string | null; startedAt: number }[] }[]; disable: (id: number) => void };
   setConfig?: (fn: (w: Record<string, unknown>) => void) => void;
   /** Settings mutation used by a tip that enables an extension. */
   restoreMemory?: (key: string, content: string | null) => Promise<void> | void;
   extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
 }
 
+const DAY = 86_400_000;
 export class WifeService {
   private timer?: ReturnType<typeof setInterval>;
   constructor(private o: WifeServiceOptions) {}
@@ -39,7 +43,16 @@ export class WifeService {
       return new Map(rows.map(r => [r.name, { calls: r.calls, sessions: r.sessions }]));
     };
     const tipCards = matchTips(tips, toolCounts, n => this.o.extensions?.enabled(n) ?? false);
-    found.push(...tipCards);
+    found.push(...tipCards, ...goalUnfinished(sessions, now));
+    if (this.o.cron) found.push(...cronFailing(this.o.cron.jobs()));
+    const waitRows = store.db.query<{ model: string; waits: number; sessions: number }, [number]>(
+      "SELECT COALESCE(f.model,'unknown') AS model, COUNT(*) AS waits, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f WHERE f.kind='quota_wait' AND f.ts>=? GROUP BY 1").all(now - 7 * DAY);
+    found.push(...quotaWaits(waitRows, String(Math.floor(now / (7 * DAY)))));
+    const sessionById = new Map(sessions.map(s => [s.id, s]));
+    const idleSession = (id: number) => { const s = sessionById.get(id); return !s || s.deletedAt !== null || s.archived || (s.status !== "running" && now - (s.lastActivity ?? s.createdAt ?? 0) >= DAY); };
+    const cards = projects.flatMap(p => this.o.conversations.board.list(p.id).map(c => ({ project: p.id, id: c.id, subject: c.subject, status: c.status, updated: c.updated,
+      ownerSession: /^session (\d+)$/.exec(c.owner ?? "")?.[1] ? Number(/^session (\d+)$/.exec(c.owner!)![1]) : null })));
+    found.push(...boardStuck(cards, idleSession, now));
     const cfg = this.o.config();
     const muted = (c: { ruleId?: string; kind: string }) => (cfg.mutedRules ?? []).includes(c.ruleId ?? c.kind) || (cfg.mutedKinds ?? []).includes(c.kind);
     for (let i = found.length - 1; i >= 0; i--) if (muted(found[i]!)) found.splice(i, 1);
@@ -118,6 +131,16 @@ export class WifeService {
         for (const id of p.sessionIds) { try { const was = links.get(id) ?? 0; await conv.move(id, project.id); moves.push({ id, projectId: was }); } catch { /* session gone */ } }
         inverse = { type: "remove_project", projectId: project.id, moves };
         result = `Created project ${project.name} and moved ${moves.length} sessions.`;
+      } else if (card.kind === "cron_failing") {
+        if (!this.o.cron) throw new WifeError(409, "cron is not available");
+        this.o.cron.disable(Number(card.payload.jobId));
+        result = "Disabled the job. Turn it back on in Cron.";
+      } else if (card.kind === "board_stuck") {
+        const p = card.payload as { project: number; card: number };
+        conv.board.update(p.project, p.card, { status: "todo" }, "wife");
+        result = "Moved the card to todo.";
+      } else if (card.kind === "goal_unfinished" || card.kind === "quota_waits") {
+        result = "Noted. Use Discuss to work on it.";
       } else if (card.kind === "tune_rule") {
         const p = card.payload as { rule: string; key: string; from: number; to: number };
         const tune = TUNABLE[p.rule];
