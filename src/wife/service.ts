@@ -3,16 +3,17 @@ import type { AnalyticsStore } from "../analytics/store.js";
 import { ConversationError, type ConversationStore } from "../conversations.js";
 import { batchCards, misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
 import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "./detectors2.js";
+import { inQuietHours, inScope, startOfLocalDay, type WifePolicy } from "./policy.js";
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
 import { matchTips, type ToolCounts, type WifeTip } from "./tips.js";
-import type { Inverse, Suggestion, WifeStore } from "./store.js";
+import type { NewSuggestion, Inverse, Suggestion, WifeStore } from "./store.js";
 
 const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
 export interface WifeServiceOptions {
   store: WifeStore; analytics: () => AnalyticsStore; conversations: ConversationStore;
-  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[]; mutedRules?: string[]; mutedKinds?: string[] };
+  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[]; mutedRules?: string[]; mutedKinds?: string[] } & Partial<WifePolicy>;
   /** Change a value in the `wife` config block. Used by tune and mute cards. */
   /** Cron jobs and their latest runs, newest first, and a way to disable one. */
   cron?: { jobs: () => { id: number; name: string; enabled: boolean; runs: { status: string; output: string | null; startedAt: number }[] }[]; disable: (id: number) => void };
@@ -29,7 +30,7 @@ export class WifeService {
   get store() { return this.o.store; }
 
   /** Run every detector once. File new cards, refresh open ones, and withdraw open cards that no longer apply. */
-  scan(): { filed: number; withdrawn: number } {
+  scan(opts: { session?: number } = {}): { filed: number; withdrawn: number; held: number } {
     const now = (this.o.now ?? Date.now)();
     this.o.store.expireSnoozed(now);
     const sessions = this.o.analytics().sessions();
@@ -60,16 +61,30 @@ export class WifeService {
     for (const o of this.o.store.outcomes()) if (o.action === "agree" && o.ruleId === "tune_rule" && o.note?.startsWith("tuned:")) tunedAt.set(o.note.slice(6), o.ts);
     found.push(...metaCards({ outcomes: this.o.store.outcomes(now - 60 * LDAY), now, tunedAt, values: { staleDays: cfg.staleDays, deleteArchivedAfterDays: cfg.deleteArchivedAfterDays },
       mutedRules: cfg.mutedRules ?? [], mutedKinds: cfg.mutedKinds ?? [] }));
+    // Scope: drop cards about sessions in projects Wife does not watch.
+    const projectOf = new Map(sessions.map(s => [s.id, s.projectId]));
+    const sessionsOf = (f: NewSuggestion): number[] => [...f.evidence.map(e => e.sessionId), ...(f.payload.sessionId !== undefined ? [Number(f.payload.sessionId)] : []), ...(Array.isArray(f.payload.sessionIds) ? (f.payload.sessionIds as number[]) : [])];
+    const scope = cfg.projects ?? { mode: "all" as const, ids: [] };
+    const wanted = opts.session;
+    const inScopeCards = found.filter(f => { const ss = sessionsOf(f); return !ss.length || ss.every(i => inScope(scope, projectOf.get(i) ?? 0)); });
+    const toFile = wanted === undefined ? inScopeCards : found.filter(f => sessionsOf(f).includes(wanted));
     let filed = 0;
-    for (const f of found) {
+    const quiet = inQuietHours(cfg.quietHours ?? null, now);
+    for (const f of toFile) {
       const isNew = !this.o.store.has(f.fingerprint);
-      this.o.store.file(f);
+      this.o.store.file(f, wanted !== undefined || (!quiet && this.o.store.shownSince(startOfLocalDay(now)) < (cfg.maxNewPerDay ?? 10)));
       if (isNew) filed++;
+      if (wanted !== undefined) this.o.store.show(f.fingerprint);
     }
+    // Held cards wait for the quiet hours to end and for room under the daily cap.
+    let held = 0;
+    if (!quiet) this.o.store.release((cfg.maxNewPerDay ?? 10) - this.o.store.shownSince(startOfLocalDay(now)));
+    held = (this.o.store.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE shown_at IS NULL AND status='open'").get() as { n: number }).n;
+    if (wanted !== undefined) return { filed, withdrawn: 0, held };
     let withdrawn = 0;
     for (const rule of [...DETECTOR_RULES, ...META_RULES, ...tips.map(t => `tip:${t.id}`)])
-      withdrawn += this.o.store.withdrawOpen(rule, new Set(found.filter(f => (f.ruleId ?? f.kind) === rule).map(f => f.fingerprint)));
-    return { filed, withdrawn };
+      withdrawn += this.o.store.withdrawOpen(rule, new Set(inScopeCards.filter(f => (f.ruleId ?? f.kind) === rule).map(f => f.fingerprint)));
+    return { filed, withdrawn, held };
   }
 
   start() {

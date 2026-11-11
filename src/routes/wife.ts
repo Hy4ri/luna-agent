@@ -23,7 +23,9 @@ export function registerWife(app: Hono, ctx: RouteCtx): void {
   app.get("/v1/wife/stats", c => wife ? c.json(wife.stats()) : off(c));
   app.post("/v1/wife/scan", c => {
     if (!wife) return off(c);
-    try { return c.json(wife.scan()); } catch (e) { return err(c, 500, (e as Error).message); }
+    const q = c.req.query("session"); const session = q === undefined ? undefined : id(q);
+    if (q !== undefined && !session) return err(c, 400, "bad session id");
+    try { return c.json(wife.scan({ session })); } catch (e) { return err(c, 500, (e as Error).message); }
   });
   app.post("/v1/wife/:id/agree", async c => {
     if (!wife) return off(c);

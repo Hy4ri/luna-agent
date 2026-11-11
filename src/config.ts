@@ -241,6 +241,12 @@ export const ConfigSchema = z
       staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
       /** Rule ids and card kinds Wife no longer files. Agreeing to a mute card adds to these. */
       mutedRules: z.array(z.string()).default([]), mutedKinds: z.array(z.string()).default([]),
+      /** New cards over this many a day wait until the next day. */
+      maxNewPerDay: z.number().int().min(1).max(1000).default(10),
+      /** Local-time window (HH:MM) in which new cards stay hidden. */
+      quietHours: z.strictObject({ enabled: z.boolean().default(false), from: z.string().regex(/^\d{2}:\d{2}$/).default("22:00"), to: z.string().regex(/^\d{2}:\d{2}$/).default("08:00") }).prefault({}),
+      /** Which projects Wife watches. ids hold project ids; 0 is General. */
+      projects: z.strictObject({ mode: z.enum(["all", "only", "except"]).default("all"), ids: z.array(z.number().int().min(0)).default([]) }).prefault({}),
       /** Feature tips. Edit, add or remove rules here. */
       tips: z.array(TipSchema).default(() => structuredClone(DEFAULT_TIPS)),
     }).prefault({}),

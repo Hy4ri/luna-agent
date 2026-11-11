@@ -2,7 +2,7 @@
 import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { ArrowLeft, Menu, ScanEye, SquareTerminal, Ellipsis, Moon, Plus, Pin, PinOff, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
+import { ArrowLeft, Menu, ScanEye, SquareTerminal, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
@@ -32,6 +32,7 @@ watch(() => ui.palette, open => { if (open) paletteUsed.value = true; }, { immed
 import { recoveryOpen } from '@/lib/connections';
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate } from '@/stores/app';
+import { askWife } from '@/stores/wife';
 import { terminal, loadTerminals, toggleTerminal } from '@/stores/terminal';
 import { dock, effectivePosition } from '@/stores/dock';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';
@@ -297,6 +298,16 @@ async function pinSession() {
     if (!ok && epoch === chat.epoch) addErr(history.status || 'Failed to update session pin');
   } finally { pinPending.value = false; }
 }
+const askPending = ref(false);
+async function askWifeAboutSession() {
+  const session = activeSession.value;
+  if (!session || askPending.value) return;
+  askPending.value = true;
+  try {
+    const bad = await askWife(session.id);
+    if (bad) addErr(bad); else navigate('wife');
+  } finally { askPending.value = false; }
+}
 const password = ref('');
 const serverInput = ref(serverUrl.value || 'localhost:8787');
 const connectionDialogOpen = computed(() => !sessionPane && recoveryOpen.value);
@@ -446,6 +457,7 @@ onUnmounted(() => {
             <MachineStatus v-if="!mobile" />
             <StatusBar v-if="!mobile && !docked" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
+            <button v-if="!mobile && activeSession" id="ask-wife" class="icon-button shrink-0" aria-label="Ask Wife about this session" title="Ask Wife about this session" :disabled="askPending" @click="askWifeAboutSession"><Heart :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane && chat.session" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Terminal" title="Terminal (Ctrl+`)" @click="toggleTerminal"><SquareTerminal :size="18" /></button>
             <button v-if="!mobile && !sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
@@ -457,6 +469,7 @@ onUnmounted(() => {
               <PopoverContent align="end" aria-label="Conversation menu" class="mobile-conversation-menu grid w-64 gap-2 p-2">
                 <MachineStatus />
                 <StatusBar v-if="!docked" />
+                <button v-if="activeSession" class="mobile-menu-action" :disabled="askPending" @click="mobileAction(askWifeAboutSession)"><Heart :size="18" />Ask Wife about this session</button>
                 <button v-if="activeSession" class="mobile-menu-action" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="mobileAction(pinSession)"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" />{{ activeSession.pinned ? 'Unpin session' : 'Pin session' }}</button>
                 <button v-if="!sessionPane && !tiled" class="mobile-menu-action" @click="mobileAction(() => openPanel('session'))"><Ellipsis :size="18" />Conversation settings</button>
                 <button v-if="chat.session || (chat.draftOpen && tileIds.length)" class="mobile-menu-action" @click="mobileAction(closeTile)"><X :size="18" />Remove tile</button>

@@ -34,7 +34,7 @@ export const fieldTitles: Record<string, string> = {
   cron: 'Scheduled runs', notifyUrl: 'Notification URL', runTimeoutMinutes: 'Run timeout (minutes)',
   emptyRunDays: 'Empty run retention (days)', reportDays: 'Report retention (days)', reportsPerJob: 'Reports kept per job', deletedJobDays: 'Deleted job retention (days)', retention: 'Run log retention',
   improve: 'Skill improvement', allowCommandBenchmarks: 'Allow command benchmarks',
-  wife: 'Wife suggestions', detectEveryMinutes: 'Check every (minutes)', staleDays: 'Archive idle sessions after (days)', mutedRules: 'Muted rules', mutedKinds: 'Muted card kinds', tips: 'Feature tips', deleteArchivedAfterDays: 'Suggest deleting archived sessions after (days)',
+  wife: 'Wife suggestions', detectEveryMinutes: 'Check every (minutes)', staleDays: 'Archive idle sessions after (days)', maxNewPerDay: 'New cards per day (at most)', quietHours: 'Quiet hours', from: 'From (HH:MM)', to: 'To (HH:MM)', ids: 'Project ids', projects: 'Watched projects', mutedRules: 'Muted rules', mutedKinds: 'Muted card kinds', tips: 'Feature tips', deleteArchivedAfterDays: 'Suggest deleting archived sessions after (days)',
   dataDir: 'Data directory', cwd: 'Working directory', server: 'HTTP server', host: 'Listen address', port: 'Port', push: 'Android push notifications', serviceAccountFile: 'Firebase service-account key file',
 }
 

@@ -60,6 +60,9 @@ export class WifeStore {
       CREATE INDEX IF NOT EXISTS outcomes_rule ON outcomes(rule_id, ts);
       CREATE TABLE IF NOT EXISTS undo (suggestion_id INTEGER PRIMARY KEY, inverse TEXT NOT NULL, expires INTEGER NOT NULL);
     `);
+    // shown_at null: the card is held back by quiet hours or the daily cap.
+    const cols = (this.db.prepare("PRAGMA table_info(suggestions)").all() as { name: string }[]).map(c => c.name);
+    if (!cols.includes("shown_at")) this.db.exec("ALTER TABLE suggestions ADD COLUMN shown_at INTEGER; UPDATE suggestions SET shown_at=created;");
   }
   close() { this.db.close(); }
 
@@ -69,20 +72,20 @@ export class WifeStore {
   }
   has(fingerprint: string): boolean { return !!this.db.prepare("SELECT 1 FROM suggestions WHERE fingerprint=?").get(fingerprint); }
   list(status?: WifeStatus): Suggestion[] {
-    const rows = (status ? this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.status=? ORDER BY s.created DESC, s.id DESC").all(status)
-      : this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s ORDER BY s.created DESC, s.id DESC").all()) as Row[];
+    const rows = (status ? this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.shown_at IS NOT NULL AND s.status=? ORDER BY s.created DESC, s.id DESC").all(status)
+      : this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.shown_at IS NOT NULL ORDER BY s.created DESC, s.id DESC").all()) as Row[];
     return rows.map(view);
   }
   count(status: WifeStatus = "open"): number {
-    return (this.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE status=?").get(status) as { n: number }).n;
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE shown_at IS NOT NULL AND status=?").get(status) as { n: number }).n;
   }
   /** New fingerprint: insert. Open or snoozed: refresh text and evidence. Any other status: leave alone. Returns the card when it was inserted or refreshed. */
-  file(s: NewSuggestion): Suggestion | undefined {
+  file(s: NewSuggestion, show = true): Suggestion | undefined {
     const t = this.now();
     const existing = this.db.prepare("SELECT status FROM suggestions WHERE fingerprint=?").get(s.fingerprint) as { status: WifeStatus } | null;
     if (!existing) {
-      this.db.prepare(`INSERT INTO suggestions(kind,rule_id,fingerprint,title,body,evidence,payload,source,status,created,updated) VALUES (?,?,?,?,?,?,?,?,'open',?,?)`)
-        .run(s.kind, s.ruleId ?? s.kind, s.fingerprint, s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), s.source, t, t);
+      this.db.prepare(`INSERT INTO suggestions(kind,rule_id,fingerprint,title,body,evidence,payload,source,status,created,updated,shown_at) VALUES (?,?,?,?,?,?,?,?,'open',?,?,?)`)
+        .run(s.kind, s.ruleId ?? s.kind, s.fingerprint, s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), s.source, t, t, show ? t : null);
     } else if (existing.status === "open" || existing.status === "snoozed") {
       this.db.prepare("UPDATE suggestions SET title=?, body=?, evidence=?, payload=?, updated=? WHERE fingerprint=?")
         .run(s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), t, s.fingerprint);
@@ -90,6 +93,15 @@ export class WifeStore {
     const r = this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.fingerprint=?").get(s.fingerprint) as Row;
     return view(r);
   }
+  /** Cards shown since `since`, and the held ones, oldest first. */
+  shownSince(since: number): number { return (this.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE shown_at>=?").get(since) as { n: number }).n; }
+  /** Show up to `n` held open cards, oldest first. Returns how many. */
+  release(n: number): number {
+    if (n <= 0) return 0;
+    return Number(this.db.prepare("UPDATE suggestions SET shown_at=? WHERE id IN (SELECT id FROM suggestions WHERE shown_at IS NULL AND status='open' ORDER BY created, id LIMIT ?)").run(this.now(), n).changes);
+  }
+  /** Show one card now, whatever the quiet hours and cap say. */
+  show(fingerprint: string) { this.db.prepare("UPDATE suggestions SET shown_at=COALESCE(shown_at,?) WHERE fingerprint=?").run(this.now(), fingerprint); }
   /** Move a card to a status. `patch` sets result, sessionId, or snoozeUntil. */
   setStatus(id: number, status: WifeStatus, patch: { result?: string | null; sessionId?: number | null; snoozeUntil?: number | null } = {}) {
     this.db.prepare("UPDATE suggestions SET status=?, result=COALESCE(?,result), session_id=COALESCE(?,session_id), snooze_until=?, updated=? WHERE id=?")

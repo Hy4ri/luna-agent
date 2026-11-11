@@ -61,3 +61,13 @@ export async function decide(id: number, action: "agree" | "dismiss" | "snooze" 
   } catch (e) { return (e as Error).message; }
   finally { wife.busy.delete(id); await loadWife(); }
 }
+
+/** Run every detector on one session now, ignoring quiet hours and the daily cap. Returns an error text, or "". */
+export async function askWife(sessionId: string | number): Promise<string> {
+  try {
+    const r = await api(`/v1/wife/scan?session=${encodeURIComponent(String(sessionId))}`, { method: "POST" });
+    if (!r.ok) await fail(r);
+    await loadWife();
+    return "";
+  } catch (e) { return (e as Error).message; }
+}
