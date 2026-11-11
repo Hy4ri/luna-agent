@@ -60,20 +60,23 @@ export function opencodeExecutable() {
 // ------------------------------------------------------------------ opencode HTTP service
 
 type Ev = { type: string; data?: any; [k: string]: unknown };
-let service: { url: string; auth: string } | undefined;
+// Keyed by executable and password file: a changed setting must not reuse another opencode's service.
+let service: { url: string; auth: string; key: string } | undefined;
 
 async function ensureService() {
-  if (service) {
+  const executable = opencodeExecutable();
+  const file = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode", "service.json");
+  const key = `${executable}\0${file}`;
+  if (service?.key === key) {
     try { if ((await fetch(service.url + "/api/info", { headers: { authorization: service.auth } })).ok) return service; } catch { /* restart below */ }
-    service = undefined;
   }
-  const { stdout } = await runCli(opencodeExecutable(), ["service", "start"], { timeout: 30_000 });
+  service = undefined;
+  const { stdout } = await runCli(executable, ["service", "start"], { timeout: 30_000 });
   const url = stdout.match(/https?:\/\/[^\s]+/)?.[0];
   if (!url) throw new Error(`opencode service start printed no URL: ${stdout.trim().slice(0, 200)}`);
-  const file = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode", "service.json");
   if (!existsSync(file)) throw new Error(`opencode service password file missing: ${file}`);
   const { password } = JSON.parse(readFileSync(file, "utf8")) as { password: string };
-  const found = { url: url.replace(/\/$/, ""), auth: "Basic " + Buffer.from(`opencode:${password}`).toString("base64") };
+  const found = { url: url.replace(/\/$/, ""), auth: "Basic " + Buffer.from(`opencode:${password}`).toString("base64"), key };
   await checkRoutes(found);
   service = found;
   return service;

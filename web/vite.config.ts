@@ -24,7 +24,8 @@ function serviceWorker(): Plugin {
 }
 
 // Packages reachable only through these lazy imports stay out of the eager vendor chunk.
-const LAZY_ONLY = ["mermaid", "katex"];
+// A package listed here must have no static import from eager code, or it duplicates into its importer chunk.
+const LAZY_ONLY = ["mermaid", "katex", "ghostty-web", "modern-screenshot"];
 
 function dependencyClosure(roots: string[], from: string, skip: Set<string> = new Set()): Set<string> {
   const seen = new Set<string>();
@@ -60,9 +61,10 @@ export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [vue(), tailwindcss(), serviceWorker()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // Font chunks stay separate files: inlined into CSS, every page would download every glyph range.
   // Mermaid lazily loads two indivisible upstream modules: its parser (~629 kB)
   // and ELK (~1,499 kB). Chunk splitting cannot divide a single module. Budget
   // for these optional diagram engines without moving them into the eager vendor.
-  build: { chunkSizeWarningLimit: 1_600, manifest: true, outDir: fileURLToPath(new URL("../dist/web", import.meta.url)), emptyOutDir: true, assetsDir: "assets", sourcemap: false, rolldownOptions: { output: { codeSplitting: { groups: [{ name: "vendor", test: isVendor }] } } } },
+  build: { chunkSizeWarningLimit: 1_600, manifest: true, assetsInlineLimit: (file: string) => (file.endsWith(".woff2") ? false : undefined), outDir: fileURLToPath(new URL("../dist/web", import.meta.url)), emptyOutDir: true, assetsDir: "assets", sourcemap: false, rolldownOptions: { output: { codeSplitting: { groups: [{ name: "vendor", test: isVendor }] } } } },
   server: { proxy: { "/html-preview": "http://127.0.0.1:8787", "/v1": "http://127.0.0.1:8787", "/health": "http://127.0.0.1:8787" } },
 });

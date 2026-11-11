@@ -20,7 +20,8 @@ export function createWebApp(root: URL): Hono {
       const page = readFileSync(new URL("index.html", root), "utf8");
       const assets = readdirSync(new URL("assets/", root), { withFileTypes: true })
         .filter(item => item.isFile()).map(item => item.name).sort();
-      const fixed = ["/", "/manifest.webmanifest", "/icon.svg", "/icon.png"];
+      // icon.svg is only a PNG wrapper for old pages. It stays served but is not part of the installed shell.
+      const fixed = ["/", "/manifest.webmanifest", "/favicon.png", "/icon.png"];
       const files = [...fixed, ...assets.map(n => "/assets/" + n)];
       // Only static entry dependencies block installation. Dynamic imports warm after the page loads.
       const manifest = JSON.parse(readFileSync(new URL(".vite/manifest.json", root), "utf8")) as Record<string, {
@@ -67,7 +68,7 @@ export function createWebApp(root: URL): Hono {
     return c.body(build.swCode, 200, { "content-type": "text/javascript; charset=UTF-8", "cache-control": "no-cache", "x-content-type-options": "nosniff" });
   });
 
-  for (const path of ["/manifest.webmanifest", "/icon.svg", "/icon.png"]) {
+  for (const path of ["/manifest.webmanifest", "/icon.svg", "/icon.png", "/favicon.png"]) {
     const type = path.endsWith(".svg") ? "image/svg+xml; charset=UTF-8" : path.endsWith(".png") ? "image/png" : "application/manifest+json; charset=UTF-8";
     app.get(path, (c) => {
       try {
@@ -85,7 +86,7 @@ export function createWebApp(root: URL): Hono {
     }
     try {
       const data = readFileSync(new URL("assets/" + subpath, root));
-      const type = subpath.endsWith(".js") ? "text/javascript; charset=UTF-8" : subpath.endsWith(".css") ? "text/css; charset=UTF-8" : subpath.endsWith(".svg") ? "image/svg+xml; charset=UTF-8" : "application/octet-stream";
+      const type = subpath.endsWith(".js") ? "text/javascript; charset=UTF-8" : subpath.endsWith(".css") ? "text/css; charset=UTF-8" : subpath.endsWith(".svg") ? "image/svg+xml; charset=UTF-8" : subpath.endsWith(".woff2") ? "font/woff2" : "application/octet-stream";
       return c.body(data, 200, { "content-type": type, "cache-control": "public, max-age=31536000, immutable", "x-content-type-options": "nosniff" });
     } catch {
       return c.notFound();

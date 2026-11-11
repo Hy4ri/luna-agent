@@ -66,7 +66,8 @@ type Pending = { method: EnvMethod | "handle" | "browser" | "mcp"; resolve: (r: 
 const failure = (method: EnvMethod | "handle" | "browser" | "mcp", code: string, message: string): Result<never, Error> =>
   ({ ok: false, error: method === "exec" ? new ExecutionError(code as never, message) : new FileError(code as never, message) });
 
-class Link {
+/** @internal Exported for tests. */
+export class Link {
   private pending = new Map<number, Pending>();
   readonly ptys = new Map<number, (m: PtyFrame) => void>();
   private next = 1;
@@ -126,7 +127,13 @@ class Link {
         this.send({ t: "abort", id });
         p.resolve(failure(method, "unknown", `The worker did not answer within ${this.fileTimeoutMs / 1000} seconds. The operation was aborted; its effect on the worker is unknown.`));
       }, this.fileTimeoutMs);
-      this.ws.send(frame);
+      // Bun drops a frame (returns 0) once the socket buffer is over its backpressure limit. The worker then
+      // never sees the request, and an exec call has no timeout. Fail it now: nothing ran, so it is safe to retry.
+      if (this.ws.send(frame) === 0 && this.pending.delete(id)) {
+        clearTimeout(timer); signal?.removeEventListener("abort", abort);
+        this.log(`worker ${this.worker.name}: link buffer full; dropped ${method} request`);
+        resolve(failure(method, "unknown", "The worker link is congested and the request was not sent. Nothing ran."));
+      }
     });
   }
   send(m: MainMessage) { this.ws.send(JSON.stringify(m)); }

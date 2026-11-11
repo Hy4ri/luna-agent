@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./assets/fonts/nerd-symbols.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -1225,14 +1226,8 @@ pre[dir="auto"],
 
 .zoomable, .md img { cursor: zoom-in; }
 
-/* Nerd Fonts v3.4.0, Symbols Only. See assets/fonts/NERD-FONTS-LICENSE.txt.
-   Restrict this face to private-use symbols so normal text and emoji keep their fonts. */
-@font-face {
-  font-family: "Luna Nerd Symbols";
-  src: url("./assets/fonts/SymbolsNerdFont-Regular.woff2") format("woff2");
-  font-display: swap;
-  unicode-range: U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD;
-}
+/* Nerd Fonts v3.4.0, Symbols Only: faces in assets/fonts/nerd-symbols.css, one per glyph range.
+   Every range is private-use, so normal text and emoji keep their fonts. */
 .project-custom-icon {
   font-family: "Luna Nerd Symbols", system-ui, sans-serif;
 }

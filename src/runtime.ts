@@ -151,8 +151,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
         : workers.openPty(worker, { cwd: options.cwd, cols: options.cols, rows: options.rows, ...(options.command ? { command: options.command } : {}) }),
       vt: loadVt,
     }),
-    enabled: () => (settings?.resolved() ?? cfg).terminal.user,
-    agentEnabled: () => (settings?.resolved() ?? cfg).terminal.agent,
+    enabled: () => (settings?.shared() ?? cfg).terminal.user,
+    agentEnabled: () => (settings?.shared() ?? cfg).terminal.agent,
   });
   const workers = new WorkerHub(new WorkerStore(join(cfg.dataDir, "workers.db")), log);
   extensions.push(createWorkersExtension(() => workers));
@@ -397,7 +397,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     scheduledMessages,
     log,
     policy: () => {
-      const ac = (settings?.resolved() ?? cfg).autoContinue;
+      const ac = (settings?.shared() ?? cfg).autoContinue;
       return { enabled: ac.enabled, maxWaitHours: ac.maxWaitHours, resetGraceSeconds: ac.resetGraceSeconds };
     },
     defaultModel: () => providers.defaultModel(),
@@ -511,16 +511,16 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   });
 
   const sideCommands = new SideCommands({ harness, models: built.models, remoteEnv: (worker, cwd) => workers.env(worker, cwd), reviewEnvironment: worker => workers.reviewEnvironment(worker), route: () => {
-    const route = (settings?.resolved() ?? cfg).auxiliary.side_question;
+    const route = (settings?.shared() ?? cfg).auxiliary.side_question;
     return route ? { provider: route.provider, modelId: route.model } : undefined;
   }, reviewRoute: () => {
-    const route = (settings?.resolved() ?? cfg).auxiliary.review;
+    const route = (settings?.shared() ?? cfg).auxiliary.review;
     return route ? { provider: route.provider, modelId: route.model } : undefined;
   }, cwd: cfg.cwd });
 
   // Session titles use their own route, else the side-question route; never the session model.
   const titler = new SessionTitler({ harness, conversations, models: built.models, route: () => {
-    const aux = (settings?.resolved() ?? cfg).auxiliary, route = aux.session_title ?? aux.side_question;
+    const aux = (settings?.shared() ?? cfg).auxiliary, route = aux.session_title ?? aux.side_question;
     return route ? { provider: route.provider, modelId: route.model } : undefined;
   } });
   titler.start();

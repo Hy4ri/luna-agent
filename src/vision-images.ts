@@ -5,7 +5,6 @@ import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
-import sharp from "sharp";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { isWorkerEnv } from "./worker-protocol.js";
 
@@ -182,6 +181,7 @@ export async function loadVisionImage(source: string, region: VisionRegion | und
       if (!prepared) throw new Error("Invalid BMP image.");
       bytes = Buffer.from(prepared.data, "base64");
     }
+    const sharp = (await import("sharp")).default;
     const input = sharp(bytes, { limitInputPixels: MAX_PIXELS, failOn: "warning" });
     const meta = await input.metadata();
     if (meta.format === "svg" && !/<svg[\s>]/i.test(xml)) throw new Error("SVG must use UTF-8 XML encoding.");
@@ -216,6 +216,7 @@ export async function fitVisionImage(image: LoadedVisionImage,
     const scale = edge / Math.max(image.width, image.height);
     const width = Math.max(1, Math.round(image.width * scale)), height = Math.max(1, Math.round(image.height * scale));
     for (const quality of [85, 65, 40]) {
+      const sharp = (await import("sharp")).default;
       const { data: bytes, info } = await sharp(image.bytes, { limitInputPixels: MAX_PIXELS }).resize(width, height, { withoutEnlargement: true }).jpeg({ quality }).toBuffer({ resolveWithObject: true });
       interrupted(signal);
       const data = bytes.toString("base64");

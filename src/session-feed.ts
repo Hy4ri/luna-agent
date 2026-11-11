@@ -486,6 +486,8 @@ export async function openSessionFeed(
   const closedPromise = { promise: new Promise<WatchEnd>((resolve) => { resolveClosed = resolve; }), resolve: (end: WatchEnd) => resolveClosed(end) };
 
   const eventQueue: AgentEvent[][] = [];
+  const maxQueuedBatches = Math.max(1, options?.maxQueuedBatches ?? 1024);
+  let overflowed = false;
   let listener: ((events: readonly AgentEvent[], context?: unknown) => Promise<void>) | undefined;
   let processing = false;
   let inFlight = 0;
@@ -583,6 +585,19 @@ export async function openSessionFeed(
         const pubChanges = correlatedChanges.splice(0);
         const events = translateEvents(before, after, call.ops, pubChanges, heldGenerations);
         if (events.length > 0) {
+          if (eventQueue.length >= maxQueuedBatches) {
+            // A stalled viewer must not hold the session's history in memory. End only this feed:
+            // durable runs continue, and the client recovers from its entry cursor on reconnect.
+            if (!overflowed) {
+              overflowed = true;
+              eventQueue.length = 0;
+              closedReason = { kind: "listener_error", error: new Error("session viewer fell behind; reconnect from the last entry") };
+              closedPromise.resolve(closedReason);
+              commitObservation.detach();
+              void rawWatch.stop();
+            }
+            return;
+          }
           eventQueue.push(events);
           triggerDrain();
         }
@@ -591,6 +606,7 @@ export async function openSessionFeed(
 
     void rawWatch.closed.then((end) => {
       commitObservation.detach();
+      if (overflowed) return;
       closedReason = end;
       closedPromise.resolve(end);
     });
@@ -627,7 +643,7 @@ export async function openSessionFeed(
       if (watchHandle) {
         await watchHandle.stop();
       }
-      closedReason = { kind: "stopped" };
+      if (!overflowed) closedReason = { kind: "stopped" };
       closedPromise.resolve(closedReason);
       return closedReason;
     },

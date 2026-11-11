@@ -192,7 +192,7 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
   });
 
   const sessionTalkPolicy = () =>
-    opts.sessionTalk?.() ?? opts.settings?.resolved().sessionTalk ?? DEFAULT_SESSION_TALK;
+    opts.sessionTalk?.() ?? opts.settings?.shared().sessionTalk ?? DEFAULT_SESSION_TALK;
   const exchangeTarget = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
   app.get("/v1/sessions/:id/exchanges/:to", async (c) => {

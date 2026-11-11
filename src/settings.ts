@@ -4,7 +4,17 @@ import { dirname, join } from "node:path";
 import { ConfigSchema, parseConfig, type LunaConfig } from "./config.js";
 
 export type Settings = ReturnType<typeof ConfigSchema.parse>;
-const FORM_SCHEMA = ConfigSchema.toJSONSchema();
+export interface SettingsView {
+  schema: ReturnType<typeof ConfigSchema.toJSONSchema>;
+  config: Settings;
+  revision: string;
+  path: string;
+  restartRequired: boolean;
+  environmentOverrides: string[];
+}
+// Built on first settings read: the conversion costs about 0.25 s at daemon start.
+let formSchema: ReturnType<typeof ConfigSchema.toJSONSchema> | undefined;
+const FORM_SCHEMA = () => formSchema ??= ConfigSchema.toJSONSchema();
 const HIDDEN = "<secret: unchanged>";
 // Every environment input of parseConfig, including HOME for `~` expansion.
 const RESOLVE_ENV = ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LUNA_HOST", "LUNA_PORT", "HOME"] as const;
@@ -12,6 +22,7 @@ const RESOLVE_ENV = ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LU
 export class SettingsStore {
   private applied: Settings;
   private resolvedCache?: { file: string; env: string; value: LunaConfig };
+  private viewCache?: { file: string; serialized: string; view: SettingsView; revision: string };
   private listeners: ((old: Settings, next: Settings) => Promise<string[]>)[] = [];
   get restartRequired() {
     const next = this.read();
@@ -93,14 +104,39 @@ export class SettingsStore {
     this.write(ConfigSchema.parse(next));
   }
   revision() { return new Bun.CryptoHasher("sha256").update(readFileSync(this.path)).digest("hex"); }
-  view() {
+  view(): SettingsView {
+    const cached = this.viewCached();
+    return structuredClone(cached.view);
+  }
+
+  viewJson(): { json: string; revision: string } {
+    const cached = this.viewCached();
+    return { json: cached.serialized, revision: cached.revision };
+  }
+
+  private viewCached(): { file: string; serialized: string; view: SettingsView; revision: string } {
+    const file = this.fileIdentity();
+    if (this.viewCache && this.viewCache.file === file) {
+      return this.viewCache;
+    }
     const config = this.read();
     for (const s of config.mcpServers) {
       if (s.transport === "stdio") { for (const k of Object.keys(s.env ?? {})) s.env![k] = HIDDEN; }
       else { for (const k of Object.keys(s.headers ?? {})) s.headers![k] = HIDDEN; s.url = hideUrl(s.url); }
     }
     for (const p of config.providers) p.baseUrl = hideUrl(p.baseUrl);
-    return { schema: FORM_SCHEMA, config, revision: this.revision(), path: this.path, restartRequired: this.restartRequired, environmentOverrides: ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LUNA_HOST", "LUNA_PORT"].filter(k => !!process.env[k]) };
+    const rev = this.revision();
+    const viewObj: SettingsView = {
+      schema: FORM_SCHEMA(),
+      config,
+      revision: rev,
+      path: this.path,
+      restartRequired: this.restartRequired,
+      environmentOverrides: ["LUNA_DATA", "LUNA_CWD", "LUNA_PROVIDER", "LUNA_MODEL", "LUNA_HOST", "LUNA_PORT"].filter(k => !!process.env[k]),
+    };
+    const serialized = JSON.stringify(viewObj);
+    this.viewCache = { file, serialized, view: viewObj, revision: rev };
+    return this.viewCache;
   }
   replace(input: unknown, revision: string) {
     if (revision !== this.revision()) throw new Error("Settings changed. Reload before saving.");

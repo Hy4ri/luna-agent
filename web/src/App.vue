@@ -14,16 +14,20 @@ import Extras from '@/components/chat/Extras.vue';
 import StatusBar from '@/components/chat/StatusBar.vue';
 import Composer from '@/components/composer/Composer.vue';
 import PanelHost from '@/components/panels/PanelHost.vue';
-import CommandPalette from '@/components/CommandPalette.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ImageViewer from '@/components/ui/ImageViewer.vue';
 import SnapTool from '@/components/SnapTool.vue';
-import TerminalDock from '@/components/terminal/TerminalDock.vue';
-import BrowserPane from '@/components/browser/BrowserPane.vue';
 import { browser, loadBrowser } from '@/stores/browser';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
+// The terminal emulator (ghostty-web, ~400 kB) loads only when a terminal opens.
+const TerminalDock = defineAsyncComponent(() => import('@/components/terminal/TerminalDock.vue'));
+const BrowserPane = defineAsyncComponent(() => import('@/components/browser/BrowserPane.vue'));
+// The palette (and the full settings catalog it searches) loads on the first Ctrl+K, then stays mounted.
+const CommandPalette = defineAsyncComponent(() => import('@/components/CommandPalette.vue'));
+const paletteUsed = ref(false);
+watch(() => ui.palette, open => { if (open) paletteUsed.value = true; }, { immediate: true });
 import { recoveryOpen } from '@/lib/connections';
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate } from '@/stores/app';
@@ -508,7 +512,7 @@ onUnmounted(() => {
       <PanelHost />
       <ImageViewer />
       <SnapTool v-if="!sessionPane && !ui.login" />
-      <CommandPalette v-if="!sessionPane" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
+      <CommandPalette v-if="!sessionPane && paletteUsed" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
       <ConnectionRecovery v-if="!sessionPane" />
       <div v-if="ui.login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" class="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-5">
         <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">

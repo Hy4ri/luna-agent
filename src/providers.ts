@@ -360,7 +360,7 @@ export class ProviderManager {
   // ---- default model ----
   defaultModel(): ModelRef {
     if (this.settings) {
-      const c = this.settings.resolved();
+      const c = this.settings.shared();
       return c.model ? { provider: c.provider, modelId: c.model } : this.fallback;
     }
     const d = this.state.defaultModel;

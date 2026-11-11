@@ -112,13 +112,13 @@ export function createRouteCtx(
   };
 
   const thinkingDefaults = (): ThinkingDefaults => {
-    const c = opts.settings?.resolved();
+    const c = opts.settings?.shared();
     const thinkingLevel = c?.thinkingLevel ?? opts.agent?.thinkingLevel;
     return { ...(thinkingLevel && { thinkingLevel }), ...(c?.modelThinkingLevels && { modelThinkingLevels: c.modelThinkingLevels }) };
   };
 
   const baseAgent = () => {
-    const c = opts.settings?.resolved();
+    const c = opts.settings?.shared();
     const model = opts.providers?.defaultModel() ?? opts.agent?.model;
     return {
       ...(opts.agent ?? {}),

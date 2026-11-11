@@ -485,6 +485,15 @@ describe("queryAnalytics", () => {
 });
 
 describe("analyticsFilterOptions, analyticsDetail, analyticsExport", () => {
+  // Contract: a fact's provider is its explicit data.provider, else its model prefix; never both.
+  test("provider options use the explicit provider over the model prefix", () => {
+    const store = createTempStore();
+    seedStore(store);
+    store.db.run(`UPDATE analytics_facts SET data = json_set(data, '$.provider', 'openrouter') WHERE model = 'anthropic/claude-sonnet'`);
+    store.db.run(`UPDATE analytics_facts SET data = json_remove(data, '$.provider') WHERE model = 'openai/gpt-4o'`);
+    assert.deepEqual(analyticsFilterOptions(store).providers.map((p) => p.value), ["openai", "openrouter"]);
+  });
+
   test("returns filter options and detail drawer sections", () => {
     const store = createTempStore();
     seedStore(store);
@@ -492,6 +501,9 @@ describe("analyticsFilterOptions, analyticsDetail, analyticsExport", () => {
     const options = analyticsFilterOptions(store);
     assert.ok(options.projects.some((p) => p.value === "10"));
     assert.ok(options.models.some((m) => m.value === "anthropic/claude-sonnet"));
+    assert.ok(options.providers.some((p) => p.value === "anthropic" && p.label === "anthropic"));
+    assert.ok(options.providers.some((p) => p.value === "openai" && p.label === "openai"));
+    assert.equal(options.providers.length, 2);
     assert.ok(options.workers.some((w) => w.value === "main"));
     assert.ok(options.cwds.some((c) => c.value === "/work/alpha"));
 
