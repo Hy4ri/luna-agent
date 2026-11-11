@@ -22,7 +22,8 @@ import { createSkillViewer, scanSkills } from "./skills.js";
 // One entrypoint that wires every subsystem from a validated LunaConfig: harness (coding tools, memory, skills),
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
-import { mkdirSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
+import { listSessionWorktrees, removeSessionWorktree } from "./wife/git.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
@@ -344,10 +345,20 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
   const wifeStore = new WifeStore(join(cfg.dataDir, "wife.db"));
+  const skillMgr = improver ? new SkillManager(improver, cfg.allSkillDirs) : undefined;
   const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log,
     cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
       disable: id => { store.setEnabled(id, false); scheduler?.rearm(); } } : undefined,
     startSession: (project, title, content, requestId) => webhookTargets!.newSession(project ?? 0, title, content, requestId),
+    worktrees: () => listSessionWorktrees([...new Set([cfg.cwd ?? "", ...conversations.projects.list().map(p => p.cwd)])]),
+    removeWorktree: async (path, branch) => removeSessionWorktree(path, branch),
+    terminals: () => terminals.registry.all().map(t => ({ id: t.id, session: t.session, command: t.command, status: t.status })),
+    closeTerminal: id => terminals.registry.close(id),
+    skills: skillMgr ? () => skillMgr.list().map(s => ({ name: s.name, managed: s.managed, modified: statSync(s.path).mtimeMs })) : undefined,
+    trashSkill: skillMgr ? name => { skillMgr.deleteSkill(name); } : undefined,
+    userMessages: recall ? (since, first) => (first
+      ? recall.db.query<{ conv: number; ts: number; text: string }, [number]>("SELECT m.conv AS conv, m.ts AS ts, m.head AS text FROM messages m WHERE m.role='user' AND m.entry=(SELECT MIN(entry) FROM messages WHERE conv=m.conv AND role='user') AND m.ts>=?").all(since)
+      : recall.db.query<{ conv: number; ts: number; text: string }, [number]>("SELECT conv, ts, head AS text FROM messages WHERE role='user' AND tail='' AND length(head) BETWEEN 30 AND 600 AND ts>=? LIMIT 20000").all(since)) : undefined,
     skillExists: name => scanSkills(cfg.allSkillDirs).some(sk => sk.name === name),
     remember: memory ? ({ key, content }) => {
       const old = key ? memory.recall(key, { kind: "fact" }).find(r => r.key === key) : undefined;
@@ -580,6 +591,7 @@ export const WIFE_JOB_PROMPT = [
   "1. Call `wife action=list`. Never file a card whose fingerprint is listed.",
   "2. Use `session_search` and recall to read sessions active since your last run. Read `skill action=list` and search memory first, so you do not duplicate what exists.",
   "3. Procedures that repeat across sessions become kind=skill cards (payload {name, existing, outline}). Stable facts or preferences m57 stated more than once become kind=memory cards (payload {key, content}).",
+  "   Two skills that overlap or load together become a kind=skill card with existing=true and an outline that merges them. Facts or notes that contradict each other or are out of date become a kind=memory card with the corrected content for the same key. A correction m57 made in 3 or more sessions becomes a memory card (a fact) or a skill card (a procedure rule).",
   "4. File at most 5 cards with `wife action=suggest`. Each needs real evidence sessions with a note. Prefer fewer, stronger cards.",
   "5. Finish with one line: what you filed, or 'nothing'.",
 ].join("\n");

@@ -438,7 +438,7 @@ Wife only suggests. She never edits her own rules or code, merges, or acts alone
 new project, memory).
 
 Detectors run every `wife.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
-misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, and stuck board cards.
+misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, stuck board cards, orphan session worktrees (merged branch or deleted session, and clean), leftover terminals in idle sessions, tools that fail in 3 or more sessions a week, managed skills unused for 60 days, a prompt you send on a regular rhythm, and a session opening you repeat in one project. Agreeing to the last two starts a work session. Agreeing to a worktree card removes the worktree and its branch.
 A daily model pass, the built-in cron job `luna-wife`, files skill and memory cards through the `wife` tool.
 It is the only part that costs model calls. Run it by hand with `cron action=run`.
 
@@ -463,7 +463,7 @@ It is the only part that costs model calls. Run it by hand with `cron action=run
 - Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Wife never does it alone.
 - The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap.
 
-Not built yet: detectors for orphan worktrees, leftover background processes, repeated tool errors, and unused skills; model cards for overlapping skills and conflicting memory.
+Not built yet: leftover browser tabs (only terminals are checked). The model-only rules (overlapping skills, conflicting memory, repeated corrections) are part of the `luna-wife` prompt and file skill or memory cards.
 
 ## Learning from a source
 

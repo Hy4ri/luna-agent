@@ -14,7 +14,7 @@ import { WifeService } from "../src/wife/service.js";
 
 function emptyAnalytics() {
   const db = new Database(":memory:");
-  db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
+  db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
   return db;
 }
 async function fixture() {

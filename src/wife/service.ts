@@ -2,13 +2,14 @@
 import type { AnalyticsStore } from "../analytics/store.js";
 import { ConversationError, type ConversationStore } from "../conversations.js";
 import { batchCards, misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
+import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans, type TerminalView } from "./detectors3.js";
 import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "./detectors2.js";
 import { inQuietHours, inScope, startOfLocalDay, type WifePolicy } from "./policy.js";
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
 import { matchTips, type ToolCounts, type WifeTip } from "./tips.js";
 import type { NewSuggestion, Inverse, Suggestion, WifeStore } from "./store.js";
 
-const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
+const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
 export interface WifeServiceOptions {
@@ -23,6 +24,16 @@ export interface WifeServiceOptions {
   remember?: (input: { key?: string; content: string }) => { key: string | null; before: string | null };
   /** Start a session with a first message (the webhook path). Returns the session id. */
   startSession?: (project: number | null, title: string, content: string, requestId: string) => Promise<number>;
+  /** Session worktrees (git). Agree removes one that is clean. */
+  worktrees?: () => { path: string; branch: string; merged: boolean; dirty: boolean }[];
+  removeWorktree?: (path: string, branch: string) => Promise<void>;
+  terminals?: () => TerminalView[];
+  closeTerminal?: (id: string) => void;
+  /** Installed skills, and a way to move a managed one to the skill trash. */
+  skills?: () => { name: string; managed: boolean; modified: number }[];
+  trashSkill?: (name: string) => void;
+  /** User messages from the recall index since `since`. `first` keeps one message per session: its first. */
+  userMessages?: (since: number, first: boolean) => { conv: number; ts: number; text: string }[];
   skillExists?: (name: string) => boolean;
   restoreMemory?: (key: string, content: string | null) => Promise<void> | void;
   extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
@@ -61,6 +72,25 @@ export class WifeService {
     const cards = projects.flatMap(p => this.o.conversations.board.list(p.id).map(c => ({ project: p.id, id: c.id, subject: c.subject, status: c.status, updated: c.updated,
       ownerSession: /^session (\d+)$/.exec(c.owner ?? "")?.[1] ? Number(/^session (\d+)$/.exec(c.owner!)![1]) : null })));
     found.push(...boardStuck(cards, idleSession, now));
+    if (this.o.worktrees) found.push(...worktreeOrphans(this.o.worktrees().map(w => {
+      const sid = /^luna\/s(\d+)(?:-|$)/.exec(w.branch)?.[1]; const sessionId = sid ? Number(sid) : null;
+      const rec = sessionId === null ? undefined : sessionById.get(sessionId);
+      const gone = sessionId !== null && (!rec || rec.deletedAt !== null);
+      // A fresh worktree is trivially merged. Count merged only once its session has been idle for a day.
+      return { ...w, sessionId, sessionGone: gone, merged: w.merged && sessionId !== null && !gone && idleSession(sessionId) };
+    })));
+    if (this.o.terminals) found.push(...bgLeftovers(this.o.terminals(), idleSession));
+    const errRows = store.db.query<{ name: string; errors: number; sessions: number; sample: string }, [number]>(
+      "SELECT f.name AS name, COUNT(*) AS errors, COUNT(DISTINCT f.session_id) AS sessions, group_concat(DISTINCT f.session_id) AS sample FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='tool' AND f.error=1 AND f.ts>=? AND s.deleted_at IS NULL GROUP BY f.name").all(now - 7 * DAY);
+    found.push(...toolErrorRepeat(errRows.map(r => ({ ...r, sample: r.sample.split(",").map(Number) })), String(Math.floor(now / (7 * DAY)))));
+    if (this.o.skills) {
+      const use = store.db.query<{ name: string; last: number }, []>("SELECT name, MAX(ts) AS last FROM analytics_facts WHERE kind='skill' GROUP BY name").all();
+      found.push(...skillsUnused(this.o.skills(), new Map(use.map(u => [u.name, u.last])), now));
+    }
+    if (this.o.userMessages) {
+      found.push(...promptRepeat(this.o.userMessages(now - 60 * DAY, false)));
+      found.push(...projectSetupRepeat(this.o.userMessages(now - 60 * DAY, true).map(m => ({ ...m, project: sessionById.get(m.conv)?.projectId ?? 0 }))));
+    }
     const cfg = this.o.config();
     const muted = (c: { ruleId?: string; kind: string }) => (cfg.mutedRules ?? []).includes(c.ruleId ?? c.kind) || (cfg.mutedKinds ?? []).includes(c.kind);
     for (let i = found.length - 1; i >= 0; i--) if (muted(found[i]!)) found.splice(i, 1);
@@ -138,6 +168,7 @@ export class WifeService {
     for (const card of this.o.store.list("working")) {
       const rec = card.sessionId ? sessions.find(s => s.id === card.sessionId) : undefined;
       if (!rec || ["running", "reviewing", "needs_approval", "needs_input"].includes(rec.status)) continue;
+      if (card.kind !== "skill") { this.o.store.setStatus(id_(card), "done", { result: "The work session ended. Check what it wrote." }); this.o.store.record(card, "agree", null, "session ended"); continue; }
       const name = String(card.payload.name ?? "");
       if (this.o.skillExists?.(name)) { this.o.store.setStatus(id_(card), "done", { result: `Skill ${name} is written.` }); this.o.store.record(card, "agree", null, "skill written"); }
       else { this.o.store.setStatus(id_(card), "failed", { result: "The session ended and the skill was not written. Open it to see why." }); this.o.store.record(card, "failed", null, "no skill"); }
@@ -203,7 +234,28 @@ export class WifeService {
         const p = card.payload as { project: number; card: number };
         conv.board.update(p.project, p.card, { status: "todo" }, "wife");
         result = "Moved the card to todo.";
-      } else if (card.kind === "goal_unfinished" || card.kind === "quota_waits") {
+      } else if (card.kind === "worktree_orphan") {
+        const p = card.payload as { path: string; branch: string };
+        const live = this.o.worktrees?.().find(w => w.path === p.path);
+        if (!live) { result = "The worktree is already gone."; }
+        else if (live.dirty) throw new WifeError(409, "The worktree has uncommitted changes. Clean it up by hand.");
+        else { await this.o.removeWorktree!(p.path, p.branch); result = `Removed ${p.branch}.`; }
+      } else if (card.kind === "bg_leftover") {
+        this.o.closeTerminal?.(String(card.payload.terminalId)); result = "Stopped the terminal.";
+      } else if (card.kind === "skill_unused") {
+        if (!this.o.trashSkill) throw new WifeError(409, "skills are not available");
+        this.o.trashSkill(String(card.payload.name)); result = `Moved ${card.payload.name} to the skill trash. Restore it with skill action=restore.`;
+      } else if (card.kind === "prompt_repeat" || card.kind === "project_setup_repeat") {
+        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        const p = card.payload as { prompt?: string; project?: number; text?: string };
+        const content = card.kind === "prompt_repeat"
+          ? `Draft a cron job for this prompt that I keep sending. Use the cron tool, pick a schedule that matches how often I send it, and show me the job before enabling it.\n\nPrompt: ${p.prompt}`
+          : `Add this session setup to the project's AGENTS.md (create it in the project directory if missing), so new sessions no longer need it. Keep it short and show me the change.\n\nSetup text: ${p.text}`;
+        const sid2 = await this.o.startSession(card.kind === "prompt_repeat" ? null : p.project ?? null, card.title.slice(0, 100), content, `wife-work-${id}`);
+        this.o.store.setStatus(id, "working", { sessionId: sid2, result: "Working on it in a session." });
+        this.o.store.record(card, "agree", null, "work session");
+        return this.o.store.get(id)!;
+      } else if (card.kind === "goal_unfinished" || card.kind === "tool_error_repeat" || card.kind === "quota_waits") {
         result = "Noted. Use Discuss to work on it.";
       } else if (card.kind === "tune_rule") {
         const p = card.payload as { rule: string; key: string; from: number; to: number };

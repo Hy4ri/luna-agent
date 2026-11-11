@@ -2,7 +2,7 @@
 import { reactive, ref } from "vue";
 import { api } from "@/lib/api";
 
-export type WifeKind = "skill" | "memory" | "new_project" | "move_session" | "archive_session" | "delete_session" | "feature_tip" | "tune_rule" | "mute_rule" | "mute_kind" | "goal_unfinished" | "cron_failing" | "quota_waits" | "board_stuck";
+export type WifeKind = "skill" | "memory" | "new_project" | "move_session" | "archive_session" | "delete_session" | "feature_tip" | "tune_rule" | "mute_rule" | "mute_kind" | "goal_unfinished" | "cron_failing" | "quota_waits" | "board_stuck" | "worktree_orphan" | "bg_leftover" | "tool_error_repeat" | "skill_unused" | "prompt_repeat" | "project_setup_repeat";
 export type WifeStatus = "open" | "snoozed" | "dismissed" | "working" | "done" | "failed";
 export interface Suggestion {
   id: number; kind: WifeKind; ruleId: string; title: string; body: string; evidence: { sessionId: number; note: string }[];

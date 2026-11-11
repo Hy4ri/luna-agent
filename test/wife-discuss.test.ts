@@ -6,7 +6,7 @@ import { WifeStore } from "../src/wife/store.js";
 import { WifeService } from "../src/wife/service.js";
 
 const db = new Database(":memory:");
-db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
+db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
 function setup(over: { records?: { id: number; status: string }[]; skills?: Set<string> } = {}) {
   const sent: { project: number | null; title: string; content: string }[] = [];
   const store = new WifeStore(":memory:");

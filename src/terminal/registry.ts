@@ -184,6 +184,8 @@ export class TerminalRegistry {
 
   get(id: string): TerminalInfo | undefined { const e = this.entries.get(id); return e && { ...e.info }; }
 
+  /** Every terminal of every session. */
+  all(): TerminalInfo[] { return [...this.entries.values()].map(e => ({ ...e.info })); }
   list(session: number): TerminalInfo[] {
     return [...this.entries.values()].filter(e => e.info.session === session).map(e => ({ ...e.info }));
   }
