@@ -24,6 +24,10 @@ export interface Suggestion {
 }
 export type NewSuggestion = Pick<Suggestion, "kind" | "fingerprint" | "title" | "body" | "evidence" | "payload" | "source"> & { ruleId?: string };
 export const UNDO_DAYS = 7;
+/** Release order for held cards: work you can act on first, reports and nudges last. Kinds not listed come after these. */
+export const KIND_VALUE: readonly WifeKind[] = ["goal_unfinished", "cron_failing", "reminder_unscheduled", "board_stuck", "memory", "skill", "new_project", "move_session",
+  "worktree_orphan", "bg_leftover", "browser_leftover", "archive_session", "delete_session", "quota_waits", "tool_error_repeat", "prompt_repeat", "project_setup_repeat",
+  "promote_rule", "tune_rule", "mute_rule", "mute_kind", "new_rule", "rule_idea", "feature_tip", "cost_habit", "compaction_heavy", "skill_unused", "weekly_recap"];
 /** How to reverse a direct action. Deleting a session has none. */
 export type Inverse =
   | { type: "unarchive"; ids: number[] }
@@ -101,13 +105,26 @@ export class WifeStore {
   }
   /** Cards shown since `since`, and the held ones, oldest first. */
   shownSince(since: number): number { return (this.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE shown_at>=?").get(since) as { n: number }).n; }
-  /** Show up to `n` held open cards, oldest first. Returns how many. */
+  /** Show up to `n` held open cards, the most useful kinds first (see KIND_VALUE), then oldest. Returns how many. */
   release(n: number): number {
     if (n <= 0) return 0;
-    return Number(this.db.prepare("UPDATE suggestions SET shown_at=? WHERE id IN (SELECT id FROM suggestions WHERE shown_at IS NULL AND status='open' ORDER BY created, id LIMIT ?)").run(this.now(), n).changes);
+    const rank = `CASE ${KIND_VALUE.map((k, i) => `WHEN kind='${k}' THEN ${i}`).join(" ")} ELSE ${KIND_VALUE.length} END`;
+    return Number(this.db.prepare(`UPDATE suggestions SET shown_at=? WHERE id IN (SELECT id FROM suggestions WHERE shown_at IS NULL AND status='open' ORDER BY CASE source WHEN 'model' THEN 0 ELSE 1 END, ${rank}, created, id LIMIT ?)`).run(this.now(), n).changes);
   }
-  /** Show one card now, whatever the quiet hours and cap say. */
-  show(fingerprint: string) { this.db.prepare("UPDATE suggestions SET shown_at=COALESCE(shown_at,?) WHERE fingerprint=?").run(this.now(), fingerprint); }
+  /** Show one card now, whatever the quiet hours and cap say. Returns 1 when it was held. */
+  show(fingerprint: string): number { return Number(this.db.prepare("UPDATE suggestions SET shown_at=? WHERE fingerprint=? AND shown_at IS NULL").run(this.now(), fingerprint).changes); }
+  /** Open and snoozed cards about one session: its id is in the evidence or the payload. Held cards count. */
+  about(session: number): Suggestion[] {
+    const rows = this.db.prepare("SELECT s.*, NULL AS undo_until FROM suggestions s WHERE s.status IN ('open','snoozed')").all() as Row[];
+    return rows.map(view).filter(c => c.evidence.some(e => e.sessionId === session) || Number(c.payload.sessionId) === session
+      || (Array.isArray(c.payload.sessionIds) && (c.payload.sessionIds as unknown[]).includes(session)));
+  }
+  /** Show every held card about one session. Returns how many. */
+  showAbout(session: number): number {
+    let n = 0;
+    for (const c of this.about(session)) n += this.show(c.fingerprint);
+    return n;
+  }
   /** Move a card to a status. `patch` sets result, sessionId, or snoozeUntil. */
   setStatus(id: number, status: WifeStatus, patch: { result?: string | null; sessionId?: number | null; snoozeUntil?: number | null } = {}) {
     this.db.prepare("UPDATE suggestions SET status=?, result=COALESCE(?,result), session_id=COALESCE(?,session_id), snooze_until=?, updated=? WHERE id=?")

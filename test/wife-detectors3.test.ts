@@ -21,9 +21,19 @@ test("bg_leftover needs a running terminal in an idle session", () => {
   assert.deepEqual(bgLeftovers(t, s => s === 1).map(c => c.payload.terminalId), ["a"]);
 });
 
-test("tool_error_repeat needs 3 sessions", () => {
-  const cards = toolErrorRepeat([{ name: "bash", errors: 9, sessions: 3, sample: [1, 2, 3] }, { name: "web", errors: 9, sessions: 2, sample: [1, 2] }], "w1");
-  assert.deepEqual(cards.map(c => c.payload.tool), ["bash"]);
+test("tool_error_repeat needs a 20% error rate on 10+ calls in 3 sessions, and folds the tools into one card", () => {
+  const cards = toolErrorRepeat([
+    { name: "bash", calls: 400, errors: 9, sessions: 3, sample: [1, 2, 3] },   // 2%: normal
+    { name: "web", calls: 20, errors: 9, sessions: 2, sample: [1, 2] },        // 2 sessions
+    { name: "edit", calls: 9, errors: 9, sessions: 3, sample: [1, 2, 3] },     // under 10 calls
+    { name: "browser", calls: 30, errors: 6, sessions: 3, sample: [4, 5, 6] }, // 20%
+    { name: "ssh", calls: 10, errors: 5, sessions: 4, sample: [7, 4] },        // 50%
+  ], "w1");
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0]!.fingerprint, "tool_error_repeat:w1");
+  assert.deepEqual((cards[0]!.payload.tools as { name: string }[]).map(t => t.name), ["ssh", "browser"]);
+  assert.deepEqual(cards[0]!.evidence.map(e => e.sessionId), [7, 4, 5]);
+  assert.equal(toolErrorRepeat([{ name: "bash", calls: 400, errors: 9, sessions: 3, sample: [1] }], "w1").length, 0);
 });
 
 test("skill_unused skips external, young, and recently used skills", () => {
@@ -45,6 +55,10 @@ test("project_setup_repeat groups by project and ignores General", () => {
   const f = [1, 2, 3].map(i => ({ conv: i, project: 4, text: setup + i }));
   assert.equal(projectSetupRepeat(f).length, 1);
   assert.equal(projectSetupRepeat(f.map(x => ({ ...x, project: 0 }))).length, 0);
+  // Crew and peer messages are written by sessions, not typed by m57.
+  const peer = (n: number) => `[message from session #${n} "Lead": a peer session, not m57. It is your crew lead: it created this session and gives you tasks.`;
+  assert.equal(projectSetupRepeat([1, 2, 3].map(i => ({ conv: i, project: 4, text: peer(100 + i) }))).length, 0);
+  assert.equal(promptRepeat([1, 2, 3].map(i => ({ conv: i, ts: i * DAY, text: peer(100 + i) }))).length, 0);
 });
 
 test("session worktrees: a fresh one is not removed dirty, a clean one is removed with its branch", () => {

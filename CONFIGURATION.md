@@ -444,7 +444,7 @@ Wife only suggests. She never edits her own rules or code, merges, or acts alone
 new project, memory).
 
 Detectors run every `wife.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
-misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, stuck board cards, orphan session worktrees (merged branch or deleted session, and clean), leftover terminals in idle sessions, tools that fail in 3 or more sessions a week, managed skills unused for 60 days, a prompt you send on a regular rhythm, and a session opening you repeat in one project. Agreeing to the last two starts a work session. Agreeing to a worktree card removes the worktree and its branch.
+misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, stuck board cards, orphan session worktrees (merged branch or deleted session, and clean), leftover terminals in idle sessions, tools that fail on 20% or more of 10+ calls in 3 or more sessions a week (one card per week), sessions that compacted 5 or more times in 14 days (one card per week), managed skills unused for 60 days, a prompt you send on a regular rhythm, and a session opening you repeat in one project. Agreeing to the last two starts a work session. Agreeing to a worktree card removes the worktree and its branch.
 A daily model pass, the built-in cron job `luna-wife`, files skill and memory cards through the `wife` tool.
 It is the only part that costs model calls. Run it by hand with `cron action=run`.
 
@@ -463,11 +463,14 @@ It is the only part that costs model calls. Run it by hand with `cron action=run
 ```
 
 - `modelSchedule`: cron expression for the model pass (default four times a day). A slot is recorded as skipped, with reason `unchanged`, when no non-cron session was active since the last run; a manual run always runs. Empty turns it off. Add `"wife"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
-- `maxNewPerDay`: new cards over the cap wait and show up on the next day. Quiet hours hide new cards the same way.
+- `maxNewPerDay`: new cards over the cap wait and show up on the next day, the most useful kinds first. Quiet hours hide new cards the same way. Scan now on the page fills the page back up to the cap at once, and says what it filed, showed, and held.
 - `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Wife watches.
 - `tips`: editable catalog of feature tips. Each rule is `{id, title, body, docs?, when, enable?}`.
 - Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Wife never does it alone.
-- The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap.
+- The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap, shows every held card about that session, and says so when there is none.
+- Peer and crew messages (`[message from session #N ...`) do not count as prompts you repeat or session openings.
+- The `wife` tool lets any session go through the cards with you: `list` (id, fingerprint, body, evidence, payload), `agree`, `dismiss` (needs a reason), and `snooze` on the card ids you name, plus `scan`. Delete and worktree cards need `confirm:true`.
+  It also cleans up a session you name without a message to it: `session` (open todos, unanswered questions, goal, status), `todos_done` (`todo_ids` or `all:true`), `cancel_questions`, `clear_status` (drops a needs-input handoff and marks it read), `goal` (`pause`, `complete`, `clear`), and `edit_session` (`title`, `archived`, `pinned`, `project`). The daily `luna-wife` job uses only `list` and `suggest`.
 
 Cost and context: `cost_habit` flags a project whose cost per turn is over 2x the median of projects (30 days). `compaction_heavy` flags a live session that compacted 3 or more times. Agree opens a session that advises. It changes nothing itself. `weekly_recap` files one card a week from your boards. Agree opens a planning session.
 

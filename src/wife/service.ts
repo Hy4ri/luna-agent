@@ -8,7 +8,8 @@ import { inQuietHours, inScope, startOfLocalDay, type WifePolicy } from "./polic
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
 import { type CostRow, compactionHeavy, costHabit, weeklyRecap } from "./detectors4.js";
 import { matchTips, TipSchema, type ToolCounts, type WifeTip } from "./tips.js";
-import type { NewSuggestion, Inverse, Suggestion, WifeStore } from "./store.js";
+import { DISMISS_REASONS, type DismissReason, type NewSuggestion, type Inverse, type Suggestion, type WifeStore } from "./store.js";
+import { redact } from "./redact.js";
 
 const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "browser_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat", "cost_habit", "compaction_heavy", "weekly_recap", "promote_rule", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
@@ -52,7 +53,11 @@ export class WifeService {
   get store() { return this.o.store; }
 
   /** Run every detector once. File new cards, refresh open ones, and withdraw open cards that no longer apply. */
-  scan(opts: { session?: number } = {}): { filed: number; withdrawn: number; held: number } {
+  /**
+   * `manual`: m57 pressed Scan now, so held cards fill the page up to the daily cap even when today's cap is used.
+   * `session`: Ask Wife about one session. Every card about it shows now, held or new. `matched` counts them.
+   */
+  scan(opts: { session?: number; manual?: boolean } = {}): { filed: number; withdrawn: number; held: number; shown: number; matched: number } {
     const now = (this.o.now ?? Date.now)();
     this.o.store.expireSnoozed(now);
     const sessions = this.o.analytics().sessions();
@@ -104,8 +109,8 @@ export class WifeService {
     const scopeNow = this.o.config().projects ?? { mode: "all" as const, ids: [] };
     const costRows = store.db.query<CostRow, [number]>("SELECT session_id AS session, COALESCE(model,'unknown') AS model, COALESCE(SUM(cost_total),0) AS cost, COUNT(*) AS turns FROM analytics_facts WHERE kind='response' AND ts>=? GROUP BY session_id, 2").all(now - 30 * DAY);
     found.push(...costHabit(costRows, sessions, week), ...weeklyRecap(cards.filter(c => inScope(scopeNow, c.project)), now, week));
-    const compRows = store.db.query<{ session: number; n: number }, []>("SELECT f.session_id AS session, COUNT(*) AS n FROM analytics_facts f WHERE f.kind='compaction' GROUP BY f.session_id HAVING n>=3").all();
-    found.push(...compactionHeavy(compRows, sessions, now));
+    const compRows = store.db.query<{ session: number; n: number }, [number]>("SELECT f.session_id AS session, COUNT(*) AS n FROM analytics_facts f WHERE f.kind='compaction' AND f.ts>=? GROUP BY f.session_id HAVING n>=5").all(now - 14 * DAY);
+    found.push(...compactionHeavy(compRows, sessions, now, week));
     if (this.o.browserTabs) found.push(...browserLeftovers(this.o.browserTabs(), idleSession));
     if (this.o.worktrees) found.push(...worktreeOrphans(this.o.worktrees().map(w => {
       const sid = /^luna\/s(\d+)(?:-|$)/.exec(w.branch)?.[1]; const sessionId = sid ? Number(sid) : null;
@@ -115,9 +120,9 @@ export class WifeService {
       return { ...w, sessionId, sessionGone: gone, merged: w.merged && sessionId !== null && !gone && idleSession(sessionId) };
     })));
     if (this.o.terminals) found.push(...bgLeftovers(this.o.terminals(), idleSession));
-    const errRows = store.db.query<{ name: string; errors: number; sessions: number; sample: string }, [number]>(
-      "SELECT f.name AS name, COUNT(*) AS errors, COUNT(DISTINCT f.session_id) AS sessions, group_concat(DISTINCT f.session_id) AS sample FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='tool' AND f.error=1 AND f.ts>=? AND s.deleted_at IS NULL GROUP BY f.name").all(now - 7 * DAY);
-    found.push(...toolErrorRepeat(errRows.map(r => ({ ...r, sample: r.sample.split(",").map(Number) })), String(Math.floor(now / (7 * DAY)))));
+    const errRows = store.db.query<{ name: string; calls: number; errors: number; sessions: number; sample: string | null }, [number]>(
+      "SELECT f.name AS name, COUNT(*) AS calls, SUM(f.error=1) AS errors, COUNT(DISTINCT CASE WHEN f.error=1 THEN f.session_id END) AS sessions, group_concat(DISTINCT CASE WHEN f.error=1 THEN f.session_id END) AS sample FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='tool' AND f.ts>=? AND s.deleted_at IS NULL GROUP BY f.name").all(now - 7 * DAY);
+    found.push(...toolErrorRepeat(errRows.map(r => ({ ...r, sample: (r.sample ?? "").split(",").filter(Boolean).map(Number) })), week));
     if (this.o.skills) {
       const use = store.db.query<{ name: string; last: number }, []>("SELECT name, MAX(ts) AS last FROM analytics_facts WHERE kind='skill' GROUP BY name").all();
       found.push(...skillsUnused(this.o.skills(), new Map(use.map(u => [u.name, u.last])), now));
@@ -140,23 +145,26 @@ export class WifeService {
     const wanted = opts.session;
     const inScopeCards = found.filter(f => { const ss = sessionsOf(f); return !ss.length || ss.every(i => inScope(scope, projectOf.get(i) ?? 0)); });
     const toFile = wanted === undefined ? inScopeCards : found.filter(f => sessionsOf(f).includes(wanted));
-    let filed = 0;
+    let filed = 0, shown = 0;
     const quiet = inQuietHours(cfg.quietHours ?? null, now);
     for (const f of toFile) {
       const isNew = !this.o.store.has(f.fingerprint);
       this.o.store.file(f, wanted !== undefined || (!quiet && this.o.store.shownSince(startOfLocalDay(now)) < (cfg.maxNewPerDay ?? 10)));
       if (isNew) filed++;
-      if (wanted !== undefined) this.o.store.show(f.fingerprint);
+      if (wanted !== undefined) shown += this.o.store.show(f.fingerprint);
     }
-    // Held cards wait for the quiet hours to end and for room under the daily cap.
-    let held = 0;
-    if (!quiet) this.o.store.release((cfg.maxNewPerDay ?? 10) - this.o.store.shownSince(startOfLocalDay(now)));
-    held = (this.o.store.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE shown_at IS NULL AND status='open'").get() as { n: number }).n;
-    if (wanted !== undefined) return { filed, withdrawn: 0, held };
+    if (wanted !== undefined) shown += this.o.store.showAbout(wanted);
+    const heldCount = () => (this.o.store.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE shown_at IS NULL AND status='open'").get() as { n: number }).n;
+    if (wanted !== undefined) return { filed, withdrawn: 0, held: heldCount(), shown, matched: this.o.store.about(wanted).length };
+    // Withdraw first, so the release below does not spend the cap on cards that no longer apply.
     let withdrawn = 0;
     for (const rule of [...DETECTOR_RULES, ...META_RULES, ...tips.map(t => `tip:${t.id}`)])
       withdrawn += this.o.store.withdrawOpen(rule, new Set(inScopeCards.filter(f => (f.ruleId ?? f.kind) === rule).map(f => f.fingerprint)));
-    return { filed, withdrawn, held };
+    // Held cards wait for the quiet hours to end and for room under the daily cap.
+    const cap = cfg.maxNewPerDay ?? 10;
+    const room = opts.manual ? cap - this.o.store.count("open") : quiet ? 0 : cap - this.o.store.shownSince(startOfLocalDay(now));
+    shown += this.o.store.release(room);
+    return { filed, withdrawn, held: heldCount(), shown, matched: 0 };
   }
 
   start() {
@@ -167,6 +175,28 @@ export class WifeService {
   }
   stop() { if (this.timer) clearInterval(this.timer); }
 
+  /** Close an open or snoozed card. `not_now` snoozes it for 30 days and `already_done` marks it done. */
+  dismiss(id: number, reason?: DismissReason, note?: string): Suggestion {
+    const card = this.openCard(id);
+    if (reason !== undefined && !(DISMISS_REASONS as readonly string[]).includes(reason)) throw new WifeError(400, `reason must be one of ${DISMISS_REASONS.join(", ")}`);
+    this.o.store.dismiss(id, reason, note === undefined ? undefined : redact(note.trim().slice(0, 500)));
+    this.onDismiss(card);
+    return this.o.store.get(id)!;
+  }
+  /** Hide an open or snoozed card for 1 to 365 days. */
+  snooze(id: number, days: number): Suggestion {
+    if (!Number.isInteger(days) || days < 1 || days > 365) throw new WifeError(400, "days must be 1 to 365");
+    const card = this.openCard(id);
+    this.o.store.setStatus(id, "snoozed", { snoozeUntil: (this.o.now ?? Date.now)() + days * DAY });
+    this.o.store.record(card, "snooze", null, `${days}d`);
+    return this.o.store.get(id)!;
+  }
+  private openCard(id: number): Suggestion {
+    const card = this.o.store.get(id);
+    if (!card) throw new WifeError(404, "no such suggestion");
+    if (card.status !== "open" && card.status !== "snoozed") throw new WifeError(409, `suggestion is ${card.status}`);
+    return card;
+  }
   /** Dismissing a promote card deletes the trial rule. */
   onDismiss(card: Suggestion) {
     if (card.kind !== "promote_rule" || !this.o.setConfig) return;
@@ -316,7 +346,7 @@ export class WifeService {
         if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
         const text = card.kind === "weekly_recap" ? `Help me plan my week. Here is the recap from my boards.\n\n${card.payload.recap}\n\nPick what to finish first and what to drop.`
           : card.kind === "cost_habit" ? `${card.body}\n\nLook at this project's recent sessions. Tell me whether a cheaper model or a lower thinking level would do, and show the project setting to change. Change nothing yourself.`
-          : `Session ${card.payload.sessionId} has compacted many times. Read it and propose how to split the remaining work into smaller sessions. Change nothing yourself.`;
+          : `${Array.isArray(card.payload.sessionIds) && card.payload.sessionIds.length > 1 ? `Sessions ${(card.payload.sessionIds as number[]).join(", ")} have` : `Session ${card.payload.sessionId} has`} compacted many times. Read them and propose how to split the remaining work into smaller sessions. Change nothing yourself.`;
         const first = card.evidence[0]?.sessionId;
         const project = card.kind === "cost_habit" ? Number(card.payload.project) : first === undefined ? null : conv.projects.projectOf(first) ?? null;
         const sidW = await this.o.startSession(project, `Wife: ${card.title}`.slice(0, 100), text, `wife-${id}`);

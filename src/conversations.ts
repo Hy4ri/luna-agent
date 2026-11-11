@@ -67,6 +67,8 @@ export class ConversationStore {
       try { cb(ids); } catch {}
     }
   }
+  /** Whether a conversation with this id is stored. */
+  exists(id: number): boolean { return Number.isSafeInteger(id) && !!this.db.prepare("SELECT 1 FROM conversations WHERE id=?").get(id); }
   get(id: number): ConversationMeta {
     const row = this.db.prepare("SELECT title, archived, pinned FROM luna_conversations WHERE id=?").get(id) as { title: string | null; archived: number; pinned: number } | undefined;
     return { title: row?.title ?? null, archived: !!row?.archived, pinned: !!row?.pinned };
