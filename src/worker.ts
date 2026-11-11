@@ -20,6 +20,10 @@ export interface WorkerOptions {
   onUnauthorized?: () => void;
   /** Close the link after this long without a message or server ping. Default 45 s. */
   livenessMs?: number;
+  /** Close a link that has not opened and been welcomed within this time. Default 15 s. */
+  handshakeMs?: number;
+  /** First reconnect delay; it doubles up to 30 s and resets only after a link stays up for 30 s. Default 1 s. */
+  retryMs?: number;
 }
 
 // Matches the image adapter's response byte ceiling. Buffer is also a Uint8Array.
@@ -76,7 +80,8 @@ export function startWorker(o: WorkerOptions) {
     generatedFiles: generatedRootPath !== undefined,
     uploadFiles: uploadStore !== undefined, pty: true, ptyCommand: true };
   const target = o.url.replace(/\/$/, "").replace(/^http/, "ws") + CONNECT_PATH;
-  let socket: WebSocket | undefined, stopped = false, delay = 1000, retry: ReturnType<typeof setTimeout> | undefined;
+  const baseDelay = o.retryMs ?? 1000;
+  let socket: WebSocket | undefined, stopped = false, delay = baseDelay, retry: ReturnType<typeof setTimeout> | undefined;
   let connected: (() => void) | undefined;
   /** Stops every command and reader of the current link. Runs on disconnect and on worker shutdown. */
   let release: () => Promise<void> = async () => {};
@@ -91,7 +96,9 @@ export function startWorker(o: WorkerOptions) {
     const ptys = new Map<number, PtyProcess>();
     const calls = new Map<number, AbortController>();
     const handles = new Map<number, Record<string, (...args: unknown[]) => Promise<unknown>>>();
-    let nextHandle = 1, liveness: ReturnType<typeof setTimeout> | undefined;
+    let nextHandle = 1, liveness: ReturnType<typeof setTimeout> | undefined, welcomedAt: number | undefined;
+    // A hung connect or a main that never welcomes would otherwise wait for liveness, or forever before open.
+    const handshake = setTimeout(() => ws.close(), o.handshakeMs ?? 15_000);
     const alive = () => { clearTimeout(liveness); liveness = setTimeout(() => ws.close(), o.livenessMs ?? 45_000); };
     let released: Promise<void> | undefined;
     release = () => released ??= (async () => {
@@ -107,7 +114,7 @@ export function startWorker(o: WorkerOptions) {
     const envFor = (dir: string) => { let e = envs.get(dir); if (!e) envs.set(dir, e = new NodeExecutionEnv({ cwd: dir })); return e; };
 
     ws.addEventListener("open", () => {
-      delay = 1000; alive();
+      alive();
       send({ t: "hello", protocol: PROTOCOL_VERSION, capabilities });
     });
     // Server pings count as liveness; an idle link has no other traffic.
@@ -118,7 +125,7 @@ export function startWorker(o: WorkerOptions) {
       let m: MainMessage;
       try { m = JSON.parse(typeof raw === "string" ? raw : Buffer.from(raw as ArrayBuffer).toString("utf8")) as MainMessage; } catch { return; }
       if (!m || typeof m !== "object") return;
-      if (m.t === "welcome") { log(`worker: connected to ${o.url} as "${m.name}" (id ${m.workerId})`); connected?.(); return; }
+      if (m.t === "welcome") { clearTimeout(handshake); welcomedAt = performance.now(); log(`worker: connected to ${o.url} as "${m.name}" (id ${m.workerId})`); connected?.(); return; }
       if (m.t === "abort") { calls.get(m.id)?.abort(); return; }
       if (m.t === "pty.open") {
         try {
@@ -224,12 +231,16 @@ export function startWorker(o: WorkerOptions) {
       if (/status code:\s*(401|403)/.test(msg)) { stopped = true; (o.onUnauthorized ?? (() => {}))(); }
     });
     ws.addEventListener("close", () => {
-      clearTimeout(liveness);
+      clearTimeout(liveness); clearTimeout(handshake);
       // No replay: every command started for this link stops with it.
       void release();
       if (stopped) return;
-      log(`worker: disconnected; retrying in ${delay / 1000}s`);
-      retry = setTimeout(connect, delay);
+      // An accepted socket is not a healthy link. Reset the backoff only after a welcomed link stayed up.
+      if (welcomedAt !== undefined && performance.now() - welcomedAt >= 30_000) delay = baseDelay;
+      // Jitter spreads many workers reconnecting to a restarted main.
+      const wait = Math.round(delay * (0.5 + Math.random() / 2));
+      log(`worker: disconnected; retrying in ${(wait / 1000).toFixed(1)}s`);
+      retry = setTimeout(connect, wait);
       delay = Math.min(delay * 2, 30_000);
     });
   }

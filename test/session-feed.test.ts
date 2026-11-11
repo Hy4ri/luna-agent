@@ -70,3 +70,25 @@ test("stopping a viewer does not end the conversation", async () => {
     assert.equal(answer.status, "done");
   } finally { await harness.close(context); }
 });
+
+test("a stalled viewer cannot grow the event queue without bound; the feed ends and the session keeps its entries", async () => {
+  const { harness, conv } = await open();
+  const feed = await openSessionFeed(harness, conv, { maxQueuedBatches: 8 }, context);
+  let release!: () => void;
+  const stalled = new Promise<void>(resolve => { release = resolve; });
+  try {
+    let calls = 0;
+    feed.start(async () => { calls++; await stalled; });
+    for (let i = 1; i <= 40; i++) {
+      await harness.commit(tx => tx.appendEntry(conv.id, { kind: "pi.user", model: [{ role: "user", content: `m${i}`, timestamp: i }] }), context);
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    const end = await Promise.race([feed.closed, new Promise<null>(resolve => setTimeout(() => resolve(null), 2000))]);
+    assert.ok(end, "an overflowing viewer feed must end so the client reconnects from its cursor");
+    assert.equal(end!.kind, "listener_error");
+    assert.ok(calls <= 1);
+    // Durable state is untouched: a new viewer from the start sees all 40 entries.
+    const page = await conv.entries({ order: "ascending" }, 100, undefined, context);
+    assert.equal(page.items.filter(e => e.kind === "pi.user").length, 40);
+  } finally { release(); await feed.stop(); await harness.close(context); }
+});

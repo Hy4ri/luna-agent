@@ -209,4 +209,6 @@ export type SessionFeedOptions = {
   readonly minWindow?: number;
   readonly maxWindow?: number;
   readonly from?: number;
+  /** Undelivered batches a slow viewer may hold before the feed ends (default 1024). The client reconnects with its cursor. */
+  readonly maxQueuedBatches?: number;
 };
