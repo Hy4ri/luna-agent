@@ -352,7 +352,7 @@ import { navigate, setDrawer } from "@/stores/app";
 import type { AnalyticsRow, AnalyticsTab, AnalyticsValue } from "../../../src/analytics/types";
 import AnalyticsTable, { type AnalyticsColumn } from "./analytics/AnalyticsTable.vue";
 import AnalyticsDrawer from "./analytics/AnalyticsDrawer.vue";
-import { durationFormat, full, pct, usd, when } from "./analytics/formatters";
+import { compact, durationFormat, pct, usd, when } from "./analytics/formatters";
 import {
   ANALYTICS_TABS,
   buildAnalyticsHash,
@@ -680,7 +680,7 @@ function formatSummaryVal(key: string, val: AnalyticsValue): string {
     if (k.includes("cost") || k.includes("usd")) return usd(val);
     if (k.endsWith("ms") || k.includes("duration") || k.includes("latency")) return durationFormat(val);
     if (k.includes("rate") || k.includes("pct") || k.includes("percent")) return pct(val);
-    return full(val);
+    return compact(val);
   }
   return String(val);
 }

@@ -54,7 +54,7 @@
                   col.key === columns[0]?.key ? 'font-medium text-foreground' : 'text-muted-foreground'
                 ]"
               >
-                {{ formatCell(row[col.key], col.format) }}
+                {{ formatCell(row[col.key], col.format, col.key) }}
                 <span v-if="col.key === columns[0]?.key && row.deletedAt != null" class="ml-2 inline-block border border-border px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">Deleted</span>
               </td>
             </tr>
@@ -84,7 +84,7 @@
                 col.key === columns[0]?.key ? 'font-medium text-foreground' : 'text-foreground/90'
               ]"
             >
-              {{ formatCell(row[col.key], col.format) }}
+              {{ formatCell(row[col.key], col.format, col.key) }}
               <span v-if="col.key === columns[0]?.key && row.deletedAt != null" class="ml-2 inline-block border border-border px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">Deleted</span>
             </span>
           </div>
@@ -94,7 +94,7 @@
       <!-- Pagination -->
       <div class="flex items-center justify-between gap-3 px-3 py-2.5 border-t border-border/60 bg-secondary/20 text-xs text-muted-foreground">
         <span class="tabular-nums">
-          {{ total === 0 ? '0 results' : `${page * limit + 1}–${Math.min((page + 1) * limit, total)} of ${total}` }}
+          {{ total === 0 ? '0 results' : `${page * limit + 1}–${Math.min((page + 1) * limit, total)} of ${compact(total)}` }}
         </span>
         <div class="flex items-center gap-1.5">
           <button
@@ -127,7 +127,7 @@
 import { computed } from "vue";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from "@lucide/vue";
 import type { AnalyticsRow, AnalyticsValue } from "../../../../src/analytics/types";
-import { durationFormat, full, pct, usd, when } from "./formatters";
+import { compact, durationFormat, pct, usd, when } from "./formatters";
 
 export interface AnalyticsColumn {
   key: string;
@@ -180,7 +180,7 @@ function rowKey(row: AnalyticsRow, idx: number): string {
   return String(idx);
 }
 
-function formatCell(val: AnalyticsValue | undefined, format?: AnalyticsColumn["format"]): string {
+function formatCell(val: AnalyticsValue | undefined, format: AnalyticsColumn["format"], key: string): string {
   if (val === null || val === undefined || val === "") return "—";
   if (typeof val === "boolean") return val ? "Yes" : "No";
   if (typeof val === "number") {
@@ -188,7 +188,7 @@ function formatCell(val: AnalyticsValue | undefined, format?: AnalyticsColumn["f
     if (format === "ms") return durationFormat(val);
     if (format === "percent") return pct(val);
     if (format === "date") return when(new Date(val).toISOString());
-    return full(val);
+    return key === "id" || key.endsWith("Id") ? String(val) : compact(val);
   }
   if (format === "date") return when(val);
   return String(val);
