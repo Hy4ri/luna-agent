@@ -28,7 +28,16 @@ export function registerWife(app: Hono, ctx: RouteCtx): void {
     if (!wife) return off(c);
     const n = id(c.req.param("id")); if (!n) return err(c, 404, "no such suggestion");
     const b = await body(c);
-    try { return c.json(await wife.agree(n, { confirm: b.confirm === true })); }
+    try { return c.json(await wife.agree(n, { confirm: b.confirm === true, targets: Array.isArray(b.targets) && b.targets.every(Number.isSafeInteger) ? b.targets as number[] : undefined })); }
+    catch (e) {
+      if (e instanceof WifeError || e instanceof ConversationError) return err(c, e.status, e.message);
+      return err(c, 500, (e as Error).message);
+    }
+  });
+  app.post("/v1/wife/:id/undo", async c => {
+    if (!wife) return off(c);
+    const n = id(c.req.param("id")); if (!n) return err(c, 404, "no such suggestion");
+    try { return c.json(await wife.undo(n)); }
     catch (e) {
       if (e instanceof WifeError || e instanceof ConversationError) return err(c, e.status, e.message);
       return err(c, 500, (e as Error).message);

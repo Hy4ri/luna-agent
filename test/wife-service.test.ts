@@ -103,3 +103,54 @@ test("a feature tip needs heavy use of one tool and none of the other, and agree
     assert.ok(enabled.has("codemode"));
   } finally { await f.close(); }
 });
+
+test("five stale sessions make one batch card; agree acts on the checked ones and undo restores them", async () => {
+  const f = await fixture();
+  try {
+    const old = Date.now() - 20 * 86_400_000;
+    const ids: number[] = [];
+    for (let i = 0; i < 5; i++) ids.push(await f.session());
+    f.set(ids.map(id => f.rec(id, { lastActivity: old, cwd: null })));
+    f.wife.scan();
+    const open = f.store.list("open");
+    assert.equal(open.length, 1);
+    assert.deepEqual((open[0]!.payload.sessionIds as number[]), ids);
+    await f.conversations.update(ids[4]!, { pinned: true });
+    const done = await f.wife.agree(open[0]!.id, { targets: ids.slice(0, 4) });
+    assert.equal(done.result, "Archived 4.");
+    for (const id of ids.slice(0, 4)) assert.equal(f.conversations.get(id).archived, true);
+    assert.equal(f.conversations.get(ids[4]!).archived, false);
+    assert.ok(f.store.get(done.id)!.undoUntil! > Date.now());
+    const back = await f.wife.undo(done.id);
+    assert.equal(back.status, "open");
+    for (const id of ids) assert.equal(f.conversations.get(id).archived, false);
+    await assert.rejects(f.wife.undo(done.id), /cannot be undone/);
+  } finally { await f.close(); }
+});
+
+test("undoing a new project moves its sessions back and removes it", async () => {
+  const f = await fixture();
+  try {
+    const ids = [await f.session(), await f.session(), await f.session()];
+    f.set(ids.map(id => f.rec(id)));
+    f.wife.scan();
+    const done = await f.wife.agree(f.store.list("open")[0]!.id);
+    assert.ok(f.conversations.projects.list().some(p => p.name === "app"));
+    await f.wife.undo(done.id);
+    assert.ok(!f.conversations.projects.list().some(p => p.name === "app"));
+    for (const id of ids) assert.equal(f.conversations.projects.links().get(id) ?? 0, 0);
+  } finally { await f.close(); }
+});
+
+test("a delete card has no undo", async () => {
+  const f = await fixture();
+  try {
+    const id = await f.session();
+    await f.conversations.update(id, { archived: true });
+    f.set([f.rec(id, { archived: true, lastActivity: Date.now() - 90 * 86_400_000 })]);
+    f.wife.scan();
+    const done = await f.wife.agree(f.store.list("open")[0]!.id, { confirm: true });
+    assert.equal(done.undoUntil, null);
+    await assert.rejects(f.wife.undo(done.id), /cannot be undone/);
+  } finally { await f.close(); }
+});

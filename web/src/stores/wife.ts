@@ -7,6 +7,7 @@ export type WifeStatus = "open" | "snoozed" | "dismissed" | "working" | "done" |
 export interface Suggestion {
   id: number; kind: WifeKind; ruleId: string; title: string; body: string; evidence: { sessionId: number; note: string }[];
   status: WifeStatus; snoozeUntil: number | null; sessionId: number | null; result: string | null; created: number; updated: number;
+  payload: Record<string, unknown>; undoUntil: number | null;
 }
 
 export const wifeOpen = ref(0);
@@ -46,7 +47,7 @@ export async function scanWife() {
 }
 
 /** Run one decision on a card. Returns an error message, or "" on success. The list reloads either way. */
-export async function decide(id: number, action: "agree" | "dismiss" | "snooze", body: object = {}): Promise<string> {
+export async function decide(id: number, action: "agree" | "dismiss" | "snooze" | "undo", body: object = {}): Promise<string> {
   wife.busy.add(id);
   try {
     const r = await api(`/v1/wife/${id}/${action}`, { method: "POST", body: JSON.stringify(body) });

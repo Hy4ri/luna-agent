@@ -81,3 +81,31 @@ export function newProjects(sessions: AnalyticsSessionRecord[], projects: Projec
   }
   return out;
 }
+
+/**
+ * More than `max` cards of one rule (and one target project) in a scan become one batch card.
+ * Its payload lists the targets, and agree acts on the checked ones. The fingerprint holds the target set, so a changed set is a new card.
+ */
+export function batchCards(cards: NewSuggestion[], max = 3): NewSuggestion[] {
+  const groups = new Map<string, NewSuggestion[]>();
+  const rest: NewSuggestion[] = [];
+  for (const c of cards) {
+    if ((c.kind !== "archive_session" && c.kind !== "move_session") || (c.ruleId ?? c.kind) !== c.kind || c.payload.sessionId === undefined) { rest.push(c); continue; }
+    const key = `${c.kind}:${c.payload.projectId ?? ""}`;
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  for (const list of groups.values()) {
+    if (list.length <= max) { rest.push(...list); continue; }
+    const first = list[0]!;
+    const ids = list.map(c => Number(c.payload.sessionId)).sort((a, b) => a - b);
+    const items = list.map(c => ({ id: Number(c.payload.sessionId), title: c.title.replace(/^(Archive|Move) "(.*?)"( to .*)?$/, "$2") }));
+    const hash = new Bun.CryptoHasher("sha1").update(ids.join(",")).digest("hex").slice(0, 12);
+    const target = first.kind === "move_session" ? ` to ${first.title.replace(/^.* to /, "")}` : "";
+    rest.push({ kind: first.kind, fingerprint: `${first.kind}:batch:${first.payload.projectId ?? ""}:${hash}`, source: "detector",
+      title: `${first.kind === "archive_session" ? "Archive" : "Move"} ${list.length} sessions${target}`,
+      body: first.kind === "archive_session" ? `${list.length} sessions had no activity for a while and are not pinned. Uncheck any you want to keep.`
+        : `${list.length} sessions sit outside the project that holds their directory. Uncheck any you want to leave.`,
+      evidence: list.flatMap(c => c.evidence).slice(0, 8), payload: { sessionIds: ids, items, ...(first.payload.projectId !== undefined ? { projectId: first.payload.projectId } : {}) } });
+  }
+  return rest;
+}

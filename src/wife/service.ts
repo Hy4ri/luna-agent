@@ -1,9 +1,9 @@
 // Runs the detectors, files their cards, and carries out an agreed card.
 import type { AnalyticsStore } from "../analytics/store.js";
-import type { ConversationStore } from "../conversations.js";
-import { misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
+import { ConversationError, type ConversationStore } from "../conversations.js";
+import { batchCards, misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
 import { matchTips, type ToolCounts, type WifeTip } from "./tips.js";
-import type { Suggestion, WifeStore } from "./store.js";
+import type { Inverse, Suggestion, WifeStore } from "./store.js";
 
 const DETECTOR_RULES = ["archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
 export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
@@ -12,6 +12,7 @@ export interface WifeServiceOptions {
   store: WifeStore; analytics: () => AnalyticsStore; conversations: ConversationStore;
   config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[] };
   /** Settings mutation used by a tip that enables an extension. */
+  restoreMemory?: (key: string, content: string | null) => Promise<void> | void;
   extensions?: { enabled(name: string): boolean; enable(name: string): void }; now?: () => number; log?: (m: string) => void;
 }
 
@@ -26,7 +27,7 @@ export class WifeService {
     this.o.store.expireSnoozed(now);
     const sessions = this.o.analytics().sessions();
     const projects = this.o.conversations.projects.list();
-    const found = [...staleSessions(sessions, this.o.config(), now), ...misfiledSessions(sessions, projects), ...newProjects(sessions, projects, now)];
+    const found = [...batchCards([...staleSessions(sessions, this.o.config(), now), ...misfiledSessions(sessions, projects)]), ...newProjects(sessions, projects, now)];
     const store = this.o.analytics();
     const tips = this.o.config().tips ?? [];
     const toolCounts = (days: number): ToolCounts => {
@@ -57,18 +58,30 @@ export class WifeService {
   stop() { if (this.timer) clearInterval(this.timer); }
 
   /** Carry out an open card. The target is checked again first. A failure is recorded on the card and thrown. */
-  async agree(id: number, opts: { confirm?: boolean } = {}): Promise<Suggestion> {
+  async agree(id: number, opts: { confirm?: boolean; targets?: number[] } = {}): Promise<Suggestion> {
     const card = this.o.store.get(id);
     if (!card) throw new WifeError(404, "no such suggestion");
     if (card.status !== "open" && card.status !== "snoozed") throw new WifeError(409, `suggestion is ${card.status}`);
     try {
       let result: string;
       const sid = Number(card.payload.sessionId);  // not used by every kind
+      let inverse: Inverse | undefined;
+      const conv = this.o.conversations;
+      const ids = (): number[] => {
+        const all = Array.isArray(card.payload.sessionIds) ? (card.payload.sessionIds as number[]) : [sid];
+        const picked = opts.targets ? all.filter(i => opts.targets!.includes(i)) : all;
+        if (!picked.length) throw new WifeError(400, "no targets chosen");
+        return picked;
+      };
       if (card.kind === "archive_session") {
-        const meta = this.o.conversations.get(sid);
-        if (meta.pinned) throw new WifeError(409, "session is pinned now");
-        await this.o.conversations.update(sid, { archived: true });
-        result = "Archived.";
+        const done: number[] = []; let skipped = 0;
+        for (const i of ids()) {
+          try { const m = conv.get(i); if (m.pinned || m.archived) { skipped++; continue; } await conv.update(i, { archived: true }); done.push(i); }
+          catch (e) { if (e instanceof ConversationError) skipped++; else throw e; }
+        }
+        if (!done.length) throw new WifeError(409, "nothing to archive: the sessions are pinned, archived, or gone");
+        inverse = { type: "unarchive", ids: done };
+        result = `Archived ${done.length}${skipped ? `, skipped ${skipped}` : ""}.`;
       } else if (card.kind === "delete_session") {
         if (opts.confirm !== true) throw new WifeError(400, "deleting needs confirm:true");
         if (!this.o.conversations.get(sid).archived) throw new WifeError(409, "session is no longer archived");
@@ -77,9 +90,12 @@ export class WifeService {
         result = "Deleted.";
       } else if (card.kind === "move_session") {
         const projectId = Number(card.payload.projectId);
-        if (!this.o.conversations.projects.get(projectId)) throw new WifeError(409, "the project no longer exists");
-        await this.o.conversations.move(sid, projectId);
-        result = "Moved.";
+        if (!conv.projects.get(projectId)) throw new WifeError(409, "the project no longer exists");
+        const links = conv.projects.links(); const moves: { id: number; projectId: number }[] = [];
+        for (const i of ids()) { try { const was = links.get(i) ?? 0; await conv.move(i, projectId); moves.push({ id: i, projectId: was }); } catch (e) { if (!(e instanceof ConversationError)) throw e; } }
+        if (!moves.length) throw new WifeError(409, "no session could be moved");
+        inverse = { type: "move_back", moves };
+        result = `Moved ${moves.length}.`;
       } else if (card.kind === "new_project") {
         const p = card.payload as { name: string; cwd: string; worker: string; sessionIds: number[] };
         const projects = this.o.conversations.projects;
@@ -88,15 +104,17 @@ export class WifeService {
           try { project = p.worker === "main" || p.worker === "" ? projects.create(name, p.cwd) : projects.create(name, "", { worker: Number(p.worker), workerCwd: p.cwd }); }
           catch (e) { if (n > 20 || !/exist|taken|already/i.test((e as Error).message)) throw e; name = `${p.name}-${n}`; }
         }
-        let moved = 0;
-        for (const id of p.sessionIds) { try { await this.o.conversations.move(id, project.id); moved++; } catch { /* session gone */ } }
-        result = `Created project ${project.name} and moved ${moved} sessions.`;
+        const links = conv.projects.links(); const moves: { id: number; projectId: number }[] = [];
+        for (const id of p.sessionIds) { try { const was = links.get(id) ?? 0; await conv.move(id, project.id); moves.push({ id, projectId: was }); } catch { /* session gone */ } }
+        inverse = { type: "remove_project", projectId: project.id, moves };
+        result = `Created project ${project.name} and moved ${moves.length} sessions.`;
       } else if (card.kind === "feature_tip") {
         const ext = card.payload.enable as string | null;
         if (ext && this.o.extensions && !this.o.extensions.enabled(ext)) { this.o.extensions.enable(ext); result = `Enabled ${ext}. It loads on the next session.`; }
         else result = "Noted.";
       } else throw new WifeError(400, `${card.kind} cards cannot be agreed yet`);
       this.o.store.setStatus(id, "done", { result });
+      if (inverse) this.o.store.setUndo(id, inverse);
       this.o.store.record(card, "agree");
     } catch (e) {
       if (e instanceof WifeError) throw e;  // a refused precondition leaves the card open
@@ -104,6 +122,28 @@ export class WifeService {
       this.o.store.record(card, "failed", null, (e as Error).message);
       throw e;
     }
+    return this.o.store.get(id)!;
+  }
+
+  /** Reverse a done card inside its undo window. The card opens again, so it can be decided differently. */
+  async undo(id: number): Promise<Suggestion> {
+    const card = this.o.store.get(id);
+    if (!card) throw new WifeError(404, "no such suggestion");
+    const inv = this.o.store.getUndo(id);
+    if (card.status !== "done" || !inv) throw new WifeError(409, "this cannot be undone");
+    const conv = this.o.conversations;
+    if (inv.type === "unarchive") { for (const i of inv.ids) { try { await conv.update(i, { archived: false }); } catch (e) { if (!(e instanceof ConversationError)) throw e; } } }
+    else if (inv.type === "move_back") { for (const m of inv.moves) { try { await conv.move(m.id, m.projectId); } catch (e) { if (!(e instanceof ConversationError)) throw e; } } }
+    else if (inv.type === "remove_project") {
+      const links = conv.projects.links();
+      for (const m of inv.moves) if (links.get(m.id) === inv.projectId) { try { await conv.move(m.id, m.projectId); } catch (e) { if (!(e instanceof ConversationError)) throw e; } }
+      const left = [...conv.projects.links()].filter(([, pid]) => pid === inv.projectId).length;
+      if (left) throw new WifeError(409, `the project now holds ${left} other sessions, so it was kept`);
+      conv.projects.delete(inv.projectId);
+    } else if (inv.type === "restore_memory") await this.o.restoreMemory?.(inv.key, inv.content);
+    this.o.store.clearUndo(id);
+    this.o.store.setStatus(id, "open", { result: null });
+    this.o.store.record(card, "undo");
     return this.o.store.get(id)!;
   }
 }

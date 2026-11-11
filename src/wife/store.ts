@@ -19,14 +19,23 @@ export interface Suggestion {
   source: "detector" | "model"; status: WifeStatus;
   snoozeUntil: number | null; sessionId: number | null; result: string | null;
   created: number; updated: number;
+  /** Until when the action can be undone. Null when it cannot. */
+  undoUntil: number | null;
 }
 export type NewSuggestion = Pick<Suggestion, "kind" | "fingerprint" | "title" | "body" | "evidence" | "payload" | "source"> & { ruleId?: string };
+export const UNDO_DAYS = 7;
+/** How to reverse a direct action. Deleting a session has none. */
+export type Inverse =
+  | { type: "unarchive"; ids: number[] }
+  | { type: "move_back"; moves: { id: number; projectId: number }[] }
+  | { type: "remove_project"; projectId: number; moves: { id: number; projectId: number }[] }
+  | { type: "restore_memory"; key: string; content: string | null };
 export interface Outcome { id: number; suggestionId: number; kind: WifeKind; ruleId: string; source: string; action: OutcomeAction; reason: string | null; note: string | null; ts: number }
 
 interface Row { id: number; kind: WifeKind; rule_id: string; fingerprint: string; title: string; body: string; evidence: string; payload: string; source: "detector" | "model";
   status: WifeStatus; snooze_until: number | null; session_id: number | null; result: string | null; created: number; updated: number }
-const view = (r: Row): Suggestion => ({ id: r.id, kind: r.kind, ruleId: r.rule_id, fingerprint: r.fingerprint, title: r.title, body: r.body, evidence: JSON.parse(r.evidence),
-  payload: JSON.parse(r.payload), source: r.source, status: r.status, snoozeUntil: r.snooze_until, sessionId: r.session_id, result: r.result, created: r.created, updated: r.updated });
+const view = (r: Row & { undo_until?: number | null }): Suggestion => ({ id: r.id, kind: r.kind, ruleId: r.rule_id, fingerprint: r.fingerprint, title: r.title, body: r.body, evidence: JSON.parse(r.evidence),
+  payload: JSON.parse(r.payload), source: r.source, status: r.status, snoozeUntil: r.snooze_until, sessionId: r.session_id, result: r.result, created: r.created, updated: r.updated, undoUntil: r.undo_until ?? null });
 
 export class WifeStore {
   readonly db: Database;
@@ -49,18 +58,19 @@ export class WifeStore {
         action TEXT NOT NULL CHECK (action IN ('agree','dismiss','snooze','undo','failed')), reason TEXT, note TEXT, ts INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS outcomes_rule ON outcomes(rule_id, ts);
+      CREATE TABLE IF NOT EXISTS undo (suggestion_id INTEGER PRIMARY KEY, inverse TEXT NOT NULL, expires INTEGER NOT NULL);
     `);
   }
   close() { this.db.close(); }
 
   get(id: number): Suggestion | undefined {
-    const r = this.db.prepare("SELECT * FROM suggestions WHERE id=?").get(id) as Row | null;
+    const r = this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.id=?").get(id) as Row | null;
     return r ? view(r) : undefined;
   }
   has(fingerprint: string): boolean { return !!this.db.prepare("SELECT 1 FROM suggestions WHERE fingerprint=?").get(fingerprint); }
   list(status?: WifeStatus): Suggestion[] {
-    const rows = (status ? this.db.prepare("SELECT * FROM suggestions WHERE status=? ORDER BY created DESC, id DESC").all(status)
-      : this.db.prepare("SELECT * FROM suggestions ORDER BY created DESC, id DESC").all()) as Row[];
+    const rows = (status ? this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.status=? ORDER BY s.created DESC, s.id DESC").all(status)
+      : this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s ORDER BY s.created DESC, s.id DESC").all()) as Row[];
     return rows.map(view);
   }
   count(status: WifeStatus = "open"): number {
@@ -77,7 +87,7 @@ export class WifeStore {
       this.db.prepare("UPDATE suggestions SET title=?, body=?, evidence=?, payload=?, updated=? WHERE fingerprint=?")
         .run(s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), t, s.fingerprint);
     } else return undefined;
-    const r = this.db.prepare("SELECT * FROM suggestions WHERE fingerprint=?").get(s.fingerprint) as Row;
+    const r = this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.fingerprint=?").get(s.fingerprint) as Row;
     return view(r);
   }
   /** Move a card to a status. `patch` sets result, sessionId, or snoozeUntil. */
@@ -97,6 +107,15 @@ export class WifeStore {
     return n;
   }
 
+  setUndo(id: number, inverse: Inverse) {
+    this.db.prepare("INSERT OR REPLACE INTO undo(suggestion_id,inverse,expires) VALUES (?,?,?)").run(id, JSON.stringify(inverse), this.now() + UNDO_DAYS * 86_400_000);
+  }
+  /** The inverse of a done card, while it is still inside the undo window. */
+  getUndo(id: number): Inverse | undefined {
+    const r = this.db.prepare("SELECT inverse FROM undo WHERE suggestion_id=? AND expires>?").get(id, this.now()) as { inverse: string } | null;
+    return r ? JSON.parse(r.inverse) : undefined;
+  }
+  clearUndo(id: number) { this.db.prepare("DELETE FROM undo WHERE suggestion_id=?").run(id); }
   /** Write one decision to the outcome log. The agree rate and tuning cards read it. */
   record(card: Suggestion, action: OutcomeAction, reason?: string | null, note?: string | null) {
     this.db.prepare("INSERT INTO outcomes(suggestion_id,kind,rule_id,source,action,reason,note,ts) VALUES (?,?,?,?,?,?,?,?)")
