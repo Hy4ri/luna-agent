@@ -917,7 +917,7 @@ export function scanAnalyticsSession(
   const completedGoals = goalDoc?.goal?.status === "complete" ? 1 : 0;
 
   const todoDoc = readCurrentDoc(db, "luna.todo", "conversation", id) as { tasks?: Array<{ status?: string }> } | undefined;
-  const todoTasks = Array.isArray(todoDoc?.tasks) ? todoDoc.tasks : [];
+  const todoTasks = (Array.isArray(todoDoc?.tasks) ? todoDoc.tasks : []).filter((t) => t && t.status !== "deleted");
   const todos = todoTasks.length;
   const completedTodos = todoTasks.filter((t) => t.status === "completed").length;
 
