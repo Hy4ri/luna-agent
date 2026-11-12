@@ -92,20 +92,18 @@ async function inspectClaudeLoginStatus(signal?: AbortSignal): Promise<Inspectio
     throw error;
   }
   const { executable, env } = control;
-  let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
+  let child: Bun.Subprocess<"ignore", "pipe", "ignore">;
   try {
     child = Bun.spawn([executable, "auth", "status"], {
       env,
       detached: true,
       stdin: "ignore",
       stdout: "pipe",
-      stderr: "pipe",
+      stderr: "ignore",
     });
   } catch {
     return { status: { loggedIn: false }, cacheable: false };
   }
-  // Do not expose stderr, which can contain account or environment details.
-  void child.stderr.cancel().catch(() => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
   try {

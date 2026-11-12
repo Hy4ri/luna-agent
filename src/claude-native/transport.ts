@@ -360,8 +360,13 @@ class ProcessController {
     const send = (line: string) => new Promise<void>((resolve, reject) => {
       // A child that stops reading stdin would block past the timeout: kill it then.
       const timer = setTimeout(() => { this.cancel(); reject(new Error("Claude request timed out")); }, this.timeoutMs);
-      Promise.resolve(spawned.stdin.write(line))
-        .then(() => { clearTimeout(timer); resolve(); }, () => { clearTimeout(timer); resolve(); });
+      try {
+        Promise.resolve(spawned.stdin.write(line))
+          .then(() => { clearTimeout(timer); resolve(); }, () => { clearTimeout(timer); resolve(); });
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
     });
 
     // Historical user frames replay without querying; only the newest user/tool-result frame queries.

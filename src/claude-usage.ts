@@ -24,9 +24,7 @@ export async function readClaudeUsage(signal?: AbortSignal): Promise<ClaudeUsage
   if (signal?.aborted) throw new Error("Claude usage request cancelled.");
   const child = Bun.spawn([executable, "--safe-mode", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
     "--tools", "", "--no-session-persistence", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"],
-  { env, detached: true, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  // Drain stderr without exposing CLI diagnostics or account information.
-  void child.stderr.cancel().catch(() => {});
+  { env, detached: true, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel: (() => void) | undefined;
   try {
