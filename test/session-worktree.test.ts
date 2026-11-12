@@ -1,7 +1,6 @@
 // Auto-worktree end to end: the first write in a project with autoWorktree is refused, session_worktree allocates a branch
 // and switches the session, stale main-checkout paths map into the worktree, and finish removes it once the branch merged.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +13,11 @@ import { startRuntime } from "../src/runtime.js";
 import { createApp } from "../src/server.js";
 import { sessionBranchName } from "../src/session-worktree.js";
 
-const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+const git = (cwd: string, ...args: string[]) => {
+  const res = Bun.spawnSync(["git", ...args], { cwd });
+  if (!res.success) throw new Error(res.stderr.toString() || `git ${args[0]} failed`);
+  return res.stdout.toString().trim();
+};
 
 test("sessionBranchName slugs the title and falls back to the id", () => {
   assert.equal(sessionBranchName(7, "Fix: the Sidebar!! spinner"), "luna/s7-fix-the-sidebar-spinner");
@@ -27,7 +30,8 @@ test("auto-worktree: refuse first write, allocate, map stale paths, finish after
   const base = realpathSync(mkdtempSync(join(tmpdir(), "luna-auto-worktree-")));
   const origin = join(base, "origin.git"), repo = join(base, "repo");
   try {
-    execFileSync("git", ["init", "--bare", "-b", "main", origin]);
+    const initOrigin = Bun.spawnSync(["git", "init", "--bare", "-b", "main", origin]);
+    if (!initOrigin.success) throw new Error(initOrigin.stderr.toString() || "git init origin failed");
     mkdirSync(repo);
     git(repo, "init", "-b", "main");
     git(repo, "config", "user.email", "t@test.local"); git(repo, "config", "user.name", "T");

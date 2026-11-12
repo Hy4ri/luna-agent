@@ -1,6 +1,5 @@
 // The Playwright provider against a real Chromium: richer actions do what they say. Skips without a browser.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -90,7 +89,7 @@ it("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history, 
 
 it("chromium provider attached by cdpUrl: shares the browser's logins, closes only its own tabs, leaves the browser running", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-cdp-"));
-  const proc = spawn(executablePath, ["--headless=new", "--no-sandbox", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  const proc = Bun.spawn([executablePath, "--headless=new", "--no-sandbox", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "about:blank"], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const seen: string[] = [];
   const server = createServer((req, res) => { if (req.url === "/") seen.push(req.headers.cookie ?? ""); res.setHeader("content-type", "text/html"); res.end("<title>in</title>signed in"); });
   await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
@@ -100,8 +99,24 @@ it("chromium provider attached by cdpUrl: shares the browser's logins, closes on
   try {
     const ws = await new Promise<string>((resolve, reject) => {
       let err = "";
-      proc.stderr!.on("data", (d: Buffer) => { err += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(err); if (m) resolve(m[1]!); });
-      proc.on("exit", () => reject(new Error(`chromium exited: ${err.slice(-500)}`)));
+      void (async () => {
+        const reader = proc.stderr.getReader();
+        const decoder = new TextDecoder();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            err += decoder.decode(value, { stream: true });
+            const m = /DevTools listening on (ws:\/\/\S+)/.exec(err);
+            if (m) { resolve(m[1]!); return; }
+          }
+        } catch {
+          // ignore
+        } finally {
+          reader.releaseLock();
+        }
+      })();
+      void proc.exited.then(() => reject(new Error(`chromium exited: ${err.slice(-500)}`)));
     });
     const cdpUrl = `http://${new URL(ws).host}`;
     // m57's own session: a login cookie and a tab of his.
@@ -124,7 +139,7 @@ it("chromium provider attached by cdpUrl: shares the browser's logins, closes on
   } finally {
     await owner?.close().catch(() => {});
     server.close();
-    if (proc.exitCode === null) { const gone = new Promise(r => proc.once("exit", r)); proc.kill(); await gone; }
+    if (proc.exitCode === null) { proc.kill(); await proc.exited; }
     rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
   }
 }, 60_000);

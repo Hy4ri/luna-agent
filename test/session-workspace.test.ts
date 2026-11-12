@@ -1,7 +1,6 @@
 // Luna runtime integration test: session_worktree switch switches session cwd, updates Git HTTP status,
 // delivers agent_changed via session feed, isolates from other sessions, and persists across reopen.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,13 +15,18 @@ import { createApp } from "../src/server.js";
 import { openSessionFeed } from "../src/session-feed.js";
 import type { AgentEvent } from "../src/session-feed-types.js";
 
+function git(cwd: string, ...args: string[]): void {
+  const res = Bun.spawnSync(["git", ...args], { cwd });
+  if (!res.success) throw new Error(res.stderr.toString() || `git ${args[0]} failed`);
+}
+
 function initGitRepo(dir: string, branch = "main") {
-  execFileSync("git", ["init", "-b", branch], { cwd: dir });
-  execFileSync("git", ["config", "user.email", "luna@test.local"], { cwd: dir });
-  execFileSync("git", ["config", "user.name", "Luna Test"], { cwd: dir });
+  git(dir, "init", "-b", branch);
+  git(dir, "config", "user.email", "luna@test.local");
+  git(dir, "config", "user.name", "Luna Test");
   writeFileSync(join(dir, "root.txt"), "root-content\n");
-  execFileSync("git", ["add", "root.txt"], { cwd: dir });
-  execFileSync("git", ["commit", "-m", "initial commit"], { cwd: dir });
+  git(dir, "add", "root.txt");
+  git(dir, "commit", "-m", "initial commit");
 }
 
 test("session_worktree switch activates cwd, updates relative read/write, reflects in Git HTTP, emits agent_changed, isolates sessions, persists across reopen, and rejects invalid paths", async () => {
@@ -32,7 +36,7 @@ test("session_worktree switch activates cwd, updates relative read/write, reflec
   initGitRepo(mainRepo, "main");
 
   const wtDir = join(baseDir, "feat-wt");
-  execFileSync("git", ["worktree", "add", "-b", "feature/branch", wtDir], { cwd: mainRepo });
+  git(mainRepo, "worktree", "add", "-b", "feature/branch", wtDir);
   writeFileSync(join(wtDir, "worktree.txt"), "wt-initial\n");
 
   const faux = fauxProvider();
