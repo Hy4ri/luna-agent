@@ -2,7 +2,7 @@
 import { computed, markRaw, reactive } from "vue";
 import { json, post, serverUrl, token } from "@/lib/api";
 import type { ModelInfo } from "@/lib/types";
-import { FALLBACK_LEVEL, LEVELS, clampTo, levelsOf, startLevel, type ModelRef } from "@/lib/thinking-levels";
+import { FALLBACK_LEVEL, LEVELS, clampTo, levelsOf, modelDisplayName, startLevel, type ModelRef } from "@/lib/thinking-levels";
 import { addErr, chat } from "./chat";
 
 export { FALLBACK_LEVEL, LEVELS, type ModelRef };
@@ -41,7 +41,8 @@ export const modelIndex = computed(() => {
 });
 export const modelByKey = (key: string) => modelIndex.value.get(key);
 export const selectedKey = computed(() => (models.selected ? models.selected.provider + "/" + models.selected.modelId : ""));
-export const modelLabel = computed(() => {
+export const modelLabel = computed(() => modelDisplayName(modelInfo(models.selected), models.selected));
+export const modelTitle = computed(() => {
   const key = selectedKey.value;
   const m = modelByKey(key);
   return m ? m.provider + " · " + (m.name || m.id) : key || "Choose model";

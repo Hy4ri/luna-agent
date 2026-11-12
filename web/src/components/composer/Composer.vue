@@ -5,7 +5,7 @@ import { json, post } from "@/lib/api";
 import { composer, removeAttachment, saveDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history } from "@/stores/sessions";
-import { modelLabel } from "@/stores/models";
+import { modelLabel, modelTitle } from "@/stores/models";
 import { captureBackgroundSend } from "@/stores/background-send";
 import BackgroundSendStatus from "./BackgroundSendStatus.vue";
 import SchedulePicker from "./SchedulePicker.vue";
@@ -390,7 +390,7 @@ async function handleSubmit(e?: Event) {
             popovertarget="model-picker"
             :aria-expanded="pickerOpen ? 'true' : 'false'"
             :aria-label="`Model: ${modelLabel}`"
-            :title="modelLabel"
+            :title="modelTitle"
           >
             <span class="model-label-text">{{ modelLabel }}</span>
             <ChevronDown :size="14" aria-hidden="true" class="model-chevron" />
