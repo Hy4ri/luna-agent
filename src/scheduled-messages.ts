@@ -242,11 +242,30 @@ export class ScheduledMessagesService {
     return { schedule: cloneRecord(record), created: true };
   }
 
+  async update(tx: Tx, conversationId: number, id: string, input: { content: string; dueAt: number }): Promise<ScheduledMessageRecord> {
+    const doc = await tx.doc(ScheduledMessagesDoc);
+    const rec = doc.schedules[id] ?? (await tx.doc(ScheduledMessagesHistoryDoc, String(conversationId), null)).schedules[id];
+    if (!rec || rec.conversationId !== conversationId) throw new ScheduledMessageError("No such scheduled message.", 404);
+    if (rec.source.kind !== "user") throw new ScheduledMessageError("Automatic recovery cannot be edited.", 409);
+    const content = input.content.trim();
+    if (!content || content.startsWith("/")) throw new ScheduledMessageError("Message must be nonempty text, not a slash command.");
+    if (!Number.isSafeInteger(input.dueAt) || input.dueAt <= 0 || input.dueAt > 8.64e15) throw new ScheduledMessageError("Invalid dueAt timestamp.");
+    // An identical replay is read-only, even if delivery happened after a lost response.
+    if (rec.content === content && rec.dueAt === input.dueAt) return cloneRecord(rec);
+    if (rec.status !== "scheduled") throw new ScheduledMessageError("Message has already been queued or settled; it can no longer be edited.", 409);
+    if (this.o.skip?.(conversationId)) throw new ScheduledMessageError("Conversation is unavailable for scheduling.", 409);
+    if (input.dueAt <= this.now()) throw new ScheduledMessageError("Scheduled time must be in the future.");
+    rec.content = content;
+    rec.dueAt = input.dueAt;
+    delete rec.nextDeliveryAt; delete rec.lastError; delete rec.deliveryAttempts;
+    return cloneRecord(rec);
+  }
+
   async summary(tx: Tx, conversationId: number): Promise<{ count: number; version: string }> {
     const pending = Object.values((await tx.doc(ScheduledMessagesDoc)).schedules)
       .filter(s => s.conversationId === conversationId && (s.status === "scheduled" || s.status === "queued")).sort(compareDue);
     return { count: pending.length, version: pending.length ? new Bun.CryptoHasher("sha256")
-      .update(JSON.stringify(pending.map(s => [s.id, s.status, s.dueAt, s.nextDeliveryAt, s.lastError]))).digest("hex") : "" };
+      .update(JSON.stringify(pending.map(s => [s.id, s.status, s.content, s.dueAt, s.nextDeliveryAt, s.lastError]))).digest("hex") : "" };
   }
 
   async list(tx: Tx, conversationId: number): Promise<ScheduledMessageRecord[]> {

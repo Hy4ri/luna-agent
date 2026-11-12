@@ -8,7 +8,7 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@ear
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { openLuna } from "../src/luna.js";
 import { createApp } from "../src/server.js";
-import { ScheduledMessagesService } from "../src/scheduled-messages.js";
+import { ScheduledMessagesDoc, ScheduledMessagesService } from "../src/scheduled-messages.js";
 import { LimitRecoveryService } from "../src/limit-recovery.js";
 
 async function until<T>(read: () => Promise<T | undefined>, what: string): Promise<T> {
@@ -93,6 +93,47 @@ test("POST /v1/sessions/:id/scheduled-messages validates, deduplicates by reques
     await scheduledMessages.close();
     await harness.close(context);
   }
+});
+
+test("scheduled message edits are atomic, session-owned, and frozen after admission", async () => {
+  const faux = fauxProvider(), models = createModels();
+  models.setProvider(faux.provider);
+  const harness = await openLuna({ dbPath: ":memory:", models, memory: false, coding: false });
+  const model = faux.getModel(), now = 1_700_000_000_000;
+  const scheduledMessages = new ScheduledMessagesService({ harness, log: () => {}, now: () => now });
+  const app = createApp({ harness, models, scheduledMessages });
+  try {
+    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider: model.provider, modelId: model.id } } }, context);
+    const other = await harness.createConversation({ ownership: { kind: "ownerless" } }, context);
+    const original = { content: "original", dueAt: now + 60_000, requestId: "edit-create" };
+    const created = await app.request(`/v1/sessions/${conv.id}/scheduled-messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(original) });
+    const { schedule } = await created.json() as { schedule: { id: string } };
+    const patch = (body: unknown, sid = conv.id) => app.request(`/v1/sessions/${sid}/scheduled-messages/${schedule.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const updated = { content: "edited", dueAt: now + 120_000 };
+    assert.equal((await patch(updated, other.id)).status, 404);
+    assert.equal((await patch({ ...updated, dueAt: now - 1 })).status, 400);
+    assert.equal((await patch({ ...updated, content: "/stop" })).status, 400);
+    assert.equal((await patch({ ...updated, attachments: [] })).status, 400);
+    assert.equal((await patch(updated)).status, 200);
+    assert.equal((await patch(updated)).status, 200);
+    const listed = await app.request(`/v1/sessions/${conv.id}/scheduled-messages`);
+    const { schedules } = await listed.json() as { schedules: { id: string; content: string; dueAt: number }[] };
+    assert.equal(schedules.length, 1);
+    assert.equal(schedules[0]!.id, schedule.id);
+    assert.equal(schedules[0]!.content, "edited");
+    assert.equal(schedules[0]!.dueAt, now + 120_000);
+    const replay = await app.request(`/v1/sessions/${conv.id}/scheduled-messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(original) });
+    assert.equal(replay.status, 200); // Creation receipt survives editing; never duplicate delivery.
+    await harness.commit(async tx => { (await tx.doc(ScheduledMessagesDoc)).schedules[schedule.id]!.status = "queued"; }, context);
+    assert.equal((await patch({ ...updated, content: "too late" })).status, 409);
+    assert.equal((await patch(updated)).status, 200); // Safe replay of an already applied edit.
+    await harness.commit(async tx => {
+      const rec = (await tx.doc(ScheduledMessagesDoc)).schedules[schedule.id]!;
+      rec.status = "scheduled";
+      rec.source = { kind: "limit_recovery", boundary: 0, generation: 0, provider: "test", model: "test", exact: false };
+    }, context);
+    assert.equal((await patch({ ...updated, content: "manual override" })).status, 409);
+  } finally { await scheduledMessages.close(); await harness.close(context); }
 });
 
 test("scheduled messages survive restart, deliver overdue once in dueAt order, and queue behind busy turns", async () => {

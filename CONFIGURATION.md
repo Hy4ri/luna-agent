@@ -181,14 +181,15 @@ transactional submission API, not a host callback stored in a submission.
   Previously admitted, cancelled, stale, model-mismatched, and over-budget legacy waits never become a new message.
   The legacy dispatcher and attempt-count settings are retired.
 - Scheduled messages (`/schedule` and `/v1/sessions/:id/scheduled-messages`):
-  - `/schedule <text>`: in the web UI, the date/time picker uses the local timezone, shows the resolved UTC time/offset, rejects nonexistent local times, and posts an absolute `dueAt` (epoch ms in the future).
+  - `/schedule <text>`: in the web UI, the picker shows the current local time/timezone, quick delays (+5/+15/+30 minutes, +1 hour), separate date/time fields, and a readable send-time summary. Exact UTC time/offset is expandable. Past and nonexistent local times are rejected; the API receives an absolute `dueAt` (epoch ms). Opening or cancelling the picker leaves the composer draft unchanged.
   - `/schedule list`: list scheduled messages for the session.
   - `/schedule cancel <id>`: cancel a scheduled message by ID.
   - `GET /v1/sessions/:id/scheduled-messages`: list scheduled messages for a session.
   - `POST /v1/sessions/:id/scheduled-messages`: create a scheduled message with required `content`, `dueAt` (epoch ms in the future), and `requestId`. Idempotent: same `requestId` and payload returns `200`, new creation returns `201`, and conflicting payload for an existing `requestId` returns `409`.
+  - `PATCH /v1/sessions/:id/scheduled-messages/:scheduleId`: atomically edit a manual schedule with required `content` and future `dueAt`, without creating a second message. Returns `404` for a missing/foreign schedule and `409` for automatic recovery or an already queued/settled message. Identical payload replays return `200` without mutation, even after delivery; creation request receipts remain valid.
   - `DELETE /v1/sessions/:id/scheduled-messages/:scheduleId`: cancel a scheduled message.
   - Scheduled messages run as same-chat text-only normal input (no attachments or slash command execution).
-  - The composer shows a pending list with manual/automatic origin, local time plus ISO timestamp, status, and cancellation. Failed POST retries retain the same request identity and payload, including after the due time.
+  - The transcript shows pending dashed bubbles with a countdown header, local send time (ISO timestamp on hover), and Edit/Cancel actions. Queued messages show their real state instead of a negative countdown; failed deliveries remain visible. Automatic recovery is labelled and cannot be edited. Editing uses a separate modal and never populates the composer. Failed create/edit retries retain the same request identity and payload, including after the due time.
   - User schedules persist across activity and **Stop** unless already queued; archiving or deleting the session cancels all scheduled messages.
 - `sessionTalk`: messages between sessions. `enabled` defaults to `true`; `maxHops` (1 through 20) defaults to `3`.
   Edit it under **Settings → Chat**. Changes apply live. See **Sessions talk with each other**.
