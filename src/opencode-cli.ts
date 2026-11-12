@@ -1,12 +1,11 @@
 // OpenCode owns the model call (its free tier only works from inside opencode); Luna owns tools and the transcript.
 // Each Luna tool is exposed to opencode through a loopback MCP server. A tool call is held open until Luna has run the tool.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type Server as HttpServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   calculateCost, createProvider, createAssistantMessageEventStream, getCurrentTools, getCurrentSystemPrompt,
@@ -157,45 +156,53 @@ interface Conv {
 }
 
 const convs = new Map<string, Conv>();
-let mcpHttp: Promise<{ server: HttpServer; port: number }> | undefined;
+let mcpHttp: Promise<{ server: ReturnType<typeof Bun.serve>; port: number }> | undefined;
 
 function startMcp() {
-  mcpHttp ??= new Promise((resolve, reject) => {
-    const server = createServer(async (req, res) => {
-      try {
-        const id = req.url?.match(/^\/mcp\/([\w-]+)/)?.[1];
-        const conv = id ? [...convs.values()].find(c => c.id === id) : undefined;
-        if (!conv) { res.statusCode = 404; return res.end(); }
-        const mcp = new McpServer({ name: "luna", version: "1" }, { capabilities: { tools: {} } });
-        mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-          tools: conv.tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.parameters as any })),
-        }));
-        mcp.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-          const held: Held = {
-            id: `oc_${conv.id.slice(0, 8)}_${++conv.counter}`, name: request.params.name,
-            args: (request.params.arguments ?? {}) as Record<string, unknown>, at: Date.now(), resolve: () => {},
-          };
-          const result = new Promise<{ text: string; isError: boolean }>((ok) => { held.resolve = ok; });
-          conv.held.set(held.id, held);
-          conv.queue.push({ type: "mcp.call", held });
-          extra.signal.addEventListener("abort", () => { if (conv.held.delete(held.id)) held.resolve({ text: "cancelled", isError: true }); }, { once: true });
-          const r = await result;
-          return { content: [{ type: "text" as const, text: r.text }], isError: r.isError };
-        });
-        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        res.on("close", () => { void transport.close(); void mcp.close(); });
-        await mcp.connect(transport);
-        let body = ""; for await (const chunk of req) body += chunk;
-        await transport.handleRequest(req, res, body ? JSON.parse(body) : undefined);
-      } catch (error) {
-        if (!res.headersSent) { res.statusCode = 500; res.end(String(error)); }
-      }
+  mcpHttp ??= Promise.resolve().then(() => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      // Tool calls are held open until Luna finishes running them (can take minutes with no bytes flowing).
+      idleTimeout: 0,
+      async fetch(req) {
+        try {
+          const url = new URL(req.url);
+          const id = url.pathname.match(/^\/mcp\/([\w-]+)/)?.[1];
+          const conv = id ? [...convs.values()].find(c => c.id === id) : undefined;
+          if (!conv) return new Response(null, { status: 404 });
+          const mcp = new McpServer({ name: "luna", version: "1" }, { capabilities: { tools: {} } });
+          mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: conv.tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.parameters as any })),
+          }));
+          mcp.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+            const held: Held = {
+              id: `oc_${conv.id.slice(0, 8)}_${++conv.counter}`, name: request.params.name,
+              args: (request.params.arguments ?? {}) as Record<string, unknown>, at: Date.now(), resolve: () => {},
+            };
+            const result = new Promise<{ text: string; isError: boolean }>((ok) => { held.resolve = ok; });
+            conv.held.set(held.id, held);
+            conv.queue.push({ type: "mcp.call", held });
+            extra.signal.addEventListener("abort", () => { if (conv.held.delete(held.id)) held.resolve({ text: "cancelled", isError: true }); }, { once: true });
+            const r = await result;
+            return { content: [{ type: "text" as const, text: r.text }], isError: r.isError };
+          });
+          const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+          const close = () => { void transport.close(); void mcp.close(); };
+          req.signal.addEventListener("abort", close, { once: true });
+          await mcp.connect(transport);
+          const body = req.method === "POST" ? await req.text() : "";
+          const response = await transport.handleRequest(req, body ? { parsedBody: JSON.parse(body) } : undefined);
+          if (!response.body) { close(); return response; }
+          const stream = response.body.pipeThrough(new TransformStream({ flush() { close(); } }));
+          return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
+        } catch (error) {
+          return new Response(String(error), { status: 500 });
+        }
+      },
     });
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.unref();
-      resolve({ server, port: (server.address() as { port: number }).port });
-    });
+    server.unref();
+    return { server, port: server.port! };
   });
   return mcpHttp;
 }

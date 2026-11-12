@@ -1,7 +1,6 @@
 // Contract: on models with mid-conversation effort, a level change moves only the per-message effort markers.
 // The top-level request (thinking, output_config, tools) stays byte-stable, so the cached prefix survives.
 import assert from "node:assert/strict";
-import { createServer, type IncomingHttpHeaders } from "node:http";
 import { test } from "bun:test";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { claudeCliProvider } from "../src/claude-cli.js";
@@ -65,20 +64,20 @@ test("models without mid-conversation effort keep the top-level effort", () => {
 });
 
 test("admission places effort markers before each reply and adds the betas", async () => {
-  const seen: { body?: any; headers?: IncomingHttpHeaders } = {};
-  const server = createServer((req, res) => {
-    const chunks: Buffer[] = [];
-    req.on("data", c => chunks.push(c));
-    req.on("end", () => {
-      seen.body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const seen: { body?: any; headers?: Headers } = {};
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+      seen.body = await req.json();
       seen.headers = req.headers;
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.end("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
-    });
+      return new Response("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n", {
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
   });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const request = prepareNativeRequest(context, opus, undefined, "high");
-  const gate = await Admission.open(`http://127.0.0.1:${(server.address() as { port: number }).port}`, 3000,
+  const gate = await Admission.open(`http://127.0.0.1:${server.port}`, 3000,
     undefined, request.replayMetadata);
   try {
     const response = await fetch(gate.url + "/v1/messages", { method: "POST",
@@ -97,12 +96,12 @@ test("admission places effort markers before each reply and adds the betas", asy
     const lastUser = seen.body.messages.at(-2).content.at(-1);
     assert.deepEqual(lastUser.cache_control, { type: "ephemeral", ttl: "1h" }, "the newest turn keeps its cache breakpoint");
     assert.deepEqual(seen.body.messages.at(-1).content, []);
-    const betas = String(seen.headers!["anthropic-beta"]).split(",");
+    const betas = String(seen.headers!.get("anthropic-beta")).split(",");
     for (const beta of ["claude-code-20250219", "mid-conversation-output-config-2026-07-01", "thinking-binding-controls-2026-08-01"]) {
       assert.ok(betas.includes(beta), beta);
     }
   } finally {
     await gate.close();
-    server.close();
+    server.stop(true);
   }
 });

@@ -2,7 +2,6 @@
 // A fake opencode service stands in for `opencode serve`; it answers each prompt only when the test says so.
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
@@ -12,33 +11,52 @@ const ROUTES = ["/api/session", "/api/session/{sessionID}/prompt", "/api/session
   "/api/experimental/session/{sessionID}/instructions/entries/{key}"];
 
 function fakeOpencode() {
-  const streams = new Set<ServerResponse>();
+  const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const encoder = new TextEncoder();
   const prompts: { sessionId: string; text: string }[] = [];
   const deleted = new Set<string>();
   let sessions = 0;
   const emit = (sessionId: string, type: string, data: Record<string, unknown> = {}) => {
     if (deleted.has(sessionId)) return;
-    for (const res of streams) res.write(`data: ${JSON.stringify({ type, data: { sessionID: sessionId, ...data } })}\n\n`);
-  };
-  const server = createServer(async (req, res) => {
-    let body = ""; for await (const chunk of req) body += chunk;
-    const path = (req.url ?? "").split("?")[0]!;
-    const json = (value: unknown) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(value)); };
-    if (path === "/api/info") return json({ version: "2.1.4" });
-    if (path === "/openapi.json") return json({ paths: Object.fromEntries(ROUTES.map(r => [r, {}])) });
-    if (path === "/api/event") {
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(": open\n\n");
-      streams.add(res);
-      res.on("close", () => streams.delete(res));
-      return;
+    const chunk = encoder.encode(`data: ${JSON.stringify({ type, data: { sessionID: sessionId, ...data } })}\n\n`);
+    for (const controller of streams) {
+      try { controller.enqueue(chunk); } catch { streams.delete(controller); }
     }
-    if (path === "/api/session" && req.method === "POST") return json({ data: { id: `ses_${++sessions}` } });
-    const prompt = path.match(/^\/api\/session\/([^/]+)\/prompt$/);
-    if (prompt) { prompts.push({ sessionId: prompt[1]!, text: JSON.parse(body).text }); return json({}); }
-    const session = path.match(/^\/api\/session\/([^/]+)$/);
-    if (session && req.method === "DELETE") deleted.add(session[1]!);
-    return json({});
+  };
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+      const path = new URL(req.url).pathname;
+      const json = (value: unknown) => Response.json(value);
+      if (path === "/api/info") return json({ version: "2.1.4" });
+      if (path === "/openapi.json") return json({ paths: Object.fromEntries(ROUTES.map(r => [r, {}])) });
+      if (path === "/api/event") {
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const stream = new ReadableStream<Uint8Array>({
+          start(c) {
+            controller = c;
+            c.enqueue(encoder.encode(": open\n\n"));
+            streams.add(c);
+          },
+          cancel() {
+            streams.delete(controller);
+          },
+        });
+        req.signal.addEventListener("abort", () => streams.delete(controller), { once: true });
+        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      }
+      if (path === "/api/session" && req.method === "POST") return json({ data: { id: `ses_${++sessions}` } });
+      const prompt = path.match(/^\/api\/session\/([^/]+)\/prompt$/);
+      if (prompt) {
+        const body = await req.json() as { text: string };
+        prompts.push({ sessionId: prompt[1]!, text: body.text });
+        return json({});
+      }
+      const session = path.match(/^\/api\/session\/([^/]+)$/);
+      if (session && req.method === "DELETE") deleted.add(session[1]!);
+      return json({});
+    },
   });
   return { server, prompts, deleted, emit };
 }
@@ -55,8 +73,7 @@ async function until<T>(read: () => T | undefined, what: string): Promise<T> {
 
 test("a background summary with the same session ID does not hang the live generation", async () => {
   const fake = fakeOpencode();
-  await new Promise<void>(resolve => fake.server.listen(0, "127.0.0.1", resolve));
-  const url = `http://127.0.0.1:${(fake.server.address() as { port: number }).port}`;
+  const url = `http://127.0.0.1:${fake.server.port}`;
   const home = mkdtempSync(join(tmpdir(), "luna-opencode-test-"));
   mkdirSync(join(home, "opencode"), { recursive: true });
   writeFileSync(join(home, "opencode", "service.json"), JSON.stringify({ password: "test" }));
@@ -108,7 +125,7 @@ test("a background summary with the same session ID does not hang the live gener
   ]);
   assert.equal(answered.stopReason, "stop", answered.errorMessage);
   assert.equal(answered.content.find((c: any) => c.type === "text")?.text, "done");
-  } finally { fake.server.closeAllConnections(); fake.server.close(); }
+  } finally { fake.server.stop(true); }
 });
 
 // Contract: a Luna thinking level reaches opencode as the model variant (ACP "effort"), clamped to the variants offered.
@@ -131,8 +148,7 @@ test("thinking levels map to opencode variants", async () => {
 test("a changed opencode executable starts its own service instead of reusing the cached one", async () => {
   const start = async () => {
     const fake = fakeOpencode();
-    await new Promise<void>(resolve => fake.server.listen(0, "127.0.0.1", resolve));
-    const url = `http://127.0.0.1:${(fake.server.address() as { port: number }).port}`;
+    const url = `http://127.0.0.1:${fake.server.port}`;
     const home = mkdtempSync(join(tmpdir(), "luna-opencode-test-"));
     mkdirSync(join(home, "opencode"), { recursive: true });
     writeFileSync(join(home, "opencode", "service.json"), JSON.stringify({ password: "test" }));
@@ -162,6 +178,6 @@ test("a changed opencode executable starts its own service instead of reusing th
     assert.equal(a.prompts.some(p => p.text.includes("second")), false, "the old executable's service must not get the new prompt");
   } finally {
     process.env.XDG_CONFIG_HOME = saved.home; process.env.LUNA_OPENCODE_EXECUTABLE = saved.exe;
-    for (const f of [a, b]) { f.server.closeAllConnections(); f.server.close(); }
+    for (const f of [a, b]) { f.server.stop(true); }
   }
 }, 20_000);
