@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { Check, Monitor } from '@lucide/vue';
 import { chat } from '@/stores/chat';
-import { openPanel } from '@/stores/app';
 import { json, post } from '@/lib/api';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { loadWorkers, workers } from '@/stores/workers';
@@ -62,10 +61,9 @@ onUnmounted(() => clearInterval(timer));
         <span v-if="!w.online" class="text-xs text-muted-foreground">Offline</span>
         <Check v-if="currentId === w.id" :size="14" />
       </DropdownMenuItem>
-      <DropdownMenuSeparator />
+      <DropdownMenuSeparator v-if="locked || failure" />
       <p v-if="locked" class="px-2 py-1 text-xs text-muted-foreground">Wait for the current turn to finish before moving.</p>
       <p v-if="failure" class="px-2 py-1 text-xs text-destructive" role="alert">{{ failure }}</p>
-      <DropdownMenuItem data-machine-settings @select="openPanel('session')">Working directory…</DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
 </template>

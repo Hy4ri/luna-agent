@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { chat, contextView } from "@/stores/chat";
+import { Shrink } from "@lucide/vue";
+import { post } from "@/lib/api";
+import { chat, busy, addErr, contextView } from "@/stores/chat";
 import { compactNumber } from "@/lib/numbers";
 
 const trigger = ref<HTMLButtonElement | null>(null);
@@ -70,6 +72,20 @@ const usage = computed(() => {
 });
 
 const visible = computed(() => !!(ctx.value || usage.value));
+const compacting = ref(false);
+
+async function compactSession() {
+  if (!chat.session || busy.value || compacting.value) return;
+  compacting.value = true;
+  popover.value?.hidePopover();
+  try {
+    await post(`/v1/sessions/${chat.session}/compact`);
+  } catch (error) {
+    addErr((error as Error).message);
+  } finally {
+    compacting.value = false;
+  }
+}
 
 function position() {
   if (!trigger.value || !popover.value) return;
@@ -170,6 +186,20 @@ onUnmounted(() => window.removeEventListener("resize", position));
     <div v-if="usage" class="usage-pop-foot">
       <span :title="usage.outputTitle">Out <b>{{ usage.outputLabel }}</b></span>
       <span :title="usage.costTitle">Est. <b>{{ usage.exactCost }}</b></span>
+    </div>
+
+    <div v-if="chat.session" class="usage-pop-actions">
+      <button
+        id="composer-usage-compact"
+        type="button"
+        class="usage-compact-btn"
+        :disabled="busy || compacting"
+        :title="busy ? 'Cannot compact while busy' : 'Compact context'"
+        @click="compactSession"
+      >
+        <Shrink :size="13" aria-hidden="true" />
+        <span>Compact</span>
+      </button>
     </div>
   </div>
 </template>
@@ -413,6 +443,43 @@ onUnmounted(() => window.removeEventListener("resize", position));
   color: var(--foreground);
   font-weight: 500;
   margin-left: 4px;
+}
+
+.usage-pop-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.usage-compact-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.usage-compact-btn:hover:not(:disabled) {
+  background: var(--accent, var(--secondary));
+  border-color: var(--muted-foreground);
+}
+
+.usage-compact-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.usage-compact-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 @media (max-width: 760px) {

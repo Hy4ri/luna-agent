@@ -3,7 +3,6 @@ import { defineAsyncComponent, type Component } from "vue";
 const TITLES: Record<string, string> = {
   projects: "Projects",
   board: "Project board",
-  session: "Session",
   agents: "Subagents",
   cron: "Cron",
   memory: "Memory",
@@ -15,7 +14,6 @@ const TITLES: Record<string, string> = {
 const DESCRIPTIONS: Record<string, string> = {
   projects: "Named working directories for new conversations.",
   board: "Cards shared by you and the sessions in the selected project.",
-  session: "Instructions, context, and tools for this conversation.",
   agents: "Delegated work in this conversation.",
   cron: "Reports that need checking, scheduled prompt jobs, and report history.",
   memory: "Search, save, and remove persistent facts.",
@@ -39,11 +37,6 @@ export const PANELS: Record<string, { title: string; desc: string; component: Co
     title: TITLES.board,
     desc: DESCRIPTIONS.board,
     component: defineAsyncComponent(() => import("./BoardPanel.vue")),
-  },
-  session: {
-    title: TITLES.session,
-    desc: DESCRIPTIONS.session,
-    component: defineAsyncComponent(() => import("./SessionPanel.vue")),
   },
   agents: {
     title: TITLES.agents,

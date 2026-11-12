@@ -111,7 +111,7 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
     const slash =
       plain === undefined
         ? null
-        : /^\/(usage|cost|queue|steer|stop|model|compress|compact|retry|undo|schedule)(?:\s+([\s\S]*))?$/.exec(
+        : /^\/(usage|cost|tools|queue|steer|stop|model|compress|compact|retry|undo|schedule)(?:\s+([\s\S]*))?$/.exec(
             plain.trim(),
           );
     let input = content as UploadInput;
@@ -147,6 +147,15 @@ export function registerMessages(app: Hono, ctx: RouteCtx): void {
           // Keep recorded session totals usable when login, network, or CLI support is absent.
           return c.json({ command: true, notice: `${usageNotice(usage)}\n${(error as Error).message}` });
         }
+      }
+      if (command === "tools") {
+        if (args) return err(c, 400, "Usage: /tools");
+        const a = await conv.agent(context);
+        const active = a.tools.map((t) => t.name);
+        const deferred = a.deferred.map((t) => t.name);
+        const lines = [`Tools (${active.length}): ${active.length ? active.join(", ") : "(none)"}`];
+        if (deferred.length) lines.push(`Deferred (${deferred.length}): ${deferred.join(", ")}`);
+        return c.json({ command: true, notice: lines.join("\n") });
       }
       if (command === "undo") {
         if (!/^[1-9]\d*$/.test(args) || !Number.isSafeInteger(Number(args)))
