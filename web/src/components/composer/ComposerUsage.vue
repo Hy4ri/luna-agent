@@ -99,16 +99,6 @@ onUnmounted(() => window.removeEventListener("resize", position));
 </script>
 
 <template>
-  <!-- Top hairline context bar inside #composer -->
-  <div
-    v-if="ctx?.known"
-    class="composer-context-hairline"
-    :data-level="ctx.level"
-    aria-hidden="true"
-  >
-    <div class="composer-context-hairline-fill" :style="{ width: `${ctx.percent}%` }"></div>
-  </div>
-
   <button
     v-if="visible"
     id="composer-usage-trigger"
@@ -185,33 +175,6 @@ onUnmounted(() => window.removeEventListener("resize", position));
 </template>
 
 <style scoped>
-.composer-context-hairline {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--border);
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 2;
-}
-
-.composer-context-hairline-fill {
-  height: 100%;
-  width: 0;
-  background: var(--success);
-  transition: width 0.2s ease, background-color 0.2s ease;
-}
-
-.composer-context-hairline[data-level="amber"] .composer-context-hairline-fill {
-  background: var(--warning);
-}
-
-.composer-context-hairline[data-level="red"] .composer-context-hairline-fill {
-  background: var(--destructive);
-}
-
 #composer-usage-trigger {
   flex: 0 0 auto;
   display: inline-flex;
@@ -460,7 +423,6 @@ onUnmounted(() => window.removeEventListener("resize", position));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .composer-context-hairline-fill,
   .usage-pop-meter-fill {
     transition: none;
   }
