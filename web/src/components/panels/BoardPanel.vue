@@ -711,18 +711,35 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
               <button v-if="ownersError" type="button" class="kb-button" :disabled="readOnly" @click="loadOwners">Retry agent sessions</button>
               <small id="kb-owner-hint" :class="{ 'kb-hint': ownerHint }" aria-live="polite"><template v-if="ownerHint"><CircleAlert :size="12" />{{ ownerHint }}</template></small>
             </div>
-            <fieldset class="kb-field kb-auto-field">
-              <legend>Automatic run</legend>
-              <label class="kb-check"><input type="checkbox" v-model="form.auto" :disabled="readOnly" aria-describedby="kb-auto-hint" />Run automatically</label>
-              <template v-if="form.auto">
-                <ModelCombobox v-model="form.autoModel" empty-label="Project default model" aria-label="Model for the automatic run" :disabled="readOnly" />
-                <select v-model="form.autoThinking" aria-label="Thinking level for the automatic run" :disabled="readOnly">
-                  <option value="">Default thinking</option>
-                  <option v-for="l in LEVELS" :key="l" :value="l">{{ l }}</option>
-                </select>
-              </template>
-              <small id="kb-auto-hint">{{ form.auto ? 'Owner becomes agent. In To do, the card runs in its own session without asking you. Merge, deploy, or spend only if the description says so.' : 'Off: the card waits for you or a session to pick it up.' }}</small>
-            </fieldset>
+            <div class="kb-auto-field" :class="{ 'kb-auto-on': form.auto }">
+              <div class="kb-auto-head">
+                <span id="kb-auto-label" class="kb-auto-title"><Bot :size="14" />Automatic run</span>
+                <button
+                  type="button"
+                  role="switch"
+                  class="kb-switch"
+                  :aria-checked="form.auto"
+                  aria-labelledby="kb-auto-label"
+                  aria-describedby="kb-auto-hint"
+                  :disabled="readOnly"
+                  @click="form.auto = !form.auto"
+                ><span class="kb-switch-thumb" /></button>
+              </div>
+              <small id="kb-auto-hint">{{ form.auto ? 'Owner becomes agent. In To do, runs in its own session without asking. Merge, deploy, or spend only if the description says so.' : 'Off: waits for you or a session to pick it up.' }}</small>
+              <div v-if="form.auto" class="kb-auto-opts">
+                <div class="kb-auto-opt">
+                  <span class="kb-auto-opt-label">Model</span>
+                  <ModelCombobox v-model="form.autoModel" empty-label="Project default model" aria-label="Model for the automatic run" :disabled="readOnly" />
+                </div>
+                <label class="kb-auto-opt">
+                  <span class="kb-auto-opt-label">Thinking</span>
+                  <select v-model="form.autoThinking" aria-label="Thinking level for the automatic run" :disabled="readOnly">
+                    <option value="">Default thinking</option>
+                    <option v-for="l in LEVELS" :key="l" :value="l">{{ l }}</option>
+                  </select>
+                </label>
+              </div>
+            </div>
             <label v-if="editingId !== null && history.projects.length > 1" class="kb-field">Project<select v-model="form.project" aria-label="Project" :disabled="readOnly" @change="moveDraft"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select><small>Moving drops this project's dependencies and releases the session owner.</small></label>
             <p v-if="editingCard" class="kb-timestamp"><span class="kb-card-id">#{{ editingCard.id }}</span> · created {{ new Date(editingCard.created).toLocaleString() }}<br />updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
           </div>
@@ -915,8 +932,21 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-asks { margin:0; }
 .kb-auto { display:flex; align-items:center; gap:6px; margin:0 0 8px; font-size:11px; color:var(--muted-foreground); }
 .kb-auto strong { color:var(--foreground); font-weight:600; }
-.kb-auto-field { display:flex; flex-direction:column; gap:6px; border:0; padding:0; margin:0; }
-.kb-check { display:flex; align-items:center; gap:6px; font-size:12px; }
+.kb-auto-field { display:grid; gap:8px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--background); transition:border-color 140ms ease, background-color 140ms ease; }
+.kb-auto-field.kb-auto-on { border-color:color-mix(in srgb,var(--primary) 45%,var(--border)); background:color-mix(in srgb,var(--primary) 6%,var(--background)); }
+.kb-auto-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.kb-auto-title { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:550; color:var(--foreground); }
+.kb-auto-title svg { color:var(--muted-foreground); flex:none; }
+.kb-auto-on .kb-auto-title svg { color:var(--primary-text); }
+.kb-switch { position:relative; flex:none; width:34px; height:20px; border-radius:999px; border:1px solid var(--border); background:var(--muted); cursor:pointer; padding:0; transition:background-color 120ms ease, border-color 120ms ease; }
+.kb-switch:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+.kb-switch:disabled { opacity:.45; cursor:default; }
+.kb-switch[aria-checked="true"] { background:var(--primary); border-color:var(--primary); }
+.kb-switch-thumb { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:var(--foreground); transition:transform 120ms ease, background-color 120ms ease; }
+.kb-switch[aria-checked="true"] .kb-switch-thumb { transform:translateX(14px); background:var(--primary-foreground); }
+.kb-auto-opts { display:grid; gap:8px; padding-top:8px; border-top:1px solid var(--border); }
+.kb-editor .kb-auto-opt { display:grid; gap:4px; font-size:12px; }
+.kb-auto-opt-label { font-size:11px; color:var(--muted-foreground); }
 .kb-activity { list-style:none; margin:0; padding:10px 0 0; border-top:1px solid var(--border); display:grid; gap:6px; font-size:12px; color:var(--muted-foreground); max-height:180px; overflow:auto; }
 .kb-activity time { display:block; font-size:11px; color:var(--faint); }
 .kb-activity strong { color:var(--foreground); font-weight:550; }
