@@ -15,6 +15,7 @@ import Questions from "./Questions.vue";
 import PendingMessage from "./PendingMessage.vue";
 import UploadAttachment from "./UploadAttachment.vue";
 import SessionImage from "./SessionImage.vue";
+import ScheduledMessages from "./ScheduledMessages.vue";
 
 const pending = computed(() => [...pendingMessages.values()].filter(p =>
   p.session === chat.session && (p.session !== null || p.epoch === chat.epoch) &&
@@ -368,6 +369,7 @@ function backgroundReport(entry: any, message: any): boolean {
     <!-- Context that belongs to the conversation, not to the composer: it renders as the last
          row of the scroller, so a wheel or swipe that starts on it scrolls the transcript. -->
     <slot />
+    <ScheduledMessages />
     <Questions />
   </div>
   <div v-if="queued.length" class="queued-dock" role="region" aria-label="Queued messages">

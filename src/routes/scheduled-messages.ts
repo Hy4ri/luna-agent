@@ -66,6 +66,31 @@ export function registerScheduledMessages(app: Hono, ctx: RouteCtx): void {
     }
   });
 
+  app.patch("/v1/sessions/:id/scheduled-messages/:scheduleId", async (c) => {
+    const svc = opts.scheduledMessages;
+    if (!svc) return err(c, 404, "scheduled messages disabled");
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    let body: { content?: unknown; dueAt?: unknown };
+    try { body = await c.req.json(); } catch { return err(c, 400, "invalid json"); }
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(k => !["content", "dueAt"].includes(k)) ||
+      typeof body.content !== "string" || !body.content.trim() || typeof body.dueAt !== "number" || !Number.isFinite(body.dueAt)) {
+      return err(c, 400, "content (nonempty text) and dueAt (epoch ms) required; no other fields accepted.");
+    }
+    const input = { content: body.content, dueAt: body.dueAt }, id = c.req.param("scheduleId");
+    try {
+      const schedule = await serial(String(conv.id), async () => {
+        const result = await harness.commit(tx => svc.update(tx, Number(conv.id), id, input), context);
+        await svc.scheduleChanged();
+        return result;
+      });
+      return c.json({ schedule });
+    } catch (e) {
+      if (e instanceof ScheduledMessageError) return err(c, e.status, e.message);
+      throw e;
+    }
+  });
+
   app.delete("/v1/sessions/:id/scheduled-messages/:scheduleId", async (c) => {
     const svc = opts.scheduledMessages;
     if (!svc) return err(c, 404, "scheduled messages disabled");
