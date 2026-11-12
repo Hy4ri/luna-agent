@@ -1,10 +1,10 @@
-// The browser panel's server side: which tabs a session owns, who drives each one, and a WebSocket that streams the page.
+// The browser panel's server side: which tabs a session owns and a WebSocket that streams the page.
 //
 // Wire protocol (WebSocket /v1/browser/:tab/attach?ticket=...):
 //   binary frames, server → client : one image (JPEG from CDP screencast, PNG from screenshot polling)
-//   text frames,   server → client : {"type":"meta",width,height,url,controller,input,live} | {"type":"closed"} | {"type":"error",message}
+//   text frames,   server → client : {"type":"meta",width,height,url,input,live} | {"type":"closed"} | {"type":"error",message}
 //   text frames,   client → server : {"type":"input",event:BrowserInput}
-// The server drops input while Luna drives. m57 takes the tab with the control route; Luna's tools then refuse that tab.
+// Two-way always: Luna and m57 can both act on any tab without locking.
 // The browser never puts the Bearer token in a URL: it asks for a ticket over authenticated HTTP, then opens the socket with the ticket.
 import type { Server, ServerWebSocket } from "bun";
 import type { BrowserFrame, BrowserInput, BrowserProvider, BrowserResolver, BrowserTab, BrowserTabHooks } from "../browser-tools.js";
@@ -14,13 +14,11 @@ export class BrowserPanelError extends Error {
   constructor(message: string, readonly status: 400 | 403 | 404 | 409 | 503 = 400) { super(message); }
 }
 
-export type Controller = "user" | "agent";
+export type TabOwner = "user" | "agent";
 export interface PanelTab {
   tabId: string; session: number; worker: number | null; url: string;
-  /** Who drives. The other side watches. */
-  controller: Controller;
   /** Who opened the tab. */
-  owner: Controller;
+  owner: TabOwner;
   /** m57 can click and type. False: view only. */
   input: boolean;
   /** Pushed frames. False: screenshots about once a second. */
@@ -35,7 +33,6 @@ const MAX_INPUT_FRAME = 4096;
 const POLL_MS = 1000;
 const MAX_NOTICES = 20;
 const ATTACH_PATH = /^\/v1\/browser\/([A-Za-z0-9_-]+)\/attach$/;
-export const LOCK_MESSAGE = "m57 is using this tab. Nothing ran. Wait, or ask him to give it back.";
 
 export type OriginPolicy = (origin: string, requestHost: string | undefined) => boolean;
 export interface BrowserPanelOptions {
@@ -75,9 +72,9 @@ export class BrowserPanel implements BrowserTabHooks {
   setOriginPolicy(policy: OriginPolicy) { this.options.allowOrigin = policy; }
 
   // --- tab registry (BrowserTabHooks) ---
-  opened(tab: { session: number; worker: number | null; tabId: string; url: string; provider: BrowserProvider }, owner: Controller = "agent") {
+  opened(tab: { session: number; worker: number | null; tabId: string; url: string; provider: BrowserProvider }, owner: TabOwner = "agent") {
     this.tabs.set(tab.tabId, {
-      tabId: tab.tabId, session: tab.session, worker: tab.worker, url: tab.url, controller: "agent", owner,
+      tabId: tab.tabId, session: tab.session, worker: tab.worker, url: tab.url, owner,
       input: typeof tab.provider.input === "function", live: typeof tab.provider.watch === "function", provider: tab.provider,
     });
   }
@@ -87,7 +84,6 @@ export class BrowserPanel implements BrowserTabHooks {
     const stream = this.streams.get(tabId);
     if (stream) { for (const ws of stream.sockets) { this.json(ws, { type: "closed" }); ws.close(1000, "tab closed"); } stream.abort.abort(); this.streams.delete(tabId); }
   }
-  assertAgent(tabId: string) { if (this.tabs.get(tabId)?.controller === "user") throw new Error(LOCK_MESSAGE); }
   /** Drop every tab of a deleted session and close its pages. */
   closeSession(session: number) {
     this.notices.delete(session);
@@ -131,8 +127,6 @@ export class BrowserPanel implements BrowserTabHooks {
     const provider = await this.resolveOrThrow(worker, signal);
     const tab = await provider.open({ url }, signal);
     this.opened({ session, worker, ...tab, provider }, "user");
-    const e = this.tabs.get(tab.tabId)!;
-    e.controller = "user"; // m57 opened it from the panel, so he holds it
     this.note(session, `m57 opened ${tab.tabId} at ${tab.url}`);
     return this.get(tab.tabId)!;
   }
@@ -144,14 +138,6 @@ export class BrowserPanel implements BrowserTabHooks {
     await e.provider.close({ tabId }, new AbortController().signal).catch(() => {});
     this.closed(tabId);
     this.note(session, `m57 closed ${tabId}`);
-  }
-  control(session: number, tabId: string, action: "take" | "give"): PanelTab {
-    const e = this.owned(session, tabId);
-    if (action === "take" && !e.input) throw new BrowserPanelError("View only on this browser. Luna keeps the tab.", 409);
-    if ((action === "take") !== (e.controller === "user")) this.note(session, action === "take" ? `m57 took over ${tabId}` : `m57 gave ${tabId} back to you`);
-    e.controller = action === "take" ? "user" : "agent";
-    this.pushMeta(e);
-    return this.get(tabId)!;
   }
 
   // --- tickets ---
@@ -191,7 +177,7 @@ export class BrowserPanel implements BrowserTabHooks {
 
   private json(ws: ServerWebSocket<BrowserWsData>, value: unknown) { if (ws.readyState === 1) ws.sendText(JSON.stringify(value)); }
   private meta(e: Entry, frame?: BrowserFrame) {
-    return { type: "meta", width: frame?.width ?? this.streams.get(e.tabId)?.last?.width ?? 0, height: frame?.height ?? this.streams.get(e.tabId)?.last?.height ?? 0, url: e.url, controller: e.controller, input: e.input, live: e.live };
+    return { type: "meta", width: frame?.width ?? this.streams.get(e.tabId)?.last?.width ?? 0, height: frame?.height ?? this.streams.get(e.tabId)?.last?.height ?? 0, url: e.url, input: e.input, live: e.live };
   }
   private pushMeta(e: Entry) {
     const stream = this.streams.get(e.tabId);
@@ -218,7 +204,6 @@ export class BrowserPanel implements BrowserTabHooks {
     let msg: { type?: unknown; event?: unknown };
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type !== "input") return;
-    if (e.controller !== "user") return; // Luna drives: the view is read-only
     if (!e.provider.input) { this.json(ws, { type: "error", message: "View only on this browser." }); return; }
     const event = parseInput(msg.event);
     if (!event) return;

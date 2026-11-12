@@ -43,16 +43,6 @@ export function registerBrowser(app: Hono, ctx: RouteCtx): void {
     try { return c.json(panel.issueTicket(sid, c.req.param("tab"))); } catch (e) { return fail(c, e); }
   });
 
-  // take/give move the mouse and keyboard between m57 and Luna.
-  app.post("/v1/sessions/:sid/browser/:tab/control", async c => {
-    const sid = sessionId(c.req.param("sid"));
-    if (!sid) return err(c, 404, "No such session");
-    if (!panel.enabled()) return err(c, 403, OFF);
-    const { action } = (await c.req.json().catch(() => ({}))) as { action?: unknown };
-    if (action !== "take" && action !== "give") return err(c, 400, "action must be take or give.");
-    try { return c.json(panel.control(sid, c.req.param("tab"), action)); } catch (e) { return fail(c, e); }
-  });
-
   app.delete("/v1/sessions/:sid/browser/:tab", async c => {
     const sid = sessionId(c.req.param("sid"));
     if (!sid) return err(c, 404, "No such session");

@@ -1,17 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { Bot, Plus, X } from "@lucide/vue";
-import WorkDock from "@/components/dock/WorkDock.vue";
-import DockControls from "@/components/dock/DockControls.vue";
 import TermView from "./TermView.vue";
-import { closeTerminal, controlTerminal, newTerminal, tabLabel, terminal } from "@/stores/terminal";
+import { closeTerminal, newTerminal, tabLabel, terminal } from "@/stores/terminal";
 import { navigate } from "@/stores/app";
-import { browser } from "@/stores/browser";
-import { dock } from "@/stores/dock";
 
 const views = ref<Record<string, InstanceType<typeof TermView> | null>>({});
 const live = computed(() => terminal.tabs.filter(t => t.status === "running").length);
-const current = computed(() => terminal.tabs.find(t => t.id === terminal.active));
 // Luna's own terminals stay viewable with only terminal.agent on.
 const usable = computed(() => terminal.enabled || terminal.tabs.length > 0);
 
@@ -28,7 +23,7 @@ function tabKey(event: KeyboardEvent, index: number) {
 </script>
 
 <template>
-  <WorkDock label="Terminal">
+  <div class="term-pane">
     <header class="dock-bar">
       <div class="dock-tabs" role="tablist" aria-label="Terminals">
         <div v-for="(t, i) in terminal.tabs" :key="t.id" class="dock-tab" :class="{ active: t.id === terminal.active, ended: t.status === 'ended' }">
@@ -38,20 +33,13 @@ function tabKey(event: KeyboardEvent, index: number) {
           <button type="button" class="dock-close" :aria-label="`Close terminal ${i + 1}`" title="Close terminal" @click="closeTerminal(t.id)"><X :size="12" /></button>
         </div>
       </div>
-      <template v-if="current && current.status === 'running'">
-        <span v-if="current.controller === 'agent'" class="dock-state">Luna is typing</span>
-        <span v-else-if="current.shared && current.owner !== 'agent'" class="dock-state">Luna can see this</span>
-        <button v-if="current.controller === 'agent'" type="button" class="dock-action" title="Type in this terminal yourself. Luna waits until you give it back." @click="controlTerminal(current.id, 'take')">Take over</button>
-        <template v-else-if="terminal.agentEnabled">
-          <button v-if="current.shared" type="button" class="dock-action" title="Let Luna type in this terminal. You watch, and can take it back." @click="controlTerminal(current.id, 'give')">Give to Luna</button>
-          <button v-if="current.owner !== 'agent'" type="button" class="dock-action" :title="current.shared ? 'Luna can no longer see this terminal.' : 'Luna can see this terminal. You keep typing.'" @click="controlTerminal(current.id, current.shared ? 'unshare' : 'share')">{{ current.shared ? "Stop sharing" : "Share with Luna" }}</button>
-        </template>
-      </template>
-      <button type="button" class="icon-button" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled" @click="newTerminal()"><Plus :size="14" /></button>
-      <DockControls :panes="browser.enabled ? ['terminal', 'browser'] : undefined" @pane="dock.pane = $event" />
+      <button type="button" class="icon-button" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled || !terminal.session" @click="newTerminal()"><Plus :size="14" /></button>
     </header>
     <p v-if="terminal.error" class="dock-message" role="alert">{{ terminal.error }}</p>
-    <div v-if="!usable" class="dock-empty">
+    <div v-if="!terminal.session" class="dock-empty">
+      <p>Open or start a conversation to use Terminal.</p>
+    </div>
+    <div v-else-if="!usable" class="dock-empty">
       <p>Terminals are off.</p>
       <button type="button" class="dock-link" @click="navigate('settings', 'tools')">Open Settings > Tools > Terminal</button>
     </div>
@@ -63,10 +51,11 @@ function tabKey(event: KeyboardEvent, index: number) {
       <TermView v-for="t in terminal.tabs" :key="t.id" :ref="el => (views[t.id] = el as InstanceType<typeof TermView> | null)" :session="terminal.session" :id="t.id" :active="t.id === terminal.active" />
     </div>
     <span class="sr-only" aria-live="polite">{{ live }} running terminals</span>
-  </WorkDock>
+  </div>
 </template>
 
 <style scoped>
+.term-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
 .dock-bar { display: flex; align-items: center; gap: 2px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--card); }
 .dock-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; }
 .dock-tab { display: flex; align-items: center; border-bottom: 2px solid transparent; font: 12px var(--mono); color: var(--muted-foreground); }

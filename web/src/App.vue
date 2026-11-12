@@ -3,7 +3,7 @@ import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
 import ConfigError from "@/components/ConfigError.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { ArrowLeft, Menu, ScanEye, SquareTerminal, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
+import { ArrowLeft, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
@@ -23,8 +23,10 @@ const WifePage = defineAsyncComponent(() => import('@/pages/WifePage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
 // The terminal adapter and official WASM load only when a terminal opens.
+const WorkDock = defineAsyncComponent(() => import('@/components/dock/WorkDock.vue'));
 const TerminalDock = defineAsyncComponent(() => import('@/components/terminal/TerminalDock.vue'));
 const BrowserPane = defineAsyncComponent(() => import('@/components/browser/BrowserPane.vue'));
+const MailPane = defineAsyncComponent(() => import('@/components/mail/MailPane.vue'));
 // The palette (and the full settings catalog it searches) loads on the first Ctrl+K, then stays mounted.
 const CommandPalette = defineAsyncComponent(() => import('@/components/CommandPalette.vue'));
 const paletteUsed = ref(false);
@@ -77,7 +79,7 @@ function readTiles(): string[] {
 watch(tileIds, ids => { if (!sessionPane) sessionStorage.setItem('luna.tiles', JSON.stringify(ids)); }, { deep: true });
 // The dock sits beside the chat only when the chat area is wide enough; dock.area is the width of the whole work area.
 const workAreaRef = ref<HTMLElement | null>(null);
-const dockSide = computed(() => !!terminal.open && !!chat.session && !sessionPane && effectivePosition(dock.position, dock.area) === 'right');
+const dockSide = computed(() => !!terminal.open && !sessionPane && effectivePosition(dock.position, dock.area) === 'right');
 let areaObserver: ResizeObserver | undefined;
 watch(workAreaRef, el => {
   areaObserver?.disconnect();
@@ -460,7 +462,7 @@ onUnmounted(() => {
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!mobile && activeSession" id="ask-wife" class="icon-button shrink-0" aria-label="Ask Wife about this session" title="Ask Wife about this session" :disabled="askPending" @click="askWifeAboutSession"><Heart :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
-            <button v-if="!sessionPane && chat.session" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Terminal" title="Terminal (Ctrl+`)" @click="toggleTerminal"><SquareTerminal :size="18" /></button>
+            <button v-if="!sessionPane" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Workspace sidebar" title="Workspace sidebar (Ctrl+`)" @click="toggleTerminal"><PanelRightClose v-if="terminal.open" :size="18" /><PanelRightOpen v-else :size="18" /></button>
             <button v-if="!mobile && !sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
             <button v-if="!mobile && (sessionPane || tiled)" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
             <Popover v-if="mobile" v-model:open="mobileMenuOpen">
@@ -494,8 +496,11 @@ onUnmounted(() => {
               <Extras docked />
             </aside>
           </div>
-          <BrowserPane v-if="terminal.open && chat.session && !sessionPane && browser.enabled && dock.pane === 'browser'" />
-          <TerminalDock v-else-if="terminal.open && chat.session && !sessionPane" />
+          <WorkDock v-if="terminal.open && !sessionPane" :label="dock.pane === 'browser' ? 'Browser' : dock.pane === 'mail' ? 'Mail' : 'Terminal'">
+            <BrowserPane v-if="browser.enabled && dock.pane === 'browser'" />
+            <MailPane v-else-if="dock.pane === 'mail'" />
+            <TerminalDock v-else />
+          </WorkDock>
           </div>
         </main>
         <template v-if="!ui.login">

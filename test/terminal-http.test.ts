@@ -218,33 +218,19 @@ test("an exited shell is reported on the socket and deleting the session closes 
   } finally { await t.cleanup(); }
 });
 
-test("control: m57 shares, gives, and takes back a terminal; the socket reports each change", async () => {
+test("two-way typing works between browser socket and agent without control locks", async () => {
   const t = await setup();
   try {
     const sid = await t.session();
     const { id } = await create(t, sid);
-    const control = (action: string) => t.call(`/v1/sessions/${sid}/terminals/${id}/control`, { method: "POST", body: JSON.stringify({ action }) });
-    expect((await control("share")).status).toBe(403) /* "sharing needs terminal.agent" */;
     t.state.agent = true;
-    expect((await control("nope")).status).toBe(400);
-    expect((await control("give")).status).toBe(409) /* "give needs a shared terminal" */;
     const a = open(t.port, id, await ticket(t, sid, id));
     await a.opened;
     await until(() => a.frames.json.some(f => f.type === "replay-end"), "replay");
-    expect(a.frames.json.find(f => f.type === "replay-start")?.controller).toEqual("user");
-    const shared = await control("share");
-    expect(shared.status).toBe(200);
-    expect(((await shared.json()) as { shared: boolean }).shared).toEqual(true);
-    expect((await control("give")).status).toBe(200);
-    await until(() => a.frames.json.some(f => f.type === "control" && f.controller === "agent"), "control frame");
-    a.ws.send(Buffer.from("echo dropped-input\n"));
+    expect(a.frames.json.find(f => f.type === "replay-start")?.shared).toEqual(true);
+    a.ws.send(Buffer.from("echo user-$((20+1))\n"));
     t.terminals.registry.agentWrite(id, sid, "echo luna-$((40+2))\n");
-    await until(() => a.frames.text.includes("luna-42"), "Luna's command");
-    expect(!a.frames.text.includes("dropped-input")).toBeTruthy() /* "m57's keys are dropped while Luna types" */;
-    expect((await control("take")).status).toBe(200);
-    await until(() => a.frames.json.some(f => f.type === "control" && f.controller === "user"), "take frame");
-    expect(() => t.terminals.registry.agentWrite(id, sid, "x")).toThrow(/m57 has control/);
-    expect((await control("unshare")).status).toBe(200);
+    await until(() => a.frames.text.includes("luna-42") && a.frames.text.includes("user-21"), "two-way commands");
     a.ws.close();
   } finally { await t.cleanup(); }
 });

@@ -12,9 +12,6 @@ export interface TerminalInfo {
   /** "agent": Luna started it to run `command`. */
   owner?: "user" | "agent";
   command?: string;
-  /** Who types. The other side watches. */
-  controller?: "user" | "agent";
-  /** Luna can see it. Always true for her own terminals. */
   shared?: boolean;
   status: "running" | "ended";
   exitCode: number | null;
@@ -128,23 +125,6 @@ export async function showTerminal(session: string, id?: string) {
   terminal.open = true;
   await loadTerminals(session);
   if (terminal.session === session && id && terminal.tabs.some(t => t.id === id)) terminal.active = id;
-}
-
-export type ControlAction = "take" | "give" | "share" | "unshare";
-/** Move the keyboard between m57 and Luna, or show or hide one of his terminals from her. */
-export async function controlTerminal(id: string, action: ControlAction) {
-  const session = terminal.session;
-  terminal.error = "";
-  try {
-    const t = await post<TerminalInfo>(`/v1/sessions/${session}/terminals/${id}/control`, { action });
-    setControl(id, t.controller ?? "user", !!t.shared);
-  } catch (e) { terminal.error = message(e); }
-}
-
-/** The socket reported a control change. */
-export function setControl(id: string, controller: "user" | "agent", shared: boolean) {
-  const t = terminal.tabs.find(x => x.id === id);
-  if (t) { t.controller = controller; t.shared = shared; }
 }
 
 export const tabLabel = (t: TerminalInfo) => t.command ? t.command.split(/\s+/)[0]!.split("/").pop()! : t.shell;

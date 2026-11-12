@@ -2,11 +2,8 @@
 // The Browser pane of the dock: tabs, address bar, drive controls and the live view.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ArrowLeft, ArrowRight, Bot, Globe, Plus, RotateCw, X } from "@lucide/vue";
-import WorkDock from "@/components/dock/WorkDock.vue";
-import DockControls from "@/components/dock/DockControls.vue";
 import BrowserView from "./BrowserView.vue";
-import { browser, closeBrowserTab, controlBrowserTab, openBrowserTab, selectBrowserTab, watchBrowser } from "@/stores/browser";
-import { dock } from "@/stores/dock";
+import { browser, closeBrowserTab, openBrowserTab, selectBrowserTab, watchBrowser } from "@/stores/browser";
 import { normalizeUrl } from "@/lib/browser-view";
 
 const current = computed(() => browser.draft ? undefined : browser.tabs.find(t => t.tabId === browser.active));
@@ -29,7 +26,6 @@ function submitAddress() {
 function navInput(event: Record<string, unknown>) {
   const t = current.value;
   if (!t) return;
-  if (t.controller !== "user") { void controlBrowserTab(t.tabId, "take").then(() => views.value[t.tabId]?.sendNav(event)); return; }
   views.value[t.tabId]?.sendNav(event);
 }
 // A new tab starts blank, like a browser's: nothing carries over from the tab on screen. The page opens when m57 enters an address.
@@ -64,7 +60,7 @@ onBeforeUnmount(() => watchBrowser(false));
 </script>
 
 <template>
-  <WorkDock label="Browser">
+  <div class="browser-pane">
     <header class="tab-strip">
       <div class="tabs" role="tablist" aria-label="Browser tabs">
         <div v-for="(t, i) in browser.tabs" :key="t.tabId" class="tab" :class="{ active: !browser.draft && t.tabId === browser.active }">
@@ -78,31 +74,30 @@ onBeforeUnmount(() => watchBrowser(false));
           <button v-if="browser.tabs.length" type="button" class="tab-close" aria-label="Close new tab" title="Close tab" @click="cancelDraft"><X :size="12" /></button>
         </div>
       </div>
-      <button type="button" class="icon-button tab-new" aria-label="New tab" title="New tab" @click="newTab"><Plus :size="14" /></button>
-      <DockControls class="tab-controls" :panes="['terminal', 'browser']" @pane="dock.pane = $event" />
+      <button type="button" class="icon-button tab-new" aria-label="New tab" title="New tab" :disabled="!browser.session" @click="newTab"><Plus :size="14" /></button>
     </header>
     <form class="address-bar" @submit.prevent="submitAddress">
       <button type="button" class="icon-button" aria-label="Back" title="Back" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'back' })"><ArrowLeft :size="14" /></button>
       <button type="button" class="icon-button" aria-label="Forward" title="Forward" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'forward' })"><ArrowRight :size="14" /></button>
       <button type="button" class="icon-button" aria-label="Reload" title="Reload" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'reload' })"><RotateCw :size="14" /></button>
-      <input ref="addressInput" v-model="address" class="address-input" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Address" :placeholder="current ? '' : 'Enter an address to open a tab'" :disabled="!!current && !current.input" @focus="editing = true" @blur="editing = false" @keydown="addressKey" />
-      <template v-if="current">
-        <span class="drive-state" :title="current.input ? undefined : 'You can watch this tab but not click or type in it.'">{{ !current.input ? "View only" : current.controller === "agent" ? "Luna is driving" : "You are driving" }}</span>
-        <button v-if="current.controller === 'agent' && current.input" type="button" class="drive-action" title="Click and type in this tab yourself. Luna waits until you give it back." @click="controlBrowserTab(current.tabId, 'take')">Take over</button>
-        <button v-else-if="current.controller === 'user'" type="button" class="drive-action" title="Let Luna use this tab again." @click="controlBrowserTab(current.tabId, 'give')">Give to Luna</button>
-      </template>
+      <input ref="addressInput" v-model="address" class="address-input" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Address" :placeholder="!browser.session ? 'Open a conversation to use Browser' : current ? '' : 'Enter an address to open a tab'" :disabled="!browser.session || (!!current && !current.input)" @focus="editing = true" @blur="editing = false" @keydown="addressKey" />
+      <span v-if="current && !current.input" class="drive-state" title="You can watch this tab but not click or type in it.">View only</span>
     </form>
     <p v-if="browser.error" class="dock-message" role="alert">{{ browser.error }}</p>
-    <div v-if="!browser.tabs.length || browser.draft" class="dock-empty">
+    <div v-if="!browser.session" class="dock-empty">
+      <p>Open or start a conversation to use Browser.</p>
+    </div>
+    <div v-else-if="!browser.tabs.length || browser.draft" class="dock-empty">
       <p>{{ browser.loading && !browser.tabs.length ? "Loading..." : browser.draft || browser.tabs.length ? "Enter an address above to open it in this tab." : "No browser tabs in this session. Ask Luna to open a page, or enter an address above." }}</p>
     </div>
-    <div v-if="browser.tabs.length" class="dock-body" :hidden="browser.draft">
+    <div v-if="browser.session && browser.tabs.length" class="dock-body" :hidden="browser.draft">
       <BrowserView v-for="t in browser.tabs" :key="t.tabId" :ref="el => (views[t.tabId] = el as InstanceType<typeof BrowserView> | null)" :session="browser.session" :tab-id="t.tabId" :active="!browser.draft && t.tabId === browser.active" />
     </div>
-  </WorkDock>
+  </div>
 </template>
 
 <style scoped>
+.browser-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
 /* Tab strip: the active tab joins the address bar below it, like a desktop browser. */
 .tab-strip { display: flex; align-items: flex-end; gap: 2px; min-height: 34px; padding: 4px 4px 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
 .tabs { display: flex; flex: 0 1 auto; align-items: flex-end; min-width: 0; overflow-x: auto; scrollbar-width: thin; }

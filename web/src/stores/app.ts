@@ -120,6 +120,11 @@ export function openBoardCard(projectId: number, cardId: number) {
   openPanel('board');
 }
 export const openSourceControl = () => openPage("source-control");
+export function openMail() {
+  void import("./dock").then(({ setPane }) => setPane("mail"));
+  void import("./terminal").then(({ terminal }) => { terminal.open = true; });
+  setDrawer(false);
+}
 /** "Back to chat" from any page. Focuses the composer. */
 export function backToChat() {
   if (ui.view === "settings") { if (!closeSettings()) return; }
@@ -134,11 +139,12 @@ export function leavePages(): boolean {
   if (ui.view === "source-control") closePage("source-control");
   return true;
 }
-export function navigate(view: View, tab?: string) {
+export function navigate(view: View | "mail", tab?: string) {
   if (view === "settings") openSettings(tab);
   else if (view === "analytics") openAnalytics();
   else if (view === "wife") openWife();
   else if (view === "source-control") openSourceControl();
+  else if (view === "mail") openMail();
   else backToChat();
 }
 
@@ -149,6 +155,7 @@ export function openPanel(name: string, options?: { keepSettings?: boolean }) {
   if (name === "analytics") { closePanel(); return openAnalytics(); }
   if (name === "wife") { closePanel(); return openWife(); }
   if (name === "source-control") { closePanel(); return openSourceControl(); }
+  if (name === "mail") { closePanel(); return openMail(); }
   if (!options?.keepSettings && !closeSettings()) return;
   returnFocus = document.activeElement;
   setDrawer(false);
@@ -395,6 +402,7 @@ function applyHash() {
   else if (h === "#analytics" || h.startsWith("#analytics/")) { if (ui.view !== "analytics") openAnalytics(); }
   else if (h === "#wife") { if (ui.view !== "wife") openWife(); }
   else if (h === "#source-control" || h.startsWith("#source-control/")) { if (ui.view !== "source-control") openSourceControl(); }
+  else if (h === "#mail") { history.replaceState(null, "", location.pathname + location.search); openMail(); }
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#cron") { history.replaceState(null, "", location.pathname + location.search); openPanel("cron"); }
 }
@@ -402,7 +410,7 @@ window.addEventListener("hashchange", () => {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) { openSettings(); return; }
   if (!closeSettings()) return;
-  if (h === "#analytics" || h.startsWith("#analytics/") || h === "#wife" || h === "#source-control" || h.startsWith("#source-control/") || h === "#cron") applyHash();
+  if (h === "#analytics" || h.startsWith("#analytics/") || h === "#wife" || h === "#source-control" || h.startsWith("#source-control/") || h === "#mail" || h === "#cron") applyHash();
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else { closePage("analytics"); closePage("wife"); closePage("source-control"); }
 });

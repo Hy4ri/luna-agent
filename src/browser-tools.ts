@@ -69,11 +69,9 @@ export interface BrowserTabHooks {
   navigated(tab: BrowserTab): void;
   closed(tabId: string): void;
   /** The session's open tabs, whoever opened them. */
-  list(session: number): { tabId: string; url: string; owner: "user" | "agent"; controller: "user" | "agent"; input: boolean }[];
+  list(session: number): { tabId: string; url: string; owner: "user" | "agent"; input: boolean }[];
   /** What m57 did in the panel since the last call, oldest first. */
   drain(session: number): string[];
-  /** Throws while m57 holds the tab. */
-  assertAgent(tabId: string): void;
 }
 
 type Output = ({ type: "text"; text: string } | ({ type: "image" } & BrowserImage))[];
@@ -223,7 +221,7 @@ export function createBrowserToolsExtension(config: () => { provider: string; ev
           // The panel is the only record of tabs; without it the tools keep none.
           if (!hooks) throw new Error("The tab list needs the browser panel. Turn on browser.panel in Settings.");
           const session = sessionOf(api as { conversationId?: unknown });
-          const tabs = session ? hooks.list(session).map(({ tabId, url, owner, controller, input }) => ({ tabId, url, openedBy: owner === "user" ? "m57" : "Luna", driving: controller === "user" ? "m57" : "Luna", ...(input ? {} : { viewOnly: true }) })) : [];
+          const tabs = session ? hooks.list(session).map(({ tabId, url, owner, input }) => ({ tabId, url, openedBy: owner === "user" ? "m57" : "Luna", ...(input ? {} : { viewOnly: true }) })) : [];
           return { output: withNotices(api, json({ tabs })) };
         }
         if (action === "open") {
@@ -245,7 +243,6 @@ export function createBrowserToolsExtension(config: () => { provider: string; ev
           const req = { tabId: tab, ...(args.offset !== undefined ? { offset: args.offset } : {}) };
           return run(api, context, (p, s) => p.snapshot(req, s), ({ image, ...data }) => [...json(data), ...(image ? [{ type: "image" as const, ...image }] : [])]);
         }
-        hooks?.assertAgent(tab);
         if (action === "navigate") { const url = need(args.url, "URL"); validateWebUrl(url); return run(api, context, async (p, s) => { const moved = await p.navigate({ tabId: tab, url }, s); hooks?.navigated(moved); return moved; }); }
         if (action === "close") return run(api, context, async (p, s) => { await p.close({ tabId: tab }, s); hooks?.closed(tab); return { tabId: tab, closed: true }; });
         return run(api, context, async (p, s) => { const moved = await ability(p, "history")({ tabId: tab, action }, s); hooks?.navigated(moved); return moved; });
@@ -284,7 +281,6 @@ export function createBrowserToolsExtension(config: () => { provider: string; ev
         const args = raw as ActArgs;
         const tab = args.tabId;
         nonempty(tab ?? "", "Tab ID");
-        hooks?.assertAgent(tab);
         const point = args.x !== undefined || args.y !== undefined;
         if (point && (args.x === undefined || args.y === undefined)) throw new Error("Give both x and y.");
         if (point && (args.ref !== undefined || args.selector !== undefined)) throw new Error("Give an element or a point, not both.");

@@ -9,7 +9,7 @@ import { z } from "zod";
 import { DEFAULT_TIPS, TipSchema } from "./wife/tips.js";
 import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
-export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks", "wife"] as const;
+export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks", "wife", "mail"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /**
  * Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live.
@@ -17,7 +17,7 @@ export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
   coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
   cron: [], "tool-search": ["tool-search", "deferred-tools"], todo: ["todo"], "ask-user": ["ask-user"],
-  recall: ["recall"], goal: ["goal"], codemode: ["codemode"], webhooks: ["webhooks"], wife: ["wife"],
+  recall: ["recall"], goal: ["goal"], codemode: ["codemode"], webhooks: ["webhooks"], wife: ["wife"], mail: ["mail", "mail-send"],
 };
 
 export const WEB_SEARCH_PROVIDERS = ["searxng", "freeserp", "ddgs"] as const;

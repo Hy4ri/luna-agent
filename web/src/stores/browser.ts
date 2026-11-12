@@ -8,8 +8,6 @@ import { terminal } from "@/stores/terminal";
 export interface BrowserTabInfo {
   tabId: string;
   url: string;
-  /** Who drives. The other side watches. */
-  controller: "user" | "agent";
   owner: "user" | "agent";
   /** m57 can click and type. False: view only. */
   input: boolean;
@@ -103,12 +101,6 @@ export function dropBrowserTab(tabId: string) {
   if (index < 0) return;
   browser.tabs.splice(index, 1);
   if (browser.active === tabId) browser.active = (browser.tabs[index] ?? browser.tabs[index - 1])?.tabId ?? "";
-}
-
-export async function controlBrowserTab(tabId: string, action: "take" | "give") {
-  browser.error = "";
-  try { applyMeta(tabId, await post<BrowserTabInfo>(`/v1/sessions/${browser.session}/browser/${tabId}/control`, { action })); }
-  catch (e) { browser.error = message(e); }
 }
 
 /** The socket reported a state change. */

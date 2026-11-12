@@ -18,7 +18,7 @@ let raf = 0;
 let page = { width: 0, height: 0 };
 
 const info = () => browser.tabs.find(t => t.tabId === props.tabId);
-const driving = () => info()?.controller === "user" && !!info()?.input;
+const driving = () => !!info()?.input;
 function setNote(text: string) { note.value = text; emit("status", text); }
 
 function draw() {

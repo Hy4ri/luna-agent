@@ -2,10 +2,11 @@
 import { reactive } from "vue";
 
 export type DockPosition = "bottom" | "right";
-export type DockPane = "terminal" | "browser";
+export type DockPane = "terminal" | "browser" | "mail";
 
 const POSITION_KEY = "luna.dock.position";
 const WIDTH_KEY = "luna.dock.width";
+const PANE_KEY = "luna.dock.pane";
 export const MIN_WIDTH = 320;
 export const MIN_HEIGHT = 120;
 /** Below this width of the chat area the dock always sits at the bottom. */
@@ -22,6 +23,7 @@ function read(key: string): string | null { try { return localStorage.getItem(ke
 function write(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* storage unavailable */ } }
 
 export function loadPosition(raw: string | null = read(POSITION_KEY)): DockPosition { return raw === "right" ? "right" : "bottom"; }
+export function loadPane(raw: string | null = read(PANE_KEY)): DockPane { return raw === "browser" || raw === "mail" ? raw : "terminal"; }
 export function loadWidth(raw: string | null = read(WIDTH_KEY)): number {
   const n = Number(raw);
   return raw !== null && Number.isFinite(n) && n >= MIN_WIDTH ? n : 420;
@@ -32,8 +34,9 @@ export const dock = reactive({
   width: loadWidth(),
   /** Width of the chat area, measured by the app. Decides whether the side position fits. */
   area: Number.POSITIVE_INFINITY,
-  pane: "terminal" as DockPane,
+  pane: loadPane(),
 });
 
+export function setPane(pane: DockPane) { dock.pane = pane; write(PANE_KEY, pane); }
 export function setPosition(position: DockPosition) { dock.position = position; write(POSITION_KEY, position); }
 export function setWidth(px: number, available?: number) { dock.width = clampWidth(px, available); write(WIDTH_KEY, String(dock.width)); }

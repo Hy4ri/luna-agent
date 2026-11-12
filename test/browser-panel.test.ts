@@ -7,7 +7,7 @@ import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { context, openLuna } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
 import { createApp } from "../src/server.js";
-import { BrowserPanel, LOCK_MESSAGE, parseInput, pngSize, type BrowserWsData } from "../src/browser/panel.js";
+import { BrowserPanel, parseInput, pngSize, type BrowserWsData } from "../src/browser/panel.js";
 import { createBrowserToolsExtension, type BrowserInput, type BrowserProvider } from "../src/browser-tools.js";
 import { rejectsWith } from "./support/expect-error.js";
 
@@ -111,7 +111,7 @@ test("tabs the tools open belong to the session and drop on close", async () => 
   const run = (name: string, args: Record<string, unknown>, conversationId = "7") =>
     (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)(args, { conversationId }, {});
   await run("browser", { action: "open", url: "https://x.test/" });
-  expect(panel.list(7).map(t => [t.tabId, t.owner, t.controller])).toStrictEqual([["t1", "agent", "agent"]]);
+  expect(panel.list(7).map(t => [t.tabId, t.owner])).toStrictEqual([["t1", "agent"]]);
   expect(panel.list(8)).toStrictEqual([]);
   await run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/b" });
   expect(panel.list(7)[0]!.url).toBe("https://x.test/b");
@@ -119,32 +119,17 @@ test("tabs the tools open belong to the session and drop on close", async () => 
   expect(panel.list(7)).toStrictEqual([]);
 });
 
-test("while m57 holds a tab, Luna's actions on it fail and inspection still works", async () => {
+test("browser tabs are two-way always: Luna and m57 can both act without locking", async () => {
   const panel = new BrowserPanel({ enabled: () => true, resolve: async () => fakeProvider().provider });
   const { provider, calls } = fakeProvider({ input: async () => undefined });
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
   const tools = new Map((ext.tools ?? []).map(t => [t.name, t]));
   const run = (name: string, args: Record<string, unknown>) => (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)(args, { conversationId: "7" }, {});
   await run("browser", { action: "open", url: "https://x.test/" });
-  panel.control(7, "t1", "take");
-  await rejectsWith(run("browser_act", { action: "click", tabId: "t1", selector: "a" }), new RegExp(LOCK_MESSAGE.slice(0, 20)));
-  await rejectsWith(run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/c" }), /m57 is using this tab/);
-  await rejectsWith(run("browser", { action: "close", tabId: "t1" }), /m57 is using this tab/);
-  expect(calls).toStrictEqual(["open"]);
-  await run("browser", { action: "screenshot", tabId: "t1" });
-  panel.control(7, "t1", "give");
   await run("browser_act", { action: "click", tabId: "t1", selector: "a" });
-  expect(calls).toStrictEqual(["open", "screenshot", "click"]);
-});
-
-test("a view-only tab cannot be taken", async () => {
-  const s = await setup();
-  try {
-    const sid = await s.session();
-    s.panel.opened({ session: sid, worker: null, tabId: "t1", url: "https://x.test/", provider: s.fake.provider });
-    const r = await s.call(`/v1/sessions/${sid}/browser/t1/control`, { method: "POST", body: JSON.stringify({ action: "take" }) });
-    expect(r.status).toBe(409);
-  } finally { await s.cleanup(); }
+  await run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/c" });
+  await run("browser", { action: "screenshot", tabId: "t1" });
+  expect(calls).toStrictEqual(["open", "click", "navigate", "screenshot"]);
 });
 
 test("list route is scoped to the session and reports when the panel is off", async () => {
@@ -164,17 +149,15 @@ test("list route is scoped to the session and reports when the panel is off", as
   } finally { await s.cleanup(); }
 });
 
-test("m57 opens, takes, gives and closes a tab from the panel", async () => {
+test("m57 opens and closes a tab from the panel", async () => {
   const s = await setup({ input: async () => undefined });
   try {
     const sid = await s.session();
     expect((await s.call(`/v1/sessions/${sid}/browser`, { method: "POST", body: JSON.stringify({ url: "file:///etc/passwd" }) })).status).toBe(400);
     const open = await s.call(`/v1/sessions/${sid}/browser`, { method: "POST", body: JSON.stringify({ url: "https://x.test/" }) });
     expect(open.status).toBe(201);
-    const tab = (await open.json()) as { tabId: string; controller: string; owner: string; input: boolean };
-    expect([tab.controller, tab.owner, tab.input]).toStrictEqual(["user", "user", true]);
-    const given = await s.call(`/v1/sessions/${sid}/browser/${tab.tabId}/control`, { method: "POST", body: JSON.stringify({ action: "give" }) });
-    expect(((await given.json()) as { controller: string }).controller).toBe("agent");
+    const tab = (await open.json()) as { tabId: string; owner: string; input: boolean };
+    expect([tab.owner, tab.input]).toStrictEqual(["user", true]);
     expect((await s.call(`/v1/sessions/${sid}/browser/${tab.tabId}`, { method: "DELETE" })).status).toBe(200);
     expect(s.panel.list(sid)).toStrictEqual([]);
     expect(s.fake.calls).toStrictEqual(["open", "close"]);
@@ -210,7 +193,7 @@ test("without watch, the stream polls screenshots and sends meta then image fram
     await c.opened;
     await until(() => c.got.binary >= 2, "two polled frames");
     const meta = c.got.json.filter(m => m.type === "meta").at(-1)!;
-    expect([meta.width, meta.height, meta.url, meta.controller, meta.input, meta.live]).toStrictEqual([1, 1, "https://x.test/", "agent", false, false]);
+    expect([meta.width, meta.height, meta.url, meta.input, meta.live]).toStrictEqual([1, 1, "https://x.test/", false, false]);
     c.ws.close();
     await until(() => s.fake.calls.filter(x => x === "screenshot").length >= 2, "screenshots");
     const seen = s.fake.calls.length;
@@ -247,7 +230,7 @@ test("with watch, pushed frames reach every socket and the feed stops after the 
   } finally { await s.cleanup(); }
 });
 
-test("input reaches the provider only while m57 drives", async () => {
+test("input reaches the provider immediately without taking control", async () => {
   const events = [] as BrowserInput[];
   const s = await setup({ input: async ({ event }) => { events.push(event); return event.kind === "nav" ? { url: "https://x.test/next" } : undefined; } });
   try {
@@ -256,11 +239,6 @@ test("input reaches the provider only while m57 drives", async () => {
     const c = attach(s.port, "t1", await ticket(s, sid, "t1"));
     await c.opened;
     const click = JSON.stringify({ type: "input", event: { kind: "mouse", type: "down", x: 5, y: 6 } });
-    c.ws.send(click);
-    await new Promise(r => setTimeout(r, 50));
-    expect(events, "dropped while Luna drives").toStrictEqual([]);
-    await s.call(`/v1/sessions/${sid}/browser/t1/control`, { method: "POST", body: JSON.stringify({ action: "take" }) });
-    await until(() => c.got.json.some(m => m.type === "meta" && m.controller === "user"), "meta shows m57 driving");
     c.ws.send(click);
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "https://x.test/next" } }));
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "javascript:alert(1)" } }));
@@ -293,7 +271,7 @@ test("browser list shows the session's tabs, including the ones m57 opens and cl
   await run({ action: "open", url: "https://x.test/" });
   const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
-  expect((await run({ action: "list" })).tabs.map((t: { tabId: string; url: string; openedBy: string; driving: string }) => [t.tabId, t.url, t.openedBy, t.driving])).toStrictEqual([["t1", "https://x.test/", "Luna", "Luna"], [mine.tabId, "https://m57.test/", "m57", "m57"]]);
+  expect((await run({ action: "list" })).tabs.map((t: { tabId: string; url: string; openedBy: string }) => [t.tabId, t.url, t.openedBy])).toStrictEqual([["t1", "https://x.test/", "Luna"], [mine.tabId, "https://m57.test/", "m57"]]);
   await panel.close(7, mine.tabId);
   expect((await run({ action: "list" })).tabs.map((t: { tabId: string }) => t.tabId)).toStrictEqual(["t1"]);
 });
@@ -334,12 +312,10 @@ test("what m57 does in the panel reaches Luna once, on her next browser call", a
     (await (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text?: string }[] }>)(args, { conversationId: "7" }, {})).output.map(o => o.text ?? "").join("\n");
   await run("browser", { action: "open", url: "https://x.test/" });
   const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
-  panel.control(7, "t1", "take");
-  panel.control(7, "t1", "give");
   await panel.close(7, mine.tabId);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
   const first = await run("browser", { action: "snapshot", tabId: "t1" });
-  expect(first).toMatch(new RegExp(`m57 opened ${mine.tabId} at https://m57.test/; m57 took over t1; m57 gave t1 back to you; m57 closed ${mine.tabId}`));
+  expect(first).toMatch(new RegExp(`m57 opened ${mine.tabId} at https://m57.test/; m57 closed ${mine.tabId}`));
   expect(first).not.toMatch(/other\.test/);
   expect(await run("browser", { action: "snapshot", tabId: "t1" })).not.toMatch(/in the panel/);
 });

@@ -69,6 +69,8 @@ import { ScheduledMessagesService } from "./scheduled-messages.js";
 import { DeviceStore, FcmSender, loadServiceAccount, PushNotifier } from "./push.js";
 import { WebhookStore, Webhooks, type WebhookTargets } from "./webhooks.js";
 import { createWebhookExtension } from "./webhook-tools.js";
+import { MailService } from "./mail/service.js";
+import { createMailExtension, createMailSendExtension } from "./mail-tools.js";
 import { createPlannedSession, linkProject, planSession } from "./session-create.js";
 import { SubagentNotifier } from "./subagent-notify.js";
 import { CrewNotifier, createSessionCrewExtension } from "./session-crew.js";
@@ -240,6 +242,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let webhookTargets: WebhookTargets | undefined;
   const webhooks = new Webhooks(new WebhookStore(join(cfg.dataDir, "webhooks.db")), { targets: () => webhookTargets, fetch: o.fetch, log });
   if (on("webhooks")) extensions.push(createWebhookExtension(() => webhooks));
+  // Mail: only start MailService (mail.db, routes, tools) when the "mail" extension is enabled.
+  const mail = on("mail") ? new MailService({ dataDir: cfg.dataDir, fetch: o.fetch, log }) : undefined;
+  const notifyUrl = () => live().cron.notifyUrl;
+  const sendApprovalNotify = async (conv: number, p: { questions: { question: string }[] }) => {
+    const url = notifyUrl();
+    if (!url) return;
+    const body = p.questions.map((q) => `• ${q.question}`).join("\n");
+    await (o.fetch ?? fetch)(url, { method: "POST", headers: { Title: `Luna is asking (session ${conv})`, "Content-Type": "text/plain; charset=utf-8" }, body: body.slice(0, 4000) });
+  };
+  const mailSend = mail ? createMailSendExtension(() => mail, { onAsk: sendApprovalNotify }) : undefined;
+  if (mail) extensions.push(createMailExtension(() => mail), mailSend!);
   const improver = on("skills") ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), readDirs: cfg.allSkillDirs }) : undefined;
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler, { jobs: () => live().extensions.includes("cron") }));
   const disabledSkills = (id?: number) => {
@@ -269,15 +282,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   }));
   extensions.push(createSessionWorktreeExtension({ projects: () => conversationsRef?.projects, title: id => conversationsRef?.get(id).title }));
   // ask_user_question waits for a human, so cron runs never get it. A push goes to cron.notifyUrl when one is set.
-  const notifyUrl = () => live().cron.notifyUrl;
-  const ask = on("ask-user") ? createAskExtension({
-    onAsk: async (conv, p) => {
-      const url = notifyUrl();
-      if (!url) return;
-      const body = p.questions.map((q) => `• ${q.question}`).join("\n");
-      await (o.fetch ?? fetch)(url, { method: "POST", headers: { Title: `Luna is asking (session ${conv})`, "Content-Type": "text/plain; charset=utf-8" }, body: body.slice(0, 4000) });
-    },
-  }) : undefined;
+  const ask = on("ask-user") ? createAskExtension({ onAsk: sendApprovalNotify }) : undefined;
   if (ask) extensions.push(ask);
   // Live policy: Settings changes apply to the next send without a restart.
   const sessionTalk = () => (settings?.shared() ?? cfg).sessionTalk;
@@ -392,7 +397,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     harness, conversations, log,
     session: () => ({ base: newSessionAgent, thinking: live, models: built.models, projects: conversations.projects, workers: workers.store, projectExtensions }),
     policy: () => live().boardAuto,
-    exclude: ask ? [ask] : [],
+    exclude: [...(ask ? [ask] : []), ...(mailSend ? [mailSend] : [])],
     goal: on("goal"),
   });
   boardAuto.start();
@@ -470,7 +475,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
         }
         const url = notifyUrl(); return url ? deliverRun(url, job, run, o.fetch) : undefined;
       },
-      exclude: [board, ...(ask ? [ask] : [])],
+      exclude: [board, ...(ask ? [ask] : []), ...(mailSend ? [mailSend] : [])],
       // Wife's model pass stays home when no session (other than cron runs) was active since its last run.
       skipRun: job => {
         if (job.name !== WIFE_JOB_NAME || !wifeRef) return null;
@@ -580,9 +585,11 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     terminals,
     browserPanel,
     webhooks,
+    mail,
     boardAuto,
     async close() {
       await boardAuto.close();
+      mail?.close();
       wife.stop();
       wifeStore.close();
       await limitRecovery.close();

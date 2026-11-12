@@ -2,7 +2,7 @@
 // One terminal: the emulator canvas plus its WebSocket. The server keeps the shell alive, so this view can come and go.
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { createTerm, type TermHandle } from "@/lib/term-adapter";
-import { attachUrl, dropTab, markEnded, setControl, terminal } from "@/stores/terminal";
+import { attachUrl, dropTab, markEnded } from "@/stores/terminal";
 
 const props = defineProps<{
   session: string;
@@ -31,11 +31,7 @@ const encoder = new TextEncoder();
 
 function setNote(text: string) { note.value = text; emit("status", text); }
 
-/** While Luna types, the server drops m57's keys and sizes. The view stays read-only and does not reflow her screen. */
-const lunaTypes = () => terminal.tabs.find(t => t.id === props.id)?.controller === "agent";
-
 function sendResize() {
-  if (lunaTypes()) return;
   if (term && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
 }
 
@@ -70,12 +66,8 @@ async function connect() {
   socket.onmessage = event => {
     if (stale()) return;
     if (typeof event.data !== "string") { term?.write(new Uint8Array(event.data as ArrayBuffer)); return; }
-    let msg: { type?: string; exitCode?: number | null; reason?: string; controller?: "user" | "agent"; shared?: boolean };
+    let msg: { type?: string; exitCode?: number | null; reason?: string };
     try { msg = JSON.parse(event.data); } catch { return; }
-    if ((msg.type === "replay-start" || msg.type === "control") && msg.controller) {
-      setControl(props.id, msg.controller, !!msg.shared);
-      if (msg.type === "control" && msg.controller === "user") sendResize();
-    }
     if (msg.type === "replay-start") term?.reset();
     else if (msg.type === "replay-end") { live = true; sendResize(); }
     else if (msg.type === "exit") {
@@ -103,7 +95,6 @@ function schedule() {
 }
 
 function send(data: string) {
-  if (lunaTypes()) return;
   if (ws?.readyState === WebSocket.OPEN && live) ws.send(encoder.encode(data));
 }
 /** Input from outside the canvas, such as the mobile key chips. Goes through the same path as typing. */
