@@ -11,7 +11,7 @@ import * as modelsStore from "./models";
 import * as sessionsStore from "./sessions";
 import * as composerStore from "./composer";
 
-export type View = "chat" | "analytics" | "wife" | "source-control" | "mail" | "settings";
+export type View = "chat" | "analytics" | "wife" | "source-control" | "settings";
 const SIDE_MIN = 200, SIDE_MAX = 480;
 
 function savedWidth(): number | null {
@@ -71,7 +71,7 @@ function closeSettings(force = false): boolean {
   setDrawer(false);
   return true;
 }
-function closePage(view: "analytics" | "wife" | "source-control" | "mail") {
+function closePage(view: "analytics" | "wife" | "source-control") {
   if (ui.view !== view) return;
   ui.view = "chat";
   if (isPageHash(view)) clearHash();
@@ -90,7 +90,7 @@ function openSettings(route?: string) {
   ui.settingsTab = category;
   ui.settingsTarget = target;
   ui.settingsNavigation++;
-  if (ui.view !== "settings") { closePanel(); closePage("analytics"); closePage("wife"); closePage("source-control"); closePage("mail"); ui.view = "settings"; }
+  if (ui.view !== "settings") { closePanel(); closePage("analytics"); closePage("wife"); closePage("source-control"); ui.view = "settings"; }
   setDrawer(false);
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
@@ -104,7 +104,7 @@ export function setSettingsTab(route: string) {
   ui.settingsNavigation++;
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
-function openPage(view: "analytics" | "wife" | "source-control" | "mail") {
+function openPage(view: "analytics" | "wife" | "source-control") {
   if (!closeSettings()) return;
   if (ui.login) return;
   closePanel(); setDrawer(false);
@@ -137,10 +137,9 @@ export function leavePages(): boolean {
   if (ui.view === "analytics") closePage("analytics");
   if (ui.view === "wife") closePage("wife");
   if (ui.view === "source-control") closePage("source-control");
-  if (ui.view === "mail") closePage("mail");
   return true;
 }
-export function navigate(view: View, tab?: string) {
+export function navigate(view: View | "mail", tab?: string) {
   if (view === "settings") openSettings(tab);
   else if (view === "analytics") openAnalytics();
   else if (view === "wife") openWife();
@@ -174,7 +173,6 @@ export function closePanel() {
     else if (ui.view === "analytics") document.getElementById("analytics-menu")?.focus();
     else if (ui.view === "wife") document.getElementById("wife-menu")?.focus();
     else if (ui.view === "source-control") document.getElementById("source-control-menu")?.focus();
-    else if (ui.view === "mail") document.getElementById("mail-menu")?.focus();
     else {
       const menu = document.getElementById("menu");
       (menu?.offsetParent ? menu : document.getElementById("more"))?.focus();
@@ -414,7 +412,7 @@ window.addEventListener("hashchange", () => {
   if (!closeSettings()) return;
   if (h === "#analytics" || h.startsWith("#analytics/") || h === "#wife" || h === "#source-control" || h.startsWith("#source-control/") || h === "#mail" || h === "#cron") applyHash();
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
-  else { closePage("analytics"); closePage("wife"); closePage("source-control"); closePage("mail"); }
+  else { closePage("analytics"); closePage("wife"); closePage("source-control"); }
 });
 window.addEventListener("beforeunload", e => {
   if (ui.view === "settings" && guard?.isDirty()) { e.preventDefault(); e.returnValue = ""; }
