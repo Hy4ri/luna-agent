@@ -3,8 +3,6 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
-import http from "node:http";
-import https from "node:https";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { isWorkerEnv } from "./worker-protocol.js";
 
@@ -58,35 +56,43 @@ async function fetchBytes(value: string, signal: AbortSignal): Promise<Buffer> {
     interrupted(signal);
     // Pin the exact address validated here. Keep URL host for HTTP Host and TLS SNI/certificate verification.
     const { url, address } = await resolveUrl(current, requestSignal);
+    const pinnedHost = address.family === 6 ? `[${address.address}]` : address.address;
+    const pinnedUrl = `${url.protocol}//${pinnedHost}${url.port ? `:${url.port}` : ""}${url.pathname}${url.search}`;
+    const serverName = url.hostname.replace(/^\[|\]$/g, "");
     let response: { location?: string; bytes: Buffer } | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        response = await new Promise((done, fail) => {
-          const req = (url.protocol === "https:" ? https : http).request(url, {
-            signal: requestSignal, agent: false,
-            lookup: (_host, lookupOptions, callback) => {
-              if (typeof lookupOptions === "object" && lookupOptions.all) callback(null, [{ address: address.address, family: address.family }]);
-              else callback(null, address.address, address.family);
-            },
-          }, res => {
-            if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-              res.destroy(); done({ location: res.headers.location, bytes: Buffer.alloc(0) }); return;
-            }
-            if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-              res.destroy(); fail(new HttpImageError(`Image HTTP ${res.statusCode}`, (res.statusCode ?? 0) >= 500)); return;
-            }
-            const chunks: Buffer[] = []; let size = 0;
-            res.on("data", (chunk: Buffer) => {
-              size += chunk.length;
-              if (size > MAX_BYTES) { res.destroy(new HttpImageError("Image exceeds 32 MiB transport limit.", false)); return; }
-              chunks.push(chunk);
-            });
-            res.on("end", () => done({ bytes: Buffer.concat(chunks) }));
-            res.on("error", fail);
-            res.on("aborted", () => fail(new Error("Image download aborted.")));
-          });
-          req.on("error", fail); req.end();
+        const res = await fetch(pinnedUrl, {
+          signal: requestSignal,
+          redirect: "manual",
+          headers: { Host: url.host },
+          ...(url.protocol === "https:" ? { tls: { serverName } } : {}),
         });
+        const location = res.headers.get("location");
+        if (res.status >= 300 && res.status < 400 && location) {
+          await res.body?.cancel();
+          response = { location, bytes: Buffer.alloc(0) };
+          break;
+        }
+        if (res.status < 200 || res.status >= 300) {
+          await res.body?.cancel();
+          throw new HttpImageError(`Image HTTP ${res.status}`, res.status >= 500);
+        }
+        const reader = res.body?.getReader();
+        if (!reader) { response = { bytes: Buffer.alloc(0) }; break; }
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > MAX_BYTES) {
+            await reader.cancel();
+            throw new HttpImageError("Image exceeds 32 MiB transport limit.", false);
+          }
+          chunks.push(value);
+        }
+        response = { bytes: Buffer.concat(chunks) };
         break;
       } catch (error) {
         interrupted(signal);
