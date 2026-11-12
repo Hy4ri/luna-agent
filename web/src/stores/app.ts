@@ -120,7 +120,11 @@ export function openBoardCard(projectId: number, cardId: number) {
   openPanel('board');
 }
 export const openSourceControl = () => openPage("source-control");
-export const openMail = () => openPage("mail");
+export function openMail() {
+  void import("./dock").then(({ setPane }) => setPane("mail"));
+  void import("./terminal").then(({ terminal }) => { terminal.open = true; });
+  setDrawer(false);
+}
 /** "Back to chat" from any page. Focuses the composer. */
 export function backToChat() {
   if (ui.view === "settings") { if (!closeSettings()) return; }
@@ -400,7 +404,7 @@ function applyHash() {
   else if (h === "#analytics" || h.startsWith("#analytics/")) { if (ui.view !== "analytics") openAnalytics(); }
   else if (h === "#wife") { if (ui.view !== "wife") openWife(); }
   else if (h === "#source-control" || h.startsWith("#source-control/")) { if (ui.view !== "source-control") openSourceControl(); }
-  else if (h === "#mail") { if (ui.view !== "mail") openMail(); }
+  else if (h === "#mail") { history.replaceState(null, "", location.pathname + location.search); openMail(); }
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#cron") { history.replaceState(null, "", location.pathname + location.search); openPanel("cron"); }
 }

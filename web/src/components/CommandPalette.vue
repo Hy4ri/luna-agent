@@ -6,6 +6,7 @@ import { Check, Search } from '@lucide/vue';
 import { ui, setPalette, navigate, openPanel, toggleCollapsed, settingsDirty, settingsChanged } from '@/stores/app';
 import { chat, busy, openSession, scheduleContext } from '@/stores/chat';
 import { terminal, toggleTerminal } from '@/stores/terminal';
+import { setPane, dock } from '@/stores/dock';
 import { sessionPane } from '@/lib/pane';
 import { history, sessionTitle, projectName, querySessions } from '@/stores/sessions';
 import type { ModelInfo, SessionMeta } from '@/lib/types';
@@ -148,12 +149,12 @@ const items = computed<Item[]>(() => {
   add({ id: 'view:wife', group: 'Go to', label: 'Wife', current: ui.view === 'wife', run: () => navigate('wife') });
   add({ id: 'view:analytics', group: 'Go to', label: 'Analytics', current: ui.view === 'analytics', run: () => navigate('analytics') });
   add({ id: 'view:source-control', group: 'Go to', label: 'Source Control', current: ui.view === 'source-control', run: () => navigate('source-control') });
-  add({ id: 'view:mail', group: 'Go to', label: 'Mail', current: ui.view === 'mail', run: () => navigate('mail') });
+  add({ id: 'view:mail', group: 'Go to', label: 'Mail', current: terminal.open && dock.pane === 'mail', run: () => { setPane('mail'); terminal.open = true; } });
   add({ id: 'view:github', group: 'Go to', label: 'GitHub (alias)', current: ui.view === 'source-control', run: () => navigate('source-control') });
   for (const s of sections) add({ id: 'settings:' + s.id, group: 'Go to', label: 'Settings: ' + s.title, hint: s.description, current: ui.view === 'settings' && ui.settingsTab === s.id, run: () => navigate('settings', s.id) });
   for (const [id, panel] of Object.entries(PANELS)) add({ id: 'panel:' + id, group: 'Open', label: panel.title, hint: panel.desc, current: ui.panel === id, run: () => openPanel(id) });
 
-  if (chat.session && !sessionPane) add({ id: 'layout:terminal', group: 'Layout', label: terminal.open ? 'Hide terminal' : 'Show terminal', hint: 'Ctrl+`', keep: false, run: () => toggleTerminal() });
+  if (!sessionPane) add({ id: 'layout:terminal', group: 'Layout', label: terminal.open ? 'Hide workspace dock' : 'Show workspace dock', hint: 'Ctrl+`', keep: false, run: () => toggleTerminal() });
   if (!mobile.value) add({ id: 'layout:sidebar', group: 'Layout', label: ui.collapsed ? 'Expand sidebar' : 'Collapse sidebar', keep: true, run: toggleCollapsed });
 
   add({ id: 'session:new', group: 'Conversations', label: 'New conversation', disabled: props.newSessionDisabled ? 'Not available while disconnected' : undefined, run: () => { navigate('chat'); return props.newSession(); } });

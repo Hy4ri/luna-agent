@@ -102,8 +102,8 @@ export class TerminalRegistry {
     let proc: PtyProcess;
     let vt: VtModel | undefined;
     try {
-      // Load the parser before the program starts, so its first bytes are not lost.
-      if (owner === "agent") vt = await (await this.factory())(cols, rows);
+      // Load the parser before the program starts when available, so Luna can always read any terminal screen.
+      if (owner === "agent" || this.options.vt) vt = await (await this.factory())(cols, rows);
       proc = await this.options.launcher(input.worker, { file, args, cwd: input.cwd, env: shellEnvironment(this.options.env), cols, rows, ...(input.command ? { command: input.command } : {}) });
     } catch (e) {
       vt?.dispose();
@@ -116,7 +116,7 @@ export class TerminalRegistry {
     const entry: Entry = {
       info: {
         id: crypto.randomUUID(), session: input.session, owner, worker: input.worker, cwd: input.cwd, shell: proc.shell ?? basename(file),
-        ...(input.command ? { command: input.command } : {}), controller: owner === "agent" ? "agent" : "user", shared: owner === "agent",
+        ...(input.command ? { command: input.command } : {}), controller: owner === "agent" ? "agent" : "user", shared: true,
         cols, rows, status: "running", exitCode: null, createdAt: Date.now(),
       },
       proc, ring: [], ringBytes: 0, listeners: new Set(), vt, watchers: new Set(), lastOutput: Date.now(),
@@ -197,16 +197,16 @@ export class TerminalRegistry {
     return { info: { ...e.info }, replay: Buffer.concat(e.ring), detach: () => { e.listeners.delete(listener); } };
   }
 
-  /** m57's keys. They are dropped while Luna has control, so input never collides. */
+  /** m57's keys. Always two-way: m57 and Luna can both type without locking. */
   write(id: string, data: string | Buffer) {
     const e = this.entry(id);
-    if (e.info.controller === "user" && e.proc && e.info.status === "running") e.proc.write(data);
+    if (e.proc && e.info.status === "running") e.proc.write(data);
   }
 
-  /** Only the side in control sets the size, so a browser tab cannot reflow the screen Luna is reading. */
+  /** Resize the terminal. */
   resize(id: string, cols: number, rows: number) {
     const e = this.entry(id);
-    if (e.info.controller === "user") this.setSize(e, cols, rows);
+    this.setSize(e, cols, rows);
   }
 
   private setSize(e: Entry, cols: number, rows: number) {
@@ -228,7 +228,6 @@ export class TerminalRegistry {
   private agentControlled(id: string, session: number): Entry {
     const e = this.agentEntry(id, session);
     if (e.info.status !== "running") throw new TerminalError(`The terminal has ended${e.info.exitCode === null ? "" : ` with exit code ${e.info.exitCode}`}.`, 409);
-    if (e.info.controller !== "agent") throw new TerminalError("m57 has control of this terminal. Wait until he gives it back, or ask him.", 409);
     return e;
   }
 

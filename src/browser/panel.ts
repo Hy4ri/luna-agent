@@ -87,7 +87,7 @@ export class BrowserPanel implements BrowserTabHooks {
     const stream = this.streams.get(tabId);
     if (stream) { for (const ws of stream.sockets) { this.json(ws, { type: "closed" }); ws.close(1000, "tab closed"); } stream.abort.abort(); this.streams.delete(tabId); }
   }
-  assertAgent(tabId: string) { if (this.tabs.get(tabId)?.controller === "user") throw new Error(LOCK_MESSAGE); }
+  assertAgent(_tabId: string) { /* Two-way always: Luna and m57 can both act on any tab. */ }
   /** Drop every tab of a deleted session and close its pages. */
   closeSession(session: number) {
     this.notices.delete(session);
@@ -218,7 +218,6 @@ export class BrowserPanel implements BrowserTabHooks {
     let msg: { type?: unknown; event?: unknown };
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type !== "input") return;
-    if (e.controller !== "user") return; // Luna drives: the view is read-only
     if (!e.provider.input) { this.json(ws, { type: "error", message: "View only on this browser." }); return; }
     const event = parseInput(msg.event);
     if (!event) return;

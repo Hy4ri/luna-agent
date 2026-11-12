@@ -204,45 +204,29 @@ test("an agent terminal runs one program, reads its screen, and ends with it", a
   throwsWith(() => r.agentWrite(info.id, 1, "x"), (e: unknown) => e instanceof TerminalError && e.status === 409);
 });
 
-test("control moves the keyboard: m57's keys are dropped while Luna types, and Luna is refused after he takes over", async () => {
+test("terminals are two-way always: both m57 and Luna can type and read without locking", async () => {
   const r = registry();
   const info = await r.create({ session: 1, owner: "agent", worker: null, cwd: "/tmp", command: "cat", cols: 40, rows: 5 });
   r.write(info.id, "user-typed\r");
   r.agentWrite(info.id, 1, "luna-typed\r");
-  await until(() => screenText(r, info.id).includes("luna-typed"), "luna echo");
-  expect(!screenText(r, info.id).includes("user-typed")).toBeTruthy();
-  const events: string[] = [];
-  r.attach(info.id, { data() {}, exit() {}, closed() {}, control: i => events.push(i.controller) });
+  await until(() => screenText(r, info.id).includes("user-typed") && screenText(r, info.id).includes("luna-typed"), "both echo");
   await r.control(info.id, "take");
-  throwsWith(() => r.agentWrite(info.id, 1, "x"), /m57 has control/);
-  r.write(info.id, "user-now\r");
-  await until(() => screenText(r, info.id).includes("user-now"), "user echo");
-  await r.control(info.id, "give");
-  expect(events).toStrictEqual(["user", "agent"]);
-  await rejectsWith(r.control(info.id, "unshare"), /always visible/);
+  r.agentWrite(info.id, 1, "still-works\r");
+  await until(() => screenText(r, info.id).includes("still-works"), "luna still works");
 });
 
-test("sharing a user shell replays its output into a screen Luna can read; unsharing hides it again", async () => {
+test("user shells are shared with Luna by default and readable immediately", async () => {
   const r = registry();
   const info = await r.create({ session: 1, worker: null, cwd: "/tmp", cols: 60, rows: 8 });
-  expect(info.shared).toBe(false);
-  expect(r.agentList(1)).toStrictEqual([]);
+  expect(info.shared).toBe(true);
+  expect(r.agentList(1).length).toBe(1);
   r.write(info.id, "printf 'before-%s\\n' share\n");
   const seen = { text: "" };
   r.attach(info.id, { data: c => { seen.text += c.toString(); }, exit() {}, closed() {} });
   await until(() => seen.text.includes("before-share"), "shell output");
-  throwsWith(() => r.agentScreen(info.id, 1), (e: unknown) => e instanceof TerminalError && e.status === 404);
-  await rejectsWith(r.control(info.id, "give"), /Share the terminal/);
-  await r.control(info.id, "share");
   expect(screenText(r, info.id)).toMatch(/before-share/);
-  expect(r.agentList(1).length).toBe(1);
-  throwsWith(() => r.agentWrite(info.id, 1, "x"), /m57 has control/);
-  await r.control(info.id, "give");
   r.agentWrite(info.id, 1, "printf 'from-%s\\n' luna\n");
   await until(() => screenText(r, info.id).includes("from-luna"), "luna command");
-  await r.control(info.id, "unshare");
-  expect(r.get(info.id)?.controller).toBe("user");
-  throwsWith(() => r.agentScreen(info.id, 1), (e: unknown) => e instanceof TerminalError && e.status === 404);
 });
 
 // ---- the tool through the runtime, with a scripted model ----

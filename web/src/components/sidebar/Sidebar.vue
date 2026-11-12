@@ -39,8 +39,10 @@ import {
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { useVirtualList } from "@vueuse/core";
-import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openWife, openSourceControl, openMail } from "@/stores/app";
+import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openWife, openSourceControl } from "@/stores/app";
 import { mailUnreadTotal } from "@/stores/mail";
+import { dock, setPane } from "@/stores/dock";
+import { terminal } from "@/stores/terminal";
 import { chat, openSession, newSession } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects, resolveQuickSessionTarget } from "@/lib/projects";
@@ -465,7 +467,7 @@ onMounted(() => {
       <button class="side-item" title="Analytics" :aria-current="ui.view === 'analytics' ? 'page' : undefined" @click="openAnalytics"><ChartNoAxesColumn :size="16" /><span class="side-label">Analytics</span></button>
       <button class="side-item" title="Wife" :aria-current="ui.view === 'wife' ? 'page' : undefined" @click="openWife"><HeartHandshake :size="16" /><span class="side-label">Wife</span><span v-if="wifeOpen" class="ml-auto text-xs tabular-nums text-muted-foreground">{{ wifeOpen }}</span></button>
       <button class="side-item" title="Source Control" :aria-current="ui.view === 'source-control' ? 'page' : undefined" @click="openSourceControl"><GitBranch :size="16" /><span class="side-label">Source Control</span></button>
-      <button class="side-item" title="Mail" :aria-current="ui.view === 'mail' ? 'page' : undefined" @click="openMail"><Mail :size="16" /><span class="side-label">Mail</span><span v-if="mailUnreadTotal" class="ml-auto text-xs tabular-nums text-muted-foreground">{{ mailUnreadTotal }}</span></button>
+      <button class="side-item" title="Mail" :aria-current="terminal.open && dock.pane === 'mail' ? 'page' : undefined" @click="setPane('mail'); terminal.open = true; setDrawer(false)"><Mail :size="16" /><span class="side-label">Mail</span><span v-if="mailUnreadTotal" class="ml-auto text-xs tabular-nums text-muted-foreground">{{ mailUnreadTotal }}</span></button>
     </nav>
 
     <!-- History Section -->

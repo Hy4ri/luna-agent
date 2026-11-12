@@ -7,7 +7,7 @@ import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { context, openLuna } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
 import { createApp } from "../src/server.js";
-import { BrowserPanel, LOCK_MESSAGE, parseInput, pngSize, type BrowserWsData } from "../src/browser/panel.js";
+import { BrowserPanel, parseInput, pngSize, type BrowserWsData } from "../src/browser/panel.js";
 import { createBrowserToolsExtension, type BrowserInput, type BrowserProvider } from "../src/browser-tools.js";
 import { rejectsWith } from "./support/expect-error.js";
 
@@ -119,7 +119,7 @@ test("tabs the tools open belong to the session and drop on close", async () => 
   expect(panel.list(7)).toStrictEqual([]);
 });
 
-test("while m57 holds a tab, Luna's actions on it fail and inspection still works", async () => {
+test("browser tabs are two-way always: Luna and m57 can both act without locking", async () => {
   const panel = new BrowserPanel({ enabled: () => true, resolve: async () => fakeProvider().provider });
   const { provider, calls } = fakeProvider({ input: async () => undefined });
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
@@ -127,14 +127,10 @@ test("while m57 holds a tab, Luna's actions on it fail and inspection still work
   const run = (name: string, args: Record<string, unknown>) => (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)(args, { conversationId: "7" }, {});
   await run("browser", { action: "open", url: "https://x.test/" });
   panel.control(7, "t1", "take");
-  await rejectsWith(run("browser_act", { action: "click", tabId: "t1", selector: "a" }), new RegExp(LOCK_MESSAGE.slice(0, 20)));
-  await rejectsWith(run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/c" }), /m57 is using this tab/);
-  await rejectsWith(run("browser", { action: "close", tabId: "t1" }), /m57 is using this tab/);
-  expect(calls).toStrictEqual(["open"]);
-  await run("browser", { action: "screenshot", tabId: "t1" });
-  panel.control(7, "t1", "give");
   await run("browser_act", { action: "click", tabId: "t1", selector: "a" });
-  expect(calls).toStrictEqual(["open", "screenshot", "click"]);
+  await run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/c" });
+  await run("browser", { action: "screenshot", tabId: "t1" });
+  expect(calls).toStrictEqual(["open", "click", "navigate", "screenshot"]);
 });
 
 test("a view-only tab cannot be taken", async () => {
@@ -247,7 +243,7 @@ test("with watch, pushed frames reach every socket and the feed stops after the 
   } finally { await s.cleanup(); }
 });
 
-test("input reaches the provider only while m57 drives", async () => {
+test("input reaches the provider immediately without taking control", async () => {
   const events = [] as BrowserInput[];
   const s = await setup({ input: async ({ event }) => { events.push(event); return event.kind === "nav" ? { url: "https://x.test/next" } : undefined; } });
   try {
@@ -256,11 +252,6 @@ test("input reaches the provider only while m57 drives", async () => {
     const c = attach(s.port, "t1", await ticket(s, sid, "t1"));
     await c.opened;
     const click = JSON.stringify({ type: "input", event: { kind: "mouse", type: "down", x: 5, y: 6 } });
-    c.ws.send(click);
-    await new Promise(r => setTimeout(r, 50));
-    expect(events, "dropped while Luna drives").toStrictEqual([]);
-    await s.call(`/v1/sessions/${sid}/browser/t1/control`, { method: "POST", body: JSON.stringify({ action: "take" }) });
-    await until(() => c.got.json.some(m => m.type === "meta" && m.controller === "user"), "meta shows m57 driving");
     c.ws.send(click);
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "https://x.test/next" } }));
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "javascript:alert(1)" } }));
