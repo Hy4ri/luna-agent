@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll as after, test } from "bun:test";
+import { afterAll as after, test, expect } from "bun:test";
 import { TerminalRegistry } from "../src/terminal/registry.js";
 import { localLauncher } from "../src/terminal/pty-host.js";
 import { startWorker } from "../src/worker.js";
@@ -40,13 +39,13 @@ after(async () => { registry.closeAll(); await w.close(); hub.close(); await ser
 const until = async (fn: () => boolean, ms = 8000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw new Error("timeout"); await new Promise(r => setTimeout(r, 25)); } };
 
 test("a worker advertises PTY support", () => {
-  assert.equal(hub.view(worker.id)?.capabilities?.pty, true);
+  expect(hub.view(worker.id)?.capabilities?.pty).toBe(true);
 });
 
 test("a terminal on a worker runs a shell there and relays input, output and exit", async () => {
   const info = await registry.create({ session: 1, worker: worker.id, cwd: dir, cols: 100, rows: 30 });
-  assert.equal(info.worker, worker.id);
-  assert.equal(info.shell, (process.env.SHELL ?? "/bin/sh").split("/").pop()); // the worker picks its own shell
+  expect(info.worker).toBe(worker.id);
+  expect(info.shell).toBe((process.env.SHELL ?? "/bin/sh").split("/").pop()); // the worker picks its own shell
   let out = "";
   let exit: number | null | undefined;
   const a = registry.attach(info.id, { data: d => { out += d.toString(); }, exit: i => { exit = i.exitCode; }, closed: () => {} });
@@ -55,8 +54,8 @@ test("a terminal on a worker runs a shell there and relays input, output and exi
   await until(() => out.includes("relay-42") && out.includes(dir));
   registry.write(info.id, "exit 3\n");
   await until(() => exit !== undefined);
-  assert.equal(exit, 3);
-  assert.equal(registry.get(info.id)?.status, "ended");
+  expect(exit).toBe(3);
+  expect(registry.get(info.id)?.status).toBe("ended");
 });
 
 test("losing the worker ends its terminals with a reason", async () => {
@@ -65,6 +64,6 @@ test("losing the worker ends its terminals with a reason", async () => {
   registry.attach(info.id, { data: () => {}, exit: i => { ended = true; reason = i.endReason; }, closed: () => {} });
   hub.remove(worker.id);
   await until(() => ended);
-  assert.match(reason ?? "", /removed/i);
-  await assert.rejects(registry.create({ session: 2, worker: worker.id, cwd: dir }), /offline|unavailable|Execution machine/);
+  expect(reason ?? "").toMatch(/removed/i);
+  await expect(registry.create({ session: 2, worker: worker.id, cwd: dir })).rejects.toThrow(/offline|unavailable|Execution machine/);
 });

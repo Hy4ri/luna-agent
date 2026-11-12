@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll as after, test } from "bun:test";
+import { afterAll as after, test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { startWorker } from "../src/worker.js";
 import { WorkerHub, WorkerStore, type WorkerWsData } from "../src/workers.js";
@@ -30,11 +29,11 @@ test("worker commands cannot read the link token or the API token", async () => 
     env: { ...process.env, HOME: home, LUNA_URL: url, LUNA_WORKER_TOKEN: token, LUNA_TOKEN: "api-secret", LUNA_WORKER_CWD: dir }, stdout: "ignore", stderr: "ignore" });
   try {
     for (let i = 0; i < 100 && !hub.view(worker.id)?.online; i++) await Bun.sleep(100);
-    assert.ok(hub.view(worker.id)?.online);
+    expect(hub.view(worker.id)?.online).toBeTruthy();
     let out = "";
     const r = await (hub.env(worker.id, dir) as any).exec("echo \"[$LUNA_WORKER_TOKEN][$LUNA_TOKEN]\"", { onOutput: (t: string) => { out += t; } }, BACKGROUND_CONTEXT);
-    assert.ok(r.ok);
-    assert.equal(out.trim(), "[][]");
+    expect(r.ok).toBeTruthy();
+    expect(out.trim()).toBe("[][]");
   } finally { proc.kill(); await proc.exited; }
 });
 
@@ -53,10 +52,10 @@ test("a call the worker never answers fails on its own and leaves the link up", 
     releaseFifo = () => closeSync(openSync(fifo, "r+"));
     const env = hub.env(worker.id, dir) as any;
     const r = await env.readTextFile(fifo, BACKGROUND_CONTEXT);
-    assert.equal(r.ok, false);
-    assert.match(r.error.message, /did not answer within/);
-    assert.ok(hub.view(worker.id)?.online);
-    assert.ok((await env.exists(dir, BACKGROUND_CONTEXT)).ok);
+    expect(r.ok).toBe(false);
+    expect(r.error.message).toMatch(/did not answer within/);
+    expect(hub.view(worker.id)?.online).toBeTruthy();
+    expect((await env.exists(dir, BACKGROUND_CONTEXT)).ok).toBeTruthy();
   } finally { hub.fileTimeoutMs = 120_000; releaseFifo?.(); await Bun.sleep(100); await w.close(); }
 }, 20_000);
 
@@ -70,10 +69,10 @@ test("an oversized result fails that call only; other commands survive", async (
     const env = hub.env(worker.id, dir) as any;
     const running = env.exec("sleep 2; echo alive", {}, BACKGROUND_CONTEXT);
     const r = await env.readBinaryFile(big, BACKGROUND_CONTEXT);
-    assert.equal(r.ok, false);
-    assert.match(r.error.message, /frame limit/);
-    assert.ok(hub.view(worker.id)?.online);
+    expect(r.ok).toBe(false);
+    expect(r.error.message).toMatch(/frame limit/);
+    expect(hub.view(worker.id)?.online).toBeTruthy();
     const done = await running;
-    assert.ok(done.ok); assert.equal(done.value.exitCode, 0);
+    expect(done.ok).toBeTruthy(); expect(done.value.exitCode).toBe(0);
   } finally { await w.close(); }
 }, 60_000);

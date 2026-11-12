@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { defineDoc } from "@earendil-works/pi-durable";
 import { createModels } from "@earendil-works/pi-ai";
 import { openLuna, context } from "../src/luna.js";
@@ -32,38 +31,38 @@ test("session-scope document writes rebuild only the list rows whose inputs chan
     const list = async () => {
       built.length = 0;
       const res = await app.request("/v1/sessions?limit=50");
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json() as { sessions?: { id: number; scheduled?: { count: number } }[] } | { id: number; scheduled?: { count: number } }[];
       const sessions = Array.isArray(body) ? body : body.sessions ?? [];
       return { rebuilt: [...built].sort((x, y) => x - y), scheduled: (id: number) => sessions.find(s => Number(s.id) === id)?.scheduled?.count };
     };
     const write = (fn: (tx: any) => Promise<void>) => harness.commit(fn, context);
 
-    assert.deepEqual((await list()).rebuilt, [a, b].sort((x, y) => x - y));
+    expect((await list()).rebuilt).toEqual([a, b].sort((x, y) => x - y));
     // The first list creates per-conversation status documents, which invalidates those rows once.
     await list();
-    assert.deepEqual((await list()).rebuilt, [], "warm list reuses every row");
+    expect((await list()).rebuilt).toEqual([]) /* "warm list reuses every row" */;
 
     await write(async tx => { (await tx.doc(LimitWaitsDoc)).routes = { r: { claimedAt: 1 } }; });
-    assert.deepEqual((await list()).rebuilt, [], "documents no row reads leave the cache valid");
+    expect((await list()).rebuilt).toEqual([]) /* "documents no row reads leave the cache valid" */;
 
     await write(async tx => {
       (await tx.doc(ScheduledMessagesDoc)).schedules.s1 = { id: "s1", conversationId: a, createdAt: 1, dueAt: 9e12, content: "later", status: "scheduled", source: { kind: "user" }, requestId: "r1" } as never;
     });
     const afterSchedule = await list();
-    assert.deepEqual(afterSchedule.rebuilt, [a], "a schedule for one conversation rebuilds only that row");
-    assert.equal(afterSchedule.scheduled(a), 1);
+    expect(afterSchedule.rebuilt).toEqual([a]) /* "a schedule for one conversation rebuilds only that row" */;
+    expect(afterSchedule.scheduled(a)).toBe(1);
 
     await write(async tx => { (await tx.doc(RecoveryStateDoc)).attempts[`${b}:1`] = { status: "stopped", reason: "test" } as never; });
-    assert.deepEqual((await list()).rebuilt, [b], "a recovery attempt rebuilds only its conversation");
+    expect((await list()).rebuilt).toEqual([b]) /* "a recovery attempt rebuilds only its conversation" */;
 
     await write(async tx => { delete (await tx.doc(ScheduledMessagesDoc)).schedules.s1; });
     const afterDelete = await list();
-    assert.deepEqual(afterDelete.rebuilt, [a], "removing a schedule rebuilds the row that had it");
-    assert.equal(afterDelete.scheduled(a), 0);
+    expect(afterDelete.rebuilt).toEqual([a]) /* "removing a schedule rebuilds the row that had it" */;
+    expect(afterDelete.scheduled(a)).toBe(0);
 
     await write(async tx => { (await tx.doc(UnknownGlobalDoc)).n = 1; });
-    assert.deepEqual((await list()).rebuilt, [a, b].sort((x, y) => x - y), "an unknown session-scope document still rebuilds every row");
+    expect((await list()).rebuilt).toEqual([a, b].sort((x, y) => x - y)) /* "an unknown session-scope document still rebuilds every row" */;
   } finally {
     await scheduledMessages.close();
     await harness.close(context);

@@ -1,10 +1,9 @@
 // Contract: a session can go through Wife cards with m57 and clean up other sessions through the wife tool,
 // acting only on the ids it is given, with a reason for dismiss and confirm for destructive cards.
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { openLuna } from "../src/luna.js";
@@ -40,19 +39,19 @@ test("list shows id, evidence and payload; dismiss needs a reason; actions touch
   try {
     const a = f.store.file(card("a"))!, b = f.store.file(card("b"))!, c = f.store.file(card("c"))!;
     const list = (await f.run({ action: "list" })).text;
-    assert.match(list, new RegExp(`#${a.id} a \\[open\\] a`));
-    assert.match(list, /evidence: session 3: seen/);
-    assert.match(list, /payload: \{"tip":"a"\}/);
-    assert.equal((await f.run({ action: "dismiss", ids: [a.id] })).error, true);
-    assert.equal((await f.run({ action: "dismiss", ids: [] , reason: "wrong" })).error, true);
+    expect(list).toMatch(new RegExp(`#${a.id} a \\[open\\] a`));
+    expect(list).toMatch(/evidence: session 3: seen/);
+    expect(list).toMatch(/payload: \{"tip":"a"\}/);
+    expect((await f.run({ action: "dismiss", ids: [a.id] })).error).toBe(true);
+    expect((await f.run({ action: "dismiss", ids: [] , reason: "wrong" })).error).toBe(true);
     const r = await f.run({ action: "dismiss", ids: [a.id], reason: "wrong", note: "not my style" });
-    assert.match(r.text, new RegExp(`#${a.id} dismissed`));
-    assert.match((await f.run({ action: "snooze", ids: [b.id], days: 3 })).text, /snoozed/);
-    assert.equal(f.store.get(c.id)!.status, "open");
+    expect(r.text).toMatch(new RegExp(`#${a.id} dismissed`));
+    expect((await f.run({ action: "snooze", ids: [b.id], days: 3 })).text).toMatch(/snoozed/);
+    expect(f.store.get(c.id)!.status).toBe("open");
     const again = await f.run({ action: "dismiss", ids: [a.id, 999], reason: "wrong" });
-    assert.equal(again.error, true);
-    assert.match(again.text, /suggestion is dismissed/);
-    assert.match(again.text, /#999 error: no such suggestion/);
+    expect(again.error).toBe(true);
+    expect(again.text).toMatch(/suggestion is dismissed/);
+    expect(again.text).toMatch(/#999 error: no such suggestion/);
   } finally { await f.close(); }
 });
 
@@ -63,12 +62,12 @@ test("agree on a delete card needs confirm", async () => {
     await f.conversations.update(Number(conv.id), { archived: true });
     const d = f.store.file({ kind: "delete_session", fingerprint: "delete_session:x", title: "Delete", body: "old", evidence: [], payload: { sessionId: Number(conv.id) }, source: "detector" })!;
     const no = await f.run({ action: "agree", ids: [d.id] });
-    assert.equal(no.error, true);
-    assert.match(no.text, /confirm:true/);
-    assert.equal(f.conversations.exists(Number(conv.id)), true);
+    expect(no.error).toBe(true);
+    expect(no.text).toMatch(/confirm:true/);
+    expect(f.conversations.exists(Number(conv.id))).toBe(true);
     const yes = await f.run({ action: "agree", ids: [d.id], confirm: true });
-    assert.equal(yes.error, false, yes.text);
-    assert.equal(f.conversations.exists(Number(conv.id)), false);
+    expect(yes.error).toBe(false) /* yes.text */;
+    expect(f.conversations.exists(Number(conv.id))).toBe(false);
   } finally { await f.close(); }
 });
 
@@ -86,37 +85,37 @@ test("session housekeeping: view, finish todos, cancel questions, clear status, 
       (await tx.doc(GoalDoc, conv.id)).goal = { id: "g", objective: "ship it", mode: "regular", status: "active", tasks: [], audit: false, runs: 0, maxRuns: 5, baseTokens: 0, tokensUsed: 0, created: 1 };
     }, context);
 
-    assert.equal((await f.run({ action: "session", session: 9999 })).error, true);
+    expect((await f.run({ action: "session", session: 9999 })).error).toBe(true);
     const v = (await f.run({ action: "session", session: id })).text;
-    assert.match(v, /1 \[pending\] one/);
-    assert.match(v, /2 \[in_progress\] two/);
-    assert.doesNotMatch(v, /three/);
-    assert.match(v, /q1 \(approval\) Merge\?/);
-    assert.match(v, /Goal \[active\] ship it/);
-    assert.match(v, /needs_input: which db\?/);
+    expect(v).toMatch(/1 \[pending\] one/);
+    expect(v).toMatch(/2 \[in_progress\] two/);
+    expect(v).not.toMatch(/three/);
+    expect(v).toMatch(/q1 \(approval\) Merge\?/);
+    expect(v).toMatch(/Goal \[active\] ship it/);
+    expect(v).toMatch(/needs_input: which db\?/);
 
-    assert.equal((await f.run({ action: "todos_done", session: id })).error, true);   // needs ids or all
-    assert.match((await f.run({ action: "todos_done", session: id, todo_ids: [2, 3] })).text, /Completed 2\. Not open: 3\./);
-    assert.match((await f.run({ action: "todos_done", session: id, all: true })).text, /Completed 1\./);
-    assert.match((await f.run({ action: "cancel_questions", session: id, note: "m57 said no" })).text, /Cancelled 1 question\./);
-    assert.match((await f.run({ action: "clear_status", session: id })).text, /Cleared the handoff/);
-    assert.match((await f.run({ action: "goal", session: id, goal: "pause" })).text, /Goal paused\./);
-    assert.match((await f.run({ action: "goal", session: id, goal: "clear" })).text, /Goal cleared\./);
-    assert.equal((await f.run({ action: "goal", session: id, goal: "clear" })).error, true);
+    expect((await f.run({ action: "todos_done", session: id })).error).toBe(true);   // needs ids or all
+    expect((await f.run({ action: "todos_done", session: id, todo_ids: [2, 3] })).text).toMatch(/Completed 2\. Not open: 3\./);
+    expect((await f.run({ action: "todos_done", session: id, all: true })).text).toMatch(/Completed 1\./);
+    expect((await f.run({ action: "cancel_questions", session: id, note: "m57 said no" })).text).toMatch(/Cancelled 1 question\./);
+    expect((await f.run({ action: "clear_status", session: id })).text).toMatch(/Cleared the handoff/);
+    expect((await f.run({ action: "goal", session: id, goal: "pause" })).text).toMatch(/Goal paused\./);
+    expect((await f.run({ action: "goal", session: id, goal: "clear" })).text).toMatch(/Goal cleared\./);
+    expect((await f.run({ action: "goal", session: id, goal: "clear" })).error).toBe(true);
 
     await f.harness.commit(async tx => {
-      assert.deepEqual((await tx.doc(TodoDoc, conv.id)).tasks.map(t => t.status), ["completed", "completed", "completed"]);
+      expect((await tx.doc(TodoDoc, conv.id)).tasks.map(t => t.status)).toEqual(["completed", "completed", "completed"]);
       const ask = await tx.doc(AskDoc, conv.id);
-      assert.equal(ask.answers.q1?.cancelled, true);
-      assert.equal(ask.answers.q1?.globalNote, "m57 said no");
-      assert.equal((await tx.doc(SessionHandoffDoc, conv.id)).handoff, null);
-      assert.ok((await tx.doc(SessionReadDoc, conv.id)).at);
-      assert.equal((await tx.doc(GoalDoc, conv.id)).goal, null);
+      expect(ask.answers.q1?.cancelled).toBe(true);
+      expect(ask.answers.q1?.globalNote).toBe("m57 said no");
+      expect((await tx.doc(SessionHandoffDoc, conv.id)).handoff).toBe(null);
+      expect((await tx.doc(SessionReadDoc, conv.id)).at).toBeTruthy();
+      expect((await tx.doc(GoalDoc, conv.id)).goal).toBe(null);
     }, context);
 
-    assert.equal((await f.run({ action: "edit_session", session: id })).error, true);
-    assert.match((await f.run({ action: "edit_session", session: id, title: " Renamed ", archived: true })).text, /"Renamed", archived/);
-    assert.deepEqual(f.archived, [id]);
-    assert.deepEqual(f.conversations.get(id), { title: "Renamed", archived: true, pinned: false });
+    expect((await f.run({ action: "edit_session", session: id })).error).toBe(true);
+    expect((await f.run({ action: "edit_session", session: id, title: " Renamed ", archived: true })).text).toMatch(/"Renamed".*archived/);
+    expect(f.archived).toEqual([id]);
+    expect(f.conversations.get(id)).toEqual({ title: "Renamed", archived: true, pinned: false });
   } finally { await f.close(); }
 });

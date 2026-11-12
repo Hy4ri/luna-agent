@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { startWorker } from "../src/worker.js";
 import { CONNECT_PATH, PROTOCOL_VERSION } from "../src/worker-protocol.js";
 
@@ -19,8 +18,8 @@ test("idle worker link survives past the liveness window on server pings alone",
   try {
     await w.ready;
     await new Promise(r => setTimeout(r, 1500));
-    assert.equal(opens, 1);
-    assert.equal(closes, 0);
+    expect(opens).toBe(1);
+    expect(closes).toBe(0);
   } finally { await w.close(); await server.stop(true); }
 });
 
@@ -36,7 +35,7 @@ test("a link without a welcome closes at the handshake deadline and retries", as
   try {
     const start = performance.now();
     while (opens < 2 && performance.now() - start < 3000) await new Promise(r => setTimeout(r, 20));
-    assert.ok(opens >= 2, "worker must give up on a silent link and reconnect");
+    expect(opens >= 2).toBeTruthy() /* "worker must give up on a silent link and reconnect" */;
   } finally { await w.close(); await server.stop(true); }
 });
 
@@ -52,7 +51,7 @@ test("links that drop right after open back off instead of retrying at the base 
   try {
     await new Promise(r => setTimeout(r, 1500));
     // 40, 80, 160, 320, 640 ms (minus jitter) fits about 5-6 attempts; a reset-on-open loop makes ~30.
-    assert.ok(opens.length <= 9, `expected exponential backoff, saw ${opens.length} connects in 1.5 s`);
-    assert.ok(opens.length >= 3);
+    expect(opens.length <= 9).toBeTruthy() /* `expected exponential backoff, saw ${opens.length} connects in 1.5 s` */;
+    expect(opens.length >= 3).toBeTruthy();
   } finally { await w.close(); await server.stop(true); }
 });
