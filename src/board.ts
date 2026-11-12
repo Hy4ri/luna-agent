@@ -8,14 +8,20 @@ import { detectCycle } from "./todo.js";
 import { deliverCardEvents, ownerSession, wakeEvents } from "./board-events.js";
 import type { UploadStore } from "./uploads.js";
 import { StringEnum } from "./string-enum.js";
+import { THINKING_LEVELS, type ThinkingLevel } from "./session-create.js";
 
 export const STATUSES = ["backlog", "todo", "in_progress", "review", "done"] as const;
+/** Owner text that hands a card to an automatic run. */
+export const AUTO_OWNER = "agent";
+/** Automatic run settings of a card. null means auto is off. No model or thinking level means the defaults. */
+export type CardAuto = { model: string | null; thinking: ThinkingLevel | null };
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export type CardStatus = (typeof STATUSES)[number];
 export type CardPriority = (typeof PRIORITIES)[number];
 export type Card = {
   id: number; project: number; subject: string; description: string; priority: CardPriority; status: CardStatus;
   blockedBy: number[]; owner: string | null; blocked: string | null; labels: string[]; archived: boolean; created: number; updated: number;
+  auto: CardAuto | null;
   attachments: Attachment[];
 };
 export type Attachment = { id: number; card: number; name: string; type: string; size: number; created: number };
@@ -24,16 +30,16 @@ export const MAX_ATTACHMENTS = 20;
 export type Activity = { id: number; card: number; at: number; by: string; text: string };
 export type CardInput = {
   subject?: unknown; description?: unknown; priority?: unknown; status?: unknown; owner?: unknown; labels?: unknown;
-  archived?: unknown; blocked?: unknown; addBlockedBy?: unknown; removeBlockedBy?: unknown; blockedBy?: unknown;
+  archived?: unknown; blocked?: unknown; addBlockedBy?: unknown; removeBlockedBy?: unknown; blockedBy?: unknown; auto?: unknown;
 };
 export class BoardError extends Error {
   constructor(readonly status: 400 | 404, message: string) { super(message); }
 }
 const RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
-type Row = { id: number; project_id: number; subject: string; description: string; priority: string; status: string; blocked_by: string; owner: string | null; blocked_reason: string | null; labels: string; archived: number; created: number; updated: number };
+type Row = { id: number; project_id: number; subject: string; description: string; priority: string; status: string; blocked_by: string; owner: string | null; blocked_reason: string | null; labels: string; archived: number; created: number; updated: number; auto: string | null };
 const toCard = (r: Row): Card => ({
   id: r.id, project: r.project_id, subject: r.subject, description: r.description, priority: r.priority as CardPriority, status: r.status as CardStatus,
-  blockedBy: JSON.parse(r.blocked_by), owner: r.owner, blocked: r.blocked_reason, labels: JSON.parse(r.labels), archived: !!r.archived, created: r.created, updated: r.updated, attachments: [],
+  blockedBy: JSON.parse(r.blocked_by), owner: r.owner, blocked: r.blocked_reason, labels: JSON.parse(r.labels), archived: !!r.archived, created: r.created, updated: r.updated, auto: r.auto ? JSON.parse(r.auto) : null, attachments: [],
 });
 type AttachmentRow = { id: number; card_id: number; name: string; type: string; size: number; created: number };
 const toAttachment = (r: AttachmentRow): Attachment => ({ id: r.id, card: r.card_id, name: r.name, type: r.type, size: r.size, created: r.created });
@@ -61,6 +67,7 @@ export class BoardStore {
       CREATE INDEX IF NOT EXISTS luna_board_attachments_card ON luna_board_attachments(card_id);`);
     const cols = db.prepare("PRAGMA table_info(luna_board_cards)").all() as { name: string }[];
     if (!cols.some(c => c.name === "blocked_reason")) db.exec("ALTER TABLE luna_board_cards ADD COLUMN blocked_reason TEXT");
+    if (!cols.some(c => c.name === "auto")) db.exec("ALTER TABLE luna_board_cards ADD COLUMN auto TEXT");
     const attachmentCols = db.prepare("PRAGMA table_info(luna_board_attachments)").all() as { name: string }[];
     if (!attachmentCols.some(c => c.name === "upload_id")) db.exec("ALTER TABLE luna_board_attachments ADD COLUMN upload_id TEXT");
   }
@@ -127,9 +134,9 @@ export class BoardStore {
     return c;
   }
   private fields(i: CardInput, cur?: Card) {
-    const out: { subject: string; description: string; priority: CardPriority; status: CardStatus; owner: string | null; blocked: string | null; labels: string[]; archived: boolean } = {
+    const out: { subject: string; description: string; priority: CardPriority; status: CardStatus; owner: string | null; blocked: string | null; labels: string[]; archived: boolean; auto: CardAuto | null } = {
       subject: cur?.subject ?? "", description: cur?.description ?? "", priority: cur?.priority ?? "medium", status: cur?.status ?? "backlog",
-      owner: cur?.owner ?? null, blocked: cur?.blocked ?? null, labels: cur?.labels ?? [], archived: cur?.archived ?? false,
+      owner: cur?.owner ?? null, blocked: cur?.blocked ?? null, labels: cur?.labels ?? [], archived: cur?.archived ?? false, auto: cur?.auto ?? null,
     };
     if (i.subject !== undefined) {
       if (typeof i.subject !== "string" || !i.subject.trim() || i.subject.trim().length > 200) bad("subject must contain 1 to 200 characters");
@@ -155,6 +162,11 @@ export class BoardStore {
       out.labels = [...new Set((i.labels as string[]).map(l => l.trim()))];
     }
     if (i.archived !== undefined) { if (typeof i.archived !== "boolean") bad("archived must be a boolean"); out.archived = i.archived as boolean; }
+    if (i.auto !== undefined) {
+      out.auto = parseAuto(i.auto);
+      // Turning auto on hands the card to the agent, unless the same change names an owner.
+      if (out.auto && !cur?.auto && i.owner === undefined) out.owner = AUTO_OWNER;
+    }
     return out;
   }
   /** Validate a dependency list against the project's cards. */
@@ -173,10 +185,11 @@ export class BoardStore {
     const blocked = i.blockedBy === undefined ? [] : [...new Set(ids(i.blockedBy, "blockedBy"))];
     this.blockers(project, undefined, blocked);
     const now = Date.now();
-    const r = this.db.prepare(`INSERT INTO luna_board_cards(project_id,subject,description,priority,status,blocked_by,owner,labels,archived,created,updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(project, f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, JSON.stringify(f.labels), Number(f.archived), now, now);
+    const r = this.db.prepare(`INSERT INTO luna_board_cards(project_id,subject,description,priority,status,blocked_by,owner,labels,archived,created,updated,auto,blocked_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(project, f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, JSON.stringify(f.labels), Number(f.archived), now, now, f.auto && JSON.stringify(f.auto), f.blocked);
     const made = this.need(project, Number(r.lastInsertRowid));
     this.log(made.id, "user", `created in ${made.status}`);
+    this.changed(project);
     return made;
   }
   /** Append one line to a card's activity log. */
@@ -202,13 +215,15 @@ export class BoardStore {
     if (actor && f.status === "in_progress" && cur.status !== "in_progress" && !f.owner && i.owner === undefined) f.owner = actor;
     // Done or archived releases the owner, unless the same change sets one by hand.
     if (i.owner === undefined && ((f.status === "done" && cur.status !== "done") || (f.archived && !cur.archived))) f.owner = null;
-    this.db.prepare(`UPDATE luna_board_cards SET subject=?,description=?,priority=?,status=?,blocked_by=?,owner=?,blocked_reason=?,labels=?,archived=?,updated=? WHERE id=? AND project_id=?`)
-      .run(f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, f.blocked, JSON.stringify(f.labels), Number(f.archived), Date.now(), id, project);
+    this.db.prepare(`UPDATE luna_board_cards SET subject=?,description=?,priority=?,status=?,blocked_by=?,owner=?,blocked_reason=?,labels=?,archived=?,auto=?,updated=? WHERE id=? AND project_id=?`)
+      .run(f.subject, f.description, f.priority, f.status, JSON.stringify(blocked), f.owner, f.blocked, JSON.stringify(f.labels), Number(f.archived), f.auto && JSON.stringify(f.auto), Date.now(), id, project);
     const by = actor ?? "user";
     if (cur.status !== f.status) this.log(id, by, `moved ${cur.status} -> ${f.status}`);
     if (cur.archived !== f.archived) this.log(id, by, f.archived ? "archived" : "restored");
     if (cur.owner !== f.owner) this.log(id, by, `owner ${cur.owner ?? "none"} -> ${f.owner ?? "none"}`);
     if (cur.blocked !== f.blocked) this.log(id, by, f.blocked ? `blocked: ${f.blocked}` : "unblocked");
+    if (JSON.stringify(cur.auto) !== JSON.stringify(f.auto)) this.log(id, by, f.auto ? `auto on (${autoLabel(f.auto)})` : "auto off");
+    this.changed(project);
     return this.need(project, id);
   }
   /**
@@ -231,8 +246,13 @@ export class BoardStore {
     }
     const notes = [released ? `owner ${cur.owner} released` : "", blocked.length < cur.blockedBy.length ? `${cur.blockedBy.length - blocked.length} dependency reference(s) cleared` : ""].filter(Boolean);
     this.log(id, "user", `moved from project #${project} to #${target}${notes.length ? `; ${notes.join("; ")}` : ""}`);
+    this.changed(project); this.changed(target);
     return this.need(target, id);
   }
+  private readonly listeners = new Set<(project: number) => void>();
+  /** Called after a card is created, changed, or moved. Listeners run after the current task, outside the write. */
+  onChange(fn: (project: number) => void): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+  private changed(project: number) { for (const fn of this.listeners) queueMicrotask(() => { try { fn(project); } catch { /* listener errors stay local */ } }); }
   /** Drop an owner whose session no longer exists. */
   clearOwner(project: number, id: number, owner: string) {
     this.db.prepare("UPDATE luna_board_cards SET owner=NULL WHERE id=? AND project_id=? AND owner=?").run(id, project, owner);
@@ -282,7 +302,20 @@ const Params = Type.Object({
   includeArchived: Type.Optional(Type.Boolean({ description: "list: show archived cards instead of active ones" })),
 });
 
-const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}${c.archived ? "|archived" : ""}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blocked ? ` BLOCKED: ${c.blocked}` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
+/** Validate the `auto` input: null (off) or { model?: "provider/modelId" | null, thinking?: level | null }. */
+export function parseAuto(v: unknown): CardAuto | null {
+  if (v === null || v === false) return null;
+  if (v === true) return { model: null, thinking: null };
+  if (typeof v !== "object" || Array.isArray(v)) return bad("auto must be null or { model, thinking }");
+  const { model = null, thinking = null, ...rest } = v as Record<string, unknown>;
+  if (Object.keys(rest).length) bad(`auto has unknown field ${Object.keys(rest)[0]}`);
+  if (model !== null && (typeof model !== "string" || !/^[^/\s]+\/\S+$/.test(model) || model.length > 200)) bad("auto.model must be provider/modelId, or null for the default");
+  if (thinking !== null && !(THINKING_LEVELS as readonly unknown[]).includes(thinking)) bad(`auto.thinking must be one of ${THINKING_LEVELS.join(", ")}, or null for the default`);
+  return { model: model as string | null, thinking: thinking as ThinkingLevel | null };
+}
+export const autoLabel = (a: CardAuto) => `${a.model ?? "default model"}${a.thinking ? `, ${a.thinking}` : ""}`;
+
+const line = (c: Card) => `#${c.id} [${c.status}|${c.priority}${c.archived ? "|archived" : ""}${c.auto ? "|auto" : ""}] ${c.subject}${c.owner ? ` (${c.owner})` : ""}${c.blocked ? ` BLOCKED: ${c.blocked}` : ""}${c.blockedBy.length ? ` waits on ${c.blockedBy.map(d => "#" + d).join(",")}` : ""}${c.labels.length ? ` {${c.labels.join(",")}}` : ""}`;
 const detail = (c: Card) => [line(c), ...(c.attachments.length ? [`  attachments: ${c.attachments.map(a => `${a.name} (${a.size} bytes)`).join(", ")}`] : []), ...(c.description ? [`  description: ${c.description}`] : []), `  updated: ${new Date(c.updated).toISOString()}`].join("\n");
 
 export function extractMentionedCardIds(messages: readonly { role?: string; content?: unknown }[]): number[] {
@@ -338,10 +371,11 @@ export function createBoardExtension(conversations: () => Conversations | undefi
                 return cards.length ? cards.map(line).join("\n") : "No cards";
               }
               case "get": { const c = a.id === undefined ? bad("id required for get") : board.get(pid, a.id); return c ? detail(c) : `Error: card #${a.id} not found`; }
-              case "create": { const c = board.create(pid, a); conv.touch(); return `Created #${c.id}: ${c.subject} (${c.status}, ${c.priority})`; }
+              case "create": { const { auto: _auto, ...input } = a as typeof a & { auto?: unknown }; const c = board.create(pid, input); conv.touch(); return `Created #${c.id}: ${c.subject} (${c.status}, ${c.priority})`; }
               case "update": {
                 if (a.id === undefined) bad("id required for update");
-                const { id, action, includeArchived, ...changes } = a;
+                // Only the user arms automatic runs.
+                const { id, action, includeArchived, auto: _auto, ...changes } = a as typeof a & { auto?: unknown };
                 const before = board.get(pid, id!);
                 const c = board.update(pid, id!, changes, actor); conv.touch();
                 if (before) wakes = wakeEvents(board, pid, before, c);

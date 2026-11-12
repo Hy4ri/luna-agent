@@ -14,6 +14,7 @@ export const fieldTitles: Record<string, string> = {
   codemode: 'Code Mode', memoryLimitBytes: 'Sandbox memory limit (bytes)', inlineBudget: 'Tool declaration budget (tokens)', pinned: 'Always-listed tools',
   busyInput: 'Messages during a response', mode: 'Message handling', acknowledgements: 'Show message acknowledgements',
   sessionTalk: 'Messages between sessions', maxHops: 'Messages per exchange',
+  boardAuto: 'Automatic board cards', maxConcurrent: 'Runs at the same time per project', tokenBudget: 'Token budget per card', maxRuns: 'Automatic continuations per card',
   autoContinue: 'Continue after usage limits', maxWaitHours: 'Maximum reset wait (hours)', resetGraceSeconds: 'Reset grace period (seconds)',
   provider: 'Provider ID', model: 'Model ID', thinkingLevel: 'Thinking level', modelThinkingLevels: 'Per-model thinking levels', pinnedModels: 'Pinned models', subagents: 'Subagent defaults',
   auxiliary: 'Task-specific models', side_question: 'Side questions', session_title: 'Session titles', review: 'Session review',
@@ -83,6 +84,9 @@ const fieldHelp: Record<string, string> = {
   'autoContinue.resetGraceSeconds': 'Safety margin in seconds added after a known quota reset timestamp (0–3600).',
   'sessionTalk.enabled': 'Sessions can send messages to other sessions with session_send. A message waits for a busy session and never interrupts it.',
   'sessionTalk.maxHops': 'Messages two sessions can exchange before session_send refuses. A new message from you starts a new exchange.',
+  'boardAuto.maxConcurrent': 'Automatic card runs that work at the same time in one project. Other armed cards wait in todo. Paused and blocked runs do not count.',
+  'boardAuto.tokenBudget': 'Goal token budget for one card. When it is spent, the run stops and the card shows the reason.',
+  'boardAuto.maxRuns': 'Automatic goal continuations for one card before the run pauses and the card shows the reason.',
   'provider': 'Provider ID from the catalog or a custom definition in Accounts & connections.',
   'model': 'Exact model ID. Keep any slashes that are part of the ID. New defaults must be available in the catalog or defined in Accounts & connections.',
   'thinkingLevel': 'Applies to new sessions. The selected model can restrict the supported levels.',
@@ -164,7 +168,7 @@ export function helpFor(path: (string | number)[]): string {
 }
 
 export const timing: Record<string, string> = {
-  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', modelThinkingLevels: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live', terminal: 'Applies live',
+  provider: 'New conversations and scheduled runs', model: 'New conversations and scheduled runs', thinkingLevel: 'New conversations', modelThinkingLevels: 'New conversations', disabledTools: 'Next model request', disabledSkills: 'Applies live', video: 'Next video call', busyInput: 'Applies live', autoContinue: 'Applies live', afterFailedRun: 'Applies live', maxTurns: 'New conversations', sessionTalk: 'Applies live', boardAuto: 'Next card run', terminal: 'Applies live',
   codemode: 'Restart required', dataDir: 'Restart required', cwd: 'Restart required', extensions: 'Disable live; enable may need restart', skillDirs: 'Restart required', processes: 'Restart required', server: 'Restart required', push: 'Restart required',
   instructions: 'New conversations', subagents: 'New subagents', auxiliary: 'Next task', vision: 'Next image call', image_gen: 'Next image call',
 }
@@ -173,6 +177,7 @@ export const summaries: Record<string, string> = {
   busyInput: 'Control what happens when you send another message while Luna is working.',
   autoContinue: 'Resume a turn after a rate or usage limit, within the limits you set.',
   sessionTalk: 'Let a session send messages to other sessions. Mention a session with @ in the chat box.',
+  boardAuto: 'A todo card with auto on and owner agent runs in its own project session until done, without asking you.',
   instructions: 'Set the instructions shared by new conversations.',
   subagents: 'Delegated workers inherit the parent model and thinking level unless you set an override.',
   modelThinkingLevels: 'Set the main thinking level for specific models. These take priority over the main thinking level; the model\'s supported levels still clamp the value.',

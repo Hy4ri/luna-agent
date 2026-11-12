@@ -106,6 +106,15 @@ export const ConfigSchema = z
       /** Messages allowed in one exchange between two sessions before session_send refuses. */
       maxHops: z.number().int().min(1).max(20).default(3),
     }).prefault({}),
+    /** Board cards in todo with auto on and owner "agent" run in their own project session, without user input. */
+    boardAuto: z.strictObject({
+      /** Automatic card runs working at the same time in one project. Paused and blocked runs do not count. */
+      maxConcurrent: z.number().int().min(1).max(10).default(2),
+      /** Token budget of one card's goal. The run stops as limit reached when it is spent. */
+      tokenBudget: z.number().int().min(10_000).default(20_000_000),
+      /** Automatic goal continuations of one card before it pauses. */
+      maxRuns: z.number().int().min(1).max(500).default(50),
+    }).prefault({}),
     /** What a failed run does with inputs queued behind it: keep them, run them next, or withdraw them. */
     afterFailedRun: z.enum(["keep", "continue", "withdraw"]).default("keep"),
     video: z.strictObject({

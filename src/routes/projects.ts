@@ -199,6 +199,13 @@ export function registerProjects(app: Hono, ctx: RouteCtx): void {
       const updated = conv.board.update(id, cid, b);
       return target === undefined || target === id ? updated : conv.board.move(id, cid, target as number);
     });
+    // Turning auto off, or archiving, ends the card's automatic run. The card keeps its state for the user.
+    const run = before?.auto && before.status === "in_progress" ? ownerSession(before.owner) : undefined;
+    if (run !== undefined && (!card.auto || card.archived)) {
+      const session = await ctx.getConv(String(run)).catch(() => undefined);
+      if (session) await ctx.stop(session);
+      conv.board.log(cid, "user", `auto run in session ${run} stopped`);
+    }
     if (before) {
       const events = [
         ...cardEvents(before, card),

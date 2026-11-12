@@ -15,6 +15,7 @@ import { WifeStore } from "./wife/store.js";
 import { WifeService } from "./wife/service.js";
 import { createWifeExtension } from "./wife/tool.js";
 import { createBoardExtension } from "./board.js";
+import { BoardAutoRunner } from "./board-auto.js";
 import { createSessionTalkExtension } from "./session-talk.js";
 import { createFileMentionExtension } from "./file-mentions.js";
 import { createWorkerExecExtension } from "./worker-exec.js";
@@ -386,6 +387,15 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   wifeRef = wife;
   conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });
   harnessRef = harness;
+  // Board cards with auto on run in their own project sessions. They never get ask_user_question.
+  const boardAuto = new BoardAutoRunner({
+    harness, conversations, log,
+    session: () => ({ base: newSessionAgent, thinking: live, models: built.models, projects: conversations.projects, workers: workers.store, projectExtensions }),
+    policy: () => live().boardAuto,
+    exclude: ask ? [ask] : [],
+    goal: on("goal"),
+  });
+  boardAuto.start();
   // Subscribe before recovered work can settle; reconcile undelivered results without replaying work.
   const subagentNotifier = new SubagentNotifier({ harness, log, skip: id => conversations.get(id).archived });
   if (on("delegate")) await subagentNotifier.start();
@@ -570,7 +580,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     terminals,
     browserPanel,
     webhooks,
+    boardAuto,
     async close() {
+      await boardAuto.close();
       wife.stop();
       wifeStore.close();
       await limitRecovery.close();
