@@ -251,12 +251,37 @@ async function handleSaveOAuth() {
   }
 }
 
+let oauthPollTimer: number | null = null;
+let oauthHandled = false;
+
+function stopOAuthPoll() {
+  if (oauthPollTimer !== null) {
+    window.clearInterval(oauthPollTimer);
+    oauthPollTimer = null;
+  }
+}
+
 async function handleConnectGoogle() {
   setupBusy.value = true;
   setupErr.value = "";
+  oauthHandled = false;
+  stopOAuthPoll();
   try {
     const { url } = await startGmailOAuth();
-    window.open(url, "luna-gmail-oauth", "width=540,height=680");
+    const popup = window.open(url, "luna-gmail-oauth", "width=540,height=680");
+    if (popup) {
+      const startedAt = Date.now();
+      oauthPollTimer = window.setInterval(() => {
+        if (oauthHandled || Date.now() - startedAt > 5 * 60_000) {
+          stopOAuthPoll();
+          return;
+        }
+        if (popup.closed) {
+          stopOAuthPoll();
+          void loadMailStatus().then(() => loadMailThreads());
+        }
+      }, 500);
+    }
   } catch (e) {
     setupErr.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -334,9 +359,21 @@ async function askLunaAboutThread() {
   await startItemSession(prompt);
 }
 
+function allowedOAuthOrigin(origin: string): boolean {
+  if (origin === window.location.origin) return true;
+  if (serverUrl.value) {
+    try {
+      if (origin === new URL(serverUrl.value).origin) return true;
+    } catch { /* ignore */ }
+  }
+  return false;
+}
+
 function handleOAuthMessage(ev: MessageEvent) {
-  if (ev.origin !== window.location.origin) return;
+  if (!allowedOAuthOrigin(ev.origin)) return;
   if (ev.data && typeof ev.data === "object" && (ev.data as { type?: string }).type === "luna:mail-oauth") {
+    oauthHandled = true;
+    stopOAuthPoll();
     const data = ev.data as { ok?: boolean; email?: string; message?: string };
     void loadMailStatus().then(() => loadMailThreads());
     if (data.ok) {
@@ -360,6 +397,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopOAuthPoll();
   window.removeEventListener("message", handleOAuthMessage);
 });
 </script>

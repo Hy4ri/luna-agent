@@ -62,8 +62,16 @@ export class MailService {
     this.auth.setOAuthClient(cfg);
   }
 
-  startOAuth(redirectUri: string): { url: string; state: string; redirectUri: string } {
-    return this.auth.startOAuth(redirectUri);
+  startOAuth(redirectUri: string, openerOrigin?: string): { url: string; state: string; redirectUri: string } {
+    return this.auth.startOAuth(redirectUri, openerOrigin);
+  }
+
+  peekOAuthOrigin(state: string): string | undefined {
+    return this.auth.peekStateOrigin(state);
+  }
+
+  consumeOAuthOrigin(state: string): string | undefined {
+    return this.auth.consumeStateOrigin(state);
   }
 
   async finishOAuth(code: string, state: string): Promise<StoredAccountAuth> {

@@ -166,7 +166,7 @@ export async function startGmailOAuth(): Promise<{ url: string; redirectUri: str
   const origin = serverUrl.value || window.location.origin;
   const res = await api("/v1/mail/oauth/start", {
     method: "POST",
-    body: JSON.stringify({ origin }),
+    body: JSON.stringify({ origin, openerOrigin: window.location.origin }),
   });
   return readJson<{ url: string; redirectUri: string }>(res);
 }

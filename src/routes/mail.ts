@@ -27,26 +27,28 @@ export function registerMailOAuthCallback(
     const error = c.req.query("error");
     const code = c.req.query("code") ?? "";
     const state = c.req.query("state") ?? "";
+    const targetOrigin = state ? mail.peekOAuthOrigin(state) : undefined;
 
     if (error) {
-      return c.html(callbackHtml({ ok: false, message: `Google OAuth error: ${error}` }), 400);
+      if (state) mail.consumeOAuthOrigin(state);
+      return c.html(callbackHtml({ ok: false, message: `Google OAuth error: ${error}`, targetOrigin }), 400);
     }
     if (!code || !state) {
-      return c.html(callbackHtml({ ok: false, message: "Missing code or state parameter" }), 400);
+      return c.html(callbackHtml({ ok: false, message: "Missing code or state parameter", targetOrigin }), 400);
     }
 
     try {
       const account = await mail.finishOAuth(code, state);
-      return c.html(callbackHtml({ ok: true, email: account.email, message: `Connected ${account.email}` }));
+      return c.html(callbackHtml({ ok: true, email: account.email, message: `Connected ${account.email}`, targetOrigin }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const status = e instanceof MailError ? e.status : 500;
-      return c.html(callbackHtml({ ok: false, message: msg }), status);
+      return c.html(callbackHtml({ ok: false, message: msg, targetOrigin }), status);
     }
   });
 }
 
-function callbackHtml(res: { ok: boolean; email?: string; message: string }): string {
+function callbackHtml(res: { ok: boolean; email?: string; message: string; targetOrigin?: string }): string {
   const payload = safeJsonForHtml({ type: "luna:mail-oauth", ok: res.ok, email: res.email ?? null, message: res.message });
   return `<!doctype html>
 <html>
@@ -59,7 +61,7 @@ function callbackHtml(res: { ok: boolean; email?: string; message: string }): st
   a { color: #e86060; text-decoration: none; }
 </style>
 </head>
-<body data-payload="${escapeHtml(payload)}">
+<body data-payload="${escapeHtml(payload)}" data-target-origin="${escapeHtml(res.targetOrigin ?? "")}">
   <div class="card">
     <h2 class="${res.ok ? "ok" : "err"}">${res.ok ? "Gmail Connected" : "Connection Failed"}</h2>
     <p>${escapeHtml(res.message)}</p>
@@ -68,8 +70,9 @@ function callbackHtml(res: { ok: boolean; email?: string; message: string }): st
   <script>
     try {
       const payload = JSON.parse(document.body.dataset.payload || "{}");
+      const targetOrigin = document.body.dataset.targetOrigin || window.location.origin;
       if (window.opener && !window.opener.closed) {
-        window.opener.postMessage(payload, window.location.origin);
+        window.opener.postMessage(payload, targetOrigin);
         setTimeout(() => window.close(), 600);
       } else if (payload.ok) {
         setTimeout(() => { location.href = "/#mail"; }, 800);
@@ -116,8 +119,9 @@ export function registerMail(app: Hono, ctx: RouteCtx): void {
     const reqOrigin = typeof b.origin === "string" && /^https?:\/\//i.test(b.origin)
       ? b.origin.replace(/\/+$/, "")
       : new URL(c.req.url).origin;
+    const openerOrigin = typeof b.openerOrigin === "string" ? b.openerOrigin : undefined;
     const redirectUri = `${reqOrigin}/oauth/gmail/callback`;
-    return c.json(need().startOAuth(redirectUri));
+    return c.json(need().startOAuth(redirectUri, openerOrigin));
   });
 
   app.delete("/v1/mail/accounts/:email", (c) => {

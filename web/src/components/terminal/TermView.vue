@@ -2,7 +2,7 @@
 // One terminal: the emulator canvas plus its WebSocket. The server keeps the shell alive, so this view can come and go.
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { createTerm, type TermHandle } from "@/lib/term-adapter";
-import { attachUrl, dropTab, markEnded, setControl } from "@/stores/terminal";
+import { attachUrl, dropTab, markEnded } from "@/stores/terminal";
 
 const props = defineProps<{
   session: string;
@@ -66,12 +66,8 @@ async function connect() {
   socket.onmessage = event => {
     if (stale()) return;
     if (typeof event.data !== "string") { term?.write(new Uint8Array(event.data as ArrayBuffer)); return; }
-    let msg: { type?: string; exitCode?: number | null; reason?: string; controller?: "user" | "agent"; shared?: boolean };
+    let msg: { type?: string; exitCode?: number | null; reason?: string };
     try { msg = JSON.parse(event.data); } catch { return; }
-    if ((msg.type === "replay-start" || msg.type === "control") && msg.controller) {
-      setControl(props.id, msg.controller, !!msg.shared);
-      if (msg.type === "control" && msg.controller === "user") sendResize();
-    }
     if (msg.type === "replay-start") term?.reset();
     else if (msg.type === "replay-end") { live = true; sendResize(); }
     else if (msg.type === "exit") {

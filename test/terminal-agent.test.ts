@@ -192,7 +192,7 @@ test("an agent terminal runs one program, reads its screen, and ends with it", a
   const r = registry();
   await rejectsWith(r.create({ session: 1, owner: "agent", worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 400);
   const info = await r.create({ session: 1, owner: "agent", worker: null, cwd: "/tmp", command: "python3 -q", cols: 80, rows: 10 });
-  expect(info.controller).toBe("agent");
+  expect(info.owner).toBe("agent");
   expect(info.shared).toBe(true);
   await until(() => screenText(r, info.id).includes(">>>"), "python prompt");
   r.agentWrite(info.id, 1, "6*7\r");
@@ -210,9 +210,6 @@ test("terminals are two-way always: both m57 and Luna can type and read without 
   r.write(info.id, "user-typed\r");
   r.agentWrite(info.id, 1, "luna-typed\r");
   await until(() => screenText(r, info.id).includes("user-typed") && screenText(r, info.id).includes("luna-typed"), "both echo");
-  await r.control(info.id, "take");
-  r.agentWrite(info.id, 1, "still-works\r");
-  await until(() => screenText(r, info.id).includes("still-works"), "luna still works");
 });
 
 test("user shells are shared with Luna by default and readable immediately", async () => {

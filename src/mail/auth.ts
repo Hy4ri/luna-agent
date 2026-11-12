@@ -28,7 +28,15 @@ interface PendingOAuth {
   state: string;
   codeVerifier: string;
   redirectUri: string;
+  openerOrigin?: string;
   createdAt: number;
+}
+
+function normalizeOpenerOrigin(origin: string | undefined): string | undefined {
+  if (!origin) return undefined;
+  const trimmed = origin.trim();
+  if (/^(https?|tauri):\/\/[^\s/]+$/i.test(trimmed)) return trimmed;
+  return undefined;
 }
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -130,7 +138,7 @@ export class MailAuthStore {
     return true;
   }
 
-  startOAuth(redirectUri: string): { url: string; state: string; redirectUri: string } {
+  startOAuth(redirectUri: string, openerOrigin?: string): { url: string; state: string; redirectUri: string } {
     const client = this.data.oauthClient;
     if (!client) {
       throw new MailError("Google OAuth client is not configured yet", 400);
@@ -144,6 +152,7 @@ export class MailAuthStore {
       state,
       codeVerifier,
       redirectUri,
+      openerOrigin: normalizeOpenerOrigin(openerOrigin),
       createdAt: Date.now(),
     });
 
@@ -164,6 +173,19 @@ export class MailAuthStore {
       state,
       redirectUri,
     };
+  }
+
+  peekStateOrigin(state: string): string | undefined {
+    const entry = this.pending.get(state);
+    if (!entry || Date.now() - entry.createdAt > OAUTH_STATE_TTL_MS) return undefined;
+    return entry.openerOrigin;
+  }
+
+  consumeStateOrigin(state: string): string | undefined {
+    const entry = this.pending.get(state);
+    this.pending.delete(state);
+    if (!entry || Date.now() - entry.createdAt > OAUTH_STATE_TTL_MS) return undefined;
+    return entry.openerOrigin;
   }
 
   async finishOAuth(code: string, state: string): Promise<StoredAccountAuth> {

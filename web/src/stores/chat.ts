@@ -45,7 +45,7 @@ export function sortProcesses<T extends { running: boolean }>(list: T[]): T[] {
   return list.slice().sort((a, b) => (a.running === b.running ? 0 : a.running ? -1 : 1));
 }
 
-const EXTRA_TOOLS = /^(todo|ask_user_question|goal)$/;
+const EXTRA_TOOLS = /^(todo|ask_user_question|mail_send|goal)$/;
 
 function textBlocks(content: unknown): string {
   if (typeof content === "string") return content;
@@ -122,7 +122,7 @@ function toolName(id: string): string | undefined {
 }
 export const status = computed(() => {
   if (chat.bootError) return chat.bootError;
-  const waiting = [...chat.activeTools].some(id => toolName(id) === "ask_user_question");
+  const waiting = [...chat.activeTools].some(id => { const n = toolName(id); return n === "ask_user_question" || n === "mail_send"; });
   return sending.value ? "Sending…" : chat.session && !chat.connected ? "Reconnecting…" : chat.contextCompacting || chat.compactions.size > 0 ? "Compacting context…" : waiting ? "Waiting for your answer…"
     : chat.queuedCount ? `Running · ${chat.queuedCount} queued` : busy.value ? (chat.liveText ? "Writing…" : "Running…") : "Ready";
 });
@@ -131,7 +131,7 @@ export const activityLabel = computed(() => {
   if (sending.value) return "Sending…";
   if (chat.session && !chat.connected) return "Reconnecting…";
   if (chat.contextCompacting || chat.compactions.size) return "Compacting context…";
-  if ([...chat.activeTools].some(id => toolName(id) === "ask_user_question")) return "Waiting for your answer…";
+  if ([...chat.activeTools].some(id => { const n = toolName(id); return n === "ask_user_question" || n === "mail_send"; })) return "Waiting for your answer…";
   if (chat.queuedCount) return `Running · ${chat.queuedCount} queued`;
   if (chat.liveText) return "Writing…";
   if (chat.generationActive) return "Thinking…";
@@ -410,7 +410,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
   tool_execution_start(e) {
     chat.activeTools.add(e.toolCallId);
     if (!chat.toolStarts[e.toolCallId]) chat.toolStarts[e.toolCallId] = { name: e.toolName, args: e.args, timestamp: Date.now(), taskId: e.taskId, ...(e.parentToolCallId ? { parentCallId: e.parentToolCallId } : {}) };
-    if (EXTRA_TOOLS.test(e.toolName)) scheduleExtras(e.toolName === "ask_user_question" ? 3 : 0);
+    if (EXTRA_TOOLS.test(e.toolName)) scheduleExtras(e.toolName === "ask_user_question" || e.toolName === "mail_send" ? 3 : 0);
   },
   tool_execution_update(e) {
     if (e.output) {

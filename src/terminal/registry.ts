@@ -4,10 +4,6 @@ import { defaultShell, programInvocation, shellEnvironment, type PtyLauncher, ty
 import type { VtFactory, VtModel, VtScreen } from "./vt-model.js";
 
 export type TerminalOwner = "user" | "agent";
-/** Who may type. The other side only watches, so input never collides. */
-export type TerminalController = "user" | "agent";
-/** take: m57 types. give: Luna types. share/unshare: whether Luna can see one of m57's terminals. */
-export type ControlAction = "take" | "give" | "share" | "unshare";
 
 export interface TerminalInfo {
   id: string;
@@ -19,8 +15,7 @@ export interface TerminalInfo {
   shell: string;
   /** The program an agent terminal runs. Absent for an interactive shell. */
   command?: string;
-  controller: TerminalController;
-  /** Luna can see the terminal. Always true for her own terminals. */
+  /** Always true in two-way mode so Luna can read any terminal screen. */
   shared: boolean;
   cols: number;
   rows: number;
@@ -36,8 +31,6 @@ export interface TerminalListener {
   exit(info: TerminalInfo): void;
   /** The terminal was removed from the registry. No more events follow. */
   closed(): void;
-  /** Control or sharing changed. */
-  control?(info: TerminalInfo): void;
 }
 
 export class TerminalError extends Error {
@@ -116,7 +109,7 @@ export class TerminalRegistry {
     const entry: Entry = {
       info: {
         id: crypto.randomUUID(), session: input.session, owner, worker: input.worker, cwd: input.cwd, shell: proc.shell ?? basename(file),
-        ...(input.command ? { command: input.command } : {}), controller: owner === "agent" ? "agent" : "user", shared: true,
+        ...(input.command ? { command: input.command } : {}), shared: true,
         cols, rows, status: "running", exitCode: null, createdAt: Date.now(),
       },
       proc, ring: [], ringBytes: 0, listeners: new Set(), vt, watchers: new Set(), lastOutput: Date.now(),
@@ -231,37 +224,8 @@ export class TerminalRegistry {
     return e;
   }
 
-  /** m57's control actions. Sharing feeds the retained output to a new screen parser, so Luna sees the current screen. */
-  async control(id: string, action: ControlAction): Promise<TerminalInfo> {
-    const e = this.entry(id);
-    if (action === "share" || action === "unshare") {
-      if (e.info.owner === "agent") throw new TerminalError("Luna's own terminals are always visible to her.", 400);
-      if (action === "share" && !e.info.shared) {
-        if (!e.vt) {
-          const vt = await (await this.factory())(e.info.cols, e.info.rows);
-          if (this.entries.get(id) !== e) { vt.dispose(); throw new TerminalError("No such terminal.", 404); }
-          vt.write(Buffer.concat(e.ring));
-          vt.responses(); // old queries were answered long ago
-          e.vt = vt;
-        }
-        e.info.shared = true;
-      } else if (action === "unshare") {
-        e.info.shared = false;
-        e.info.controller = "user";
-        e.vt?.dispose(); e.vt = undefined;
-      }
-    } else {
-      if (action === "give" && !e.info.shared) throw new TerminalError("Share the terminal with Luna first.", 409);
-      e.info.controller = action === "take" ? "user" : "agent";
-    }
-    const info = { ...e.info };
-    for (const l of e.listeners) l.control?.(info);
-    this.wake(e);
-    return info;
-  }
-
-  /** Terminals Luna may see in a session: her own and the ones m57 shared. */
-  agentList(session: number): TerminalInfo[] { return this.list(session).filter(t => t.shared); }
+  /** Terminals Luna may see in a session (all terminals in two-way mode). */
+  agentList(session: number): TerminalInfo[] { return this.list(session); }
 
   /** The screen of a terminal Luna may see. `scrollback` adds that many earlier lines. */
   agentScreen(id: string, session: number, scrollback = 0): { info: TerminalInfo; screen: VtScreen; scrollback: string[]; idleMs: number } {
@@ -275,7 +239,7 @@ export class TerminalRegistry {
 
   private agentEntry(id: string, session: number): Entry {
     const e = this.entries.get(id);
-    if (!e || e.info.session !== session || !e.info.shared) throw new TerminalError("No such terminal in this session. Terminals end when the daemon restarts.", 404);
+    if (!e || e.info.session !== session) throw new TerminalError("No such terminal in this session. Terminals end when the daemon restarts.", 404);
     return e;
   }
 

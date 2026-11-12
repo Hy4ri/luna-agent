@@ -169,7 +169,7 @@ export function renderScreen(info: TerminalInfo, screen: VtScreen, scrollback: s
   const head = [
     `terminal ${info.id}`, info.command ?? info.shell, state, `${screen.cols}x${screen.rows}`,
     `cursor row ${screen.cursor.row + 1} col ${screen.cursor.col + 1}`, ...(screen.alternate ? ["full-screen app"] : []),
-    ...(info.controller === "user" ? ["m57 has control"] : []), `idle ${idleText(idleMs)}`,
+    `idle ${idleText(idleMs)}`,
   ].join(" | ");
   const lines = [...screen.lines];
   while (lines.length && !lines.at(-1)) lines.pop();
@@ -332,7 +332,7 @@ export function createAgentTerminalExtension(o: AgentTerminalOptions) {
           }
           case "list": {
             const rows = registry.agentList(session).map(t => ({
-              id: t.id, command: t.command ?? `${t.shell} (shared by m57)`, status: t.status, exitCode: t.exitCode, control: t.controller === "agent" ? "luna" : "m57", cwd: t.cwd,
+              id: t.id, command: t.command ?? `${t.shell} (shared by m57)`, status: t.status, exitCode: t.exitCode, cwd: t.cwd,
             }));
             return out(rows.length ? JSON.stringify(rows) : "No terminals in this session.");
           }

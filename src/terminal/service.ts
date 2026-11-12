@@ -3,8 +3,8 @@
 // Wire protocol on /v1/terminals/:id/attach
 //   binary frames, both ways : raw terminal bytes (input from the client, output from the shell)
 //   text frames, client → server : {"type":"resize","cols":n,"rows":n}
-//   text frames, server → client : {"type":"replay-start",cols,rows,controller,shared} | {"type":"replay-end"}
-//                                  | {"type":"control","controller":"user"|"agent","shared":b} | {"type":"exit","exitCode":n|null,"reason"?:s} | {"type":"closed"}
+//   text frames, server → client : {"type":"replay-start",cols,rows,shared} | {"type":"replay-end"}
+//                                  | {"type":"exit","exitCode":n|null,"reason"?:s} | {"type":"closed"}
 // While Luna has control the server drops the client's keys and resizes, so the client shows the terminal read-only.
 // The browser never puts the Bearer token in a URL: it asks for a ticket over authenticated HTTP, then opens the socket with the ticket.
 import type { Server, ServerWebSocket } from "bun";
@@ -107,14 +107,13 @@ export class TerminalService {
         data: chunk => { if (live) send(chunk); else queued.push(chunk); },
         exit: exitMessage,
         closed: () => { json({ type: "closed" }); ws.close(1000, "terminal closed"); },
-        control: info => json({ type: "control", controller: info.controller, shared: info.shared }),
       });
     } catch {
       ws.close(1011, "terminal vanished");
       return;
     }
     ws.data.detach = () => attached.detach();
-    json({ type: "replay-start", cols: attached.info.cols, rows: attached.info.rows, controller: attached.info.controller, shared: attached.info.shared });
+    json({ type: "replay-start", cols: attached.info.cols, rows: attached.info.rows, shared: attached.info.shared });
     if (attached.replay.length) send(attached.replay);
     json({ type: "replay-end" });
     live = true;
