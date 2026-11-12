@@ -57,6 +57,56 @@ const showCompose = ref(false);
 const showCcBcc = ref(false);
 const htmlMode = ref(true);
 const searchInput = ref("");
+const expandedIds = ref<Set<string>>(new Set());
+
+watch(
+  () => mailState.detail?.id,
+  () => {
+    const msgs = mailState.detail?.messages ?? [];
+    const last = msgs[msgs.length - 1];
+    expandedIds.value = last ? new Set([last.id]) : new Set();
+  },
+  { immediate: true },
+);
+
+function isMessageExpanded(id: string): boolean {
+  const msgs = mailState.detail?.messages ?? [];
+  if (msgs.length <= 1) return true;
+  return expandedIds.value.has(id);
+}
+
+function toggleMessage(id: string) {
+  const next = new Set(expandedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedIds.value = next;
+}
+
+const singleExpanded = computed(() => {
+  const msgs = mailState.detail?.messages ?? [];
+  if (msgs.length <= 1) return true;
+  return msgs.filter((m) => expandedIds.value.has(m.id)).length <= 1;
+});
+
+function prepareEmailHtml(rawHtml: string): string {
+  const clean = rawHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  const headInject = [
+    `<base target="_blank" rel="noopener noreferrer">`,
+    `<style>`,
+    `html, body { margin: 0; padding: 14px 16px; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.55; color: #18181b; background: #ffffff; overflow-wrap: anywhere; box-sizing: border-box; }`,
+    `img { max-width: 100%; height: auto; }`,
+    `pre, code { white-space: pre-wrap; max-width: 100%; }`,
+    `</style>`,
+  ].join("");
+
+  if (/<head\b[^>]*>/i.test(clean)) {
+    return clean.replace(/<head\b[^>]*>/i, (m) => `${m}${headInject}`);
+  }
+  if (/<html\b[^>]*>/i.test(clean)) {
+    return clean.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${headInject}</head>`);
+  }
+  return `<!doctype html><html><head><meta charset="utf-8">${headInject}</head><body>${clean}</body></html>`;
+}
 
 // OAuth setup form
 const credentialsJson = ref("");
@@ -374,69 +424,104 @@ onUnmounted(() => {
     </div>
 
     <!-- Thread detail view -->
+    <div v-else-if="mailState.loadingDetail && !mailState.detail" class="mail-empty">
+      <LoaderCircle :size="20" class="spin" />
+      <p>Loading conversation...</p>
+    </div>
     <div v-else-if="mailState.detail" class="mail-detail">
       <div class="detail-head">
         <h3 class="detail-subject">{{ mailState.detail.subject || "(no subject)" }}</h3>
         <div class="detail-actions">
-          <button type="button" class="mail-btn primary" title="Reply" @click="replyToCurrent">
-            <Reply :size="13" />
-            <span>Reply</span>
-          </button>
-          <button type="button" class="mail-btn" title="Ask Luna about this email" @click="askLunaAboutThread">
-            <MessageSquarePlus :size="13" />
-            <span>Ask Luna</span>
-          </button>
-          <button type="button" class="mail-icon-btn" :title="mailState.detail.unread ? 'Mark read' : 'Mark unread'" @click="handleToggleRead">
-            <MailOpen v-if="mailState.detail.unread" :size="14" />
-            <Mail v-else :size="14" />
-          </button>
-          <button type="button" class="mail-icon-btn" :title="mailState.detail.starred ? 'Unstar' : 'Star'" @click="handleToggleStar">
-            <Star :size="14" :class="{ starred: mailState.detail.starred }" />
-          </button>
-          <button type="button" class="mail-icon-btn" :title="mailState.detail.inInbox ? 'Archive' : 'Move to Inbox'" @click="handleArchive">
-            <Archive v-if="mailState.detail.inInbox" :size="14" />
-            <ArchiveRestore v-else :size="14" />
-          </button>
-          <button type="button" class="mail-icon-btn danger" title="Delete" @click="handleTrash">
-            <Trash2 :size="14" />
-          </button>
-          <button type="button" class="mail-btn" @click="htmlMode = !htmlMode">
-            <FileText :size="13" />
-            <span>{{ htmlMode ? "Text" : "HTML" }}</span>
-          </button>
+          <div class="detail-actions-group">
+            <button type="button" class="mail-btn primary" title="Reply" @click="replyToCurrent">
+              <Reply :size="13" />
+              <span>Reply</span>
+            </button>
+            <button type="button" class="mail-btn" title="Ask Luna about this email" @click="askLunaAboutThread">
+              <MessageSquarePlus :size="13" />
+              <span>Ask Luna</span>
+            </button>
+          </div>
+          <div class="detail-actions-group">
+            <button type="button" class="mail-icon-btn" :title="mailState.detail.unread ? 'Mark read' : 'Mark unread'" @click="handleToggleRead">
+              <MailOpen v-if="mailState.detail.unread" :size="14" />
+              <Mail v-else :size="14" />
+            </button>
+            <button type="button" class="mail-icon-btn" :title="mailState.detail.starred ? 'Unstar' : 'Star'" @click="handleToggleStar">
+              <Star :size="14" :class="{ starred: mailState.detail.starred }" />
+            </button>
+            <button type="button" class="mail-icon-btn" :title="mailState.detail.inInbox ? 'Archive' : 'Move to Inbox'" @click="handleArchive">
+              <Archive v-if="mailState.detail.inInbox" :size="14" />
+              <ArchiveRestore v-else :size="14" />
+            </button>
+            <button type="button" class="mail-icon-btn danger" title="Delete" @click="handleTrash">
+              <Trash2 :size="14" />
+            </button>
+            <button type="button" class="mail-btn" @click="htmlMode = !htmlMode">
+              <FileText :size="13" />
+              <span>{{ htmlMode ? "Text" : "HTML" }}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="detail-messages">
-        <article v-for="m in mailState.detail.messages" :key="m.id" class="msg-card">
-          <div class="msg-meta">
-            <span class="msg-from">{{ senderName(m.from) }}</span>
-            <span class="msg-time">{{ formatTime(m.dateMs) }}</span>
+      <div class="detail-messages" :class="{ 'multi-msg': mailState.detail.messages.length > 1 }">
+        <article
+          v-for="m in mailState.detail.messages"
+          :key="m.id"
+          class="msg-card"
+          :class="{
+            collapsed: !isMessageExpanded(m.id),
+            expanded: isMessageExpanded(m.id),
+            'fill-pane': singleExpanded && isMessageExpanded(m.id),
+          }"
+        >
+          <button
+            v-if="mailState.detail.messages.length > 1"
+            type="button"
+            class="msg-header-btn"
+            @click="toggleMessage(m.id)"
+          >
+            <div class="msg-meta">
+              <span class="msg-from">{{ senderName(m.from) }}</span>
+              <span class="msg-time">{{ formatTime(m.dateMs) }}</span>
+            </div>
+            <div v-if="isMessageExpanded(m.id)" class="msg-to">To: {{ m.to || "(none)" }}</div>
+            <div v-else class="msg-collapsed-snippet">{{ m.snippet }}</div>
+          </button>
+          <div v-else class="msg-header-static">
+            <div class="msg-meta">
+              <span class="msg-from">{{ senderName(m.from) }}</span>
+              <span class="msg-time">{{ formatTime(m.dateMs) }}</span>
+            </div>
+            <div class="msg-to">To: {{ m.to || "(none)" }}</div>
           </div>
-          <div class="msg-to">To: {{ m.to || "(none)" }}</div>
 
-          <iframe
-            v-if="htmlMode && m.bodyHtml"
-            :srcdoc="m.bodyHtml"
-            sandbox="allow-popups allow-popups-to-escape-sandbox"
-            referrerpolicy="no-referrer"
-            class="msg-iframe"
-            title="Email body"
-          />
-          <pre v-else class="msg-text">{{ m.bodyText || m.snippet || "(empty body)" }}</pre>
+          <template v-if="isMessageExpanded(m.id)">
+            <iframe
+              v-if="htmlMode && m.bodyHtml"
+              :srcdoc="prepareEmailHtml(m.bodyHtml)"
+              sandbox="allow-popups allow-popups-to-escape-sandbox"
+              referrerpolicy="no-referrer"
+              class="msg-iframe"
+              :class="{ 'fixed-height': !singleExpanded }"
+              title="Email body"
+            />
+            <pre v-else class="msg-text">{{ m.bodyText || m.snippet || "(empty body)" }}</pre>
 
-          <div v-if="m.attachments.length" class="msg-attachments">
-            <button
-              v-for="att in m.attachments"
-              :key="att.attachmentId"
-              type="button"
-              class="att-chip"
-              @click="downloadMailAttachment(m.accountEmail, m.id, att.attachmentId, att.filename, att.mimeType)"
-            >
-              <Paperclip :size="12" />
-              <span>{{ att.filename }}</span>
-            </button>
-          </div>
+            <div v-if="m.attachments.length" class="msg-attachments">
+              <button
+                v-for="att in m.attachments"
+                :key="att.attachmentId"
+                type="button"
+                class="att-chip"
+                @click="downloadMailAttachment(m.accountEmail, m.id, att.attachmentId, att.filename, att.mimeType)"
+              >
+                <Paperclip :size="12" />
+                <span>{{ att.filename }}</span>
+              </button>
+            </div>
+          </template>
         </article>
       </div>
     </div>
@@ -601,18 +686,27 @@ onUnmounted(() => {
 .thread-snippet { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .starred { color: #eab308; fill: #eab308; }
 .inline-star { flex: none; }
-.mail-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; }
-.detail-head { padding: 10px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; gap: 8px; }
-.detail-subject { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.3; }
-.detail-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.detail-messages { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
-.msg-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; background: var(--card); display: flex; flex-direction: column; gap: 6px; }
-.msg-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; }
-.msg-time { font-weight: 400; color: var(--muted-foreground); }
-.msg-to { font-size: 11px; color: var(--muted-foreground); }
-.msg-iframe { width: 100%; min-height: 240px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
-.msg-text { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; font-family: inherit; }
-.msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+.mail-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.detail-head { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; gap: 8px; flex: none; }
+.detail-subject { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.detail-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.detail-actions-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.detail-messages { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; }
+.msg-card { display: flex; flex-direction: column; flex: none; min-width: 0; background: var(--card); border-bottom: 1px solid var(--border); }
+.msg-card:last-child { border-bottom: 0; }
+.msg-card.fill-pane { flex: 1; min-height: 360px; }
+.msg-header-static, .msg-header-btn { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); background: var(--card); color: var(--foreground); text-align: left; flex: none; }
+.msg-header-btn { cursor: pointer; }
+.msg-header-btn:hover { background: var(--secondary); }
+.msg-card.collapsed .msg-header-btn { border-bottom: 0; }
+.msg-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
+.msg-time { font-weight: 400; font-size: 11px; color: var(--muted-foreground); flex: none; }
+.msg-to { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-collapsed-snippet { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-iframe { width: 100%; flex: 1; min-height: 360px; height: 100%; border: 0; background: #fff; display: block; }
+.msg-iframe.fixed-height { flex: none; height: 480px; }
+.msg-text { margin: 0; padding: 14px 16px; flex: 1; min-height: 0; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.55; font-family: inherit; }
+.msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--card); flex: none; }
 .att-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 11px; cursor: pointer; }
 .att-chip:hover { background: var(--secondary); }
 .modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
