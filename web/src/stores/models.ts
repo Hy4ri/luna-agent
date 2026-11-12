@@ -2,8 +2,20 @@
 import { computed, markRaw, reactive } from "vue";
 import { json, post, serverUrl, token } from "@/lib/api";
 import type { ModelInfo } from "@/lib/types";
-import { FALLBACK_LEVEL, LEVELS, clampTo, levelsOf, modelDisplayName, startLevel, type ModelRef } from "@/lib/thinking-levels";
-import { addErr, chat } from "./chat";
+import {
+  FALLBACK_LEVEL,
+  LEVELS,
+  buildSiblingIndex,
+  clampTo,
+  findSiblingGroup,
+  levelsOf,
+  modelDisplayName,
+  siblingLevelOf,
+  siblingTarget,
+  startLevel,
+  type ModelRef,
+} from "@/lib/thinking-levels";
+import { addErr, busy, chat } from "./chat";
 
 export { FALLBACK_LEVEL, LEVELS, type ModelRef };
 export type Speed = "fast" | "ultrafast";
@@ -48,8 +60,14 @@ export const modelTitle = computed(() => {
   return m ? m.provider + " · " + (m.name || m.id) : key || "Choose model";
 });
 
+export const siblingIndex = computed(() => buildSiblingIndex(models.list));
+export const siblingGroupFor = (ref: ModelRef | null | undefined) => findSiblingGroup(siblingIndex.value, ref);
+export const siblingLevelFor = (ref: ModelRef | null | undefined) => siblingLevelOf(siblingIndex.value, ref);
+export const siblingTargetFor = (ref: ModelRef | null | undefined, level: string) => siblingTarget(siblingIndex.value, ref, level);
+export const isSiblingModel = computed(() => !!siblingGroupFor(models.selected));
+
 export const modelInfo = (ref: ModelRef | null | undefined) => (ref ? modelByKey(ref.provider + "/" + ref.modelId) : undefined);
-export const levelsFor = (ref: ModelRef | null | undefined) => levelsOf(modelInfo(ref));
+export const levelsFor = (ref: ModelRef | null | undefined) => levelsOf(modelInfo(ref), siblingGroupFor(ref));
 export const availableLevels = computed(() => levelsFor(models.selected));
 /** Speeds the selected model offers; empty hides the speed button. */
 export const availableSpeeds = computed<Speed[]>(() => (modelInfo(models.selected)?.speeds as Speed[] | undefined) ?? []);
@@ -61,9 +79,10 @@ export const effectiveSpeed = computed<Speed | null>(() => {
   return s === "ultrafast" && speeds.includes("fast") ? "fast" : null;
 });
 export const clampLevel = (level: string, ref: ModelRef | null | undefined) => clampTo(levelsFor(ref), level);
-export const defaultLevelFor = (ref: ModelRef | null | undefined) => startLevel(modelInfo(ref), models.defaultThinkingLevel);
+export const defaultLevelFor = (ref: ModelRef | null | undefined) =>
+  startLevel(modelInfo(ref), models.defaultThinkingLevel, siblingGroupFor(ref), ref);
 const draftLevel = (ref: ModelRef | null | undefined) =>
-  models.draft.thinkingLevel ? clampLevel(models.draft.thinkingLevel, ref) : defaultLevelFor(ref);
+  siblingLevelFor(ref) ?? (models.draft.thinkingLevel ? clampLevel(models.draft.thinkingLevel, ref) : defaultLevelFor(ref));
 
 export function setSelectedModel(m: ModelRef | null | undefined) { models.selected = m ? { provider: m.provider, modelId: m.modelId } : null; }
 
@@ -144,6 +163,9 @@ export async function loadModels(options?: LoadModelsOptions): Promise<boolean> 
     if (!chat.session) {
       setSelectedModel(models.draft.model ?? models.defaultModel);
       models.thinking = draftLevel(models.selected);
+    } else {
+      const sibLevel = siblingLevelFor(models.selected);
+      if (sibLevel) models.thinking = sibLevel;
     }
     return true;
   })();
@@ -201,9 +223,12 @@ export async function chooseModel(m: ModelInfo): Promise<boolean> {
     }
     const r = await post<{ thinkingLevel?: string }>(`/v1/sessions/${target}`, { model: { provider: m.provider, modelId: m.id } }, "PATCH");
     if (chat.session === target) {
-      setSelectedModel({ provider: m.provider, modelId: m.id });
-      // The server keeps or clamps the level for the new model and returns the stored one.
-      if (r?.thinkingLevel) models.thinking = r.thinkingLevel;
+      const ref = { provider: m.provider, modelId: m.id };
+      setSelectedModel(ref);
+      // For sibling models, the UI displays the sibling's suffix level instead of the server's clamped "off".
+      const sibLevel = siblingLevelFor(ref);
+      if (sibLevel) models.thinking = sibLevel;
+      else if (r?.thinkingLevel) models.thinking = r.thinkingLevel;
       return true;
     }
   } catch (e) { addErr((e as Error).message); }
@@ -223,12 +248,49 @@ export async function setSpeed(speed: Speed | null) {
   }
 }
 
-export async function setThinking(level: string) {
-  models.thinking = clampLevel(level, models.selected);
+let pendingSiblingSwitch: { sid: string; epoch: number; key: string; promise: Promise<boolean> } | null = null;
+
+export async function setThinking(level: string): Promise<boolean> {
+  const clamped = clampLevel(level, models.selected);
   const sid = chat.session, epoch = chat.epoch;
-  if (!sid) { models.draft.thinkingLevel = models.thinking; return; }
+
+  if (siblingGroupFor(models.selected)) {
+    const target = siblingTargetFor(models.selected, clamped);
+    if (!target) return false;
+    if (target.provider === models.selected?.provider && target.id === models.selected?.modelId) {
+      models.thinking = clamped;
+      return true;
+    }
+    if (!sid) {
+      models.draft.model = { provider: target.provider, modelId: target.id };
+      models.draft.thinkingLevel = clamped;
+      setSelectedModel(models.draft.model);
+      models.thinking = clamped;
+      return true;
+    }
+    if (busy.value) {
+      addErr("Cannot change reasoning level while busy.");
+      return false;
+    }
+    const targetKey = modelKey(target);
+    if (pendingSiblingSwitch?.sid === sid && pendingSiblingSwitch.epoch === epoch && pendingSiblingSwitch.key === targetKey) {
+      return pendingSiblingSwitch.promise;
+    }
+    const task = chooseModel(target).finally(() => {
+      if (pendingSiblingSwitch?.promise === task) pendingSiblingSwitch = null;
+    });
+    pendingSiblingSwitch = { sid, epoch, key: targetKey, promise: task };
+    return task;
+  }
+
+  models.thinking = clamped;
+  if (!sid) { models.draft.thinkingLevel = models.thinking; return true; }
   try {
     const r = await post<{ thinkingLevel?: string }>(`/v1/sessions/${sid}`, { thinkingLevel: level }, "PATCH");
     if (chat.session === sid && epoch === chat.epoch && r?.thinkingLevel) models.thinking = r.thinkingLevel;
-  } catch (e) { if (epoch === chat.epoch) addErr((e as Error).message); }
+    return true;
+  } catch (e) {
+    if (epoch === chat.epoch) addErr((e as Error).message);
+    return false;
+  }
 }

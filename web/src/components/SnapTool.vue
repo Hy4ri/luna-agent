@@ -5,7 +5,7 @@ import { Crop, X, Send, Loader2 } from "@lucide/vue";
 import { chat, newSession, addErr } from "@/stores/chat";
 import { composer, addAttachment, send } from "@/stores/composer";
 import { history, loadProjects } from "@/stores/sessions";
-import { models, selectedKey, setSelectedModel, levelsFor, clampLevel, levelLabel, loadModels } from "@/stores/models";
+import { models, modelKey, selectedKey, setSelectedModel, levelsFor, clampLevel, levelLabel, loadModels, siblingLevelFor, siblingTargetFor } from "@/stores/models";
 import { SNAP_PROJECT_KEY, resolveSnapProject } from "@/lib/projects";
 import ModelCombobox from "@/components/ModelCombobox.vue";
 
@@ -28,7 +28,13 @@ const snapRef = computed(() => {
   return { provider: provider!, modelId: rest.join("/") };
 });
 const snapLevels = computed(() => levelsFor(snapRef.value));
-watch(snapRef, ref => { thinking.value = clampLevel(thinking.value, ref); });
+watch(snapRef, ref => { thinking.value = siblingLevelFor(ref) ?? clampLevel(thinking.value, ref); });
+watch(thinking, level => {
+  const target = siblingTargetFor(snapRef.value, level);
+  if (!target) return;
+  const nextKey = modelKey(target);
+  if (model.value !== nextKey) model.value = nextKey;
+});
 const box = computed(() => rect.value && ({ left: rect.value.x + "px", top: rect.value.y + "px", width: rect.value.w + "px", height: rect.value.h + "px" }));
 const inUi = (el: Element | null) => !!el?.closest("[data-snap-ui]");
 
@@ -162,7 +168,9 @@ async function submit() {
     if (!await newSession(targetProject)) throw new Error("Could not start a new session.");
     // newSession resets the draft. Apply the snap choices so createSession uses them.
     const [provider, ...rest] = (model.value || "").split("/");
-    const pick = model.value ? { provider, modelId: rest.join("/") } : undefined;
+    const rawPick = model.value ? { provider, modelId: rest.join("/") } : undefined;
+    const sibling = siblingTargetFor(rawPick ?? models.defaultModel, thinking.value);
+    const pick = sibling ? { provider: sibling.provider, modelId: sibling.id } : rawPick;
     models.draft = { ...(pick ? { model: pick } : {}), thinkingLevel: thinking.value };
     setSelectedModel(pick ?? models.defaultModel); models.thinking = thinking.value;
     const stamp = new Date().toISOString().replace(/\W/g, "").slice(0, 15);

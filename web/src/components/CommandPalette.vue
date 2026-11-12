@@ -4,12 +4,12 @@ import { computed, nextTick, ref, shallowRef, toRaw, watch, onUnmounted } from '
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { Check, Search } from '@lucide/vue';
 import { ui, setPalette, navigate, openPanel, toggleCollapsed, settingsDirty, settingsChanged } from '@/stores/app';
-import { chat, openSession, scheduleContext } from '@/stores/chat';
+import { chat, busy, openSession, scheduleContext } from '@/stores/chat';
 import { terminal, toggleTerminal } from '@/stores/terminal';
 import { sessionPane } from '@/lib/pane';
 import { history, sessionTitle, projectName, querySessions } from '@/stores/sessions';
 import type { ModelInfo, SessionMeta } from '@/lib/types';
-import { models, modelKey, modelByKey, selectedKey, chooseModel, availableLevels, levelLabel, setThinking } from '@/stores/models';
+import { models, modelKey, modelByKey, selectedKey, chooseModel, availableLevels, isSiblingModel, levelLabel, setThinking } from '@/stores/models';
 import { compactNumber } from '@/lib/numbers';
 import { PANELS } from '@/components/panels';
 import { sections, labelFor, isVisibleSetting, settingRoute } from '@/pages/settings/catalog';
@@ -171,7 +171,8 @@ const items = computed<Item[]>(() => {
   for (const key of quick) addModel(modelByKey(key)!, true);
   const quickKeys = new Set(quick);
   for (const m of models.list) if (!quickKeys.has(modelKey(m))) addModel(m, false);
-  for (const level of availableLevels.value) add({ id: 'thinking:' + level, group: 'Thinking', label: 'Thinking: ' + levelLabel(level), current: models.thinking === level, keep: true, run: () => setThinking(level) });
+  const siblingBusy = isSiblingModel.value && busy.value;
+  for (const level of availableLevels.value) add({ id: 'thinking:' + level, group: 'Thinking', label: 'Thinking: ' + levelLabel(level), current: models.thinking === level, disabled: siblingBusy ? 'Cannot switch model while busy' : undefined, keep: true, run: () => setThinking(level) });
 
   const view = settings.value;
   if (view) {
