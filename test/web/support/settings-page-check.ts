@@ -2,7 +2,6 @@
 // Usage: bun test/web/support/settings-page-check.ts <config.json>. Exit 0 means Settings opened with no error.
 // It runs in its own process: Vue's DOM renderer binds `document` on first import, and other web tests in the
 // same `bun test` process import Vue before any DOM exists.
-import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +14,7 @@ import { openLuna, context } from "../../../src/luna.js";
 import { ConversationStore } from "../../../src/conversations.js";
 import { createApp as createDaemonApp } from "../../../src/server.js";
 import { SettingsStore } from "../../../src/settings.js";
+import { expect } from "bun:test";
 
 // Imported prop types (for example reka-ui props) need the TS 5 JS API; root TypeScript 7 has none.
 registerTS(() => ts);
@@ -83,15 +83,15 @@ try {
       setSettingsTab(section.id);
       await settle();
       const label = `tab ${section.id}`;
-      assert.equal(root.querySelector(".settings-loading"), null, `${label}: still loading`);
-      assert.equal(root.querySelector(".settings-error")?.textContent ?? null, null, `${label}: load error`);
-      assert.equal(root.querySelector('[data-settings-tab][aria-current="page"]')?.getAttribute("data-settings-tab"), section.id, label);
+      expect(root.querySelector(".settings-loading"), `${label}: still loading`).toBe(null);
+      expect(root.querySelector(".settings-error")?.textContent ?? null, `${label}: load error`).toBe(null);
+      expect(root.querySelector('[data-settings-tab][aria-current="page"]')?.getAttribute("data-settings-tab"), label).toBe(section.id);
       // Connections shows the provider and MCP managers; every other tab shows the shared form.
       const body = root.querySelector(section.id === "connections" ? ".settings-manager" : "#settings-configuration");
-      assert.ok(body && body.textContent!.trim().length > 0, `${label}: tab content is empty`);
-      assert.deepEqual(errors, [], label);
+      expect(body && body.textContent!.trim().length > 0, `${label}: tab content is empty`).toBeTruthy();
+      expect(errors, label).toStrictEqual([]);
     }
-    assert.deepEqual(failedRequests, []);
+    expect(failedRequests).toStrictEqual([]);
   } finally {
     app.unmount();
     root.remove();

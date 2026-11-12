@@ -1,11 +1,11 @@
 // Contract: confinedRead returns bytes only from a regular file inside the allowed roots, never from a credential
 // or blocked path, and never more than the limit. The model controls `path`, so every refusal here is a security boundary.
-import assert from "node:assert/strict";
 import { linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll as after, test } from "bun:test";
+import { afterAll as after, test, expect } from "bun:test";
 import { ConfinedReadError, confinedRead, credentialPath, within } from "../src/confined-read.js";
+import { rejectsWith } from "./support/expect-error.js";
 
 const base = mkdtempSync(join(tmpdir(), "luna-confined-"));
 after(() => rmSync(base, { recursive: true, force: true }));
@@ -23,12 +23,12 @@ symlinkSync(join(root, "ok.txt"), join(root, "link-in.txt"));
 const read = (path: string, policy: Partial<Parameters<typeof confinedRead>[1]> = {}, afterOpen?: () => Promise<void>) =>
   confinedRead(path, { root, maxBytes: 1024, ...policy }, { cwd: root, ...(afterOpen ? { afterOpen } : {}) });
 const text = async (p: Promise<Uint8Array>) => Buffer.from(await p).toString("utf8");
-const refused = (p: Promise<unknown>, pattern: RegExp) => assert.rejects(p, (e: unknown) => e instanceof ConfinedReadError && pattern.test(e.message));
+const refused = (p: Promise<unknown>, pattern: RegExp) => rejectsWith(p, (e: unknown) => e instanceof ConfinedReadError && pattern.test(e.message));
 
 test("reads files inside the root by relative or absolute path, including symlinks that stay inside", async () => {
-  assert.equal(await text(read("ok.txt")), "inside");
-  assert.equal(await text(read(join(root, "sub", "deep.txt"))), "deep");
-  assert.equal(await text(read("link-in.txt")), "inside");
+  expect(await text(read("ok.txt"))).toBe("inside");
+  expect(await text(read(join(root, "sub", "deep.txt")))).toBe("deep");
+  expect(await text(read("link-in.txt"))).toBe("inside");
 });
 
 test("refuses traversal, outward symlinks, and sibling directories that share the root prefix", async () => {
@@ -44,7 +44,7 @@ test("a path swapped for a symlink after open still reads the opened file", asyn
     renameSync(path, join(root, "moved.txt"));
     symlinkSync(join(outside, "secret.txt"), path);
   }));
-  assert.equal(got, "original");
+  expect(got).toBe("original");
   unlinkSync(path);
 });
 
@@ -68,17 +68,17 @@ test("refuses credential files by name and blocked paths, including hard-link al
 
 test("credentialPath matches whole path components only", () => {
   for (const p of ["/h/.ssh/id_ed25519", "/h/.aws/credentials", "/p/.env", "/p/.env.production", "/d/auth.json",
-    "/d/secrets.json", "/r/luna.config.json", "/r/luna.config.pre-x.json"]) assert.equal(credentialPath(p), true, p);
+    "/d/secrets.json", "/r/luna.config.json", "/r/luna.config.pre-x.json"]) expect(credentialPath(p), p).toBe(true);
   for (const p of ["/p/.environment", "/p/my.env", "/d/oauth.json", "/r/luna.config.example.ts", "/p/env/file"]) {
-    assert.equal(credentialPath(p), false, p);
+    expect(credentialPath(p), p).toBe(false);
   }
 });
 
 test("within compares whole directory components", () => {
-  assert.equal(within("/a/b", "/a/b"), true);
-  assert.equal(within("/a/b/c", "/a/b"), true);
-  assert.equal(within("/a/bc", "/a/b"), false);
-  assert.equal(within("/a/b/c", "/a/b/"), true);
+  expect(within("/a/b", "/a/b")).toBe(true);
+  expect(within("/a/b/c", "/a/b")).toBe(true);
+  expect(within("/a/bc", "/a/b")).toBe(false);
+  expect(within("/a/b/c", "/a/b/")).toBe(true);
 });
 
 test("refuses directories, oversized files, and invalid input", async () => {
@@ -86,13 +86,13 @@ test("refuses directories, oversized files, and invalid input", async () => {
   writeFileSync(join(root, "big.bin"), Buffer.alloc(1025));
   await refused(read("big.bin"), /1024-byte limit/);
   writeFileSync(join(root, "exact.bin"), Buffer.alloc(1024, 7));
-  assert.equal((await read("exact.bin")).length, 1024);
+  expect((await read("exact.bin")).length).toBe(1024);
   await refused(read(""), /Invalid source path/);
   await refused(read("ok.txt", { maxBytes: 0 }), /Invalid read limit/);
 });
 
 test("roots: missing directories grant nothing; one existing root is enough", async () => {
   await refused(read("ok.txt", { root: undefined, roots: [join(base, "missing")] }), /No allowed image directory/);
-  assert.equal(await text(read("ok.txt", { root: undefined, roots: [join(base, "missing"), root] })), "inside");
+  expect(await text(read("ok.txt", { root: undefined, roots: [join(base, "missing"), root] }))).toBe("inside");
   await refused(read("../outside/secret.txt", { root: undefined, roots: [root] }), /outside the allowed source directories/);
 });

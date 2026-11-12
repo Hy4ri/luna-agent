@@ -1,16 +1,19 @@
 // Local Git actions run against real temporary repositories; nothing touches the network.
-import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll as after, test } from "bun:test";
+import { afterAll as after, test, expect } from "bun:test";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { createGitControl, GitError, type Workspace } from "../src/git-control.js";
+import { rejectsWith } from "./support/expect-error.js";
 
 const dirs: string[] = [];
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
-const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } }).trim();
+const git = (cwd: string, ...args: string[]) => {
+  const r = Bun.spawnSync(["git", ...args], { cwd, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } });
+  if (!r.success) throw new Error(`git ${args.join(" ")} failed (${r.exitCode}): ${r.stderr.toString()}`);
+  return r.stdout.toString().trim();
+};
 
 /** A repository with one commit on `main`, pushed to a bare origin. */
 function repo() {
@@ -27,25 +30,25 @@ function repo() {
   const w: Workspace = { machine: "main", env: new NodeExecutionEnv({ cwd }) };
   return { cwd, w, ctl: createGitControl() };
 }
-const fail = async (p: Promise<unknown>, status: number) => assert.rejects(p, e => e instanceof GitError && e.status === status);
+const fail = async (p: Promise<unknown>, status: number) => rejectsWith(p, e => e instanceof GitError && e.status === status);
 
 test("stage all stages tracked changes and new files; unstage all clears the index", async () => {
   const { cwd, w, ctl } = repo();
   writeFileSync(join(cwd, "a.txt"), "changed\n"); writeFileSync(join(cwd, "new.txt"), "n\n");
   const staged = await ctl.mutate(w, "stage", { all: true });
-  assert.equal(staged.changes.files.every(f => f.staged), true);
-  assert.equal(staged.changes.files.length, 2);
+  expect(staged.changes.files.every(f => f.staged)).toBe(true);
+  expect(staged.changes.files.length).toBe(2);
   const cleared = await ctl.mutate(w, "unstage", { all: true });
-  assert.equal(cleared.changes.files.some(f => f.staged), false);
-  assert.equal(cleared.changes.files.length, 2);
+  expect(cleared.changes.files.some(f => f.staged)).toBe(false);
+  expect(cleared.changes.files.length).toBe(2);
 });
 
 test("unstage all works before the first commit", async () => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "luna-git-"))); dirs.push(base);
   git(base, "init", "-q", "-b", "main"); writeFileSync(join(base, "x.txt"), "x\n");
   const w: Workspace = { machine: "main", env: new NodeExecutionEnv({ cwd: base }) }, ctl = createGitControl();
-  assert.equal((await ctl.mutate(w, "stage", { all: true })).changes.files[0]?.staged, true);
-  assert.equal((await ctl.mutate(w, "unstage", { all: true })).changes.files.some(f => f.staged), false);
+  expect((await ctl.mutate(w, "stage", { all: true })).changes.files[0]?.staged).toBe(true);
+  expect((await ctl.mutate(w, "unstage", { all: true })).changes.files.some(f => f.staged)).toBe(false);
 });
 
 test("amend rewrites the last commit and takes staged files", async () => {
@@ -54,25 +57,25 @@ test("amend rewrites the last commit and takes staged files", async () => {
   writeFileSync(join(cwd, "c.txt"), "c\n"); git(cwd, "add", "c.txt");
   const before = git(cwd, "rev-parse", "HEAD");
   await ctl.mutate(w, "commit", { message: "reworded", amend: true });
-  assert.notEqual(git(cwd, "rev-parse", "HEAD"), before);
-  assert.equal(git(cwd, "log", "-1", "--format=%s"), "reworded");
-  assert.equal(git(cwd, "show", "--name-only", "--format=", "HEAD"), "b.txt\nc.txt");
+  expect(git(cwd, "rev-parse", "HEAD")).not.toBe(before);
+  expect(git(cwd, "log", "-1", "--format=%s")).toBe("reworded");
+  expect(git(cwd, "show", "--name-only", "--format=", "HEAD")).toBe("b.txt\nc.txt");
 });
 
 test("amend with nothing staged only rewords", async () => {
   const { cwd, w, ctl } = repo();
   writeFileSync(join(cwd, "b.txt"), "b\n"); git(cwd, "add", "b.txt"); git(cwd, "commit", "-qm", "old");
   await ctl.mutate(w, "commit", { message: "new", amend: true });
-  assert.equal(git(cwd, "log", "-1", "--format=%s"), "new");
+  expect(git(cwd, "log", "-1", "--format=%s")).toBe("new");
 });
 
 test("amend of a pushed commit needs force; unborn branches refuse", async () => {
   const { cwd, w, ctl } = repo();
   const before = git(cwd, "rev-parse", "HEAD");
   await fail(ctl.mutate(w, "commit", { message: "x", amend: true }), 409);
-  assert.equal(git(cwd, "rev-parse", "HEAD"), before);
+  expect(git(cwd, "rev-parse", "HEAD")).toBe(before);
   await ctl.mutate(w, "commit", { message: "forced", amend: true, force: true });
-  assert.equal(git(cwd, "log", "-1", "--format=%s"), "forced");
+  expect(git(cwd, "log", "-1", "--format=%s")).toBe("forced");
 
   const base = realpathSync(mkdtempSync(join(tmpdir(), "luna-git-"))); dirs.push(base);
   git(base, "init", "-q", "-b", "main");
@@ -89,10 +92,10 @@ test("the staged diff lists staged files only", async () => {
   writeFileSync(join(cwd, "a.txt"), "changed\n"); writeFileSync(join(cwd, "b.txt"), "b\n");
   git(cwd, "add", "a.txt");
   const d = await ctl.stagedDiff(w);
-  assert.match(d.stat, /a\.txt/);
-  assert.doesNotMatch(d.patch, /b\.txt/);
-  assert.match(d.patch, /\+changed/);
-  assert.equal(d.truncated, false);
+  expect(d.stat).toMatch(/a\.txt/);
+  expect(d.patch).not.toMatch(/b\.txt/);
+  expect(d.patch).toMatch(/\+changed/);
+  expect(d.truncated).toBe(false);
 });
 
 test("discard restores tracked files, removes untracked ones, and refuses staged files", async () => {
@@ -102,10 +105,10 @@ test("discard restores tracked files, removes untracked ones, and refuses staged
   await fail(ctl.mutate(w, "discard", { paths: ["s.txt"] }), 409);
   await fail(ctl.mutate(w, "discard", { paths: ["../etc/passwd"] }), 400);
   const r = await ctl.mutate(w, "discard", { paths: ["a.txt", "new.txt"] });
-  assert.equal(git(cwd, "show", "HEAD:a.txt"), "a");
-  assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "a\n");
-  assert.equal(existsSync(join(cwd, "new.txt")), false);
-  assert.deepEqual(r.changes.files.map(f => f.path), ["s.txt"]);
+  expect(git(cwd, "show", "HEAD:a.txt")).toBe("a");
+  expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("a\n");
+  expect(existsSync(join(cwd, "new.txt"))).toBe(false);
+  expect(r.changes.files.map(f => f.path)).toStrictEqual(["s.txt"]);
 });
 
 test("stash saves changes, lists them, then pops or drops by index", async () => {
@@ -113,18 +116,18 @@ test("stash saves changes, lists them, then pops or drops by index", async () =>
   await fail(ctl.mutate(w, "stash", {}), 400);
   writeFileSync(join(cwd, "a.txt"), "changed\n"); writeFileSync(join(cwd, "u.txt"), "u\n");
   await ctl.mutate(w, "stash", { message: "wip", includeUntracked: true });
-  assert.equal((await ctl.changes(w)).files.length, 0);
+  expect((await ctl.changes(w)).files.length).toBe(0);
   const list = await ctl.stashes(w);
-  assert.equal(list.length, 1);
-  assert.match(list[0]!.subject, /wip/);
+  expect(list.length).toBe(1);
+  expect(list[0]!.subject).toMatch(/wip/);
   await fail(ctl.mutate(w, "stash-pop", { index: 5 }), 409);
   await ctl.mutate(w, "stash-pop", { index: 0 });
-  assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "changed\n");
-  assert.equal((await ctl.stashes(w)).length, 0);
+  expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("changed\n");
+  expect((await ctl.stashes(w)).length).toBe(0);
   await ctl.mutate(w, "stash", {});
   await ctl.mutate(w, "stash-drop", { index: 0 });
-  assert.equal((await ctl.stashes(w)).length, 0);
-  assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "a\n");
+  expect((await ctl.stashes(w)).length).toBe(0);
+  expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("a\n");
 });
 
 test("delete-branch removes merged branches, guards unmerged, current and default", async () => {
@@ -137,7 +140,7 @@ test("delete-branch removes merged branches, guards unmerged, current and defaul
   await ctl.mutate(w, "delete-branch", { branch: "merged" });
   await fail(ctl.mutate(w, "delete-branch", { branch: "work" }), 409);
   await ctl.mutate(w, "delete-branch", { branch: "work", force: true });
-  assert.equal(git(cwd, "branch", "--format=%(refname:short)"), "main");
+  expect(git(cwd, "branch", "--format=%(refname:short)")).toBe("main");
 });
 
 test("update-from-default merges origin's default, and aborts cleanly on conflict", async () => {
@@ -151,14 +154,14 @@ test("update-from-default merges origin's default, and aborts cleanly on conflic
   await fail(ctl.mutate(w, "update-from-default", {}), 409);
   rmSync(join(cwd, "dirty.txt"));
   await ctl.mutate(w, "update-from-default", {});
-  assert.equal(existsSync(join(cwd, "n.txt")), true);
+  expect(existsSync(join(cwd, "n.txt"))).toBe(true);
   // Conflict: both sides edit a.txt.
   writeFileSync(join(cwd, "a.txt"), "mine\n"); git(cwd, "commit", "-qam", "mine");
   writeFileSync(join(other, "a.txt"), "theirs\n"); git(other, "commit", "-qam", "theirs"); git(other, "push", "-q", "origin", "main");
   const head = git(cwd, "rev-parse", "HEAD");
   await fail(ctl.mutate(w, "update-from-default", {}), 409);
-  assert.equal(git(cwd, "rev-parse", "HEAD"), head);
-  assert.equal(git(cwd, "status", "--porcelain"), "");
+  expect(git(cwd, "rev-parse", "HEAD")).toBe(head);
+  expect(git(cwd, "status", "--porcelain")).toBe("");
 });
 
 test("checkout-pr fetches the pull ref, switches, and refuses a dirty tree or diverged local branch", async () => {
@@ -172,8 +175,8 @@ test("checkout-pr fetches the pull ref, switches, and refuses a dirty tree or di
   await fail(ctl.mutate(w, "checkout-pr", { number: 5 }), 409);
   rmSync(join(cwd, "dirty.txt"));
   await ctl.mutate(w, "checkout-pr", { number: 5 });
-  assert.equal(git(cwd, "branch", "--show-current"), "pr-5");
-  assert.equal(existsSync(join(cwd, "pr.txt")), true);
+  expect(git(cwd, "branch", "--show-current")).toBe("pr-5");
+  expect(existsSync(join(cwd, "pr.txt"))).toBe(true);
   // Local commit on pr-5 diverges from a new PR head: left untouched.
   writeFileSync(join(cwd, "local.txt"), "l\n"); git(cwd, "add", "local.txt"); git(cwd, "commit", "-qm", "local");
   git(cwd, "switch", "-q", "main");
@@ -183,7 +186,7 @@ test("checkout-pr fetches the pull ref, switches, and refuses a dirty tree or di
   git(cwd, "switch", "-q", "main");
   const before = git(cwd, "rev-parse", "pr-5");
   await fail(ctl.mutate(w, "checkout-pr", { number: 5 }), 409);
-  assert.equal(git(cwd, "rev-parse", "pr-5"), before);
+  expect(git(cwd, "rev-parse", "pr-5")).toBe(before);
   void bare;
 });
 
@@ -194,9 +197,9 @@ test("amend refuses a commit pushed to a branch that is not the upstream", async
   git(cwd, "push", "-q", "origin", "side"); // no upstream set: side has none
   const before = git(cwd, "rev-parse", "HEAD");
   await fail(ctl.mutate(w, "commit", { message: "x", amend: true }), 409);
-  assert.equal(git(cwd, "rev-parse", "HEAD"), before);
+  expect(git(cwd, "rev-parse", "HEAD")).toBe(before);
   // A purely local commit on top is not pushed and can be amended.
   writeFileSync(join(cwd, "l.txt"), "l\n"); git(cwd, "add", "l.txt"); git(cwd, "commit", "-qm", "l");
   await ctl.mutate(w, "commit", { message: "reworded", amend: true });
-  assert.equal(git(cwd, "log", "-1", "--format=%s"), "reworded");
+  expect(git(cwd, "log", "-1", "--format=%s")).toBe("reworded");
 });

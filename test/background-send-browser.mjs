@@ -1,12 +1,12 @@
 // Optional real-browser acceptance (no new framework or credentials). Build web first.
 // Run: bun test/background-send-browser.mjs
 // Use existing Playwright/Chromium via LUNA_PLAYWRIGHT_PATH and LUNA_CHROMIUM_PATH if needed.
-import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { expect } from "bun:test";
 const { chromium } = createRequire(import.meta.url)(process.env.LUNA_PLAYWRIGHT_PATH || 'playwright');
 import { createModels, fauxProvider, fauxAssistantMessage } from '@earendil-works/pi-ai';
 import { openLuna, context } from '../src/luna.ts';
@@ -44,12 +44,12 @@ try {
   const browserBase=`http://luna.test:${server.port}`;
   async function request(path,body,method='POST') {
     const response = await fetch(base+path,{method,headers:{'content-type':'application/json',authorization:'Bearer '+fixtureToken},...(body!==undefined?{body:JSON.stringify(body)}:{})});
-    assert.ok(response.ok, `${method} ${path}: ${response.status} ${await response.clone().text()}`); return response.json();
+    expect(response.ok, `${method} ${path}: ${response.status} ${await response.clone().text()}`).toBeTruthy(); return response.json();
   }
   const source = await request('/v1/sessions',{model,thinkingLevel:'high',project:project.id,cwd:worktreeCwd,instructions:'SOURCE_ONLY'});
   await request(`/v1/sessions/${source.id}/messages?async=1`,{requestId:'hold-source',content:'source-hold'});
   for(let n=0;n<100&&!releaseSource;n++) await new Promise(resolve=>setTimeout(resolve,10));
-  assert.equal(typeof releaseSource,'function','source must be running before background send');
+  expect(typeof releaseSource, 'source must be running before background send').toBe('function');
   browser = await chromium.launch({executablePath:process.env.LUNA_CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined),headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server','--host-resolver-rules=MAP luna.test 127.0.0.1']});
   const browserContext = await browser.newContext({viewport:{width:1280,height:900}, serviceWorkers:'block'});
   await browserContext.addInitScript(({source,fixtureToken}) => {
@@ -67,18 +67,18 @@ try {
   await input.fill('background first');
   await input.press('Control+Enter');
   await page.waitForFunction(()=>document.querySelector('#input')?.value==='');
-  assert.equal(await input.evaluate(element=>element===document.activeElement),true);
+  expect(await input.evaluate(element=>element===document.activeElement)).toBe(true);
   await input.fill('new typing survives');
   await page.getByText('Sent to a new session',{exact:true}).waitFor();
-  assert.equal(page.url(),initialUrl); assert.equal(await input.inputValue(),'new typing survives');
-  assert.equal(await page.evaluate(()=>localStorage.getItem('luna.session')),String(source.id));
+  expect(page.url()).toBe(initialUrl); expect(await input.inputValue()).toBe('new typing survives');
+  expect(await page.evaluate(()=>localStorage.getItem('luna.session'))).toBe(String(source.id));
   let all = await request('/v1/sessions',undefined,'GET');
-  assert.equal(all.sessions.length,2);
+  expect(all.sessions.length).toBe(2);
   const destination=all.sessions.find(row=>row.id!==source.id);
   const conv=await harness.conversation(destination.id,context); const agent=await conv.agent(context);
-  assert.deepEqual(agent.model,model); assert.equal(agent.thinkingLevel,'high'); assert.equal(agent.cwd,worktreeCwd); assert.equal(agent.instructions,'DEFAULT_ONLY');
-  assert.equal(conversations.projects.projectOf(destination.id),project.id);
-  const record=await harness.commit(tx=>tx.conversation(destination.id),context); assert.equal(record.owner,undefined);
+  expect(agent.model).toStrictEqual(model); expect(agent.thinkingLevel).toBe('high'); expect(agent.cwd).toBe(worktreeCwd); expect(agent.instructions).toBe('DEFAULT_ONLY');
+  expect(conversations.projects.projectOf(destination.id)).toBe(project.id);
+  const record=await harness.commit(tx=>tx.conversation(destination.id),context); expect(record.owner).toBe(undefined);
   facts.push('Existing running session: independent destination, exact model/high thinking/project/worktree, no source instructions/history, same view/focus, newer typing preserved.');
   releaseSource?.();
   // Keep the actual rendered UI for inspection, not a fabricated design.
@@ -96,7 +96,7 @@ try {
   await input.press('End'); await input.pressSequentially('new suffix');
   await page.evaluate(()=>{window.releaseCaptureLock=true});
   await page.waitForFunction(()=>document.querySelector('#input')?.value==='new suffix');
-  assert.equal(await input.inputValue(),'new suffix','only uncaptured typing must remain after durable commit');
+  expect(await input.inputValue(), 'only uncaptured typing must remain after durable commit').toBe('new suffix');
   facts.push('Typing while IndexedDB commit is blocked retains only the new text.');
   async function eventually(fn,label) {
     for(let n=0;n<100;n++) { const value=await fn(); if(value)return value; await new Promise(resolve=>setTimeout(resolve,50)); }
@@ -113,11 +113,11 @@ try {
     return eventually(async()=> (await records()).find(r=>!before.has(r.id)),'captured '+text);
   }
   async function reload() { await page.reload({waitUntil:'domcontentloaded'}); await page.locator('#new-session:enabled').waitFor(); }
-  assert.equal(await page.evaluate(()=>isSecureContext),false);
-  assert.equal(await page.evaluate(()=>typeof crypto.subtle),'undefined');
+  expect(await page.evaluate(()=>isSecureContext)).toBe(false);
+  expect(await page.evaluate(()=>typeof crypto.subtle)).toBe('undefined');
   const expectedScope=browserBase+'|'+createHash('sha256').update(fixtureToken).digest('hex');
-  assert.ok((await records()).every(r=>r.scope===expectedScope));
-  assert.ok((await records()).every(r=>!JSON.stringify(r).includes(fixtureToken)));
+  expect((await records()).every(r=>r.scope===expectedScope)).toBeTruthy();
+  expect((await records()).every(r=>!JSON.stringify(r).includes(fixtureToken))).toBeTruthy();
   facts.push('Insecure HTTP: real browser SHA-256 fallback matches Node crypto; no bearer token is persisted in recovery.');
   const prefixRecord=(await records()).sort((a,b)=>a.createdAt-b.createdAt).at(-1); await accepted(prefixRecord.id);
 
@@ -132,12 +132,12 @@ try {
   const totalWrites=writes.length;
   await reload();
   await page.getByRole('button',{name:'Retry',exact:true}).waitFor();
-  assert.equal(writes.length,totalWrites,'reload cannot automatically create/send');
+  expect(writes.length, 'reload cannot automatically create/send').toBe(totalWrites);
   await input.fill('new draft after reload');
   await page.getByRole('button',{name:'Retry',exact:true}).click();
   await accepted(creationLost.id);
-  assert.equal(writes.filter(r=>r.path==='/v1/sessions').length,creationWriteCount,'lost creation response reuses original session');
-  assert.equal(await input.inputValue(),'new draft after reload');
+  expect(writes.filter(r=>r.path==='/v1/sessions').length, 'lost creation response reuses original session').toBe(creationWriteCount);
+  expect(await input.inputValue()).toBe('new draft after reload');
   await page.unroute('**/v1/sessions');
   facts.push('Lost creation response: reload is GET-only; explicit Retry recovers the same session and preserves the new draft.');
 
@@ -150,7 +150,7 @@ try {
   await eventually(async()=> (await records()).find(r=>r.id===messageLost.id&&r.state==='failed'),'message failure persisted');
   const afterMessage=writes.length;
   await reload(); await accepted(messageLost.id);
-  assert.equal(writes.length,afterMessage,'receipt reconciliation must not replay an accepted message');
+  expect(writes.length, 'receipt reconciliation must not replay an accepted message').toBe(afterMessage);
   await page.unroute('**/v1/sessions/*/messages?async=1');
   facts.push('Lost message response: reload recognizes durable acceptance without another POST.');
 
@@ -161,20 +161,20 @@ try {
   });
   const rejected=await send('rejected payload retained');
   const failed=await eventually(async()=> (await records()).find(r=>r.id===rejected.id&&r.state==='failed'),'rejection persisted');
-  assert.equal(failed.payload.text,'rejected payload retained');
+  expect(failed.payload.text).toBe('rejected payload retained');
   await input.fill('newer draft after rejection');
   await page.unroute('**/v1/sessions/*/messages?async=1');
   const beforeRetryCreation=writes.filter(r=>r.path==='/v1/sessions').length;
   await page.getByRole('button',{name:'Retry',exact:true}).click(); await accepted(rejected.id);
-  assert.equal(writes.filter(r=>r.path==='/v1/sessions').length,beforeRetryCreation);
-  assert.equal(await input.inputValue(),'newer draft after rejection');
+  expect(writes.filter(r=>r.path==='/v1/sessions').length).toBe(beforeRetryCreation);
+  expect(await input.inputValue()).toBe('newer draft after rejection');
   facts.push('Rejected message: retained payload retries into the same destination without restoring over newer typing.');
 
   // Client-only commands are rejected before persistence or any network writes, even with suggestions open.
   for(const command of ['/model','/models','/compact','/compress']) {
     const before=writes.length, previous=(await records()).length;
     await input.fill(command); await input.press('Control+Enter');
-    assert.equal(await input.inputValue(),command); assert.equal(writes.length,before); assert.equal((await records()).length,previous);
+    expect(await input.inputValue()).toBe(command); expect(writes.length).toBe(before); expect((await records()).length).toBe(previous);
   }
   facts.push('All four local-only commands retain the draft and make no creation/delivery writes.');
 
@@ -182,7 +182,7 @@ try {
   for(const event of [{ctrlKey:true,isComposing:true},{ctrlKey:true,repeat:true},{ctrlKey:true,altKey:true},{ctrlKey:true,shiftKey:true}]) {
     const before=writes.length; await input.fill('guarded draft');
     await input.evaluate((element,flags)=>element.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true,...flags})),event);
-    assert.equal(await input.inputValue(),'guarded draft'); assert.equal(writes.length,before);
+    expect(await input.inputValue()).toBe('guarded draft'); expect(writes.length).toBe(before);
   }
   const foregroundCount=writes.filter(r=>r.path===`/v1/sessions/${source.id}/messages`).length;
   await input.fill('ordinary foreground'); await input.press('Enter');
@@ -204,7 +204,7 @@ try {
   const storageWrites=writes.length;
   await input.fill('storage failure must preserve this'); await input.press('Control+Enter');
   await page.getByText('Browser storage failed.',{exact:true}).last().waitFor({timeout:3000});
-  assert.equal(await input.inputValue(),'storage failure must preserve this'); assert.equal(writes.length,storageWrites);
+  expect(await input.inputValue()).toBe('storage failure must preserve this'); expect(writes.length).toBe(storageWrites);
   facts.push('A real IndexedDB transaction abort preserves the draft and makes no server writes.');
 
   // Fresh composer + selected thinking + Cmd shortcut, with no source session opened.
@@ -213,8 +213,8 @@ try {
   await page.getByRole('radio',{name:'Max',exact:true}).click(); await input.click();
   const freshBefore=writes.length;
   const fresh=await send('fresh Cmd background','Meta+Enter'); await accepted(fresh.id);
-  const freshWrite=writes.slice(freshBefore).find(r=>r.path==='/v1/sessions'); assert.equal(freshWrite.body.thinkingLevel,'max'); assert.equal(freshWrite.body.cwd,dir); assert.equal(freshWrite.body.project,project.id);
-  assert.equal(await page.evaluate(()=>localStorage.getItem('luna.session')),null);
+  const freshWrite=writes.slice(freshBefore).find(r=>r.path==='/v1/sessions'); expect(freshWrite.body.thinkingLevel).toBe('max'); expect(freshWrite.body.cwd).toBe(dir); expect(freshWrite.body.project).toBe(project.id);
+  expect(await page.evaluate(()=>localStorage.getItem('luna.session'))).toBe(null);
   facts.push('Fresh composer: Cmd+Enter captures selected Max thinking and resolved project cwd without opening the new session.');
 
   // Attachment-only payload follows the existing file pipeline and durable content format.
@@ -223,16 +223,16 @@ try {
   await page.getByRole('button',{name:'Remove attachment fixture-note.txt',exact:true}).waitFor();
   const fileSend=await send(''); await accepted(fileSend.id);
   const fileWrite=writes.find(r=>r.body.requestId===fileSend.messageRequestId);
-  assert.equal(fileWrite.body.content[0].type,'file');
-  assert.match(fileWrite.body.content[0].uploadId,/^[a-f0-9]{64}$/); assert.equal(fileWrite.body.content[0].attachment.name,'fixture-note.txt');
-  assert.equal(await page.getByRole('button',{name:'Remove attachment fixture-note.txt',exact:true}).count(),0);
+  expect(fileWrite.body.content[0].type).toBe('file');
+  expect(fileWrite.body.content[0].uploadId).toMatch(/^[a-f0-9]{64}$/); expect(fileWrite.body.content[0].attachment.name).toBe('fixture-note.txt');
+  expect(await page.getByRole('button',{name:'Remove attachment fixture-note.txt',exact:true}).count()).toBe(0);
   facts.push('Attachment-only send preserves uploaded-file content through the normal message pipeline.');
 
   // Server commands are real one-shot command requests, not model prompts.
   await (await harness.conversation(Number((await accepted(fileSend.id)).sessionId),context)).abort(context);
   const beforeCommands=faux.state.callCount;
   const command=await send('/stop'); const commandAccepted=await accepted(command.id);
-  assert.equal(commandAccepted.notice,'Stopped.'); assert.equal(faux.state.callCount,beforeCommands);
+  expect(commandAccepted.notice).toBe('Stopped.'); expect(faux.state.callCount).toBe(beforeCommands);
   facts.push('Server /stop is delivered through the command endpoint, produces a notice, and makes no model call.');
 
   // Same IDB scope across tabs: no duplicate Retry claim or duplicate delivery.
@@ -248,13 +248,13 @@ try {
   const sharedBefore=writes.filter(r=>r.body.requestId===shared.messageRequestId).length;
   await Promise.all([page.getByRole('button',{name:'Retry',exact:true}).click(),tab.getByRole('button',{name:'Retry',exact:true}).click()]);
   await accepted(shared.id);
-  assert.equal(writes.filter(r=>r.body.requestId===shared.messageRequestId).length,sharedBefore+1);
+  expect(writes.filter(r=>r.body.requestId===shared.messageRequestId).length).toBe(sharedBefore+1);
   await tab.close();
   facts.push('Two tabs clicking Retry concurrently acquire one durable claim and issue exactly one message POST.');
 
   await page.setViewportSize({width:320,height:720});
   const mobile=await send('mobile background'); await accepted(mobile.id);
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow at 320px');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth), 'no horizontal overflow at 320px').toBe(true);
   await page.screenshot({path:join(dir,'mobile.png'),fullPage:true});
   facts.push('320px viewport: shortcut works, status stays nonmodal, no horizontal overflow.');
   // A registered offline worker must keep its own target and explicit worktree, never inherit main cwd.
@@ -266,11 +266,11 @@ try {
   await reload();
   const remoteSend=await send('offline worker target'); const remoteAccepted=await accepted(remoteSend.id);
   const remoteConv=await harness.conversation(Number(remoteAccepted.sessionId),context);
-  assert.equal((await remoteConv.agent(context)).cwd,'/srv/fixture-worktree');
-  assert.equal((await harness.snapshot(ExecTarget,Number(remoteAccepted.sessionId),context)).worker,remoteWorker.id);
-  assert.equal(remoteAccepted.settings.worker,remoteWorker.id);
+  expect((await remoteConv.agent(context)).cwd).toBe('/srv/fixture-worktree');
+  expect((await harness.snapshot(ExecTarget,Number(remoteAccepted.sessionId),context)).worker).toBe(remoteWorker.id);
+  expect(remoteAccepted.settings.worker).toBe(remoteWorker.id);
   facts.push('Registered offline worker: captured worker ID and explicit remote worktree survive background creation; no main-host fallback.');
-  assert.deepEqual(errors,[],'no uncaught browser errors');
+  expect(errors, 'no uncaught browser errors').toStrictEqual([]);
   console.log(JSON.stringify({facts,writes:writes.length,providerCalls:faux.state.callCount},null,2));
 } finally {
   releaseSource?.();

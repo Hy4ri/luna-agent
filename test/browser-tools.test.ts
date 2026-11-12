@@ -1,7 +1,7 @@
 // The three merged browser tools must route every action to the matching provider method and validate arguments.
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createBrowserToolsExtension, type BrowserProvider } from "../src/browser-tools.js";
+import { rejectsWith } from "./support/expect-error.js";
 
 function setup() {
   const seen: [string, unknown][] = [];
@@ -27,7 +27,7 @@ function setup() {
 }
 
 test("browser tools are browser and browser_act", () => {
-  assert.deepEqual([...setup().tools.keys()].sort(), ["browser", "browser_act"]);
+  expect([...setup().tools.keys()].sort()).toStrictEqual(["browser", "browser_act"]);
 });
 
 test("every browser action reaches its provider method", async () => {
@@ -40,7 +40,7 @@ test("every browser action reaches its provider method", async () => {
   await call("browser_act", { action: "type", tabId: "t1", selector: "#q", text: "hi", pressEnter: true });
   await call("browser_act", { action: "scroll", tabId: "t1", direction: "down" });
   const closed = await call("browser", { action: "close", tabId: "t1" });
-  assert.deepEqual(seen, [
+  expect(seen).toStrictEqual([
     ["open", { url: "https://x.test/" }],
     ["navigate", { tabId: "t1", url: "https://x.test/b" }],
     ["snapshot", { tabId: "t1", offset: 5 }],
@@ -50,20 +50,20 @@ test("every browser action reaches its provider method", async () => {
     ["scroll", { tabId: "t1", direction: "down", amount: 500 }],
     ["close", { tabId: "t1" }],
   ]);
-  assert.match(snap.output[0]!.text!, /"content":"page"/);
-  assert.equal(shot.output[1]!.type, "image");
-  assert.match(closed.output[0]!.text!, /"closed":true/);
+  expect(snap.output[0]!.text!).toMatch(/"content":"page"/);
+  expect(shot.output[1]!.type).toBe("image");
+  expect(closed.output[0]!.text!).toMatch(/"closed":true/);
 });
 
 test("browser actions reject missing or conflicting arguments before any provider call", async () => {
   const { seen, call } = setup();
-  await assert.rejects(call("browser", { action: "open" }), /URL is required/);
-  await assert.rejects(call("browser", { action: "close" }), /Tab ID is required/);
-  await assert.rejects(call("browser_act", { action: "click", tabId: "t1", ref: "e1", selector: "#a" }), /exactly one/);
-  await assert.rejects(call("browser_act", { action: "type", tabId: "t1", ref: "e1" }), /Text is required/);
-  await assert.rejects(call("browser_act", { action: "scroll", tabId: "t1" }), /direction is required/);
-  await assert.rejects(call("browser_act", { action: "scroll", tabId: "t1", direction: "up", amount: 1.5 }), /amount must be an integer/);
-  assert.deepEqual(seen, []);
+  await rejectsWith(call("browser", { action: "open" }), /URL is required/);
+  await rejectsWith(call("browser", { action: "close" }), /Tab ID is required/);
+  await rejectsWith(call("browser_act", { action: "click", tabId: "t1", ref: "e1", selector: "#a" }), /exactly one/);
+  await rejectsWith(call("browser_act", { action: "type", tabId: "t1", ref: "e1" }), /Text is required/);
+  await rejectsWith(call("browser_act", { action: "scroll", tabId: "t1" }), /direction is required/);
+  await rejectsWith(call("browser_act", { action: "scroll", tabId: "t1", direction: "up", amount: 1.5 }), /amount must be an integer/);
+  expect(seen).toStrictEqual([]);
 });
 
 function richSetup(evaluate = false) {
@@ -98,21 +98,21 @@ function richSetup(evaluate = false) {
 
 test("richer actions reach their provider methods", async () => {
   const { seen, call } = richSetup(true);
-  assert.equal((await call("browser", { action: "back", tabId: "t1" })).url, "https://x.test/prev");
+  expect((await call("browser", { action: "back", tabId: "t1" })).url).toBe("https://x.test/prev");
   await call("browser_act", { action: "press", tabId: "t1", keys: "Escape" });
   await call("browser_act", { action: "press", tabId: "t1", selector: "#q", keys: "Control+A" });
   await call("browser_act", { action: "click", tabId: "t1", x: 10, y: 20, clickCount: 2 });
   await call("browser_act", { action: "hover", tabId: "t1", x: 5, y: 6 });
   await call("browser_act", { action: "hover", tabId: "t1", ref: "e3" });
   await call("browser_act", { action: "drag", tabId: "t1", path: [{ x: 1, y: 2 }, { x: 3, y: 4 }] });
-  assert.deepEqual((await call("browser_act", { action: "select", tabId: "t1", selector: "select", values: ["B"] })).value, ["b"]);
+  expect((await call("browser_act", { action: "select", tabId: "t1", selector: "select", values: ["B"] })).value).toStrictEqual(["b"]);
   await call("browser_act", { action: "uncheck", tabId: "t1", ref: "e4" });
   await call("browser_act", { action: "upload", tabId: "t1", selector: "input", files: ["/tmp/a.png"] });
-  assert.equal((await call("browser_act", { action: "dialog", tabId: "t1", accept: true, text: "yes" })).armed, "accept");
+  expect((await call("browser_act", { action: "dialog", tabId: "t1", accept: true, text: "yes" })).armed).toBe("accept");
   await call("browser", { action: "wait", tabId: "t1", text: "Done", timeout: 3 });
-  assert.equal((await call("browser", { action: "logs", tabId: "t1", clear: true })).console[0].text, "boom");
-  assert.deepEqual((await call("browser_act", { action: "evaluate", tabId: "t1", script: "document.title" })).value, { title: "X" });
-  assert.deepEqual(seen, [
+  expect((await call("browser", { action: "logs", tabId: "t1", clear: true })).console[0].text).toBe("boom");
+  expect((await call("browser_act", { action: "evaluate", tabId: "t1", script: "document.title" })).value).toStrictEqual({ title: "X" });
+  expect(seen).toStrictEqual([
     ["history", { tabId: "t1", action: "back" }],
     ["press", { tabId: "t1", keys: "Escape" }],
     ["press", { tabId: "t1", selector: "#q", keys: "Control+A" }],
@@ -132,20 +132,20 @@ test("richer actions reach their provider methods", async () => {
 
 test("a dialog an action raised comes back with its result", async () => {
   const { call } = richSetup();
-  assert.deepEqual((await call("browser_act", { action: "click", tabId: "t1", ref: "e1" })).dialogs, [{ type: "confirm", message: "Sure?", answer: "dismissed" }]);
+  expect((await call("browser_act", { action: "click", tabId: "t1", ref: "e1" })).dialogs).toStrictEqual([{ type: "confirm", message: "Sure?", answer: "dismissed" }]);
 });
 
 test("richer actions validate first, page scripts need the setting, and a basic provider says what it lacks", async () => {
   const { seen, call } = richSetup(false);
-  await assert.rejects(call("browser_act", { action: "click", tabId: "t1", x: 1 }), /both x and y/);
-  await assert.rejects(call("browser_act", { action: "click", tabId: "t1", x: 1, y: 2, ref: "e1" }), /not both/);
-  await assert.rejects(call("browser_act", { action: "drag", tabId: "t1", path: [{ x: 1, y: 2 }] }), /at least two/);
-  await assert.rejects(call("browser_act", { action: "press", tabId: "t1" }), /Keys is required/);
-  await assert.rejects(call("browser_act", { action: "upload", tabId: "t1", selector: "input", files: ["a.png"] }), /absolute/);
-  await assert.rejects(call("browser", { action: "wait", tabId: "t1" }), /text, selector, or state/);
-  await assert.rejects(call("browser_act", { action: "evaluate", tabId: "t1", script: "1" }), /browser\.evaluate/);
-  assert.deepEqual(seen, []);
+  await rejectsWith(call("browser_act", { action: "click", tabId: "t1", x: 1 }), /both x and y/);
+  await rejectsWith(call("browser_act", { action: "click", tabId: "t1", x: 1, y: 2, ref: "e1" }), /not both/);
+  await rejectsWith(call("browser_act", { action: "drag", tabId: "t1", path: [{ x: 1, y: 2 }] }), /at least two/);
+  await rejectsWith(call("browser_act", { action: "press", tabId: "t1" }), /Keys is required/);
+  await rejectsWith(call("browser_act", { action: "upload", tabId: "t1", selector: "input", files: ["a.png"] }), /absolute/);
+  await rejectsWith(call("browser", { action: "wait", tabId: "t1" }), /text, selector, or state/);
+  await rejectsWith(call("browser_act", { action: "evaluate", tabId: "t1", script: "1" }), /browser\.evaluate/);
+  expect(seen).toStrictEqual([]);
   const basic = setup();
-  await assert.rejects(basic.call("browser_act", { action: "press", tabId: "t1", keys: "Enter" }), /cannot press\. Nothing ran/);
-  await assert.rejects(basic.call("browser", { action: "reload", tabId: "t1" }), /cannot history/);
+  await rejectsWith(basic.call("browser_act", { action: "press", tabId: "t1", keys: "Enter" }), /cannot press\. Nothing ran/);
+  await rejectsWith(basic.call("browser", { action: "reload", tabId: "t1" }), /cannot history/);
 });
