@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { chat } from "@/stores/chat";
-import { composer, canRecoverPending, steerPending, retryPending, dismissPending } from "@/stores/composer";
+import { composer, canRecoverPending, steerPending, cancelPending, retryPending, dismissPending } from "@/stores/composer";
 import ReportContext from "./ReportContext.vue";
 import UploadAttachment from "./UploadAttachment.vue";
 import SessionImage from "./SessionImage.vue";
@@ -32,8 +32,9 @@ function blocks(content: unknown): any[] {
       </template>
     </div>
     <div class="message-footer pending-message-footer">
-      <span role="status">{{ message.status }}</span>
+      <span role="status">{{ message.cancelling ? "Cancelling…" : message.status }}</span>
       <button v-if="message.status === 'Queued' && message.submissionId" type="button" class="steer-now" title="Add this message to the current turn at its next boundary" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="steerPending(message.requestId)">Steer</button>
+      <button v-if="['Queued', 'Steering'].includes(message.status) && message.submissionId" type="button" :title="message.promoting ? 'Steer not confirmed; retry Steer before cancelling' : 'Withdraw this message before delivery; keep the current response running'" :disabled="message.promoting || !chat.connected || !!message.session && composer.submitting.has(message.session)" @click="cancelPending(message.requestId)">Cancel</button>
       <template v-if="canRecoverPending(message)">
         <button type="button" :disabled="!chat.connected || !!message.session && composer.submitting.has(message.session)" @click="retryPending(message.requestId)">Retry send</button>
         <button type="button" :disabled="!!message.session && composer.submitting.has(message.session)" title="Remove local message; this does not cancel delivery" @click="dismissPending(message.requestId)">Dismiss</button>
