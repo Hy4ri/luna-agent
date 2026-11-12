@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import { Zap } from "@lucide/vue";
-import { LEVELS, availableLevels, availableSpeeds, effectiveSpeed, levelLabel, models, setSpeed, setThinking, speedLabel, type Speed } from "@/stores/models";
-import { chat } from "@/stores/chat";
+import { LEVELS, availableLevels, availableSpeeds, effectiveSpeed, isSiblingModel, levelLabel, models, setSpeed, setThinking, speedLabel, type Speed } from "@/stores/models";
+import { busy, chat } from "@/stores/chat";
 
 const trigger = ref<HTMLButtonElement | null>(null);
 const picker = ref<HTMLElement | null>(null);
@@ -11,6 +11,7 @@ const scrubbing = ref(false);
 
 // Only the selected model's levels are offered; colors and LED heights keep their place on the full scale.
 const levels = availableLevels;
+const siblingBusy = computed(() => isSiblingModel.value && busy.value);
 const index = computed(() => Math.max(0, levels.value.indexOf(models.thinking)));
 const preview = ref(index.value);
 const active = computed(() => (open.value ? preview.value : index.value));
@@ -78,21 +79,24 @@ function toggle(event: Event) {
   }
 }
 
-function selectLevel(i: number) {
+async function selectLevel(i: number) {
+  if (siblingBusy.value) return;
   const clamped = Math.max(0, Math.min(levels.value.length - 1, i));
   preview.value = clamped;
-  void setThinking(levels.value[clamped]!);
+  const ok = await setThinking(levels.value[clamped]!);
+  if (!ok) preview.value = index.value;
 }
 
 function handlePointerDown(i: number, event: PointerEvent) {
+  if (siblingBusy.value) return;
   scrubbing.value = true;
   (event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
-  selectLevel(i);
+  void selectLevel(i);
 }
 
 function handlePointerEnter(i: number) {
-  if (scrubbing.value) {
-    selectLevel(i);
+  if (scrubbing.value && !siblingBusy.value) {
+    void selectLevel(i);
   }
 }
 
@@ -102,38 +106,39 @@ function stopScrub() {
 
 let lastWheel = 0;
 function handleWheel(event: WheelEvent) {
-  if (event.deltaY === 0) return;
+  if (event.deltaY === 0 || siblingBusy.value) return;
   event.preventDefault();
   const now = performance.now();
   if (now - lastWheel < 80) return;
   lastWheel = now;
-  selectLevel(preview.value + (event.deltaY < 0 ? 1 : -1));
+  void selectLevel(preview.value + (event.deltaY < 0 ? 1 : -1));
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  if (siblingBusy.value) return;
   if (event.key >= "1" && event.key <= String(levels.value.length)) {
     event.preventDefault();
-    selectLevel(Number(event.key) - 1);
+    void selectLevel(Number(event.key) - 1);
     return;
   }
   if (event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "l" || event.key === "k") {
     event.preventDefault();
-    selectLevel(active.value + 1);
+    void selectLevel(active.value + 1);
     return;
   }
   if (event.key === "ArrowLeft" || event.key === "ArrowDown" || event.key === "h" || event.key === "j") {
     event.preventDefault();
-    selectLevel(active.value - 1);
+    void selectLevel(active.value - 1);
     return;
   }
   if (event.key === "Home") {
     event.preventDefault();
-    selectLevel(0);
+    void selectLevel(0);
     return;
   }
   if (event.key === "End") {
     event.preventDefault();
-    selectLevel(levels.value.length - 1);
+    void selectLevel(levels.value.length - 1);
   }
 }
 
@@ -162,7 +167,7 @@ onUnmounted(() => {
     aria-controls="reasoning-picker"
     aria-haspopup="dialog"
     :aria-label="`Reasoning level: ${label}`"
-    :title="`Reasoning level: ${label}`"
+    :title="siblingBusy ? `Reasoning level: ${label} (finish run to change)` : `Reasoning level: ${label}`"
     :style="{ '--reasoning-color': color }"
     @wheel.prevent="handleWheel"
   >
@@ -223,9 +228,10 @@ onUnmounted(() => {
         role="radio"
         class="eq-channel"
         :class="{ active: i === active, engaged: i <= active }"
+        :disabled="siblingBusy"
         :aria-checked="i === active"
         :aria-label="levelLabel(level)"
-        :title="levelLabel(level)"
+        :title="siblingBusy ? 'Cannot switch model while busy' : levelLabel(level)"
         :style="{ '--ch-color': colors[scale(level)] }"
         :autofocus="i === active"
         @pointerdown="handlePointerDown(i, $event)"
@@ -247,6 +253,7 @@ onUnmounted(() => {
         <span class="eq-cap">{{ shortLabels[scale(level)] }}</span>
       </button>
     </div>
+    <p v-if="siblingBusy" class="reasoning-busy-note">Finish the active run to switch levels.</p>
   </div>
 </template>
 
@@ -352,6 +359,22 @@ onUnmounted(() => {
 .eq-channel:hover {
   border-color: var(--muted-foreground);
   background: var(--secondary);
+}
+
+.eq-channel:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.eq-channel:disabled:hover {
+  border-color: var(--border);
+  background: var(--background);
+}
+
+.reasoning-busy-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--muted-foreground);
 }
 
 .eq-channel.active {

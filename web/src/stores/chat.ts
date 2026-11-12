@@ -11,7 +11,7 @@ import { boardChanged, focusInput, leavePages } from "./app";
 import { agentTerminalActivity } from "./terminal";
 import { agentBrowserActivity } from "./browser";
 import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, reconcileInbox, retirePendingEntries, refreshPending } from "./composer";
-import { defaultLevelFor, models, setSelectedModel } from "./models";
+import { defaultLevelFor, models, setSelectedModel, siblingLevelFor } from "./models";
 import { history, loadSessions, loadFocusedSession, resetHistoryView } from "./sessions";
 
 /** `browser` tab actions move or open tabs; its read actions (snapshot, screenshot, wait, logs) do not. */
@@ -316,8 +316,9 @@ export function clearConversation() {
 }
 function applyAgent(agent: any) {
   chat.cwd = agent?.cwd ?? null;
-  setSelectedModel(agent?.model || models.defaultModel);
-  models.thinking = agent?.thinkingLevel || defaultLevelFor(agent?.model || models.defaultModel);
+  const model = agent?.model || models.defaultModel;
+  setSelectedModel(model);
+  models.thinking = siblingLevelFor(model) || agent?.thinkingLevel || defaultLevelFor(model);
   models.speed = agent?.speed ?? null;
 }
 function syncLive() {
