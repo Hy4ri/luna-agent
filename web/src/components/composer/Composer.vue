@@ -12,6 +12,7 @@ import SchedulePicker from "./SchedulePicker.vue";
 import { revealSchedules } from "@/stores/scheduled-messages";
 import ModelPicker from "./ModelPicker.vue";
 import ReasoningControl from "./ReasoningControl.vue";
+import ComposerUsage from "./ComposerUsage.vue";
 import ComposerAttachments from "./ComposerAttachments.vue";
 import ComposerMentionMenu from "./ComposerMentionMenu.vue";
 import ComposerCommandMenu from "./ComposerCommandMenu.vue";
@@ -397,6 +398,8 @@ async function handleSubmit(e?: Event) {
           </button>
           <ReasoningControl />
         </div>
+
+        <ComposerUsage />
 
         <div class="compose-actions">
           <button

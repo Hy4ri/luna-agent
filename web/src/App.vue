@@ -12,7 +12,6 @@ import Sidebar from '@/components/sidebar/Sidebar.vue';
 import Transcript from '@/components/chat/Transcript.vue';
 import ReviewInspector from "@/components/chat/ReviewInspector.vue";
 import Extras from '@/components/chat/Extras.vue';
-import StatusBar from '@/components/chat/StatusBar.vue';
 import Composer from '@/components/composer/Composer.vue';
 import PanelHost from '@/components/panels/PanelHost.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
@@ -36,7 +35,7 @@ import { ui, boot, login, setDrawer, closePanel, openPanel, setPalette, navigate
 import { askWife } from '@/stores/wife';
 import { terminal, loadTerminals, toggleTerminal } from '@/stores/terminal';
 import { dock, effectivePosition } from '@/stores/dock';
-import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, contextView, usageText } from '@/stores/chat';
+import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible } from '@/stores/chat';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
 import { sessionState, sessionStatusLabel } from '@/lib/session-status';
@@ -62,7 +61,7 @@ const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedRev
 watch(() => chat.session, () => { selectedReview.value = null; });
 // The dock follows the loaded session; the server keeps each session's shells alive.
 watch(() => chat.session, id => { void loadTerminals(id || ''); void loadBrowser(id || ''); }, { immediate: true });
-const railContent = computed(() => !!chat.session || reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || !!contextView.value || !!usageText.value);
+const railContent = computed(() => !!chat.session || reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value);
 // A side dock takes the rail's place, so the rail folds into the header while the dock is on the right.
 const docked = computed(() => railRoom.value && railContent.value && !dockSide.value);
 // The native chat remains mounted when its tile is removed. Surviving iframe
@@ -458,7 +457,6 @@ onUnmounted(() => {
             </div>
             <button v-if="!docked && reviewJobs.length" type="button" class="icon-button shrink-0" :aria-label="`Inspect review agents${runningReviews ? ' · ' + runningReviews + ' running' : ''}`" title="Review agents" @click="selectedReview = reviewJobs[0]!.id"><ScanEye :size="18" :class="{ 'text-primary-text': runningReviews > 0 }" /></button>
             <MachineStatus v-if="!mobile" />
-            <StatusBar v-if="!mobile && !docked" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!mobile && activeSession" id="ask-wife" class="icon-button shrink-0" aria-label="Ask Wife about this session" title="Ask Wife about this session" :disabled="askPending" @click="askWifeAboutSession"><Heart :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
@@ -471,7 +469,6 @@ onUnmounted(() => {
               </PopoverTrigger>
               <PopoverContent align="end" aria-label="Conversation menu" class="mobile-conversation-menu grid w-64 gap-2 p-2">
                 <MachineStatus />
-                <StatusBar v-if="!docked" />
                 <button v-if="activeSession" class="mobile-menu-action" :disabled="askPending" @click="mobileAction(askWifeAboutSession)"><Heart :size="18" />Ask Wife about this session</button>
                 <button v-if="activeSession" class="mobile-menu-action" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="mobileAction(pinSession)"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" />{{ activeSession.pinned ? 'Unpin session' : 'Pin session' }}</button>
                 <button v-if="!sessionPane && !tiled" class="mobile-menu-action" @click="mobileAction(() => openPanel('session'))"><Ellipsis :size="18" />Conversation settings</button>
@@ -493,7 +490,6 @@ onUnmounted(() => {
               </div>
             </div>
             <aside v-if="docked" id="session-rail" aria-label="Session details">
-              <StatusBar docked />
               <GitStatus v-if="chat.session" docked />
               <Extras docked />
             </aside>
@@ -567,9 +563,6 @@ onUnmounted(() => {
 .mobile-menu-action:hover, .mobile-menu-action:focus-visible { background: var(--accent); }
 .mobile-menu-action:disabled { opacity: .5; }
 :global(.mobile-conversation-menu #machine-status) { min-height: 44px; max-width: 100%; padding: 8px; }
-:global(.mobile-conversation-menu #statusbar > summary) { min-height: 44px; padding: 8px; }
-:global(.mobile-conversation-menu .usage-summary-label), :global(.mobile-conversation-menu .usage-cost) { display: inline; }
-:global(.mobile-conversation-menu .usage-details) { position: static; width: 100%; box-shadow: none; margin-top: 8px; }
 
 .chat-workspace {
   position: relative;
