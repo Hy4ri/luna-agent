@@ -4,6 +4,7 @@
 // reading records; only the one or two records that matter are then read by primary key.
 import type { Database } from "bun:sqlite";
 import { segments } from "./user-messages.js";
+import { kindIndexReady, KIND_INDEX } from "./kind-index.js";
 import { textOf } from "./routes/context.js";
 
 const HEAD = 30;
@@ -13,7 +14,7 @@ export type RowHead = { firstUser: string; delegateChild: boolean; lastActivity:
 
 export function readRowHead(db: Database, conversationId: number, parentAt?: number): RowHead {
   const index = db.query<{ id: number; kind: string | null }, [number]>(
-    "SELECT id, json_extract(record, '$.kind') AS kind FROM entries INDEXED BY luna_entries_by_conversation_kind WHERE conversation_id = ?");
+    `SELECT id, json_extract(record, '$.kind') AS kind FROM entries ${kindIndexReady(db) ? `INDEXED BY ${KIND_INDEX}` : ''} WHERE conversation_id = ?`);
   const model = db.query<{ model: string | null }, [number]>("SELECT json_extract(record, '$.model') AS model FROM entries WHERE id = ?");
   const readModel = (id: number): unknown[] => {
     const raw = model.get(id)?.model;
