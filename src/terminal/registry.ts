@@ -151,9 +151,9 @@ export class TerminalRegistry {
     entry.lastOutput = Date.now();
     if (entry.vt) {
       entry.vt.write(chunk);
-      // A browser answers queries such as a cursor report only while m57 types. Otherwise nobody would, and some programs hang.
+      // In two-way mode, attached browsers answer terminal queries via write(); only reply from the server VT when no browser is attached.
       const replies = entry.vt.responses();
-      if (replies && entry.info.controller === "agent") entry.proc?.write(replies);
+      if (replies && entry.listeners.size === 0) entry.proc?.write(replies);
     }
     for (const l of entry.listeners) l.data(chunk);
     this.wake(entry);
@@ -203,10 +203,10 @@ export class TerminalRegistry {
     if (e.proc && e.info.status === "running") e.proc.write(data);
   }
 
-  /** Resize the terminal. */
+  /** Resize from a browser tab. Skips agent-owned terminals and active agent waits so a background tab cannot reflow Luna's screen. */
   resize(id: string, cols: number, rows: number) {
     const e = this.entry(id);
-    this.setSize(e, cols, rows);
+    if (e.info.owner === "user" && e.watchers.size === 0) this.setSize(e, cols, rows);
   }
 
   private setSize(e: Entry, cols: number, rows: number) {

@@ -158,3 +158,44 @@ test("a launcher failure is reported as a 503 and does not use a slot", async ()
   await rejectsWith(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 503);
   await rejectsWith(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 503);
 });
+
+test("VT replies only fire when no browser listener is attached, and browser resize ignores agent terminals", async () => {
+  let emit!: (chunk: Buffer) => void;
+  const writes: string[] = [];
+  const resizes: [number, number][] = [];
+  const r = registry({
+    vt: async () => async () => ({
+      write() {},
+      resize() {},
+      responses: () => "\x1b[1;1R",
+      screen: () => "",
+      scrollback: () => "",
+      mode: () => ({ alt: false, cursor: { row: 0, col: 0 }, rows: 24, cols: 80 }),
+      dispose() {},
+    } as never),
+    launcher: async () => ({
+      pid: undefined,
+      onData: l => { emit = l; },
+      onExit() {},
+      write(data) { writes.push(data.toString()); },
+      resize(c, rows) { resizes.push([c, rows]); },
+      kill() {},
+    }),
+  });
+
+  const agentTerm = await r.create({ session: 1, worker: null, cwd: "/tmp", owner: "agent", command: "cat" });
+  emit(Buffer.from("\x1b[6n"));
+  expect(writes).toEqual(["\x1b[1;1R"]);
+
+  // Once a browser listener attaches, server VT stops auto-replying so answers are not sent twice.
+  const { attached } = collect(r, agentTerm.id);
+  emit(Buffer.from("\x1b[6n"));
+  expect(writes).toEqual(["\x1b[1;1R"]);
+  attached.detach();
+
+  // Browser resize is ignored for agent-owned terminals.
+  r.resize(agentTerm.id, 132, 40);
+  expect(resizes).toEqual([]);
+  expect(r.get(agentTerm.id)?.cols).toBe(80);
+  r.closeAll();
+});

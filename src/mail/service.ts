@@ -275,7 +275,7 @@ export class MailService {
     return this.store.applyLabelMutation(email, threadId, add, remove) ?? thread;
   }
 
-  async sendMessage(input: {
+  private async buildOutgoingRaw(input: {
     accountEmail?: string;
     to: string;
     cc?: string;
@@ -284,7 +284,7 @@ export class MailService {
     text: string;
     html?: string;
     replyToThreadId?: string;
-  }): Promise<{ id: string; threadId: string; accountEmail: string }> {
+  }): Promise<{ resolvedEmail: string; raw: string }> {
     let email = input.accountEmail?.trim().toLowerCase();
     let inReplyTo: string | undefined;
     let references: string | undefined;
@@ -320,7 +320,20 @@ export class MailService {
       inReplyTo,
       references,
     });
+    return { resolvedEmail, raw };
+  }
 
+  async sendMessage(input: {
+    accountEmail?: string;
+    to: string;
+    cc?: string;
+    bcc?: string;
+    subject: string;
+    text: string;
+    html?: string;
+    replyToThreadId?: string;
+  }): Promise<{ id: string; threadId: string; accountEmail: string }> {
+    const { resolvedEmail, raw } = await this.buildOutgoingRaw(input);
     const sent = await this.gmail.sendMessage(resolvedEmail, raw, input.replyToThreadId);
     // Sync the thread so the sent message appears immediately in the UI.
     void this.fetchAndStoreThreads(resolvedEmail, [sent.threadId]).catch(() => {});
@@ -337,16 +350,7 @@ export class MailService {
     html?: string;
     replyToThreadId?: string;
   }): Promise<{ draftId: string; messageId?: string; threadId?: string; accountEmail: string }> {
-    const resolvedEmail = this.resolveAccountEmail(input.accountEmail);
-    const raw = buildRawMime({
-      from: resolvedEmail,
-      to: input.to,
-      cc: input.cc,
-      bcc: input.bcc,
-      subject: input.subject || "(no subject)",
-      text: input.text,
-      html: input.html,
-    });
+    const { resolvedEmail, raw } = await this.buildOutgoingRaw(input);
     const draft = await this.gmail.createDraft(resolvedEmail, raw, input.replyToThreadId);
     if (draft.message?.threadId) {
       void this.fetchAndStoreThreads(resolvedEmail, [draft.message.threadId]).catch(() => {});

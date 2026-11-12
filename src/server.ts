@@ -147,7 +147,7 @@ export function createApp(opts: ServerOptions) {
   registerHookReceiver(app, opts.webhooks);
 
   // ---- Gmail OAuth2 callback (unauthenticated by the daemon token; protected by single-use state + PKCE) ----
-  registerMailOAuthCallback(app, opts.mail);
+  registerMailOAuthCallback(app, opts.mail, () => Boolean(opts.mail) && (!opts.settings || opts.settings.shared().extensions.includes("mail")));
 
   // ---- auth ----
   app.use("/v1/*", async (c, next) => {

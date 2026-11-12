@@ -4,13 +4,26 @@ import { MailError, type MailFolder } from "../mail/types.js";
 import type { MailModifyAction, MailService } from "../mail/service.js";
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function safeJsonForHtml(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 /** Public OAuth2 callback: GET /oauth/gmail/callback. Protected by single-use cryptographic `state` + PKCE. */
-export function registerMailOAuthCallback(app: Hono, mail: MailService | undefined): void {
+export function registerMailOAuthCallback(
+  app: Hono,
+  mail: MailService | undefined,
+  isEnabled: () => boolean = () => Boolean(mail),
+): void {
   app.get("/oauth/gmail/callback", async (c) => {
-    if (!mail) return c.html("<h1>Mail is disabled</h1>", 404);
+    if (!mail || !isEnabled()) return c.html("<h1>Mail is disabled</h1>", 404);
     const error = c.req.query("error");
     const code = c.req.query("code") ?? "";
     const state = c.req.query("state") ?? "";
@@ -34,7 +47,7 @@ export function registerMailOAuthCallback(app: Hono, mail: MailService | undefin
 }
 
 function callbackHtml(res: { ok: boolean; email?: string; message: string }): string {
-  const payload = JSON.stringify({ type: "luna-mail-oauth", ok: res.ok, email: res.email ?? null, message: res.message });
+  const payload = safeJsonForHtml({ type: "luna:mail-oauth", ok: res.ok, email: res.email ?? null, message: res.message });
   return `<!doctype html>
 <html>
 <head><meta charset="utf-8"><title>Luna Mail OAuth</title>
@@ -46,7 +59,7 @@ function callbackHtml(res: { ok: boolean; email?: string; message: string }): st
   a { color: #e86060; text-decoration: none; }
 </style>
 </head>
-<body>
+<body data-payload="${escapeHtml(payload)}">
   <div class="card">
     <h2 class="${res.ok ? "ok" : "err"}">${res.ok ? "Gmail Connected" : "Connection Failed"}</h2>
     <p>${escapeHtml(res.message)}</p>
@@ -54,10 +67,11 @@ function callbackHtml(res: { ok: boolean; email?: string; message: string }): st
   </div>
   <script>
     try {
+      const payload = JSON.parse(document.body.dataset.payload || "{}");
       if (window.opener && !window.opener.closed) {
-        window.opener.postMessage(${payload}, "*");
+        window.opener.postMessage(payload, window.location.origin);
         setTimeout(() => window.close(), 600);
-      } else if (${res.ok ? "true" : "false"}) {
+      } else if (payload.ok) {
         setTimeout(() => { location.href = "/#mail"; }, 800);
       }
     } catch {}
@@ -71,13 +85,14 @@ const VALID_ACTIONS = new Set<MailModifyAction>(["archive", "unarchive", "markRe
 
 export function registerMail(app: Hono, ctx: RouteCtx): void {
   const { opts, err } = ctx;
+  const isEnabled = () => Boolean(opts.mail) && (!opts.settings || opts.settings.shared().extensions.includes("mail"));
   const need = () => {
-    if (!opts.mail) throw new MailError("Mail subsystem is disabled", 404);
+    if (!opts.mail || !isEnabled()) throw new MailError("Mail subsystem is disabled", 404);
     return opts.mail;
   };
 
   app.use("/v1/mail/*", async (c, next) => {
-    if (!opts.mail) return err(c, 404, "mail disabled");
+    if (!isEnabled()) return err(c, 404, "mail disabled");
     await next();
   });
 
@@ -157,12 +172,14 @@ export function registerMail(app: Hono, ctx: RouteCtx): void {
     const accountEmail = c.req.query("accountEmail");
     if (!accountEmail) return err(c, 400, "accountEmail query param is required");
     const buf = await need().getAttachment(accountEmail, c.req.param("messageId"), c.req.param("attachmentId"));
-    const mime = c.req.query("mimeType") || "application/octet-stream";
-    const filename = (c.req.query("filename") || "attachment").replace(/["\r\n]/g, "_");
+    const mime = (c.req.query("mimeType") || "application/octet-stream").replace(/[\r\n]+/g, "").trim() || "application/octet-stream";
+    const rawName = (c.req.query("filename") || "attachment").replace(/[\r\n\x00-\x1f\x7f]+/g, "_");
+    const asciiName = rawName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\;]/g, "_") || "attachment";
+    const encodedName = encodeURIComponent(rawName).replace(/['()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
     return new Response(new Uint8Array(buf), {
       headers: {
         "content-type": mime,
-        "content-disposition": `attachment; filename="${filename}"`,
+        "content-disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
       },
     });
   });

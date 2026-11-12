@@ -242,9 +242,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   let webhookTargets: WebhookTargets | undefined;
   const webhooks = new Webhooks(new WebhookStore(join(cfg.dataDir, "webhooks.db")), { targets: () => webhookTargets, fetch: o.fetch, log });
   if (on("webhooks")) extensions.push(createWebhookExtension(() => webhooks));
-  // Mail: the store and HTTP routes always run; the extension name controls the agent tools.
-  const mail = new MailService({ dataDir: cfg.dataDir, fetch: o.fetch, log });
-  if (on("mail")) extensions.push(createMailExtension(() => mail));
+  // Mail: only start MailService (mail.db, routes, tools) when the "mail" extension is enabled.
+  const mail = on("mail") ? new MailService({ dataDir: cfg.dataDir, fetch: o.fetch, log }) : undefined;
+  if (mail) extensions.push(createMailExtension(() => mail));
   const improver = on("skills") ? new SkillImprover({ skillsDir: join(cfg.dataDir, "skills"), readDirs: cfg.allSkillDirs }) : undefined;
   if (on("cron")) extensions.push(createCronExtension(store!, () => scheduler?.rearm(), () => scheduler, { jobs: () => live().extensions.includes("cron") }));
   const disabledSkills = (id?: number) => {
@@ -589,7 +589,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     boardAuto,
     async close() {
       await boardAuto.close();
-      mail.close();
+      mail?.close();
       wife.stop();
       wifeStore.close();
       await limitRecovery.close();

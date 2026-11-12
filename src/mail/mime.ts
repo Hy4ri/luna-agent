@@ -57,12 +57,44 @@ export function extractParticipantName(raw: string): string {
   return trimmed;
 }
 
+export function splitAddressList(raw: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  let angleDepth = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    if (ch === "\\" && inQuotes && i + 1 < raw.length) {
+      cur += ch + raw[i + 1]!;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      cur += ch;
+      continue;
+    }
+    if (!inQuotes) {
+      if (ch === "<") angleDepth++;
+      else if (ch === ">" && angleDepth > 0) angleDepth--;
+      else if (ch === "," && angleDepth === 0) {
+        if (cur.trim()) out.push(cur.trim());
+        cur = "";
+        continue;
+      }
+    }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
 export function parseParticipants(fromHeader: string, toHeader: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of [fromHeader, toHeader]) {
     if (!raw) continue;
-    for (const part of raw.split(",")) {
+    for (const part of splitAddressList(raw)) {
       const name = extractParticipantName(part);
       if (name && !seen.has(name.toLowerCase())) {
         seen.add(name.toLowerCase());
@@ -144,7 +176,28 @@ function encodeHeaderWord(value: string): string {
 }
 
 function cleanAddressHeader(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
+  return splitAddressList(value.replace(/[\r\n]+/g, " ").trim())
+    .map((part) => {
+      const m = part.match(/^(.*?)\s*<([^>]+)>$/);
+      if (!m) return part;
+      const rawName = m[1]!.trim().replace(/^"(.*)"$/, "$1").replace(/\\"/g, '"').trim();
+      const addr = m[2]!.trim();
+      if (!rawName) return `<${addr}>`;
+      if (/^[\x20-\x7E]*$/.test(rawName)) {
+        const quoted = /[",;<>()[\]\\:@]/.test(rawName) ? `"${rawName.replace(/"/g, '\\"')}"` : rawName;
+        return `${quoted} <${addr}>`;
+      }
+      return `${encodeHeaderWord(rawName)} <${addr}>`;
+    })
+    .join(", ");
+}
+
+function wrapBase64(b64: string): string {
+  const lines: string[] = [];
+  for (let i = 0; i < b64.length; i += 76) {
+    lines.push(b64.slice(i, i + 76));
+  }
+  return lines.join("\r\n");
 }
 
 export interface BuildRawMimeInput {
@@ -168,8 +221,8 @@ export function buildRawMime(input: BuildRawMimeInput): string {
   if (input.cc?.trim()) headers.push(`Cc: ${cleanAddressHeader(input.cc)}`);
   if (input.bcc?.trim()) headers.push(`Bcc: ${cleanAddressHeader(input.bcc)}`);
   headers.push(`Subject: ${encodeHeaderWord(input.subject || "(no subject)")}`);
-  if (input.inReplyTo?.trim()) headers.push(`In-Reply-To: ${cleanAddressHeader(input.inReplyTo)}`);
-  if (input.references?.trim()) headers.push(`References: ${cleanAddressHeader(input.references)}`);
+  if (input.inReplyTo?.trim()) headers.push(`In-Reply-To: ${input.inReplyTo.replace(/[\r\n]+/g, " ").trim()}`);
+  if (input.references?.trim()) headers.push(`References: ${input.references.replace(/[\r\n]+/g, " ").trim()}`);
 
   if (input.html?.trim()) {
     const boundary = `luna_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -179,12 +232,12 @@ export function buildRawMime(input: BuildRawMimeInput): string {
       `Content-Type: text/plain; charset="UTF-8"`,
       `Content-Transfer-Encoding: base64`,
       "",
-      Buffer.from(input.text, "utf8").toString("base64"),
+      wrapBase64(Buffer.from(input.text, "utf8").toString("base64")),
       `--${boundary}`,
       `Content-Type: text/html; charset="UTF-8"`,
       `Content-Transfer-Encoding: base64`,
       "",
-      Buffer.from(input.html, "utf8").toString("base64"),
+      wrapBase64(Buffer.from(input.html, "utf8").toString("base64")),
       `--${boundary}--`,
       "",
     ];
@@ -193,6 +246,6 @@ export function buildRawMime(input: BuildRawMimeInput): string {
 
   headers.push(`Content-Type: text/plain; charset="UTF-8"`);
   headers.push(`Content-Transfer-Encoding: base64`);
-  const body = Buffer.from(input.text, "utf8").toString("base64");
+  const body = wrapBase64(Buffer.from(input.text, "utf8").toString("base64"));
   return base64UrlEncode(`${headers.join("\r\n")}\r\n\r\n${body}`);
 }
