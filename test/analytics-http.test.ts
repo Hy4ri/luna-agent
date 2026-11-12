@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai";
 import { UsageDoc } from "@earendil-works/pi-durable";
@@ -123,79 +122,79 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
 
       // 2. Legacy analytics endpoint /v1/analytics
       const legacyRes = await app.request("/v1/analytics");
-      assert.equal(legacyRes.status, 200);
+      expect(legacyRes.status).toBe(200);
       const legacyData = (await legacyRes.json()) as {
         totals: { totalTokens: number };
         sessions: number;
         sessionsList: Array<{ id: string; title: string | null }>;
       };
-      assert.ok(legacyData.sessions >= 2, "legacy analytics should see at least 2 sessions");
-      assert.ok(Array.isArray(legacyData.sessionsList), "sessionsList should be an array");
-      assert.ok(legacyData.totals && typeof legacyData.totals.totalTokens === "number");
+      expect(legacyData.sessions >= 2).toBeTruthy() /* "legacy analytics should see at least 2 sessions" */;
+      expect(Array.isArray(legacyData.sessionsList)).toBeTruthy() /* "sessionsList should be an array" */;
+      expect(legacyData.totals && typeof legacyData.totals.totalTokens === "number").toBeTruthy();
 
       // Legacy /v1/analytics/sessions
       const legacySessionsRes = await app.request("/v1/analytics/sessions?sort=tokensDesc&limit=10");
-      assert.equal(legacySessionsRes.status, 200);
+      expect(legacySessionsRes.status).toBe(200);
       const legacySessionsData = (await legacySessionsRes.json()) as {
         sessions: Array<{ id: string; title: string | null; usage: { totalTokens: number } }>;
         total: number;
       };
-      assert.equal(legacySessionsData.total >= 2, true);
-      assert.ok(legacySessionsData.sessions.length >= 2);
+      expect(legacySessionsData.total >= 2).toBe(true);
+      expect(legacySessionsData.sessions.length >= 2).toBeTruthy();
 
       // 3. /v1/analytics/v2/filters options
       const filtersRes = await app.request("/v1/analytics/v2/filters");
-      assert.equal(filtersRes.status, 200);
+      expect(filtersRes.status).toBe(200);
       const filterOpts = (await filtersRes.json()) as {
         models: Array<{ value: string; label: string }>;
         providers: Array<{ value: string; label: string }>;
       };
-      assert.ok(Array.isArray(filterOpts.models));
-      assert.ok(Array.isArray(filterOpts.providers));
+      expect(Array.isArray(filterOpts.models)).toBeTruthy();
+      expect(Array.isArray(filterOpts.providers)).toBeTruthy();
 
       // 4. Test all 10 tabs under /v1/analytics/v2/:tab
       for (const tab of ANALYTICS_TABS) {
         const tabRes = await app.request(`/v1/analytics/v2/${tab}`);
-        assert.equal(tabRes.status, 200, `Tab /v1/analytics/v2/${tab} should return 200`);
+        expect(tabRes.status).toBe(200) /* `Tab /v1/analytics/v2/${tab} should return 200` */;
         const tabData = (await tabRes.json()) as {
           tab: string;
           summary: Record<string, unknown>;
           table: { columns: unknown[]; rows: unknown[]; total: number };
         };
-        assert.equal(tabData.tab, tab);
-        assert.ok(tabData.summary !== undefined);
-        assert.ok(Array.isArray(tabData.table.rows));
+        expect(tabData.tab).toBe(tab);
+        expect(tabData.summary !== undefined).toBeTruthy();
+        expect(Array.isArray(tabData.table.rows)).toBeTruthy();
       }
 
       // 5. Invalid tab must return 400 without crashing
       const invalidTabRes = await app.request("/v1/analytics/v2/non_existent_tab");
-      assert.equal(invalidTabRes.status, 400);
+      expect(invalidTabRes.status).toBe(400);
 
       // 6. Malformed sort and SQL injection rejected with 400 (not 500)
       const badSortRes1 = await app.request("/v1/analytics/v2/sessions?sort=notAColumn:desc");
       // Could be valid regex for parseAnalyticsFilters but queryAnalytics fails with 400 on allowlist
-      assert.equal(badSortRes1.status, 400);
+      expect(badSortRes1.status).toBe(400);
 
       const badSortRes2 = await app.request("/v1/analytics/v2/sessions?sort=tokens;DROP%20TABLE%20analytics_facts;--");
-      assert.equal(badSortRes2.status, 400);
+      expect(badSortRes2.status).toBe(400);
 
       const badSortRes3 = await app.request("/v1/analytics/v2/sessions?sort=invalid_column%20asc");
-      assert.equal(badSortRes3.status, 400);
+      expect(badSortRes3.status).toBe(400);
 
       // 7. CSV and JSON export
       const csvRes = await app.request("/v1/analytics/v2/sessions/export?format=csv&search=Session%20A");
-      assert.equal(csvRes.status, 200);
-      assert.match(csvRes.headers.get("content-type") ?? "", /text\/csv/);
+      expect(csvRes.status).toBe(200);
+      expect(csvRes.headers.get("content-type") ?? "").toMatch(/text\/csv/);
       const csvBody = await csvRes.text();
-      assert.match(csvBody, /Session A Analytics/);
-      assert.doesNotMatch(csvBody, /Session B Analytics/);
+      expect(csvBody).toMatch(/Session A Analytics/);
+      expect(csvBody).not.toMatch(/Session B Analytics/);
 
       const jsonRes = await app.request("/v1/analytics/v2/sessions/export?format=json");
-      assert.equal(jsonRes.status, 200);
-      assert.match(jsonRes.headers.get("content-type") ?? "", /application\/json/);
+      expect(jsonRes.status).toBe(200);
+      expect(jsonRes.headers.get("content-type") ?? "").toMatch(/application\/json/);
       const jsonRows = (await jsonRes.json()) as unknown[];
-      assert.ok(Array.isArray(jsonRows));
-      assert.ok(jsonRows.length >= 2);
+      expect(Array.isArray(jsonRows)).toBeTruthy();
+      expect(jsonRows.length >= 2).toBeTruthy();
 
       // 8. Delete a session and verify tombstone retention and title/usage preserved when includeDeleted=true
       await conversations.delete(idA);
@@ -203,32 +202,32 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
 
       // Query with includeDeleted=true (default)
       const delQueryRes = await app.request("/v1/analytics/v2/sessions?includeDeleted=true");
-      assert.equal(delQueryRes.status, 200);
+      expect(delQueryRes.status).toBe(200);
       const delQueryData = (await delQueryRes.json()) as {
         table: { rows: Array<{ id: string | number; title: string | null; deletedAt: number | null; totalTokens: number }> };
       };
       const rowA = delQueryData.table.rows.find((r) => String(r.id) === String(idA));
-      assert.ok(rowA, "Deleted session A must be present when includeDeleted=true");
-      assert.equal(rowA.title, "Session A Analytics");
-      assert.ok(rowA.deletedAt !== null, "deletedAt should be set on tombstoned session");
-      assert.ok(rowA.totalTokens > 0, "Usage metrics must remain intact after deletion");
+      expect(rowA).toBeTruthy() /* "Deleted session A must be present when includeDeleted=true" */;
+      expect(rowA.title).toBe("Session A Analytics");
+      expect(rowA.deletedAt !== null).toBeTruthy() /* "deletedAt should be set on tombstoned session" */;
+      expect(rowA.totalTokens > 0).toBeTruthy() /* "Usage metrics must remain intact after deletion" */;
 
       // Query with includeDeleted=false
       const activeOnlyRes = await app.request("/v1/analytics/v2/sessions?includeDeleted=false");
-      assert.equal(activeOnlyRes.status, 200);
+      expect(activeOnlyRes.status).toBe(200);
       const activeOnlyData = (await activeOnlyRes.json()) as {
         table: { rows: Array<{ id: string | number }> };
       };
       const rowANotFound = activeOnlyData.table.rows.some((r) => String(r.id) === String(idA));
-      assert.equal(rowANotFound, false, "Deleted session A must not appear when includeDeleted=false");
+      expect(rowANotFound).toBe(false) /* "Deleted session A must not appear when includeDeleted=false" */;
 
       // 9. SSE coalescing: subscribe to /v1/events and verify analytics_changed event
       const sseController = new AbortController();
       const sseRes = await app.request("/v1/events", {
         signal: sseController.signal,
       });
-      assert.equal(sseRes.status, 200);
-      assert.ok(sseRes.body, "SSE response stream must be present");
+      expect(sseRes.status).toBe(200);
+      expect(sseRes.body).toBeTruthy() /* "SSE response stream must be present" */;
 
       const reader = sseRes.body.getReader();
       const decoder = new TextDecoder();
@@ -238,7 +237,7 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
       // initial sessions_changed only after registering, so wait for it: a change made earlier can be missed (#526).
       while (!buffer.includes("event: sessions_changed")) {
         const { value, done } = await reader.read();
-        assert.ok(!done, "SSE stream ended before the initial event");
+        expect(!done).toBeTruthy() /* "SSE stream ended before the initial event" */;
         buffer += decoder.decode(value, { stream: true });
       }
 
@@ -279,7 +278,7 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
         }
       }
 
-      assert.ok(receivedAnalyticsChanged, "SSE stream should receive coalesced analytics_changed event");
+      expect(receivedAnalyticsChanged).toBeTruthy() /* "SSE stream should receive coalesced analytics_changed event" */;
     } finally {
       await harness.close(BACKGROUND_CONTEXT);
     }

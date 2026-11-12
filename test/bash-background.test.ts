@@ -1,9 +1,8 @@
 // Contract: bash background:true starts a managed process; process_manage lists, reads, waits for, and stops it.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { BusyExecutions } from "../src/busy-tools.js";
 
@@ -29,10 +28,10 @@ const setup = (enabled: boolean) => {
 test("coding tools keep read/write/edit and bash gains a background flag", () => {
   const { dir, coding, manage } = setup(true);
   try {
-    assert.deepEqual(coding.map(t => t.name).sort(), ["bash", "edit", "read", "write"]);
-    assert.equal(manage.name, "process_manage");
-    assert.ok(JSON.stringify(coding.find(t => t.name === "bash")!.parameters).includes("background"));
-    assert.throws(() => manage.prepareArguments!({ action: "start", command: "true" }), /no start action. Run bash with background: true/);
+    expect(coding.map(t => t.name).sort()).toEqual(["bash", "edit", "read", "write"]);
+    expect(manage.name).toBe("process_manage");
+    expect(JSON.stringify(coding.find(t => t.name === "bash")!.parameters).includes("background")).toBeTruthy();
+    expect(() => manage.prepareArguments!({ action: "start", command: "true" })).toThrow(/no start action. Run bash with background: true/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -41,11 +40,11 @@ test("bash background starts a process that process_manage waits for and reads",
   try {
     const started = await bash({ command: "echo BG_SENTINEL", background: true });
     const id = started.structuredOutput.id as string;
-    assert.match(started.structuredOutput.output, /Process ID/);
-    assert.match(started.output[0].text, new RegExp(`Process ID: ${id}`));
-    assert.equal((await pm({ action: "list" })).output[0].text.includes(id), true);
+    expect(started.structuredOutput.output).toMatch(/Process ID/);
+    expect(started.output[0].text).toMatch(new RegExp(`Process ID: ${id}`));
+    expect((await pm({ action: "list" })).output[0].text.includes(id)).toBe(true);
     const done = JSON.parse((await pm({ action: "wait", id, timeoutSec: 10 })).output[0].text);
-    assert.equal(done.status, "complete"); assert.match(done.output, /BG_SENTINEL/);
+    expect(done.status).toBe("complete"); expect(done.output).toMatch(/BG_SENTINEL/);
     await busy.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -53,9 +52,9 @@ test("bash background starts a process that process_manage waits for and reads",
 test("bash background is refused when background processes are off; foreground bash still runs", async () => {
   const { dir, busy, bash } = setup(false);
   try {
-    await assert.rejects(bash({ command: "true", background: true }), /Background commands are disabled/);
+    await expect(bash({ command: "true", background: true })).rejects.toThrow(/Background commands are disabled/);
     const fg = await bash({ command: "echo FG" });
-    assert.equal(fg.structuredOutput.exitCode, 0); assert.match(fg.structuredOutput.output, /FG/);
+    expect(fg.structuredOutput.exitCode).toBe(0); expect(fg.structuredOutput.output).toMatch(/FG/);
     await busy.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

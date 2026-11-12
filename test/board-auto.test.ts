@@ -1,11 +1,10 @@
 // Automatic card runs: a todo card with auto on and owner "agent" starts its own project session, claims the card,
 // and the run moves it on. Agent changes cannot arm a card; a cap limits parallel runs; a run that ends without moving the card
 // sends it to review; a blocked or waiting card does not start.
-import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { BoardError, parseAuto, type Card } from "../src/board.js";
 import { armed, autoBrief, working } from "../src/board-auto.js";
@@ -19,30 +18,30 @@ const card = (over: Partial<Card>): Card => ({
 });
 
 test("parseAuto accepts off, defaults, a model, and a thinking level; rejects the rest", () => {
-  assert.equal(parseAuto(null), null);
-  assert.deepEqual(parseAuto(true), { model: null, thinking: null });
-  assert.deepEqual(parseAuto({ model: "openai/gpt-5", thinking: "high" }), { model: "openai/gpt-5", thinking: "high" });
-  assert.throws(() => parseAuto({ model: "nomodel" }), BoardError);
-  assert.throws(() => parseAuto({ thinking: "huge" }), BoardError);
-  assert.throws(() => parseAuto({ extra: 1 }), BoardError);
-  assert.throws(() => parseAuto("yes"), BoardError);
+  expect(parseAuto(null)).toBe(null);
+  expect(parseAuto(true)).toEqual({ model: null, thinking: null });
+  expect(parseAuto({ model: "openai/gpt-5", thinking: "high" })).toEqual({ model: "openai/gpt-5", thinking: "high" });
+  expect(() => parseAuto({ model: "nomodel" })).toThrow(BoardError);
+  expect(() => parseAuto({ thinking: "huge" })).toThrow(BoardError);
+  expect(() => parseAuto({ extra: 1 })).toThrow(BoardError);
+  expect(() => parseAuto("yes")).toThrow(BoardError);
 });
 
 test("armed needs auto, todo, owner agent, no block, and finished blockers", () => {
   const none = new Set<number>();
-  assert.equal(armed(card({}), none), true);
-  assert.equal(armed(card({ auto: null }), none), false);
-  assert.equal(armed(card({ status: "backlog" }), none), false);
-  assert.equal(armed(card({ owner: "session 5" }), none), false);
-  assert.equal(armed(card({ blocked: "why" }), none), false);
-  assert.equal(armed(card({ blockedBy: [9] }), none), false);
-  assert.equal(armed(card({ blockedBy: [9] }), new Set([9])), true);
-  assert.equal(working(card({ status: "in_progress", owner: "session 5" })), true);
-  assert.equal(working(card({ status: "in_progress", owner: "session 5", blocked: "x" })), false);
+  expect(armed(card({}), none)).toBe(true);
+  expect(armed(card({ auto: null }), none)).toBe(false);
+  expect(armed(card({ status: "backlog" }), none)).toBe(false);
+  expect(armed(card({ owner: "session 5" }), none)).toBe(false);
+  expect(armed(card({ blocked: "why" }), none)).toBe(false);
+  expect(armed(card({ blockedBy: [9] }), none)).toBe(false);
+  expect(armed(card({ blockedBy: [9] }), new Set([9]))).toBe(true);
+  expect(working(card({ status: "in_progress", owner: "session 5" }))).toBe(true);
+  expect(working(card({ status: "in_progress", owner: "session 5", blocked: "x" }))).toBe(false);
   const brief = autoBrief(card({ subject: "Ship it", description: "Do X." }), "proj");
-  assert.match(brief, /Nobody watches this session/);
-  assert.match(brief, /Do X\./);
-  assert.match(brief, /only when the card description explicitly says so/);
+  expect(brief).toMatch(/Nobody watches this session/);
+  expect(brief).toMatch(/Do X\./);
+  expect(brief).toMatch(/only when the card description explicitly says so/);
 });
 
 async function harness(responses: ReturnType<typeof fauxAssistantMessage>[], extra: Record<string, unknown> = {}) {
@@ -61,7 +60,7 @@ async function harness(responses: ReturnType<typeof fauxAssistantMessage>[], ext
   const board = rt.conversations.board;
   const until = async (fn: () => boolean, what: string) => {
     for (let i = 0; i < 400; i++) { if (fn()) return; await Bun.sleep(25); }
-    assert.fail(`timed out waiting for ${what}`);
+    (() => { throw new Error(`timed out waiting for ${what}`); })();
   };
   return { rt, project, req, board, until, async close() { await rt.close(); rmSync(base, { recursive: true, force: true }); } };
 }
@@ -73,20 +72,20 @@ test("auto on in todo starts a project session that claims and finishes the card
   const h = await harness([call("board", { action: "update", id: 1, status: "done" }), fauxAssistantMessage([fauxText("done")])]);
   try {
     const created = await (await h.req("POST", `/v1/projects/${h.project.id}/cards`, { subject: "Write the doc", status: "backlog" })).json() as Card;
-    assert.equal(created.id, 1);
+    expect(created.id).toBe(1);
     // The agent's board tool cannot arm a card; only a user change can.
     const armedRes = await (await h.req("PATCH", `/v1/projects/${h.project.id}/cards/1`, { auto: { model: null, thinking: "low" } })).json() as Card;
-    assert.equal(armedRes.owner, "agent");
-    assert.equal(armedRes.status, "backlog");
+    expect(armedRes.owner).toBe("agent");
+    expect(armedRes.status).toBe("backlog");
     await Bun.sleep(100);
-    assert.equal(h.board.get(h.project.id, 1)!.status, "backlog", "backlog cards do not start");
+    expect(h.board.get(h.project.id, 1)!.status).toBe("backlog") /* "backlog cards do not start" */;
     await h.req("PATCH", `/v1/projects/${h.project.id}/cards/1`, { status: "todo" });
     await h.until(() => h.board.get(h.project.id, 1)!.status === "done", "card done");
     const activity = h.board.activity(h.project.id, 1).map(a => a.text).join("\n");
-    assert.match(activity, /auto run started \(default model, low\)/);
+    expect(activity).toMatch(/auto run started \(default model, low\)/);
     const sid = Number(/session (\d+)/.exec(activity)![1]);
-    assert.equal(h.rt.conversations.projects.projectOf(sid), h.project.id);
-    assert.equal(h.rt.conversations.get(sid).title, "#1 Write the doc");
+    expect(h.rt.conversations.projects.projectOf(sid)).toBe(h.project.id);
+    expect(h.rt.conversations.get(sid).title).toBe("#1 Write the doc");
   } finally { await h.close(); }
 });
 
@@ -99,7 +98,7 @@ test("the cap holds extra cards in todo; a run that ends without moving its card
     const pid = h.project.id;
     for (const subject of ["first", "second"]) await h.req("POST", `/v1/projects/${pid}/cards`, { subject, status: "todo", priority: subject === "first" ? "high" : "low", auto: true });
     await h.until(() => h.board.get(pid, 1)!.status !== "todo", "first card claimed");
-    assert.equal(h.board.get(pid, 2)!.status, "todo", "second card waits for a free slot");
+    expect(h.board.get(pid, 2)!.status).toBe("todo") /* "second card waits for a free slot" */;
     await h.until(() => h.board.get(pid, 1)!.status === "review", "first card in review");
     await h.until(() => h.board.get(pid, 2)!.status === "done", "second card done");
   } finally { await h.close(); }
@@ -113,10 +112,10 @@ test("a waiting or blocked card does not start", async () => {
     await h.req("POST", `/v1/projects/${pid}/cards`, { subject: "waits", status: "todo", blockedBy: [1], auto: true });
     await h.req("POST", `/v1/projects/${pid}/cards`, { subject: "blocked", status: "todo", blocked: "needs a key", auto: true });
     await Bun.sleep(150);
-    assert.equal(h.board.get(pid, 2)!.status, "todo");
-    assert.equal(h.board.get(pid, 3)!.status, "todo");
-    assert.equal(h.board.get(pid, 3)!.blocked, "needs a key");
-    assert.equal(h.board.get(pid, 2)!.owner, "agent");
+    expect(h.board.get(pid, 2)!.status).toBe("todo");
+    expect(h.board.get(pid, 3)!.status).toBe("todo");
+    expect(h.board.get(pid, 3)!.blocked).toBe("needs a key");
+    expect(h.board.get(pid, 2)!.owner).toBe("agent");
   } finally { await h.close(); }
 });
 
@@ -134,9 +133,9 @@ test("the agent cannot arm a card; a finished blocker starts the card that waite
     await h.req("PATCH", `/v1/projects/${pid}/cards/2`, { archived: true });
     await h.req("PATCH", `/v1/projects/${pid}/cards/1`, { status: "todo", auto: true });
     await h.until(() => h.board.get(pid, 3)!.status === "done", "waiting card done");
-    assert.equal(h.board.get(pid, 1)!.status, "done");
+    expect(h.board.get(pid, 1)!.status).toBe("done");
     const made = h.board.list(pid).find(c => c.subject === "from agent")!;
-    assert.equal(made.auto, null);
-    assert.equal(made.status, "todo");
+    expect(made.auto).toBe(null);
+    expect(made.status).toBe("todo");
   } finally { await h.close(); }
 });

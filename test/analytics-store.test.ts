@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { AnalyticsStore } from "../src/analytics/store.js";
 import type { AnalyticsFact, AnalyticsScan, AnalyticsSessionRecord } from "../src/analytics/types.js";
 
@@ -112,9 +111,9 @@ describe("AnalyticsStore", () => {
 
       // Verify session stored
       const storedSession = tmp.store.getSession(101);
-      assert.ok(storedSession, "Session 101 should exist");
-      assert.equal(storedSession.id, 101);
-      assert.equal(storedSession.title, "Initial Title");
+      expect(storedSession).toBeTruthy() /* "Session 101 should exist" */;
+      expect(storedSession.id).toBe(101);
+      expect(storedSession.title).toBe("Initial Title");
 
       // Verify facts stored via raw db check
       const factsBefore = tmp.store.db
@@ -122,11 +121,11 @@ describe("AnalyticsStore", () => {
           "SELECT key, duration_ms FROM analytics_facts WHERE session_id = ? ORDER BY key ASC",
         )
         .all(101);
-      assert.equal(factsBefore.length, 2);
-      assert.equal(factsBefore[0]!.key, "fact-101-1");
-      assert.equal(factsBefore[0]!.duration_ms, 100);
-      assert.equal(factsBefore[1]!.key, "fact-101-2");
-      assert.equal(factsBefore[1]!.duration_ms, 200);
+      expect(factsBefore.length).toBe(2);
+      expect(factsBefore[0]!.key).toBe("fact-101-1");
+      expect(factsBefore[0]!.duration_ms).toBe(100);
+      expect(factsBefore[1]!.key).toBe("fact-101-2");
+      expect(factsBefore[1]!.duration_ms).toBe(200);
 
       // Apply duplicate scan with updated fact values (upsert idempotency)
       const updatedSession = makeSessionRecord({ id: 101, title: "Updated Title" });
@@ -142,8 +141,8 @@ describe("AnalyticsStore", () => {
 
       // Check session updated
       const sessionAfter = tmp.store.getSession(101);
-      assert.ok(sessionAfter);
-      assert.equal(sessionAfter.title, "Updated Title");
+      expect(sessionAfter).toBeTruthy();
+      expect(sessionAfter.title).toBe("Updated Title");
 
       // Check fact updated rather than duplicated
       const factsAfter = tmp.store.db
@@ -151,11 +150,11 @@ describe("AnalyticsStore", () => {
           "SELECT key, duration_ms FROM analytics_facts WHERE session_id = ? ORDER BY key ASC",
         )
         .all(101);
-      assert.equal(factsAfter.length, 2, "Duplicate keys must upsert and not duplicate rows");
-      assert.equal(factsAfter[0]!.key, "fact-101-1");
-      assert.equal(factsAfter[0]!.duration_ms, 150, "Upsert should update fields");
-      assert.equal(factsAfter[1]!.key, "fact-101-2");
-      assert.equal(factsAfter[1]!.duration_ms, 200);
+      expect(factsAfter.length).toBe(2) /* "Duplicate keys must upsert and not duplicate rows" */;
+      expect(factsAfter[0]!.key).toBe("fact-101-1");
+      expect(factsAfter[0]!.duration_ms).toBe(150) /* "Upsert should update fields" */;
+      expect(factsAfter[1]!.key).toBe("fact-101-2");
+      expect(factsAfter[1]!.duration_ms).toBe(200);
     } finally {
       await tmp.cleanup();
     }
@@ -180,22 +179,22 @@ describe("AnalyticsStore", () => {
       const reopened = new AnalyticsStore(tmp.dbPath);
       try {
         const retrieved = reopened.getSession(42);
-        assert.ok(retrieved, "Session should persist across restart");
-        assert.equal(retrieved.id, 42);
-        assert.equal(retrieved.title, "Persistent Session");
+        expect(retrieved).toBeTruthy() /* "Session should persist across restart" */;
+        expect(retrieved.id).toBe(42);
+        expect(retrieved.title).toBe("Persistent Session");
 
         const allSessions = reopened.sessions();
-        assert.equal(allSessions.length, 1);
-        assert.equal(allSessions[0]!.id, 42);
+        expect(allSessions.length).toBe(1);
+        expect(allSessions[0]!.id).toBe(42);
 
         const factRow = reopened.db
           .query<{ key: string; model: string }, [number]>(
             "SELECT key, model FROM analytics_facts WHERE session_id = ?",
           )
           .get(42);
-        assert.ok(factRow, "Fact row must persist across restart");
-        assert.equal(factRow.key, "fact-42");
-        assert.equal(factRow.model, "gpt-4o");
+        expect(factRow).toBeTruthy() /* "Fact row must persist across restart" */;
+        expect(factRow.key).toBe("fact-42");
+        expect(factRow.model).toBe("gpt-4o");
       } finally {
         reopened.close();
       }
@@ -233,12 +232,12 @@ describe("AnalyticsStore", () => {
           "SELECT key FROM analytics_facts WHERE session_id = ? ORDER BY key ASC",
         )
         .all(10);
-      assert.equal(facts.length, 2, "Both initial and incrementally added fact must be preserved");
-      assert.equal(facts[0]!.key, "fact-10-1");
-      assert.equal(facts[1]!.key, "fact-10-2");
+      expect(facts.length).toBe(2) /* "Both initial and incrementally added fact must be preserved" */;
+      expect(facts[0]!.key).toBe("fact-10-1");
+      expect(facts[1]!.key).toBe("fact-10-2");
 
       const session = tmp.store.getSession(10);
-      assert.equal(session?.lastEntryId, 2);
+      expect(session?.lastEntryId).toBe(2);
     } finally {
       await tmp.cleanup();
     }
@@ -268,19 +267,19 @@ describe("AnalyticsStore", () => {
       const s1Facts = tmp.store.db
         .query<{ key: string }, [number]>("SELECT key FROM analytics_facts WHERE session_id = ? ORDER BY key ASC")
         .all(1);
-      assert.equal(s1Facts.length, 1);
-      assert.equal(s1Facts[0]!.key, "f1-c");
+      expect(s1Facts.length).toBe(1);
+      expect(s1Facts[0]!.key).toBe("f1-c");
 
       // Verify session 2 facts remain completely untouched
       const s2Facts = tmp.store.db
         .query<{ key: string }, [number]>("SELECT key FROM analytics_facts WHERE session_id = ? ORDER BY key ASC")
         .all(2);
-      assert.equal(s2Facts.length, 2);
-      assert.equal(s2Facts[0]!.key, "f2-a");
-      assert.equal(s2Facts[1]!.key, "f2-b");
+      expect(s2Facts.length).toBe(2);
+      expect(s2Facts[0]!.key).toBe("f2-a");
+      expect(s2Facts[1]!.key).toBe("f2-b");
 
       const s2Record = tmp.store.getSession(2);
-      assert.equal(s2Record?.title, "Session 2");
+      expect(s2Record?.title).toBe("Session 2");
     } finally {
       await tmp.cleanup();
     }
@@ -296,24 +295,24 @@ describe("AnalyticsStore", () => {
       tmp.store.markDeleted([20], deletedAt);
 
       const deletedSession = tmp.store.getSession(20);
-      assert.ok(deletedSession, "Session row remains in store as tombstone");
-      assert.equal(deletedSession.deletedAt, deletedAt, "deletedAt must be recorded");
+      expect(deletedSession).toBeTruthy() /* "Session row remains in store as tombstone" */;
+      expect(deletedSession.deletedAt).toBe(deletedAt) /* "deletedAt must be recorded" */;
 
       // Attempt apply with older or matching incarnation without explicit new created_at
       const sameIncarnation = makeSessionRecord({ id: 20, createdAt: 1000, title: "Stale Scan" });
       tmp.store.apply({ session: sameIncarnation, facts: [], rebuild: false, entriesScanned: 0 });
 
       const preservedTombstone = tmp.store.getSession(20);
-      assert.equal(preservedTombstone?.deletedAt, deletedAt, "Tombstone must be preserved against re-applying deleted session");
+      expect(preservedTombstone?.deletedAt).toBe(deletedAt) /* "Tombstone must be preserved against re-applying deleted session" */;
 
       // Now source proves a new incarnation with newer created_at > deletedAt
       const newIncarnation = makeSessionRecord({ id: 20, createdAt: 6000, title: "Recreated Session 20", deletedAt: null });
       tmp.store.apply({ session: newIncarnation, facts: [makeFact({ key: "f-20-new", sessionId: 20 })], rebuild: false, entriesScanned: 1 });
 
       const resurrected = tmp.store.getSession(20);
-      assert.equal(resurrected?.deletedAt, null, "New incarnation replaces tombstone");
-      assert.equal(resurrected?.createdAt, 6000);
-      assert.equal(resurrected?.title, "Recreated Session 20");
+      expect(resurrected?.deletedAt).toBe(null) /* "New incarnation replaces tombstone" */;
+      expect(resurrected?.createdAt).toBe(6000);
+      expect(resurrected?.title).toBe("Recreated Session 20");
     } finally {
       await tmp.cleanup();
     }
@@ -339,19 +338,19 @@ describe("AnalyticsStore", () => {
       try {
         // Tombstone MUST remain intact because deleted sessions cannot be rescanned/reparsed
         const tombstone = storeV2.getSession(31);
-        assert.ok(tombstone, "Tombstone row must not be destroyed by parser version bump");
-        assert.equal(tombstone.deletedAt, 9999);
+        expect(tombstone).toBeTruthy() /* "Tombstone row must not be destroyed by parser version bump" */;
+        expect(tombstone.deletedAt).toBe(9999);
 
         // Retained session revision is empty / invalidated on version mismatch to force re-parse
         const retained = storeV2.getSession(30);
-        assert.ok(retained, "Retained session record is accessible");
-        assert.equal(retained.revision, "", "Revision should be empty on version mismatch for retained session");
+        expect(retained).toBeTruthy() /* "Retained session record is accessible" */;
+        expect(retained.revision).toBe("") /* "Revision should be empty on version mismatch for retained session" */;
 
         // Facts for retained sessions cleared or flagged on scan, but tombstone preserved
         const tombstoneRow = storeV2.db
           .query<{ deleted_at: number | null }, [number]>("SELECT deleted_at FROM analytics_sessions WHERE id = ?")
           .get(31);
-        assert.equal(tombstoneRow?.deleted_at, 9999);
+        expect(tombstoneRow?.deleted_at).toBe(9999);
       } finally {
         storeV2.close();
       }

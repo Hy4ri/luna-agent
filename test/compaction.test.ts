@@ -1,10 +1,9 @@
 // Contract: live host limits govern every model preparation, with durable delegate identity and model safety clamps.
 // A regression to capacity-only thresholds sends an oversized request instead of starting/waiting for compaction.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import { nativeCompaction } from "../src/compaction-limits.js";
@@ -42,7 +41,7 @@ for (const scenario of [
         await releaseSummary.promise;
         return fauxAssistantMessage("## Goal\nContinue the assigned task.\n## Progress\nOld history summarized.");
       }
-      if (scenario.blocking) assert.match(JSON.stringify(request.messages), /Old history summarized/, "the resumed request must include the placed summary");
+      if (scenario.blocking) expect(JSON.stringify(request.messages)).toMatch(/Old history summarized/) /* "the resumed request must include the placed summary" */;
       calls.push("answer"); answerStarted.resolve();
       return fauxAssistantMessage("done");
     };
@@ -61,16 +60,16 @@ for (const scenario of [
       }, context);
       const submitted = await conv.submit({ type: "input", content: "Continue." }, context);
       if ("below" in scenario) {
-        assert.equal((await submitted.wait(context)).status, "done");
-        assert.deepEqual(calls, ["answer"], "large-window sessions must not use the lower delegate threshold");
+        expect((await submitted.wait(context)).status).toBe("done");
+        expect(calls).toEqual(["answer"]) /* "large-window sessions must not use the lower delegate threshold" */;
         return;
       }
       await summaryStarted.promise;
-      if (scenario.blocking) assert.deepEqual(calls, ["summary"], "generation must wait, not send the large request");
+      if (scenario.blocking) expect(calls).toEqual(["summary"]) /* "generation must wait, not send the large request" */;
       else await answerStarted.promise; // A background summary must not prevent the answer.
       releaseSummary.resolve();
-      assert.equal((await submitted.wait(context)).status, "done");
-      assert.ok(calls.includes("answer"));
+      expect((await submitted.wait(context)).status).toBe("done");
+      expect(calls.includes("answer")).toBeTruthy();
     } finally {
       releaseSummary.resolve();
       await rt?.close();
@@ -103,9 +102,9 @@ test("external settings changes apply to an existing session on its next prepara
     }, context);
     // Lower the blocking limit below the existing 90k context without reopening the runtime or conversation.
     writeFileSync(configPath, JSON.stringify({ ...initial, compaction: { sessions: { backgroundAtTokens: 60000, blockAtTokens: 80000 } } }));
-    assert.equal((await (await conv.submit({ type: "input", content: "Continue." }, context)).wait(context)).status, "done");
-    assert.deepEqual(calls.slice(0, 2), ["summary", "answer"]);
-    assert.ok((await conv.entries({}, 100, undefined, context)).items.some(entry => entry.kind === "pi.compaction"));
+    expect((await (await conv.submit({ type: "input", content: "Continue." }, context)).wait(context)).status).toBe("done");
+    expect(calls.slice(0, 2)).toEqual(["summary", "answer"]);
+    expect((await conv.entries({}, 100, undefined, context)).items.some(entry => entry.kind === "pi.compaction")).toBeTruthy();
   } finally { await rt?.close(); rmSync(dir, { recursive: true, force: true }); }
 }, 10000);
 
@@ -136,13 +135,13 @@ test("a real forked delegate compacts inherited history below its parent's thres
     await rt.harness.commit(async tx => {
       for (let i = 0; i < 18; i++) await tx.appendEntry(conv.id, { kind: "test.history", model: [{ role: "user", content: "x".repeat(20000), timestamp: 1 }] });
     }, context);
-    assert.equal((await (await conv.submit({ type: "input", content: "Delegate the work." }, context)).wait(context)).status, "done");
-    assert.ok(summaries.includes("child"), "the fork must inherit history and use the lower delegate threshold");
-    assert.ok(!summaries.includes("parent"), "the parent must retain the higher session threshold");
+    expect((await (await conv.submit({ type: "input", content: "Delegate the work." }, context)).wait(context)).status).toBe("done");
+    expect(summaries.includes("child")).toBeTruthy() /* "the fork must inherit history and use the lower delegate threshold" */;
+    expect(!summaries.includes("parent")).toBeTruthy() /* "the parent must retain the higher session threshold" */;
     const children = await rt.harness.snapshot(Children, conv.id, context);
-    assert.equal(children?.children.length, 1);
+    expect(children?.children.length).toBe(1);
     const child = children!.children[0]!;
     const report = await rt.harness.commit(tx => readChildReport(tx, conv.id, child.id), context);
-    assert.equal(report.resultStatus, "valid", "compaction must not lose the delegate result contract");
+    expect(report.resultStatus).toBe("valid") /* "compaction must not lose the delegate result contract" */;
   } finally { await rt?.close(); rmSync(dir, { recursive: true, force: true }); }
 }, 10000);

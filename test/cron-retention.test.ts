@@ -2,11 +2,10 @@
 // reports keep a per-job tail, a running run and the report in the inbox stay, the runs of a deleted job
 // go with their own window, and one round stays bounded. No other store test covers the cleanup, so a wrong
 // window, an over-eager rule, or an unbounded round would go unnoticed.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { CronStore, PRUNE_MAX_ROWS, PRUNE_PER_JOB, defaultRetention } from "../src/scheduler.js";
 
 const DAY = 86_400_000;
@@ -45,8 +44,8 @@ test("runs without a report leave the log after the empty-run window", () => {
     const running = store.claimManual(busy, now - 40 * DAY);
 
     const { deleted } = store.pruneRuns({ ...defaultRetention, emptyRunDays: 7 }, now);
-    assert.equal(deleted, 1);
-    assert.deepEqual(ids(store).sort(), [recent.id, running.id].sort());
+    expect(deleted).toBe(1);
+    expect(ids(store).sort()).toEqual([recent.id, running.id].sort());
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -69,12 +68,12 @@ test("reports keep the newest tail per job, and the report in the inbox survives
 
     // The newest three reports stay whatever their age; the rest go once they leave the window.
     const { deleted } = store.pruneRuns({ ...defaultRetention, reportDays: 90, reportsPerJob: 3 }, now);
-    assert.equal(deleted, 3);
-    assert.deepEqual(ids(store), [old[3]!, ...recent].sort((a, b) => a - b));
+    expect(deleted).toBe(3);
+    expect(ids(store)).toEqual([old[3]!, ...recent].sort((a, b) => a - b));
     // The inbox still holds the newest report, and it is still unread.
-    assert.equal(store.unreadCount(), 1);
-    assert.deepEqual(store.reports().map(run => run.id), [recent[1]]);
-    assert.ok(store.reports({ history: true, limit: 100 }).some(run => run.id === old[3]!));
+    expect(store.unreadCount()).toBe(1);
+    expect(store.reports().map(run => run.id)).toEqual([recent[1]]);
+    expect(store.reports({ history: true, limit: 100 }).some(run => run.id === old[3]!)).toBeTruthy();
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -90,8 +89,8 @@ test("the runs of a deleted job go after the deleted-job window", () => {
     store.deleteJob(job.id, now);
 
     const { deleted } = store.pruneRuns({ ...defaultRetention, deletedJobDays: 30 }, now);
-    assert.equal(deleted, 1);
-    assert.deepEqual(ids(store), [recent.id]);
+    expect(deleted).toBe(1);
+    expect(ids(store)).toEqual([recent.id]);
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -105,13 +104,13 @@ test("one cleanup round removes a bounded number of rows", () => {
     let rounds = 0, deleted = 0;
     for (;;) {
       const res = store.pruneRuns({ ...defaultRetention, emptyRunDays: 7 }, now);
-      assert.ok(res.deleted <= PRUNE_PER_JOB, `one job gave ${res.deleted} rows in a round`);
+      expect(res.deleted <= PRUNE_PER_JOB).toBeTruthy() /* `one job gave ${res.deleted} rows in a round` */;
       deleted += res.deleted; rounds++;
       if (!res.deleted || rounds > 10) break;
     }
-    assert.equal(count(store), 0, "the backlog is cleared");
-    assert.ok(rounds > 1, "a backlog this size takes more than one round");
-    assert.equal(deleted, PRUNE_PER_JOB + 25);
+    expect(count(store)).toBe(0) /* "the backlog is cleared" */;
+    expect(rounds > 1).toBeTruthy() /* "a backlog this size takes more than one round" */;
+    expect(deleted).toBe(PRUNE_PER_JOB + 25);
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -123,8 +122,8 @@ test("one cleanup round never removes more rows than the round allows", () => {
     for (const job of jobs) seedRuns(store, job.id, PRUNE_PER_JOB + 100, now - 200 * DAY, null);
 
     const res = store.pruneRuns({ ...defaultRetention, emptyRunDays: 7 }, now);
-    assert.ok(res.deleted <= PRUNE_MAX_ROWS, `a round removed ${res.deleted} rows`);
-    assert.ok(res.deleted > 0);
+    expect(res.deleted <= PRUNE_MAX_ROWS).toBeTruthy() /* `a round removed ${res.deleted} rows` */;
+    expect(res.deleted > 0).toBeTruthy();
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -136,7 +135,7 @@ test("the cleanup can be turned off", () => {
     const run = store.claimManual(job, now - 400 * DAY);
     store.finish(run.id, "ok", "", null, now - 400 * DAY + 1);
     const { deleted } = store.pruneRuns({ ...defaultRetention, enabled: false }, now);
-    assert.equal(deleted, 0);
-    assert.equal(count(store), 1);
+    expect(deleted).toBe(0);
+    expect(count(store)).toBe(1);
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });

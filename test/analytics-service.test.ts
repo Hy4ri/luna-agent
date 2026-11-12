@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { openLuna } from "../src/luna.js";
@@ -25,18 +24,18 @@ test("analytics flushes the dirty tail under deletion's maintenance barrier and 
     await f.conversations.update(Number(conv.id), { title: "Saved title" });
     await f.harness.commit(tx => tx.appendEntry(conv.id, { kind: "pi.user", model: [{ role: "user", content: "not retained", timestamp: 1000 }] }), context);
     await f.analytics.refresh();
-    assert.equal(f.analytics.store.getSession(Number(conv.id))?.userTurns, 1);
+    expect(f.analytics.store.getSession(Number(conv.id))?.userTurns).toBe(1);
     await f.harness.commit(tx => tx.appendEntry(conv.id, { kind: "pi.user", model: [{ role: "user", content: "dirty latest", timestamp: 2000 }] }), context);
     await f.conversations.delete(Number(conv.id));
     const saved = f.analytics.store.getSession(Number(conv.id));
-    assert.ok(saved?.deletedAt);
-    assert.equal(saved.title, "Saved title");
-    assert.equal(saved.userTurns, 2);
-    assert.equal(saved.lastActivity, 2000);
-    assert.equal(conversationStorage(f.harness).db.query("SELECT 1 FROM conversations WHERE id=?").get(Number(conv.id)), null);
+    expect(saved?.deletedAt).toBeTruthy();
+    expect(saved.title).toBe("Saved title");
+    expect(saved.userTurns).toBe(2);
+    expect(saved.lastActivity).toBe(2000);
+    expect(conversationStorage(f.harness).db.query("SELECT 1 FROM conversations WHERE id=?").get(Number(conv.id))).toBe(null);
     f.analytics.close();
     const restarted = new AnalyticsService(f.harness, f.conversations);
-    try { await restarted.ready(); assert.equal(restarted.store.getSession(Number(conv.id))?.userTurns, 2); }
+    try { await restarted.ready(); expect(restarted.store.getSession(Number(conv.id))?.userTurns).toBe(2); }
     finally { restarted.close(); }
   } finally { await f.close(); }
 });
@@ -46,8 +45,8 @@ test("analytics refuses destructive deletion when its preservation hook fails", 
   try {
     const conv = await f.harness.createConversation({ ownership: { kind: "ownerless" } }, context);
     const detach = f.conversations.subscribeBeforeDelete(() => { throw new Error("preservation unavailable"); });
-    await assert.rejects(f.conversations.delete(Number(conv.id)), /preservation unavailable/);
-    assert.ok(conversationStorage(f.harness).db.query("SELECT 1 FROM conversations WHERE id=?").get(Number(conv.id)));
+    await expect(f.conversations.delete(Number(conv.id))).rejects.toThrow(/preservation unavailable/);
+    expect(conversationStorage(f.harness).db.query("SELECT 1 FROM conversations WHERE id=?").get(Number(conv.id))).toBeTruthy();
     detach();
     await f.conversations.delete(Number(conv.id));
   } finally { await f.close(); }

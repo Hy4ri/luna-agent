@@ -1,10 +1,9 @@
 // Contract: busy input has two modes, both native pi-durable. Steer joins the current run at its next
 // boundary; Queue runs a separate later turn. Neither aborts the current model response or tool.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { Type } from "typebox";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Harness } from "@earendil-works/pi-durable";
@@ -68,11 +67,11 @@ const userTexts = (request: string) => (JSON.parse(request) as { role: string; c
   .filter(message => message.role === "user").map(message => JSON.stringify(message.content));
 
 test("defaults and config: Steer is the default, only steer and queue exist, and retired interrupt loads as steer", () => {
-  assert.equal(DEFAULT_BUSY_INPUT.mode, "steer");
-  assert.equal(parse({ provider: "faux" }).busyInput.mode, "steer");
-  assert.equal(parse({ provider: "faux", busyInput: { mode: "queue" } }).busyInput.mode, "queue");
-  assert.equal(parse({ provider: "faux", busyInput: { mode: "interrupt" } }).busyInput.mode, "steer");
-  assert.throws(() => parse({ provider: "faux", busyInput: { mode: "redirect" } }), /mode/);
+  expect(DEFAULT_BUSY_INPUT.mode).toBe("steer");
+  expect(parse({ provider: "faux" }).busyInput.mode).toBe("steer");
+  expect(parse({ provider: "faux", busyInput: { mode: "queue" } }).busyInput.mode).toBe("queue");
+  expect(parse({ provider: "faux", busyInput: { mode: "interrupt" } }).busyInput.mode).toBe("steer");
+  expect(() => parse({ provider: "faux", busyInput: { mode: "redirect" } })).toThrow(/mode/);
 });
 
 for (const phase of ["generation", "tool"] as const) {
@@ -85,17 +84,17 @@ for (const phase of ["generation", "tool"] as const) {
       const original = await conv.submit({ type: "input", content: "work" }, context);
       await (phase === "tool" ? r.tool.entered.promise : r.model.entered.promise);
       const sent = await send(r.app("steer"), conv.id, { content: "STEER_SENTINEL" });
-      assert.equal(sent.status, 202);
-      assert.equal(sent.body.action, "steered");
-      assert.doesNotMatch(`${sent.body.notice ?? ""} ${sent.body.tip ?? ""}`, /interrupt|redirect|immediately/i);
+      expect(sent.status).toBe(202);
+      expect(sent.body.action).toBe("steered");
+      expect(`${sent.body.notice ?? ""} ${sent.body.tip ?? ""}`).not.toMatch(/interrupt|redirect|immediately/i);
       r.release();
-      assert.equal((await original.wait(context)).status, "done");
+      expect((await original.wait(context)).status).toBe("done");
       const steered = await r.harness.submission(sent.body.submissionId as never, context);
-      assert.equal((await steered!.wait(context)).status, "done");
-      assert.equal(r.model.aborted || r.tool.aborted, false, "steer never aborts the current work");
-      assert.equal(r.requests.length, 2, "the steer belongs to the original run, not a later turn");
-      assert.match(r.requests[1]!, /STEER_SENTINEL/);
-      if (phase === "tool") assert.match(r.requests[1]!, /tool finished/, "the tool batch finished before the steer was placed");
+      expect((await steered!.wait(context)).status).toBe("done");
+      expect(r.model.aborted || r.tool.aborted).toBe(false) /* "steer never aborts the current work" */;
+      expect(r.requests.length).toBe(2) /* "the steer belongs to the original run, not a later turn" */;
+      expect(r.requests[1]!).toMatch(/STEER_SENTINEL/);
+      if (phase === "tool") expect(r.requests[1]!).toMatch(/tool finished/) /* "the tool batch finished before the steer was placed" */;
     } finally {
       r.release(); await r.harness.close(context); rmSync(dir, { recursive: true, force: true });
     }
@@ -111,18 +110,18 @@ for (const phase of ["generation", "tool"] as const) {
       await (phase === "tool" ? r.tool.entered.promise : r.model.entered.promise);
       const first = await send(r.app("queue"), conv.id, { content: "QUEUE_ONE" });
       const second = await send(r.app("steer"), conv.id, { content: "/queue QUEUE_TWO" });
-      assert.equal(first.body.action, "queued");
-      assert.equal(second.body.action, "queued", "/queue overrides the steer default for one message");
+      expect(first.body.action).toBe("queued");
+      expect(second.body.action).toBe("queued") /* "/queue overrides the steer default for one message" */;
       r.release();
-      assert.equal((await original.wait(context)).status, "done");
+      expect((await original.wait(context)).status).toBe("done");
       for (const sent of [first, second])
-        assert.equal((await (await r.harness.submission(sent.body.submissionId as never, context))!.wait(context)).status, "done");
+        expect((await (await r.harness.submission(sent.body.submissionId as never, context))!.wait(context)).status).toBe("done");
       const turns = phase === "tool" ? r.requests.slice(2) : r.requests.slice(1);
-      assert.equal(turns.length, 2, "each queued message is its own turn");
-      assert.doesNotMatch(r.requests[phase === "tool" ? 1 : 0]!, /QUEUE_ONE/, "queued input never joins the current run");
-      assert.match(turns[0]!, /QUEUE_ONE/); assert.doesNotMatch(turns[0]!, /QUEUE_TWO/);
-      assert.match(turns[1]!, /QUEUE_TWO/);
-      assert.equal(r.model.aborted || r.tool.aborted, false);
+      expect(turns.length).toBe(2) /* "each queued message is its own turn" */;
+      expect(r.requests[phase === "tool" ? 1 : 0]!).not.toMatch(/QUEUE_ONE/) /* "queued input never joins the current run" */;
+      expect(turns[0]!).toMatch(/QUEUE_ONE/); expect(turns[0]!).not.toMatch(/QUEUE_TWO/);
+      expect(turns[1]!).toMatch(/QUEUE_TWO/);
+      expect(r.model.aborted || r.tool.aborted).toBe(false);
     } finally {
       r.release(); await r.harness.close(context); rmSync(dir, { recursive: true, force: true });
     }
@@ -137,13 +136,13 @@ test("redirect is gone: whenBusy redirect is rejected and /redirect is ordinary 
     const original = await conv.submit({ type: "input", content: "work" }, context);
     await r.tool.entered.promise;
     const rejected = await send(r.app("steer"), conv.id, { content: "x", whenBusy: "redirect" });
-    assert.equal(rejected.status, 400);
+    expect(rejected.status).toBe(400);
     const plain = await send(r.app("steer"), conv.id, { content: "/redirect CORRECTION" });
-    assert.equal(plain.body.action, "steered", "/redirect is no longer a command; it is a steer of the literal text");
+    expect(plain.body.action).toBe("steered") /* "/redirect is no longer a command; it is a steer of the literal text" */;
     r.release();
-    assert.equal((await original.wait(context)).status, "done");
-    assert.match(r.requests[1]!, /\/redirect CORRECTION/);
-    assert.equal(r.tool.aborted, false);
+    expect((await original.wait(context)).status).toBe("done");
+    expect(r.requests[1]!).toMatch(/\/redirect CORRECTION/);
+    expect(r.tool.aborted).toBe(false);
   } finally {
     r.release(); await r.harness.close(context); rmSync(dir, { recursive: true, force: true });
   }
@@ -157,22 +156,22 @@ test("a queued message becomes a steer of the current run without duplicate deli
     const original = await conv.submit({ type: "input", content: "work" }, context);
     await r.tool.entered.promise;
     const queued = await send(r.app("queue"), conv.id, { content: "PROMOTE_SENTINEL" });
-    assert.equal(queued.body.action, "queued");
+    expect(queued.body.action).toBe("queued");
     const promote = () => r.app("queue").request(`/v1/sessions/${conv.id}/submissions/${queued.body.submissionId}/steer`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "PROMOTE_SENTINEL" }) });
     const first = await promote();
-    assert.equal(first.status, 202);
+    expect(first.status).toBe(202);
     const receipt = await first.json() as { action: string; submissionId: string };
-    assert.equal(receipt.action, "steered");
+    expect(receipt.action).toBe("steered");
     const retry = await (await promote()).json() as { submissionId: string };
-    assert.equal(retry.submissionId, receipt.submissionId, "a retry returns the same replacement");
+    expect(retry.submissionId).toBe(receipt.submissionId) /* "a retry returns the same replacement" */;
     const legacy = await r.app("queue").request(`/v1/sessions/${conv.id}/submissions/${queued.body.submissionId}/send-now`, { method: "POST" });
-    assert.equal(legacy.status, 404, "the Send now route is gone");
+    expect(legacy.status).toBe(404) /* "the Send now route is gone" */;
     r.release();
-    assert.equal((await original.wait(context)).status, "done");
-    assert.equal((await (await r.harness.submission(receipt.submissionId as never, context))!.wait(context)).status, "done");
-    assert.equal(r.requests.length, 2, "the promoted message joined the original run once");
-    assert.equal(r.requests[1]!.split("PROMOTE_SENTINEL").length - 1, 1);
+    expect((await original.wait(context)).status).toBe("done");
+    expect((await (await r.harness.submission(receipt.submissionId as never, context))!.wait(context)).status).toBe("done");
+    expect(r.requests.length).toBe(2) /* "the promoted message joined the original run once" */;
+    expect(r.requests[1]!.split("PROMOTE_SENTINEL").length - 1).toBe(1);
   } finally {
     r.release(); await r.harness.close(context); rmSync(dir, { recursive: true, force: true });
   }
@@ -189,8 +188,8 @@ test("restart: queued and steered input survives a daemon restart and is deliver
     await first.tool.entered.promise;
     const steered = await send(first.app("steer"), conv.id, { content: "STEER_AFTER_RESTART" });
     const queued = await send(first.app("queue"), conv.id, { content: "QUEUE_AFTER_RESTART" });
-    assert.equal(steered.body.action, "steered");
-    assert.equal(queued.body.action, "queued");
+    expect(steered.body.action).toBe("steered");
+    expect(queued.body.action).toBe("queued");
     // Close while the tool still holds; the release after close lets the in-flight call settle harmlessly.
     const closing = first.harness.close(context);
     first.release();
@@ -201,15 +200,15 @@ test("restart: queued and steered input survives a daemon restart and is deliver
     second.release();
     for (const sent of [steered, queued]) {
       const sub = await h.submission(sent.body.submissionId as never, context);
-      assert.ok(sub, "the admitted submission survived the restart");
-      assert.equal((await sub.wait(context)).status, "done");
+      expect(sub).toBeTruthy() /* "the admitted submission survived the restart" */;
+      expect((await sub.wait(context)).status).toBe("done");
     }
     const all = second.requests.join("\n");
-    assert.equal(all.split("STEER_AFTER_RESTART").length - 1 > 0, true);
+    expect(all.split("STEER_AFTER_RESTART").length - 1 > 0).toBe(true);
     const lastSteer = second.requests.findIndex(request => request.includes("STEER_AFTER_RESTART"));
     const firstQueue = second.requests.findIndex(request => request.includes("QUEUE_AFTER_RESTART"));
-    assert.ok(lastSteer >= 0 && firstQueue > lastSteer, "the steer is placed before the queued turn starts");
-    assert.equal(second.requests.filter(request => userTexts(request).some(text => text.includes("QUEUE_AFTER_RESTART"))).length >= 1, true);
+    expect(lastSteer >= 0 && firstQueue > lastSteer).toBeTruthy() /* "the steer is placed before the queued turn starts" */;
+    expect(second.requests.filter(request => userTexts(request).some(text => text.includes("QUEUE_AFTER_RESTART"))).length >= 1).toBe(true);
   } finally {
     first?.release(); second?.release();
     await first?.harness.close(context); await second?.harness.close(context);
@@ -231,26 +230,26 @@ for (const mode of ["queue", "steer"] as const) {
       const survivor = await send(r.app("steer"), conv.id, { content: "SURVIVOR_SENTINEL" });
       const cancel = (session: string | number, submission: string | number) => app.request(
         `/v1/sessions/${session}/submissions/${submission}/cancel`, { method: "POST" });
-      assert.equal((await cancel(foreign.id, pending.body.submissionId!)).status, 404);
-      assert.equal((await cancel(conv.id, "999999999")).status, 404);
-      assert.equal((await cancel(conv.id, original.id)).status, 409, "placed input cannot be cancelled");
+      expect((await cancel(foreign.id, pending.body.submissionId!)).status).toBe(404);
+      expect((await cancel(conv.id, "999999999")).status).toBe(404);
+      expect((await cancel(conv.id, original.id)).status).toBe(409) /* "placed input cannot be cancelled" */;
       const response = await cancel(conv.id, pending.body.submissionId!);
-      assert.equal(response.status, 200);
-      assert.equal((await response.json() as { cancelled: boolean }).cancelled, true);
-      assert.equal((await cancel(conv.id, pending.body.submissionId!)).status, 200, "lost responses can retry");
+      expect(response.status).toBe(200);
+      expect((await response.json() as { cancelled: boolean }).cancelled).toBe(true);
+      expect((await cancel(conv.id, pending.body.submissionId!)).status).toBe(200) /* "lost responses can retry" */;
       const withdrawn = await r.harness.submission(pending.body.submissionId as never, context);
       const record = await withdrawn!.status(context);
-      assert.equal(record.status, "unanswered");
-      assert.equal(record.reason, "aborted");
-      assert.equal(record.entry, undefined, "cancelled input never entered context");
-      assert.equal((await original.status(context)).status, "placed", "current run remains active");
+      expect(record.status).toBe("unanswered");
+      expect(record.reason).toBe("aborted");
+      expect(record.entry).toBe(undefined) /* "cancelled input never entered context" */;
+      expect((await original.status(context)).status).toBe("placed") /* "current run remains active" */;
       r.release();
-      assert.equal((await original.wait(context)).status, "done");
-      assert.equal((await (await r.harness.submission(survivor.body.submissionId as never, context))!.wait(context)).status, "done");
-      assert.equal(r.model.aborted, false);
-      assert.doesNotMatch(r.requests.join("\n"), /CANCEL_SENTINEL/);
-      assert.match(r.requests[1]!, /SURVIVOR_SENTINEL/);
-      assert.equal((await cancel(conv.id, survivor.body.submissionId!)).status, 409, "settled delivered input cannot be cancelled");
+      expect((await original.wait(context)).status).toBe("done");
+      expect((await (await r.harness.submission(survivor.body.submissionId as never, context))!.wait(context)).status).toBe("done");
+      expect(r.model.aborted).toBe(false);
+      expect(r.requests.join("\n")).not.toMatch(/CANCEL_SENTINEL/);
+      expect(r.requests[1]!).toMatch(/SURVIVOR_SENTINEL/);
+      expect((await cancel(conv.id, survivor.body.submissionId!)).status).toBe(409) /* "settled delivered input cannot be cancelled" */;
     } finally {
       r.release(); await r.harness.close(context); rmSync(dir, { recursive: true, force: true });
     }
