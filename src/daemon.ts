@@ -5,6 +5,7 @@ import { loadDaemonConfig } from "./config-recovery.js";
 import { startRuntime } from "./runtime.js";
 import { daemonConnection } from "./connection.js";
 import { createApp } from "./server.js";
+import { startLoopLagMonitor } from "./loop-lag.js";
 import type { WorkerWsData } from "./workers.js";
 import type { TerminalWsData } from "./terminal/service.js";
 import type { BrowserWsData } from "./browser/panel.js";
@@ -17,6 +18,8 @@ delete process.env.LUNA_TOKEN;
 const cfg = await loadDaemonConfig(token);
 const { host, port, publicUrls } = cfg.server;
 
+// Before the runtime starts, so start-up blocks (analytics re-index, migrations) are measured too.
+startLoopLagMonitor(message => console.error(message));
 const rt = await startRuntime(cfg);
 const appConnection = daemonConnection(cfg.dataDir, host, port, publicUrls);
 const app = createApp({
