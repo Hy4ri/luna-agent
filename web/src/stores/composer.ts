@@ -19,7 +19,8 @@ export interface Attachment {
 interface Draft { text: string; attachments: Attachment[] }
 interface PendingMessage {
   requestId: string; session: string | null; epoch: number; content: any;
-  status: "Sending…" | "Queued" | "Sent" | "Send not confirmed" | "Not delivered";
+  status: "Sending…" | "Queued" | "Steering" | "Sent" | "Send not confirmed" | "Not delivered";
+  mode?: "steer" | "followUp"; cancelling?: boolean;
   submissionId?: string; entryId?: number; promoting?: boolean;
 }
 // Local transport state only. Never add an unconfirmed message to durable history.
@@ -44,12 +45,26 @@ export function reconcileSubmission(record: any) {
   const pending = record.requestId && pendingMessages.get(record.requestId);
   if (!pending || String(record.conversationId) !== pending.session) return;
   if (pending.promoting && record.status === "unanswered" && record.reason === "aborted" && record.entry === undefined) return;
+  if (record.status === "unanswered" && record.reason === "aborted" && record.entry === undefined) {
+    pendingMessages.delete(pending.requestId);
+    return;
+  }
   pending.submissionId = String(record.id);
   // A receipt read can finish after a newer feed event.
   if (record.entry === undefined && (pending.entryId !== undefined || pending.status === "Not delivered")) return;
   if (record.entry !== undefined) pending.entryId = record.entry;
-  pending.status = record.entry !== undefined ? "Sent" : record.status === "queued" ? "Queued" : record.status === "unanswered" ? "Not delivered" : pending.status;
+  pending.status = record.entry !== undefined ? "Sent" : record.status === "queued" ? (pending.mode === "steer" ? "Steering" : "Queued") : record.status === "unanswered" ? "Not delivered" : pending.status;
   if (composer.sendErrors.get(pending.session!)?.body.requestId === record.requestId) composer.sendErrors.delete(pending.session!);
+}
+/** Inbox mode is authoritative for inputs still waiting at a boundary. */
+export function reconcileInbox(sid: string, items: { id: number | string; mode: "steer" | "followUp" }[]) {
+  for (const pending of pendingMessages.values()) {
+    if (pending.session !== sid || pending.entryId !== undefined) continue;
+    const item = items.find(item => String(item.id) === pending.submissionId);
+    if (!item) continue;
+    pending.mode = item.mode;
+    pending.status = item.mode === "steer" ? "Steering" : "Queued";
+  }
 }
 export function retirePendingEntries(sid: string, ids: Set<number>) {
   for (const [key, pending] of pendingMessages) {
@@ -261,7 +276,9 @@ export async function submitMessage(sid: string, body: any) {
       if (result.command) pendingMessages.delete(body.requestId);
       else if (result.submissionId !== undefined) {
         pending.submissionId = String(result.submissionId);
-        if (pending.status === "Sending…") pending.status = result.action === "queued" ? "Queued" : "Sent";
+        pending.mode = result.action === "steered" ? "steer" : "followUp";
+        if (pending.entryId === undefined && ["Sending…", "Queued", "Steering"].includes(pending.status))
+          pending.status = result.action === "steered" ? "Steering" : result.action === "queued" ? "Queued" : "Sent";
         void refreshPending(sid);
       }
     }
@@ -306,12 +323,41 @@ export async function steerPending(requestId: string) {
     if (result.submissionId === undefined) throw new Error(result.notice || "Message promotion was not accepted.");
     pendingMessages.delete(requestId);
     const replacementId = `steer:${pending.submissionId}`;
-    pendingMessages.set(replacementId, { ...pending, promoting: false, requestId: replacementId, submissionId: String(result.submissionId), status: result.action === "queued" ? "Queued" : "Sent" });
+    pendingMessages.set(replacementId, { ...pending, promoting: false, requestId: replacementId, submissionId: String(result.submissionId), mode: "steer", status: result.action === "steered" ? "Steering" : result.action === "queued" ? "Queued" : "Sent" });
     void refreshPending(sid);
   } catch (error) {
-    // Keep the promotion available after a lost response; its server ID is stable.
+    // A lost response may already have replaced the original. Resolve that ID before exposing Cancel.
+    const replacementId = `steer:${pending.submissionId}`;
+    const record = await json(`/v1/sessions/${sid}/submissions/by-request/${encodeURIComponent(replacementId)}`).catch(() => null);
+    if (record) {
+      pendingMessages.delete(requestId);
+      pendingMessages.set(replacementId, { ...pending, promoting: false, requestId: replacementId, submissionId: String(record.id), mode: "steer", status: "Steering" });
+      reconcileSubmission(record);
+      void refreshPending(sid);
+    }
+    // Otherwise keep Steer retryable with its stable ID; cancellation must not target the superseded input.
     if (chat.session === sid) addErr((error as Error).message);
   } finally {
+    composer.submitting.delete(sid);
+  }
+}
+/** Confirm durable withdrawal before removing the card. A lost response is safe to retry. */
+export async function cancelPending(requestId: string) {
+  const pending = pendingMessages.get(requestId);
+  if (!pending?.session || !pending.submissionId || pending.promoting || !["Queued", "Steering"].includes(pending.status) || composer.submitting.has(pending.session)) return;
+  const sid = pending.session;
+  pending.cancelling = true;
+  composer.submitting.add(sid);
+  try {
+    await post(`/v1/sessions/${sid}/submissions/${encodeURIComponent(pending.submissionId)}/cancel`, {});
+    pendingMessages.delete(requestId);
+  } catch (error) {
+    await refreshPending(sid);
+    // A receipt/feed can confirm cancellation despite a lost HTTP response.
+    if (chat.session === sid && (pendingMessages.has(requestId) || (error as { status?: number }).status === 409))
+      addErr((error as Error).message);
+  } finally {
+    pending.cancelling = false;
     composer.submitting.delete(sid);
   }
 }

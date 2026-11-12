@@ -21,8 +21,8 @@ const pending = computed(() => [...pendingMessages.values()].filter(p =>
   p.session === chat.session && (p.session !== null || p.epoch === chat.epoch) &&
   !entryList.value.some(e => e.id === p.entryId)));
 // Queued input waits outside the scrolling log, docked above the composer.
-const queued = computed(() => pending.value.filter(p => p.status === "Queued"));
-const inLog = computed(() => pending.value.filter(p => p.status !== "Queued"));
+const queued = computed(() => pending.value.filter(p => p.status === "Queued" || p.status === "Steering"));
+const inLog = computed(() => pending.value.filter(p => p.status !== "Queued" && p.status !== "Steering"));
 const logRef = ref<HTMLElement | null>(null);
 const jumpRef = ref<HTMLElement | null>(null);
 // The jump button shows only while the user scrolls, then hides again.

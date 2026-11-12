@@ -216,3 +216,43 @@ test("restart: queued and steered input survives a daemon restart and is deliver
     rmSync(dir, { recursive: true, force: true });
   }
 }, 15000);
+
+for (const mode of ["queue", "steer"] as const) {
+  test(`cancel ${mode}: scoped, idempotent withdrawal leaves the current run and other inputs intact`, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "luna-cancel-input-"));
+    const r = await rig(join(dir, "luna.db"), ["hold", "text"]);
+    try {
+      const conv = await r.harness.createConversation({ ownership: { kind: "ownerless" }, agent: r.agent }, context);
+      const foreign = await r.harness.createConversation({ ownership: { kind: "ownerless" }, agent: r.agent }, context);
+      const original = await conv.submit({ type: "input", content: "work" }, context);
+      await r.model.entered.promise;
+      const app = r.app(mode);
+      const pending = await send(app, conv.id, { content: "CANCEL_SENTINEL" });
+      const survivor = await send(r.app("steer"), conv.id, { content: "SURVIVOR_SENTINEL" });
+      const cancel = (session: string | number, submission: string | number) => app.request(
+        `/v1/sessions/${session}/submissions/${submission}/cancel`, { method: "POST" });
+      assert.equal((await cancel(foreign.id, pending.body.submissionId!)).status, 404);
+      assert.equal((await cancel(conv.id, "999999999")).status, 404);
+      assert.equal((await cancel(conv.id, original.id)).status, 409, "placed input cannot be cancelled");
+      const response = await cancel(conv.id, pending.body.submissionId!);
+      assert.equal(response.status, 200);
+      assert.equal((await response.json() as { cancelled: boolean }).cancelled, true);
+      assert.equal((await cancel(conv.id, pending.body.submissionId!)).status, 200, "lost responses can retry");
+      const withdrawn = await r.harness.submission(pending.body.submissionId as never, context);
+      const record = await withdrawn!.status(context);
+      assert.equal(record.status, "unanswered");
+      assert.equal(record.reason, "aborted");
+      assert.equal(record.entry, undefined, "cancelled input never entered context");
+      assert.equal((await original.status(context)).status, "placed", "current run remains active");
+      r.release();
+      assert.equal((await original.wait(context)).status, "done");
+      assert.equal((await (await r.harness.submission(survivor.body.submissionId as never, context))!.wait(context)).status, "done");
+      assert.equal(r.model.aborted, false);
+      assert.doesNotMatch(r.requests.join("\n"), /CANCEL_SENTINEL/);
+      assert.match(r.requests[1]!, /SURVIVOR_SENTINEL/);
+      assert.equal((await cancel(conv.id, survivor.body.submissionId!)).status, 409, "settled delivered input cannot be cancelled");
+    } finally {
+      r.release(); await r.harness.close(context); rmSync(dir, { recursive: true, force: true });
+    }
+  }, 10000);
+}

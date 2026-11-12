@@ -149,6 +149,21 @@ export function registerWebhooks(app: Hono, ctx: RouteCtx): void {
     }
   });
 
+  // Withdraw this input only; never abort the conversation or its current run.
+  app.post("/v1/sessions/:id/submissions/:submission/cancel", async (c) => {
+    const sid = c.req.param("id");
+    const sub = await harness.submission(c.req.param("submission") as never, context);
+    if (!sub) return err(c, 404, "no such submission");
+    const record = await sub.status(context);
+    if (String(record.conversationId) !== sid || record.type !== "input")
+      return err(c, 404, "no such input submission");
+    const result = await sub.abort(context);
+    const current = await sub.status(context);
+    if (result !== "aborted" && !(current.status === "unanswered" && current.reason === "aborted" && current.entry === undefined))
+      return err(c, 409, "Already delivered; cannot cancel.");
+    return c.json({ cancelled: true, submissionId: sub.id });
+  });
+
   app.get("/v1/submissions/:id", async (c) => {
     const sub = await harness.submission(c.req.param("id") as never, context);
     if (!sub) return err(c, 404, "no such submission");

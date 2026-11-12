@@ -2327,6 +2327,8 @@ can have partial effects: refresh and inspect the result before retrying. Output
 diffs return a `truncated` flag after 512 KiB. Error/summary text and diffs redact URL credentials and
 common GitHub token formats. Git authentication errors are not Luna login failures (never HTTP401).
 
+`POST /v1/sessions/:id/submissions/:submission/cancel` withdraws one pending input (queued follow-up or steer) without stopping the active response. Returns `{ cancelled: true, submissionId }`; repeated cancellation succeeds. Inputs already placed in context return 409; missing, foreign-session, or non-input submissions return 404. The Web UI shows Cancel until delivery is confirmed, then removes the pending card after durable withdrawal. Pending steers are labelled Steering, not Sent. Cancellation never restores text into the composer.
+
 `POST /v1/sessions/:id/submissions/:submission/steer` accepts `{ content }`. It withdraws only the selected queued input and submits it again as a steer, with the stable replacement request ID `steer:<submission>`. Retries do not duplicate delivery. Already placed messages return 409. The steer joins the current run at its next boundary; it does not stop the current response.
 
 ### New-session model and reasoning defaults

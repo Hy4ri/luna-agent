@@ -10,7 +10,7 @@ import { savedSession, rememberSession, routeSession, sessionPane, notifySession
 import { boardChanged, focusInput, leavePages } from "./app";
 import { agentTerminalActivity } from "./terminal";
 import { agentBrowserActivity } from "./browser";
-import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, retirePendingEntries, refreshPending } from "./composer";
+import { composer, pendingMessages, restoreDraft, saveDraft, reconcileSubmission, reconcileInbox, retirePendingEntries, refreshPending } from "./composer";
 import { defaultLevelFor, models, setSelectedModel } from "./models";
 import { history, loadSessions, loadFocusedSession, resetHistoryView } from "./sessions";
 
@@ -340,6 +340,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     const sid = chat.session;
     if (sid) void refreshPending(sid).then(() => { if (chat.session === sid && chat.epoch === epoch) retirePending(); });
     retirePending();
+    if (sid) reconcileInbox(sid, e.inbox || []);
     chat.runActive = !!e.run; chat.generationActive = !!e.generation; chat.queuedCount = e.inbox?.length || 0;
     chat.compactions = new Set((e.compactions || []).map((c: any) => c.taskId));
     chat.contextCompacting = chat.compactions.size > 0;
@@ -393,7 +394,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
   },
   turn_start() { clearRunNotices(); chat.generationActive = true; },
   turn_end() { chat.generationActive = false; },
-  inbox_update(e) { chat.queuedCount = e.items.length; },
+  inbox_update(e) { chat.queuedCount = e.items.length; if (chat.session) reconcileInbox(chat.session, e.items); },
   agent_changed(e) { applyAgent(e.agent); scheduleContext(); },
   usage_changed(e) { chat.usage = e.usage ? markRaw(e.usage) : null; scheduleContext(); },
   compaction_start(e) { chat.compactions.add(e.taskId); chat.contextCompacting = true; scheduleContext(); },
@@ -436,7 +437,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
   },
   submission(e) {
     reconcileSubmission(e.record); retirePending();
-    if (e.record.status === "unanswered") addErr(e.record.reason + (e.record.detail ? ": " + (typeof e.record.detail === "string" ? e.record.detail : JSON.stringify(e.record.detail)) : ""), "err", "run");
+    if (e.record.status === "unanswered" && e.record.reason !== "aborted") addErr(e.record.reason + (e.record.detail ? ": " + (typeof e.record.detail === "string" ? e.record.detail : JSON.stringify(e.record.detail)) : ""), "err", "run");
     scheduleExtras();
   },
 };
