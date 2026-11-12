@@ -16,8 +16,7 @@ function serviceWorker(): Plugin {
   return {
     name: "luna-service-worker",
     generateBundle() {
-      // ghostty-web fetches ./ghostty-vt.wasm at runtime. Without this the SPA fallback returns HTML ("expected magic word").
-      this.emitFile({ type: "asset", fileName: "ghostty-vt.wasm", source: readFileSync(new URL("../node_modules/ghostty-web/ghostty-vt.wasm", import.meta.url)) });
+      // The terminal's versioned official WASM is emitted by its lazy ?url import.
       this.emitFile({ type: "asset", fileName: "sw.js", source: stripTs(readFileSync(new URL("./sw.ts", import.meta.url), "utf8")) });
     },
   };
@@ -25,7 +24,7 @@ function serviceWorker(): Plugin {
 
 // Packages reachable only through these lazy imports stay out of the eager vendor chunk.
 // A package listed here must have no static import from eager code, or it duplicates into its importer chunk.
-const LAZY_ONLY = ["mermaid", "katex", "ghostty-web", "modern-screenshot"];
+const LAZY_ONLY = ["mermaid", "katex", "modern-screenshot"];
 
 function dependencyClosure(roots: string[], from: string, skip: Set<string> = new Set()): Set<string> {
   const seen = new Set<string>();

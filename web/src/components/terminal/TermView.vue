@@ -112,6 +112,7 @@ onMounted(async () => {
     return;
   }
   term.onData(data => send(props.transform ? props.transform(data) : data));
+  term.onResponse(send); // Live, human-controlled only; never apply sticky modifiers to protocol replies.
   term.onResize(() => sendResize());
   observer = new ResizeObserver(fit);
   observer.observe(host.value);

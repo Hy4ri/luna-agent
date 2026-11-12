@@ -23,7 +23,7 @@ const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.v
 const WifePage = defineAsyncComponent(() => import('@/pages/WifePage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
-// The terminal emulator (ghostty-web, ~400 kB) loads only when a terminal opens.
+// The terminal adapter and official WASM load only when a terminal opens.
 const TerminalDock = defineAsyncComponent(() => import('@/components/terminal/TerminalDock.vue'));
 const BrowserPane = defineAsyncComponent(() => import('@/components/browser/BrowserPane.vue'));
 // The palette (and the full settings catalog it searches) loads on the first Ctrl+K, then stays mounted.
