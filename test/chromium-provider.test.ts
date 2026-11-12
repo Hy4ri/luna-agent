@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
@@ -26,13 +25,17 @@ const PAGE = `<!doctype html><title>t</title>
 </script>`;
 
 it("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history, evaluate", async () => {
-  const server = createServer((req, res) => {
-    if (req.url === "/") { res.setHeader("content-type", "text/html"); res.end(PAGE); }
-    else if (req.url === "/two") { res.setHeader("content-type", "text/html"); res.end("<title>two</title>two"); }
-    else { res.statusCode = 404; res.end(); }
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req) {
+      const path = new URL(req.url).pathname;
+      if (path === "/") return new Response(PAGE, { headers: { "content-type": "text/html" } });
+      if (path === "/two") return new Response("<title>two</title>two", { headers: { "content-type": "text/html" } });
+      return new Response(null, { status: 404 });
+    },
   });
-  await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
-  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const base = `http://127.0.0.1:${server.port}`;
   const p = createChromiumBrowserProvider(() => ({ executablePath, headless: true }));
   const s = new AbortController().signal;
   const ev = (script: string) => p.evaluate!({ tabId, script }, s);
@@ -84,7 +87,7 @@ it("chromium provider: keys, points, drag, forms, dialogs, wait, logs, history, 
     assert.equal(p.has!(tabId), false);
   } finally {
     await p.dispose();
-    server.close();
+    server.stop(true);
   }
 }, 60_000);
 
@@ -92,9 +95,15 @@ it("chromium provider attached by cdpUrl: shares the browser's logins, closes on
   const dir = mkdtempSync(join(tmpdir(), "luna-cdp-"));
   const proc = spawn(executablePath, ["--headless=new", "--no-sandbox", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   const seen: string[] = [];
-  const server = createServer((req, res) => { if (req.url === "/") seen.push(req.headers.cookie ?? ""); res.setHeader("content-type", "text/html"); res.end("<title>in</title>signed in"); });
-  await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
-  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req) {
+      if (new URL(req.url).pathname === "/") seen.push(req.headers.get("cookie") ?? "");
+      return new Response("<title>in</title>signed in", { headers: { "content-type": "text/html" } });
+    },
+  });
+  const base = `http://127.0.0.1:${server.port}`;
   const { chromium } = await import("playwright");
   let owner: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
   try {
@@ -123,7 +132,7 @@ it("chromium provider attached by cdpUrl: shares the browser's logins, closes on
     await assert.rejects(p.snapshot({ tabId }, s), /No open tab/);
   } finally {
     await owner?.close().catch(() => {});
-    server.close();
+    server.stop(true);
     if (proc.exitCode === null) { const gone = new Promise(r => proc.once("exit", r)); proc.kill(); await gone; }
     rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
   }
