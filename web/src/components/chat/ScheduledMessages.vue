@@ -48,8 +48,10 @@ watch(() => [chat.session, serverUrl.value, token.value], () => {
     void refresh();
   }
 }, { immediate: true });
-watch(() => [chat.connected, scheduleRevision.value, summary.value?.version], ([, rev], [, oldRev]) => {
-  if (chat.session && (rev !== oldRev || (!loaded.value && !loading.value))) void refresh();
+// Reconnects, schedule edits and server-side version changes refresh. A session switch does not: the immediate
+// watcher above already loads the new session (its summary version changes in the same tick).
+watch(() => [chat.session, chat.connected, scheduleRevision.value, summary.value?.version] as const, (next, prev) => {
+  if (chat.session && next[0] === prev[0]) void refresh();
 });
 watch(scheduleReveal, async () => {
   notice.value = "";

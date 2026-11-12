@@ -182,12 +182,9 @@ let notificationGeneration = 0;
 let notificationController: AbortController | undefined;
 
 /** Bounded background poll for active notifications without draining full history. */
-async function trackActiveNotifications(prefetchedNonArchived?: SessionMeta[]) {
-  if (prefetchedNonArchived) {
-    activity.items = prefetchedNonArchived.filter(isUnread).sort((a, b) => stamp(b) - stamp(a));
-  } else {
-    void refreshActivity();
-  }
+async function trackActiveNotifications() {
+  // Its own status-filtered query: the overview page holds only the 50 most recent rows, not every unread one.
+  void refreshActivity();
   const origin = serverUrl.value, credential = token.value;
   const gen = ++notificationGeneration;
 
@@ -509,8 +506,8 @@ export async function loadSessions(): Promise<void> {
         }
       }
 
-      // Track active notifications independently; coalesce refreshActivity when overview already has all non-archived sessions
-      void trackActiveNotifications(!cursor && isOverview && !history.archived ? sessions : undefined);
+      // Track active notifications independently with combined notification check
+      void trackActiveNotifications();
 
       // Verify focused conversation title & 404 using querySessions ids lookup (has full row fields)
       if (chat.session) {

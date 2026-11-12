@@ -158,6 +158,15 @@ function resetWindow() {
 watch(() => chat.epoch, resetWindow);
 
 const hasOlderWindowRows = computed(() => timeline.value.length > visibleCount.value);
+// The window is the newest visibleCount rows. A reader scrolled up must not lose rows above the viewport when
+// new rows arrive (only Chromium's scroll anchoring would hide the jump): keep the first shown row in place.
+// Pinned to the bottom, the window slides and the DOM stays bounded.
+watch(() => timeline.value, (rows, old) => {
+  if (pinned || !old || rows.length <= visibleCount.value || old.length <= visibleCount.value) return;
+  const first = old[old.length - visibleCount.value]?.key;
+  const at = first === undefined ? -1 : rows.findIndex(row => row.key === first);
+  if (at >= 0) visibleCount.value = rows.length - at;
+}, { flush: "sync" });
 const shownTimeline = computed(() => {
   if (timeline.value.length <= visibleCount.value) return timeline.value;
   return timeline.value.slice(-visibleCount.value);
