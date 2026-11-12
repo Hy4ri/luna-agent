@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { defineDoc, defineDocFamily, type ConversationId, type SubmissionId, type SubmissionRecord, type Tx } from "@earendil-works/pi-durable";
 import { context } from "./luna.js";
 import { newestInputBoundary } from "./session-status.js";
@@ -226,7 +225,7 @@ export class ScheduledMessagesService {
       throw new ScheduledMessageError("Scheduled time must be in the future.", 400);
     }
 
-    const id = `sm_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+    const id = `sm_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
     const record: ScheduledMessageRecord = {
       id,
       conversationId: input.conversationId,
