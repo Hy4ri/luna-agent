@@ -144,28 +144,84 @@ const timeline = computed((): { key: string; entry?: any; job?: any }[] => {
   for (const job of jobs.slice(at)) rows.push({ key: `side:${job.id}`, job });
   return rows;
 });
-// Paint the newest rows first. Older rows of the loaded page follow in the next task, so opening a
-// long session does not build every message before the first frame. Each session switch starts again.
-const FIRST_ROWS = 30;
-const allRows = ref(false);
-let rowsTimer: ReturnType<typeof setTimeout> | undefined, rowsFrame: number | undefined;
-function resetRows() {
-  allRows.value = false;
-  clearTimeout(rowsTimer); if (rowsFrame !== undefined) cancelAnimationFrame(rowsFrame);
-  rowsTimer = rowsFrame = undefined;
+// Paint the newest rows first and keep DOM size bounded during streaming.
+// Older rows of the session are revealed as the user scrolls up via an IntersectionObserver sentinel.
+const WINDOW_INITIAL = 35;
+const WINDOW_EXPAND_STEP = 35;
+const visibleCount = ref(WINDOW_INITIAL);
+const topSentinelRef = ref<HTMLElement | null>(null);
+let sentinelObserver: IntersectionObserver | undefined;
+
+function resetWindow() {
+  visibleCount.value = WINDOW_INITIAL;
 }
-function scheduleRows() {
-  if (allRows.value || timeline.value.length <= FIRST_ROWS || rowsFrame !== undefined || rowsTimer !== undefined) return;
-  const epoch = chat.epoch;
-  rowsFrame = requestAnimationFrame(() => {
-    rowsFrame = undefined;
-    rowsTimer = setTimeout(() => { rowsTimer = undefined; if (epoch === chat.epoch) allRows.value = true; });
-  });
+watch(() => chat.epoch, resetWindow);
+
+const hasOlderWindowRows = computed(() => timeline.value.length > visibleCount.value);
+const shownTimeline = computed(() => {
+  if (timeline.value.length <= visibleCount.value) return timeline.value;
+  return timeline.value.slice(-visibleCount.value);
+});
+
+async function expandOlderWindow() {
+  if (!hasOlderWindowRows.value) return;
+  const log = logRef.value;
+  let anchorEl: HTMLElement | null = null;
+  let anchorOffset = 0;
+  if (log) {
+    const logRect = log.getBoundingClientRect();
+    // Find the first visible message row to preserve visual scroll position
+    const rows = log.querySelectorAll<HTMLElement>("#log > .msg, #log > details, #log > .side-job-card");
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!.getBoundingClientRect();
+      if (r.bottom > logRect.top) {
+        anchorEl = rows[i]!;
+        anchorOffset = r.top - logRect.top;
+        break;
+      }
+    }
+  }
+
+  visibleCount.value = Math.min(timeline.value.length, visibleCount.value + WINDOW_EXPAND_STEP);
+  await nextTick();
+
+  if (log && anchorEl) {
+    const logRect = log.getBoundingClientRect();
+    const newRect = anchorEl.getBoundingClientRect();
+    const diff = (newRect.top - logRect.top) - anchorOffset;
+    if (diff !== 0) {
+      log.scrollTop += diff;
+    }
+  }
 }
-watch(() => chat.epoch, () => { resetRows(); scheduleRows(); });
-watch(() => timeline.value.length, scheduleRows, { immediate: true });
-onBeforeUnmount(resetRows);
-const shownTimeline = computed(() => allRows.value || timeline.value.length <= FIRST_ROWS ? timeline.value : timeline.value.slice(-FIRST_ROWS));
+
+function setupSentinel() {
+  sentinelObserver?.disconnect();
+  sentinelObserver = undefined;
+  const log = logRef.value;
+  const sentinel = topSentinelRef.value;
+  if (!log || !sentinel) return;
+  sentinelObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting && hasOlderWindowRows.value) {
+        void expandOlderWindow();
+      }
+    }
+  }, { root: log, rootMargin: "400px 0px 0px 0px" });
+  sentinelObserver.observe(sentinel);
+}
+
+watch(topSentinelRef, () => {
+  setupSentinel();
+});
+
+onMounted(() => {
+  setupSentinel();
+});
+
+onBeforeUnmount(() => {
+  sentinelObserver?.disconnect();
+});
 // Rail of thin ticks, one per user message. A click scrolls the log to that message.
 const userTicks = computed(() => {
   // Loaded entries first (they update live), then the server index for entries not loaded yet.
@@ -211,12 +267,20 @@ watch(() => userTicks.value.length, (n) => { if (chat.session && n > lastIndexed
 onBeforeUnmount(() => { if (railRaf !== undefined) cancelAnimationFrame(railRaf); });
 async function jumpToUser(id: number) {
   if (!userEl(id)) {
-    // Older entries are not loaded yet: load pages until this one exists, then render every row.
+    // Older entries are not loaded yet: load pages until this one exists.
     const sid = chat.session;
     if (!(await ensureEntryLoaded(id)) || chat.session !== sid) return;
-    allRows.value = true;
-    await nextTick();
   }
+  // If the target entry is in the timeline but not yet within the visible window,
+  // expand the window so that it is included in shownTimeline.
+  const targetIndex = timeline.value.findIndex(row => row.entry?.id === id);
+  if (targetIndex >= 0) {
+    const requiredVisible = timeline.value.length - targetIndex;
+    if (requiredVisible > visibleCount.value) {
+      visibleCount.value = requiredVisible;
+    }
+  }
+  await nextTick();
   const log = logRef.value, el = userEl(id);
   if (!log || !el) return;
   pinned = false;
@@ -284,7 +348,7 @@ function backgroundReport(entry: any, message: any): boolean {
 
 <template>
   <div id="log" ref="logRef" role="region" aria-label="Conversation" @scroll="handleScroll" @wheel.passive="markIntent" @touchmove.passive="markIntent" @pointerdown="handlePointerDown">
-    <div v-if="chat.hasMoreEntries && (allRows || timeline.length <= FIRST_ROWS)" class="load-older-bar">
+    <div v-if="chat.hasMoreEntries && !hasOlderWindowRows" class="load-older-bar">
       <button
         type="button"
         class="load-older-btn"
@@ -294,6 +358,7 @@ function backgroundReport(entry: any, message: any): boolean {
         {{ chat.loadingOlder ? "Loading older messages…" : "Load older messages" }}
       </button>
     </div>
+    <div ref="topSentinelRef" class="top-sentinel" aria-hidden="true" />
     <Welcome v-if="!entryList.length && !pending.length && !chat.liveText && !chat.liveThinking && !chat.sideJobs.size && !activityLabel" />
     <template v-for="row in shownTimeline" :key="row.key">
       <SideJobCard v-if="row.job" :job="row.job" class="vl vl-lg" />
@@ -453,4 +518,5 @@ function backgroundReport(entry: any, message: any): boolean {
   cursor: wait;
 }
 .queued-dock { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-height: 30%; overflow: auto; padding: 8px max(24px, calc((100% - 760px) / 2)) 0; }
+.top-sentinel { height: 1px; flex-shrink: 0; pointer-events: none; }
 </style>
