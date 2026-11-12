@@ -6,7 +6,9 @@ let boardCacheContext = "";
 <script setup lang="ts">
 import { confirmAction } from "@/lib/confirm";
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight, Paperclip, Download } from '@lucide/vue';
+import { Archive, ArrowLeft, GripVertical, Plus, Search, RefreshCw, X, LockKeyhole, ArrowUp, ArrowDown, ChevronsUp, Minus, UserRound, Check, CircleAlert, ArrowRight, Paperclip, Download, Bot } from '@lucide/vue';
+import ModelCombobox from '@/components/ModelCombobox.vue';
+import { LEVELS } from '@/lib/thinking-levels';
 import { api, json, post, serverUrl, token } from '@/lib/api';
 import { saveFile } from '@/lib/platform';
 import { history, loadProjects, querySessions } from '@/stores/sessions';
@@ -17,15 +19,15 @@ import type { Project, SessionMeta } from '@/lib/types';
 
 type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
-type Card = { id: number; project: number; subject: string; description: string; status: Status; priority: Priority; owner: string | null; blocked: string | null; labels: string[]; blockedBy: number[]; archived: boolean; created: number; updated: number; attachments: { id: number; name: string; type: string; size: number }[] };
+type Card = { id: number; project: number; subject: string; description: string; status: Status; priority: Priority; owner: string | null; blocked: string | null; labels: string[]; blockedBy: number[]; archived: boolean; created: number; updated: number; auto: { model: string | null; thinking: string | null } | null; attachments: { id: number; name: string; type: string; size: number }[] };
 const columns: [Status, string][] = [['backlog', 'Backlog'], ['todo', 'To do'], ['in_progress', 'In progress'], ['review', 'Review'], ['done', 'Done']];
 const priorities: Priority[] = ['low', 'medium', 'high', 'urgent'];
 const cards = ref<Card[]>([]), selectedPid = ref(''), archived = ref(false);
 const loading = ref(true), busy = ref(false), error = ref(''), notice = ref('');
 const search = ref(''), priority = ref('');
 const editing = ref(false), editingId = ref<number | null>(null), editingArchived = ref(false);
-type Draft = { subject: string; description: string; priority: Priority; status: Status; owner: string; labels: string[]; blockedBy: number[]; project: string };
-const form = reactive<Draft>({ subject: '', description: '', priority: 'medium', status: 'backlog', owner: '', labels: [], blockedBy: [], project: '' });
+type Draft = { subject: string; description: string; priority: Priority; status: Status; owner: string; labels: string[]; blockedBy: number[]; project: string; auto: boolean; autoModel: string; autoThinking: string };
+const form = reactive<Draft>({ subject: '', description: '', priority: 'medium', status: 'backlog', owner: '', labels: [], blockedBy: [], project: '', auto: false, autoModel: '', autoThinking: '' });
 let initial: Draft = { ...form };
 const fieldErrors = reactive({ subject: '', description: '', labels: '', blockedBy: '' });
 type Field = keyof typeof fieldErrors;
@@ -48,7 +50,11 @@ const readOnly = computed(() => busy.value || editingArchived.value);
 const projectName = computed(() => history.projects.find(p => String(p.id) === selectedPid.value)?.name ?? '');
 const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 const dirty = computed(() => form.subject !== initial.subject || form.description !== initial.description || form.priority !== initial.priority || form.status !== initial.status
-  || form.owner.trim() !== initial.owner || !same(form.labels, initial.labels) || !same([...form.blockedBy].sort(), [...initial.blockedBy].sort()) || form.project !== initial.project || !!labelDraft.value.trim());
+  || form.owner.trim() !== initial.owner || !same(form.labels, initial.labels) || !same([...form.blockedBy].sort(), [...initial.blockedBy].sort()) || form.project !== initial.project || autoChanged() || !!labelDraft.value.trim());
+const autoChanged = () => form.auto !== initial.auto || (form.auto && (form.autoModel !== initial.autoModel || form.autoThinking !== initial.autoThinking));
+const autoValue = () => form.auto ? { model: form.autoModel || null, thinking: form.autoThinking || null } : null;
+const autoText = (a: NonNullable<Card['auto']>) => `${a.model ? a.model.slice(a.model.indexOf('/') + 1) : 'default model'}${a.thinking ? ` · ${a.thinking}` : ''}`;
+const autoRunning = (c: Card) => !!c.auto && c.status === 'in_progress' && /^session \d+$/.test(c.owner || '');
 const subjectLength = computed(() => form.subject.trim().length);
 // Labels in use on this board, most used first.
 const labelOptions = computed(() => {
@@ -208,7 +214,7 @@ function openEditor(c?: Card, status: Status = 'backlog') {
   if (busy.value || loading.value || drag.value) return;
   editorReturn = document.activeElement as HTMLElement | null;
   editingId.value = c?.id ?? null; editingArchived.value = c?.archived ?? false;
-  Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: [...(c?.labels ?? [])], blockedBy: [...(c?.blockedBy ?? [])], project: String(c?.project ?? selectedPid.value) });
+  Object.assign(form, { subject: c?.subject || '', description: c?.description || '', priority: c?.priority || 'medium', status: c?.status || status, owner: c?.owner || '', labels: [...(c?.labels ?? [])], blockedBy: [...(c?.blockedBy ?? [])], project: String(c?.project ?? selectedPid.value), auto: !!c?.auto, autoModel: c?.auto?.model || '', autoThinking: c?.auto?.thinking || '' });
   initial = { ...form, labels: [...form.labels], blockedBy: [...form.blockedBy] };
   Object.assign(fieldErrors, { subject: '', description: '', labels: '', blockedBy: '' });
   ownerTouched.value = false; customOwner.value = false; void loadOwners(); discardAsk.value = false; formBanner.value = ''; labelDraft.value = ''; depQuery.value = ''; labelOpen.value = false; depOpen.value = false;
@@ -271,12 +277,14 @@ async function saveCard() {
   if (editingId.value === null) {
     data = { subject: form.subject, description: form.description, status: form.status, priority: form.priority, labels: form.labels, blockedBy: form.blockedBy };
     if (form.owner.trim()) data.owner = form.owner.trim();
+    if (form.auto) data.auto = autoValue();
   } else {
     // Send only what changed. An omitted owner lets the server release it on Done.
     data = {};
     for (const k of ['subject', 'description', 'status', 'priority'] as const) if (form[k] !== initial[k]) data[k] = form[k];
     if (!same(form.labels, initial.labels)) data.labels = form.labels;
     if (ownerTouched.value) data.owner = form.owner.trim() || null;
+    if (autoChanged()) data.auto = autoValue();
     const add = form.blockedBy.filter(id => !initial.blockedBy.includes(id)), remove = initial.blockedBy.filter(id => !form.blockedBy.includes(id));
     if (add.length) data.addBlockedBy = add;
     if (remove.length) data.removeBlockedBy = remove;
@@ -598,6 +606,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
                   <div v-if="c.labels.length" class="kb-labels"><span dir="auto" v-for="label in c.labels" :key="label" class="kb-tag">{{ label }}</span></div>
                   <p v-if="blockers(c).length" class="kb-blocked"><LockKeyhole :size="13" /><span><strong>Blocked</strong> · waits on {{ blockers(c).map(id => '#' + id).join(', ') }}</span></p>
                   <p v-if="c.blocked" class="kb-blocked kb-asks"><CircleAlert :size="13" /><span><strong>Needs you</strong> · <bdi>{{ c.blocked }}</bdi></span></p>
+                  <p v-if="c.auto" class="kb-auto" :title="autoRunning(c) ? 'Automatic run in progress' : 'Runs automatically from To do'"><Bot :size="13" /><span><strong>{{ autoRunning(c) ? 'Auto running' : 'Auto' }}</strong> · {{ autoText(c.auto) }}</span></p>
                   <div class="kb-owner" :class="{ 'kb-unassigned': !c.owner }"><UserRound :size="13" /><span dir="auto">{{ c.owner || 'Unassigned' }}</span></div>
                 </div>
                 <div class="kb-card-footer">
@@ -702,6 +711,18 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
               <button v-if="ownersError" type="button" class="kb-button" :disabled="readOnly" @click="loadOwners">Retry agent sessions</button>
               <small id="kb-owner-hint" :class="{ 'kb-hint': ownerHint }" aria-live="polite"><template v-if="ownerHint"><CircleAlert :size="12" />{{ ownerHint }}</template></small>
             </div>
+            <fieldset class="kb-field kb-auto-field">
+              <legend>Automatic run</legend>
+              <label class="kb-check"><input type="checkbox" v-model="form.auto" :disabled="readOnly" aria-describedby="kb-auto-hint" />Run automatically</label>
+              <template v-if="form.auto">
+                <ModelCombobox v-model="form.autoModel" empty-label="Project default model" aria-label="Model for the automatic run" :disabled="readOnly" />
+                <select v-model="form.autoThinking" aria-label="Thinking level for the automatic run" :disabled="readOnly">
+                  <option value="">Default thinking</option>
+                  <option v-for="l in LEVELS" :key="l" :value="l">{{ l }}</option>
+                </select>
+              </template>
+              <small id="kb-auto-hint">{{ form.auto ? 'Owner becomes agent. In To do, the card runs in its own session without asking you. Merge, deploy, or spend only if the description says so.' : 'Off: the card waits for you or a session to pick it up.' }}</small>
+            </fieldset>
             <label v-if="editingId !== null && history.projects.length > 1" class="kb-field">Project<select v-model="form.project" aria-label="Project" :disabled="readOnly" @change="moveDraft"><option v-for="p in history.projects" :key="p.id" :value="String(p.id)">{{ p.name }}</option></select><small>Moving drops this project's dependencies and releases the session owner.</small></label>
             <p v-if="editingCard" class="kb-timestamp"><span class="kb-card-id">#{{ editingCard.id }}</span> · created {{ new Date(editingCard.created).toLocaleString() }}<br />updated {{ new Date(editingCard.updated).toLocaleString() }}</p>
           </div>
@@ -892,6 +913,10 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 @media(prefers-reduced-motion:reduce) { .kb-editor, .kb-chip, .kb-pulse { animation:none; } }
 .kb-files { display:grid; gap:8px; }.kb-files-title { font-size:13px; }.kb-files ul { list-style:none; margin:0; padding:0; display:grid; gap:4px; }.kb-files li { display:flex; align-items:center; gap:6px; font-size:12px; }.kb-file-name { flex:1; min-width:0; overflow-wrap:anywhere; }.kb-files .kb-icon { width:28px; min-height:28px; }.kb-attach { cursor:pointer; justify-self:start; }.kb-attach-off { opacity:.45; pointer-events:none; }
 .kb-asks { margin:0; }
+.kb-auto { display:flex; align-items:center; gap:6px; margin:0 0 8px; font-size:11px; color:var(--muted-foreground); }
+.kb-auto strong { color:var(--foreground); font-weight:600; }
+.kb-auto-field { display:flex; flex-direction:column; gap:6px; border:0; padding:0; margin:0; }
+.kb-check { display:flex; align-items:center; gap:6px; font-size:12px; }
 .kb-activity { list-style:none; margin:0; padding:10px 0 0; border-top:1px solid var(--border); display:grid; gap:6px; font-size:12px; color:var(--muted-foreground); max-height:180px; overflow:auto; }
 .kb-activity time { display:block; font-size:11px; color:var(--faint); }
 .kb-activity strong { color:var(--foreground); font-weight:550; }

@@ -1,7 +1,7 @@
 // Settings navigation only. Small and eager: the app store resolves routes before the settings page loads.
 // The full catalog (titles, help, summaries) is in catalog.ts and loads with the settings page or palette.
 export const sections = [
-  { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'compaction', 'busyInput', 'autoContinue', 'afterFailedRun', 'maxTurns', 'sessionTalk'] },
+  { id: 'chat', title: 'Chat', description: 'Set instructions, message handling, and recovery behavior.', keys: ['instructions', 'compaction', 'busyInput', 'autoContinue', 'afterFailedRun', 'maxTurns', 'sessionTalk', 'boardAuto'] },
   { id: 'models', title: 'Models', description: 'Choose the main model, subagent defaults, and task-specific models.', keys: ['provider', 'model', 'thinkingLevel', 'modelThinkingLevels', 'pinnedModels', 'subagents', 'auxiliary'] },
   { id: 'connections', title: 'Accounts & connections', description: 'Connect provider accounts, external tools, and execution machines.', keys: ['providers', 'mcpServers'] },
   { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'terminal', 'codemode', 'extensions', 'disabledTools'] },
