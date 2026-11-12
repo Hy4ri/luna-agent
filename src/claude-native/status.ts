@@ -13,6 +13,10 @@ interface InspectionResult {
 }
 
 const CACHE_TTL_MS = 60_000;
+/** Test hook: shifts the cache clock. */
+let clockOffset = 0;
+export function advanceClaudeStatusClockForTest(ms: number): void { clockOffset += ms; }
+const now = () => Date.now() + clockOffset;
 let cacheGeneration = 0;
 let cachedEntry: { status: ClaudeLoginStatus; expiresAt: number; generation: number } | null = null;
 let inflightFlight: { promise: Promise<ClaudeLoginStatus>; generation: number } | null = null;
@@ -25,10 +29,12 @@ export function invalidateClaudeLoginStatus(): void {
 
 export async function readClaudeLoginStatusCached(signal?: AbortSignal): Promise<ClaudeLoginStatus> {
   signal?.throwIfAborted();
-  const now = Date.now();
-  if (cachedEntry && cachedEntry.generation === cacheGeneration && cachedEntry.expiresAt > now) {
+  if (cachedEntry && cachedEntry.generation === cacheGeneration && cachedEntry.expiresAt > now()) {
     return cachedEntry.status;
   }
+  // Expired but same generation (no login change since): serve the last status and refresh in the background.
+  // The `claude auth status` spawn costs ~350-400 ms, and every /v1/models request after 60 s idle waited for it.
+  const stale = cachedEntry && cachedEntry.generation === cacheGeneration ? cachedEntry.status : undefined;
 
   if (!inflightFlight || inflightFlight.generation !== cacheGeneration) {
     const flightGen = cacheGeneration;
@@ -36,7 +42,10 @@ export async function readClaudeLoginStatusCached(signal?: AbortSignal): Promise
       try {
         const inspected = await inspectClaudeLoginStatus();
         if (flightGen === cacheGeneration && inspected.cacheable) {
-          cachedEntry = { status: inspected.status, expiresAt: Date.now() + CACHE_TTL_MS, generation: flightGen };
+          cachedEntry = { status: inspected.status, expiresAt: now() + CACHE_TTL_MS, generation: flightGen };
+        } else if (flightGen === cacheGeneration) {
+          // A failed inspection must not leave an old status to be served stale.
+          cachedEntry = null;
         }
         return inspected.status;
       } finally {
@@ -49,6 +58,10 @@ export async function readClaudeLoginStatusCached(signal?: AbortSignal): Promise
   }
 
   const currentPromise = inflightFlight.promise;
+  if (stale) {
+    currentPromise.catch(() => {});
+    return stale;
+  }
   if (!signal) {
     return currentPromise;
   }
