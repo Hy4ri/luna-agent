@@ -1,11 +1,9 @@
 // Luna runtime integration test: session_worktree switch switches session cwd, updates Git HTTP status,
 // delivers agent_changed via session feed, isolates from other sessions, and persists across reopen.
-import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { parseConfig } from "../src/config.js";
@@ -16,13 +14,18 @@ import { createApp } from "../src/server.js";
 import { openSessionFeed } from "../src/session-feed.js";
 import type { AgentEvent } from "../src/session-feed-types.js";
 
+function git(cwd: string, ...args: string[]): void {
+  const res = Bun.spawnSync(["git", ...args], { cwd });
+  if (!res.success) throw new Error(res.stderr.toString() || `git ${args[0]} failed`);
+}
+
 function initGitRepo(dir: string, branch = "main") {
-  execFileSync("git", ["init", "-b", branch], { cwd: dir });
-  execFileSync("git", ["config", "user.email", "luna@test.local"], { cwd: dir });
-  execFileSync("git", ["config", "user.name", "Luna Test"], { cwd: dir });
+  git(dir, "init", "-b", branch);
+  git(dir, "config", "user.email", "luna@test.local");
+  git(dir, "config", "user.name", "Luna Test");
   writeFileSync(join(dir, "root.txt"), "root-content\n");
-  execFileSync("git", ["add", "root.txt"], { cwd: dir });
-  execFileSync("git", ["commit", "-m", "initial commit"], { cwd: dir });
+  git(dir, "add", "root.txt");
+  git(dir, "commit", "-m", "initial commit");
 }
 
 test("session_worktree switch activates cwd, updates relative read/write, reflects in Git HTTP, emits agent_changed, isolates sessions, persists across reopen, and rejects invalid paths", async () => {
@@ -32,7 +35,7 @@ test("session_worktree switch activates cwd, updates relative read/write, reflec
   initGitRepo(mainRepo, "main");
 
   const wtDir = join(baseDir, "feat-wt");
-  execFileSync("git", ["worktree", "add", "-b", "feature/branch", wtDir], { cwd: mainRepo });
+  git(mainRepo, "worktree", "add", "-b", "feature/branch", wtDir);
   writeFileSync(join(wtDir, "worktree.txt"), "wt-initial\n");
 
   const faux = fauxProvider();
@@ -93,7 +96,7 @@ test("session_worktree switch activates cwd, updates relative read/write, reflec
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
     });
-    assert.equal(createRes1.status, 201);
+    expect(createRes1.status).toBe(201);
     const s1Id = ((await createRes1.json()) as { id: number }).id;
 
     const createRes2 = await app.request("/v1/sessions", {
@@ -101,27 +104,27 @@ test("session_worktree switch activates cwd, updates relative read/write, reflec
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
     });
-    assert.equal(createRes2.status, 201);
+    expect(createRes2.status).toBe(201);
     const s2Id = ((await createRes2.json()) as { id: number }).id;
 
     const conv1 = (await rt.harness.conversation(s1Id as ConversationId, context))!;
     const conv2 = (await rt.harness.conversation(s2Id as ConversationId, context))!;
 
     // Initial agent cwd for both sessions should be the default mainRepo
-    assert.equal((await conv1.agent(context)).cwd, mainRepo);
-    assert.equal((await conv2.agent(context)).cwd, mainRepo);
+    expect((await conv1.agent(context)).cwd).toBe(mainRepo);
+    expect((await conv2.agent(context)).cwd).toBe(mainRepo);
 
     // Initial Git HTTP checks for session 1: points to main branch and mainRepo
     const initGit1 = await app.request(`/v1/sessions/${s1Id}/git`);
-    assert.equal(initGit1.status, 200);
+    expect(initGit1.status).toBe(200);
     const initGitBody1 = (await initGit1.json()) as { branch: string };
-    assert.equal(initGitBody1.branch, "main");
+    expect(initGitBody1.branch).toBe("main");
 
     const initChanges1 = await app.request(`/v1/git/changes?session=${s1Id}`);
-    assert.equal(initChanges1.status, 200);
+    expect(initChanges1.status).toBe(200);
     const initChangesBody1 = (await initChanges1.json()) as { branch: string; cwd: string };
-    assert.equal(initChangesBody1.branch, "main");
-    assert.equal(initChangesBody1.cwd, mainRepo);
+    expect(initChangesBody1.branch).toBe("main");
+    expect(initChangesBody1.cwd).toBe(mainRepo);
 
     // Watch session feed on conv1 to verify agent_changed event emission
     const feed1 = await openSessionFeed(rt.harness, conv1, undefined, context);
@@ -131,72 +134,72 @@ test("session_worktree switch activates cwd, updates relative read/write, reflec
     try {
     // Step 1: Run Turn 1 in Session 1 to switch workspace
     const turn1 = await (await conv1.submit({ type: "input", content: "switch to worktree" }, context)).wait(context);
-    assert.equal(turn1.status, "done");
+    expect(turn1.status).toBe("done");
     await feed1.flush();
 
     // Verify session 1 agent cwd was updated to wtDir
-    assert.equal((await conv1.agent(context)).cwd, wtDir);
+    expect((await conv1.agent(context)).cwd).toBe(wtDir);
 
     // Verify session feed received an agent_changed event with the new cwd
     const agentChangedEvents = events1.filter((e): e is Extract<AgentEvent, { type: "agent_changed" }> => e.type === "agent_changed");
-    assert.ok(agentChangedEvents.length >= 1, "Session feed must emit agent_changed when workspace switches");
-    assert.equal(agentChangedEvents[agentChangedEvents.length - 1]!.agent.cwd, wtDir);
+    expect(agentChangedEvents.length >= 1).toBeTruthy() /* "Session feed must emit agent_changed when workspace switches" */;
+    expect(agentChangedEvents[agentChangedEvents.length - 1]!.agent.cwd).toBe(wtDir);
     } finally { await feed1.stop(); }
 
     // Verify other session (session 2) remains untouched at mainRepo
-    assert.equal((await conv2.agent(context)).cwd, mainRepo);
+    expect((await conv2.agent(context)).cwd).toBe(mainRepo);
     const s2Git = await app.request(`/v1/sessions/${s2Id}/git`);
-    assert.equal(s2Git.status, 200);
-    assert.equal(((await s2Git.json()) as { branch: string }).branch, "main");
+    expect(s2Git.status).toBe(200);
+    expect(((await s2Git.json()) as { branch: string }).branch).toBe("main");
     const s2Changes = await app.request(`/v1/git/changes?session=${s2Id}`);
-    assert.equal(s2Changes.status, 200);
+    expect(s2Changes.status).toBe(200);
     const s2ChangesBody = (await s2Changes.json()) as { branch: string; cwd: string };
-    assert.equal(s2ChangesBody.branch, "main");
-    assert.equal(s2ChangesBody.cwd, mainRepo);
+    expect(s2ChangesBody.branch).toBe("main");
+    expect(s2ChangesBody.cwd).toBe(mainRepo);
 
     // The relative read and write execute after the switch in the SAME run (after the switch).
     const results = (await conv1.entries({}, 50, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult");
-    assert.deepEqual(results.map(r => r.toolName).sort(), ["read", "session_worktree", "write"]);
-    assert.ok(results.every(r => !r.isError));
-    assert.match(JSON.stringify(results.find(r => r.toolName === "read")!.content), /wt-initial/);
+    expect(results.map(r => r.toolName).sort()).toEqual(["read", "session_worktree", "write"]);
+    expect(results.every(r => !r.isError)).toBeTruthy();
+    expect(JSON.stringify(results.find(r => r.toolName === "read")!.content)).toMatch(/wt-initial/);
 
     // Verify relative write created the file in wtDir, not in mainRepo
-    assert.equal(readFileSync(join(wtDir, "relative-created.txt"), "utf8"), "created-in-worktree\n");
-    assert.equal(existsSync(join(mainRepo, "relative-created.txt")), false);
+    expect(readFileSync(join(wtDir, "relative-created.txt"), "utf8")).toBe("created-in-worktree\n");
+    expect(existsSync(join(mainRepo, "relative-created.txt"))).toBe(false);
 
     // Verify Git HTTP session status and changes reflect worktree and branch
     const s1GitAfter = await app.request(`/v1/sessions/${s1Id}/git`);
-    assert.equal(s1GitAfter.status, 200);
+    expect(s1GitAfter.status).toBe(200);
     const s1GitBodyAfter = (await s1GitAfter.json()) as { branch: string; files: Array<{ path: string }> };
-    assert.equal(s1GitBodyAfter.branch, "feature/branch");
+    expect(s1GitBodyAfter.branch).toBe("feature/branch");
 
     const s1ChangesAfter = await app.request(`/v1/git/changes?session=${s1Id}`);
-    assert.equal(s1ChangesAfter.status, 200);
+    expect(s1ChangesAfter.status).toBe(200);
     const s1ChangesBodyAfter = (await s1ChangesAfter.json()) as { branch: string; cwd: string; files: Array<{ path: string }> };
-    assert.equal(s1ChangesBodyAfter.branch, "feature/branch");
-    assert.equal(s1ChangesBodyAfter.cwd, wtDir);
-    assert.ok(s1ChangesBodyAfter.files.some(f => f.path === "relative-created.txt"));
+    expect(s1ChangesBodyAfter.branch).toBe("feature/branch");
+    expect(s1ChangesBodyAfter.cwd).toBe(wtDir);
+    expect(s1ChangesBodyAfter.files.some(f => f.path === "relative-created.txt")).toBeTruthy();
 
     // Step 3: Session 2 executes read against its own unchanged workspace
     const turn3 = await (await conv2.submit({ type: "input", content: "read session 2 file" }, context)).wait(context);
-    assert.equal(turn3.status, "done");
-    assert.equal((await conv2.agent(context)).cwd, mainRepo);
+    expect(turn3.status).toBe("done");
+    expect((await conv2.agent(context)).cwd).toBe(mainRepo);
 
     // Step 4: Invalid workspace paths fail and leave cwd unchanged
     const turn4Rel = await (await conv1.submit({ type: "input", content: "try relative path" }, context)).wait(context);
-    assert.equal(turn4Rel.status, "done");
-    assert.equal((await conv1.agent(context)).cwd, wtDir);
+    expect(turn4Rel.status).toBe("done");
+    expect((await conv1.agent(context)).cwd).toBe(wtDir);
 
     const turn4Missing = await (await conv1.submit({ type: "input", content: "try missing dir" }, context)).wait(context);
-    assert.equal(turn4Missing.status, "done");
-    assert.equal((await conv1.agent(context)).cwd, wtDir);
+    expect(turn4Missing.status).toBe("done");
+    expect((await conv1.agent(context)).cwd).toBe(wtDir);
 
     const turn4File = await (await conv1.submit({ type: "input", content: "try file instead of dir" }, context)).wait(context);
-    assert.equal(turn4File.status, "done");
-    assert.equal((await conv1.agent(context)).cwd, wtDir);
+    expect(turn4File.status).toBe("done");
+    expect((await conv1.agent(context)).cwd).toBe(wtDir);
     const failed = (await conv1.entries({}, 100, undefined, context)).items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult").filter(m => m.toolName === "session_worktree");
-    assert.equal(failed.length, 4);
-    assert.equal(failed.filter(r => r.isError).length, 3);
+    expect(failed.length).toBe(4);
+    expect(failed.filter(r => r.isError).length).toBe(3);
 
     // Close runtime to verify persistence by reopening harness
     await rt.close();
@@ -213,8 +216,8 @@ test("session_worktree switch activates cwd, updates relative read/write, reflec
     try {
       const reopenedConv1 = (await reopenedHarness.conversation(s1Id as ConversationId, context))!;
       const reopenedConv2 = (await reopenedHarness.conversation(s2Id as ConversationId, context))!;
-      assert.equal((await reopenedConv1.agent(context)).cwd, wtDir);
-      assert.equal((await reopenedConv2.agent(context)).cwd, mainRepo);
+      expect((await reopenedConv1.agent(context)).cwd).toBe(wtDir);
+      expect((await reopenedConv2.agent(context)).cwd).toBe(mainRepo);
     } finally {
       await reopenedHarness.close(context);
     }

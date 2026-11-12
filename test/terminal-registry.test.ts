@@ -1,7 +1,7 @@
-import assert from "node:assert/strict";
-import { afterEach, test } from "bun:test";
+import { afterEach, test, expect } from "bun:test";
 import { localLauncher, shellEnvironment } from "../src/terminal/pty-host.js";
 import { TerminalError, TerminalRegistry, type TerminalInfo, type TerminalListener } from "../src/terminal/registry.js";
+import { rejectsWith, throwsWith } from "./support/expect-error.js";
 
 const SH = { SHELL: "/bin/sh", PATH: process.env.PATH ?? "" };
 // Every registry is closed after its test, so a failed assertion never leaves a shell running.
@@ -38,7 +38,7 @@ test("a terminal runs a shell, takes input, and reports its size after a resize"
   r.write(info.id, "stty size\n");
   await until(() => state.text.includes("30 100"), "initial size");
   r.resize(info.id, 120, 40);
-  assert.equal(r.get(info.id)?.cols, 120);
+  expect(r.get(info.id)?.cols).toBe(120);
   r.write(info.id, "stty size\n");
   await until(() => state.text.includes("40 120"), "resized size");
   r.closeAll();
@@ -50,9 +50,9 @@ test("the shell starts in the requested directory and never sees the daemon toke
   const { state } = collect(r, info.id);
   r.write(info.id, "pwd; echo token=[$LUNA_TOKEN]\n");
   await until(() => state.text.includes("token=[]"), "token line");
-  assert.match(state.text, /\/tmp\r?$/m);
-  assert.ok(!state.text.includes("secret-token"));
-  assert.equal(shellEnvironment({ LUNA_TOKEN: "x", A: "b" }).LUNA_TOKEN, undefined);
+  expect(state.text).toMatch(/\/tmp\r?$/m);
+  expect(!state.text.includes("secret-token")).toBeTruthy();
+  expect(shellEnvironment({ LUNA_TOKEN: "x", A: "b" }).LUNA_TOKEN).toBe(undefined);
   r.closeAll();
 });
 
@@ -62,12 +62,12 @@ test("exit is reported and the ended terminal stays listed until it is closed", 
   const { state } = collect(r, info.id);
   r.write(info.id, "exit 3\n");
   await until(() => state.exits.length === 1, "exit event");
-  assert.equal(state.exits[0]!.exitCode, 3);
-  assert.equal(r.list(1)[0]?.status, "ended");
+  expect(state.exits[0]!.exitCode).toBe(3);
+  expect(r.list(1)[0]?.status).toBe("ended");
   r.write(info.id, "ignored\n");
   r.close(info.id);
-  assert.ok(state.closed);
-  assert.deepEqual(r.list(1), []);
+  expect(state.closed).toBeTruthy();
+  expect(r.list(1)).toStrictEqual([]);
 });
 
 test("closing a running terminal kills the process and tells attached clients", async () => {
@@ -75,16 +75,16 @@ test("closing a running terminal kills the process and tells attached clients", 
   const info = await r.create({ session: 1, worker: null, cwd: "/tmp" });
   const { state } = collect(r, info.id);
   r.close(info.id);
-  assert.ok(state.closed);
-  assert.equal(state.exits[0]?.endReason, "Closed.");
-  assert.throws(() => r.write(info.id, "x"), (e: unknown) => e instanceof TerminalError && e.status === 404);
+  expect(state.closed).toBeTruthy();
+  expect(state.exits[0]?.endReason).toBe("Closed.");
+  throwsWith(() => r.write(info.id, "x"), (e: unknown) => e instanceof TerminalError && e.status === 404);
   r.close(info.id);
 });
 
 test("the ninth running terminal in a session is refused, other sessions are not affected", async () => {
   const r = registry();
   for (let i = 0; i < 8; i++) await r.create({ session: 1, worker: null, cwd: "/tmp" });
-  await assert.rejects(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 409);
+  await rejectsWith(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 409);
   await r.create({ session: 2, worker: null, cwd: "/tmp" });
   r.closeAll();
 });
@@ -92,7 +92,7 @@ test("the ninth running terminal in a session is refused, other sessions are not
 test("concurrent creates cannot pass the limit", async () => {
   const r = registry({ maxPerSession: 2 });
   const results = await Promise.allSettled([1, 2, 3, 4].map(() => r.create({ session: 1, worker: null, cwd: "/tmp" })));
-  assert.equal(results.filter(x => x.status === "fulfilled").length, 2);
+  expect(results.filter(x => x.status === "fulfilled").length).toBe(2);
   r.closeAll();
 });
 
@@ -111,22 +111,22 @@ test("re-attaching replays earlier output once and the ring buffer is bounded", 
   first.attached.detach();
   emit(Buffer.from("marker-two\r\n"));
   const second = collect(r, info.id);
-  assert.equal(first.state.text, "marker-one\r\n");
-  assert.equal(second.state.text, "marker-one\r\nmarker-two\r\n");
+  expect(first.state.text).toBe("marker-one\r\n");
+  expect(second.state.text).toBe("marker-one\r\nmarker-two\r\n");
 
   const large = Buffer.alloc(20000, "x");
   emit(large);
-  assert.equal(second.state.text, "marker-one\r\nmarker-two\r\n" + large.toString());
+  expect(second.state.text).toBe("marker-one\r\nmarker-two\r\n" + large.toString());
   const replay = () => {
     const attached = r.attach(info.id, { data() {}, exit() {}, closed() {} });
     attached.detach();
     return attached.replay;
   };
-  assert.deepEqual(replay(), Buffer.alloc(4096, "x"));
+  expect(replay()).toStrictEqual(Buffer.alloc(4096, "x"));
   emit(Buffer.from("tail"));
-  assert.deepEqual(replay(), Buffer.from("x".repeat(4092) + "tail"));
+  expect(replay()).toStrictEqual(Buffer.from("x".repeat(4092) + "tail"));
   emit(Buffer.alloc(4096, "y"));
-  assert.deepEqual(replay(), Buffer.alloc(4096, "y"));
+  expect(replay()).toStrictEqual(Buffer.alloc(4096, "y"));
   r.closeAll();
 });
 
@@ -135,8 +135,8 @@ test("deleting a session closes its terminals only", async () => {
   const a = await r.create({ session: 1, worker: null, cwd: "/tmp" });
   const b = await r.create({ session: 2, worker: null, cwd: "/tmp" });
   r.closeSession(1);
-  assert.equal(r.get(a.id), undefined);
-  assert.equal(r.get(b.id)?.status, "running");
+  expect(r.get(a.id)).toBe(undefined);
+  expect(r.get(b.id)?.status).toBe("running");
   r.closeAll();
 });
 
@@ -148,13 +148,13 @@ test("a worker going offline ends its terminals but keeps them listed", async ()
   const info = await r.create({ session: 1, worker: 7, cwd: "/tmp" });
   r.endWorker(7, "Worker went offline.");
   const listed = r.get(info.id);
-  assert.equal(listed?.status, "ended");
-  assert.equal(listed?.endReason, "Worker went offline.");
+  expect(listed?.status).toBe("ended");
+  expect(listed?.endReason).toBe("Worker went offline.");
   r.closeAll();
 });
 
 test("a launcher failure is reported as a 503 and does not use a slot", async () => {
   const r = track(new TerminalRegistry({ env: SH, maxPerSession: 1, launcher: async () => { throw new Error("no pty"); } }));
-  await assert.rejects(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 503);
-  await assert.rejects(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 503);
+  await rejectsWith(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 503);
+  await rejectsWith(r.create({ session: 1, worker: null, cwd: "/tmp" }), (e: unknown) => e instanceof TerminalError && e.status === 503);
 });

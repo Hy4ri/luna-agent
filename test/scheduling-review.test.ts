@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import { openLuna } from "../src/luna.js";
@@ -40,28 +39,28 @@ test("terminal schedule migration bounds hot state and preserves history and req
     }, context);
     await s.start();
     const hot = await h.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(ScheduledMessagesDoc))), context);
-    assert.equal(Object.keys(hot.schedules).length, 1);
-    assert.equal(Object.keys(hot.requests).length, 1);
-    assert.equal((await h.commit(tx => s.list(tx, sid), context)).length, 65);
+    expect(Object.keys(hot.schedules).length).toBe(1);
+    expect(Object.keys(hot.requests).length).toBe(1);
+    expect((await h.commit(tx => s.list(tx, sid), context)).length).toBe(65);
     const replay = await h.commit(tx => s.create(tx, { conversationId: sid, content: "old 0", dueAt, requestId: "old-0", source: { kind: "user" } }), context);
-    assert.equal(replay.created, false); assert.equal(replay.schedule.id, firstId);
-    await assert.rejects(h.commit(tx => s.create(tx, { conversationId: sid, content: "changed", dueAt, requestId: "old-0", source: { kind: "user" } }), context), /requestId already belongs/);
-    assert.equal((await s.cancel(sid, firstId)).status, "already_cancelled");
+    expect(replay.created).toBe(false); expect(replay.schedule.id).toBe(firstId);
+    await expect(h.commit(tx => s.create(tx, { conversationId: sid, content: "changed", dueAt, requestId: "old-0", source: { kind: "user" } }), context)).rejects.toThrow(/requestId already belongs/);
+    expect((await s.cancel(sid, firstId)).status).toBe("already_cancelled");
     now = dueAt + 1;
     await s.deliverDue();
-    assert.equal((await s.cancel(sid, deliveredId)).status, "already_delivered");
+    expect((await s.cancel(sid, deliveredId)).status).toBe("already_delivered");
     const empty = await h.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(ScheduledMessagesDoc))), context);
-    assert.equal(Object.keys(empty.schedules).length, 0);
-    assert.equal(Object.keys(empty.requests).length, 0);
+    expect(Object.keys(empty.schedules).length).toBe(0);
+    expect(Object.keys(empty.requests).length).toBe(0);
     await s.close(); await h.close(context);
     h = await openLuna({ dbPath, models, memory: false, coding: false });
     s = new ScheduledMessagesService({ harness: h, now: () => now, log: () => {} });
     await s.start();
     const afterRestart = await h.commit(tx => s.create(tx, { conversationId: sid, content: "Never use blue.", dueAt, requestId: "manual", source: { kind: "user" } }), context);
-    assert.equal(afterRestart.created, false);
-    assert.equal(afterRestart.schedule.id, deliveredId);
-    assert.equal(afterRestart.schedule.status, "delivered");
-    assert.equal((await h.commit(tx => s.list(tx, sid), context)).length, 65);
+    expect(afterRestart.created).toBe(false);
+    expect(afterRestart.schedule.id).toBe(deliveredId);
+    expect(afterRestart.schedule.status).toBe("delivered");
+    expect((await h.commit(tx => s.list(tx, sid), context)).length).toBe(65);
   } finally { await s.close(); await h.close(context); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -88,7 +87,7 @@ test("fireOne and reconciliation classify an unplaced run_failed receipt identic
     await s.fireOne(ids[0]!);
     await s.reconcile();
     const list = await h.commit(tx => s.list(tx, sid), context);
-    assert.deepEqual(list.map(r => [r.status, r.terminalReason]), [["failed", "run_failed"], ["failed", "run_failed"]]);
+    expect(list.map(r => [r.status, r.terminalReason])).toEqual([["failed", "run_failed"], ["failed", "run_failed"]]);
   } finally { await s.close(); await h.close(context); }
 });
 
@@ -107,21 +106,21 @@ test("recovery compaction retains latest entitlement and older future structured
     for (let i = 0; i < 4; i++) {
       await (await conv.submit({ type: "input", content: `work ${i}` }, context)).wait(context);
       await h.commit(async tx => {
-        const failure = await readTurnFailure(tx, conv.id); assert.ok(failure);
-        latest = failure.boundary;
+        const failure = await readTurnFailure(tx, conv.id); expect(failure).toBeTruthy();
+        latest = failure!.boundary;
         (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(Number(conv.id), latest)] = {
-          conversationId: Number(conv.id), boundary: latest, generation: failure.generation, provider: ref.provider, model: ref.modelId,
+          conversationId: Number(conv.id), boundary: latest, generation: failure!.generation, provider: ref.provider, model: ref.modelId,
           status: "stopped", ...(i === 0 ? { evidenceAt: now + 120_000 } : {}),
         };
       }, context);
     }
     await r.start();
     const state = await h.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(RecoveryStateDoc))), context);
-    assert.equal(Object.keys(state.attempts).length, 1);
-    assert.equal(state.claimedThrough[String(conv.id)], latest);
-    assert.equal(recoveryResetFloor(state, ref.provider, ref.modelId), now + 120_000);
-    assert.equal(recoveryResetFloor(state, ref.provider, "another-model"), 0);
-    assert.equal(calls, 0);
+    expect(Object.keys(state.attempts).length).toBe(1);
+    expect(state.claimedThrough[String(conv.id)]).toBe(latest);
+    expect(recoveryResetFloor(state, ref.provider, ref.modelId)).toBe(now + 120_000);
+    expect(recoveryResetFloor(state, ref.provider, "another-model")).toBe(0);
+    expect(calls).toBe(0);
   } finally { await r.close(); await s.close(); await h.close(context); }
 });
 
@@ -138,15 +137,15 @@ test("an interrupted claim with expired evidence reports the passed reset, not u
     const conv = await h.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
     await (await conv.submit({ type: "input", content: "work" }, context)).wait(context);
     await h.commit(async tx => {
-      const failure = await readTurnFailure(tx, conv.id); assert.ok(failure);
-      (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(Number(conv.id), failure.boundary)] = {
-        conversationId: Number(conv.id), boundary: failure.boundary, generation: failure.generation, provider: ref.provider, model: ref.modelId,
+      const failure = await readTurnFailure(tx, conv.id); expect(failure).toBeTruthy();
+      (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(Number(conv.id), failure!.boundary)] = {
+        conversationId: Number(conv.id), boundary: failure!.boundary, generation: failure!.generation, provider: ref.provider, model: ref.modelId,
         status: "parsing", evidenceAt: now - 120_000, exact: true,
       };
     }, context);
     await r.start();
     const summary = await h.commit(tx => s.recovery(tx, conv.id), context);
-    assert.match(summary?.pausedReason ?? "", /reset.*passed/i);
-    assert.equal(calls, 0);
+    expect(summary?.pausedReason ?? "").toMatch(/reset.*passed/i);
+    expect(calls).toBe(0);
   } finally { await r.close(); await s.close(); await h.close(context); }
 });

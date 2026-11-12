@@ -1,7 +1,6 @@
 // Contract: models without their own price (custom endpoints, OpenCode) take the rates of the priced
 // built-in model with the same name. Expected rates are the published per-million prices in the pinned catalog.
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels, type Context } from "@earendil-works/pi-ai";
 import { estimatedCost, priceKey } from "../src/model-pricing.js";
 import { customProvider } from "../src/providers.js";
@@ -10,29 +9,29 @@ import { listedCost } from "../src/opencode-cli.js";
 const rates = (id: string) => { const c = estimatedCost(id); return c && [c.input, c.output]; };
 
 test("model IDs from proxies and gateways match the built-in model of the same name", () => {
-  assert.deepEqual(rates("anthropic/claude-sonnet-4.6"), [3, 15]);
-  assert.deepEqual(rates("claude-opus-4-6-thinking"), [5, 25]);
-  assert.deepEqual(rates("gemini-3.1-flash-lite"), [0.25, 1.5]);
-  assert.deepEqual(rates("openai/gpt-5.2"), [1.75, 14]);
-  assert.equal(priceKey("Anthropic/Claude-Opus-4.6-Thinking-High"), "claude-opus-4-6");
+  expect(rates("anthropic/claude-sonnet-4.6")).toEqual([3, 15]);
+  expect(rates("claude-opus-4-6-thinking")).toEqual([5, 25]);
+  expect(rates("gemini-3.1-flash-lite")).toEqual([0.25, 1.5]);
+  expect(rates("openai/gpt-5.2")).toEqual([1.75, 14]);
+  expect(priceKey("Anthropic/Claude-Opus-4.6-Thinking-High")).toBe("claude-opus-4-6");
 });
 
 test("free, unknown, and unpriced IDs get no estimate", () => {
-  assert.equal(estimatedCost("z-ai/glm-4.7-flash-free"), undefined);
-  assert.equal(estimatedCost("opencode/big-pickle"), undefined);
-  assert.equal(estimatedCost("acme/never-heard-of-it"), undefined);
+  expect(estimatedCost("z-ai/glm-4.7-flash-free")).toBe(undefined);
+  expect(estimatedCost("opencode/big-pickle")).toBe(undefined);
+  expect(estimatedCost("acme/never-heard-of-it")).toBe(undefined);
 });
 
 test("an estimate is a copy: changing it never changes the catalog", () => {
   estimatedCost("anthropic/claude-sonnet-4.6")!.input = 999;
-  assert.deepEqual(rates("anthropic/claude-sonnet-4.6"), [3, 15]);
+  expect(rates("anthropic/claude-sonnet-4.6")).toEqual([3, 15]);
 });
 
 test("OpenCode's listed price wins, including an explicit zero", () => {
-  assert.deepEqual(listedCost([{ input: 0, output: 0, cache: { read: 0, write: 0 } }]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-  assert.deepEqual(listedCost([{ input: 3, output: 15, cache: { read: 0.3, write: 3.75 } }]), { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 });
-  assert.equal(listedCost(undefined), undefined);
-  assert.equal(listedCost([{ input: "3" }]), undefined);
+  expect(listedCost([{ input: 0, output: 0, cache: { read: 0, write: 0 } }])).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+  expect(listedCost([{ input: 3, output: 15, cache: { read: 0.3, write: 3.75 } }])).toEqual({ input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 });
+  expect(listedCost(undefined)).toBe(undefined);
+  expect(listedCost([{ input: "3" }])).toBe(undefined);
 });
 
 test("a custom endpoint response is priced at the matched catalog rates", async () => {
@@ -53,11 +52,11 @@ test("a custom endpoint response is priced at the matched catalog rates", async 
     const cost = async (id: string) => {
       const model = provider.getModels().find(m => m.id === id)!;
       const message = await models.complete(model, context, { apiKey: "k" });
-      assert.equal(message.stopReason, "stop", message.errorMessage ?? "");
+      expect(message.stopReason).toBe("stop") /* message.errorMessage ?? "" */;
       return message.usage.cost.total;
     };
-    assert.equal(await cost("anthropic/claude-sonnet-4.6"), 18); // $3 + $15
-    assert.equal(await cost("acme/unknown"), 0);
+    expect(await cost("anthropic/claude-sonnet-4.6")).toBe(18); // $3 + $15
+    expect(await cost("acme/unknown")).toBe(0);
   } finally {
     server.stop(true);
   }

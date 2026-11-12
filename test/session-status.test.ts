@@ -1,7 +1,6 @@
 // Contract: Luna projects retained Pi run failures, not previous answers, onto the current input.
 // These are valid persisted-state fixtures, not a test of provider execution or Pi's recovery loop.
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import {
@@ -56,9 +55,9 @@ test("no-answer run failures have explicit states rather than inheriting a previ
     const { session, id } = await failureFixture(reason);
     try {
       const status = await session.commit(tx => readSessionStatus(tx, id, false), context);
-      assert.equal(status.status, expected, reason);
-      assert.ok(status.statusReason, `${reason} needs an explanation`);
-      assert.equal(await session.commit(tx => readTurnFailure(tx, id), context), undefined, "no assistant error is not quota evidence");
+      expect(status.status).toBe(expected) /* reason */;
+      expect(status.statusReason).toBeTruthy() /* `${reason} needs an explanation` */;
+      expect(await session.commit(tx => readTurnFailure(tx, id), context)).toBe(undefined) /* "no assistant error is not quota evidence" */;
     } finally { await session.close(context); }
   }
 });
@@ -67,9 +66,9 @@ test("a newer input or reset does not inherit a retained run failure", async () 
   const { session, id } = await failureFixture("interrupted");
   try {
     await session.commit(tx => tx.appendEntry(id, { kind: "pi.user", model: [{ role: "user", content: "new work", timestamp: 300 }] }), context);
-    assert.equal((await session.commit(tx => readSessionStatus(tx, id, false), context)).status, "ready");
+    expect((await session.commit(tx => readSessionStatus(tx, id, false), context)).status).toBe("ready");
     await session.commit(tx => tx.appendEntry(id, { kind: "pi.reset", head: "self" }), context);
-    assert.deepEqual(await session.commit(tx => readSessionStatus(tx, id, false), context), { status: "ready", statusReason: null });
+    expect(await session.commit(tx => readSessionStatus(tx, id, false), context)).toEqual({ status: "ready", statusReason: null });
   } finally { await session.close(context); }
 });
 
@@ -77,19 +76,19 @@ test("quota failure uses selected request identity, and a current handoff takes 
   const { session, id, user, task } = await failureFixture("model_error", true);
   try {
     const failure = await session.commit(tx => readTurnFailure(tx, id), context);
-    assert.ok(failure);
-    assert.equal(failure.generation, task);
-    assert.equal(failure.provider, "selected-provider");
-    assert.equal(failure.model, "selected-model");
-    assert.equal(failure.limit?.kind, "wait");
-    assert.equal((await session.commit(tx => readSessionStatus(tx, id, false), context)).status, "limit_reached");
+    expect(failure).toBeTruthy();
+    expect(failure!.generation).toBe(task);
+    expect(failure!.provider).toBe("selected-provider");
+    expect(failure!.model).toBe("selected-model");
+    expect(failure!.limit?.kind).toBe("wait");
+    expect((await session.commit(tx => readSessionStatus(tx, id, false), context)).status).toBe("limit_reached");
     await session.commit(async tx => {
       (await tx.doc(SessionHandoffDoc, id)).handoff = { status: "needs_approval", reason: "Confirm the next action", boundary: user };
     }, context);
-    assert.equal((await session.commit(tx => readSessionStatus(tx, id, false), context)).status, "needs_approval");
+    expect((await session.commit(tx => readSessionStatus(tx, id, false), context)).status).toBe("needs_approval");
     const { report } = await session.commit(tx => readCommonSessionReport(tx, id, ["request"]), context);
-    assert.equal(report.state, "needs_approval");
-    assert.equal(report.reason, "Confirm the next action");
+    expect(report.state).toBe("needs_approval");
+    expect(report.reason).toBe("Confirm the next action");
   } finally { await session.close(context); }
 });
 
@@ -103,10 +102,10 @@ test("a run that reaches maxTurns ends unanswered and the session shows limit re
     const model = faux.getModel();
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider: model.provider, modelId: model.id }, maxTurns: 1 } }, context);
     const settled = await (await conv.submit({ type: "input", content: "use a tool" }, context)).wait(context);
-    assert.equal(settled.status, "unanswered");
-    assert.equal(settled.reason, "turn_limit");
+    expect(settled.status).toBe("unanswered");
+    expect(settled.reason).toBe("turn_limit");
     const status = await harness.commit(tx => readSessionStatus(tx, conv.id, false), context);
-    assert.equal(status.status, "limit_reached");
-    assert.equal(faux.getPendingResponseCount(), 1, "the second model request was never sent");
+    expect(status.status).toBe("limit_reached");
+    expect(faux.getPendingResponseCount()).toBe(1) /* "the second model request was never sent" */;
   } finally { await harness.close(context); }
 });

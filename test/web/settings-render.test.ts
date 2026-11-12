@@ -6,11 +6,10 @@
 // Regressions: #320 (a new top-level key without a catalog entry failed the whole page load) and a field shape
 // ComponentField cannot render (e.g. a string|object union crashed the tab).
 // The page runs in support/settings-page-check.ts, in its own process (see the note there).
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, test } from "bun:test";
+import { afterAll, test, expect } from "bun:test";
 
 const check = new URL("./support/settings-page-check.ts", import.meta.url).pathname;
 const example = new URL("../../luna.config.example.json", import.meta.url).pathname;
@@ -23,6 +22,6 @@ for (const [name, config] of [["default config", empty], ["luna.config.example.j
   test(`Settings opens and every tab renders for the ${name}`, async () => {
     const proc = Bun.spawn([process.execPath, check, config], { stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-    assert.equal(code, 0, `Settings page failed to open:\n${out}${err}`);
+    expect(code).toBe(0) /* `Settings page failed to open:\n${out}${err}` */;
   }, 60_000);
 }

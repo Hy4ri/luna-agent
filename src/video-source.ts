@@ -4,8 +4,6 @@ import { extname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
-import http from "node:http";
-import https from "node:https";
 import { isPublicVisionAddress } from "./vision-images.js";
 import { confinedReader, isWorkerEnv } from "./worker-protocol.js";
 import { credentialPath, within } from "./confined-read.js";
@@ -53,37 +51,44 @@ async function download(source: string, options: VideoSourceOptions): Promise<Bu
       for (let redirects = 0; redirects <= 5; redirects++) {
         check(options.signal);
         const { url, address } = await checkedUrl(current, options, signal);
-        const response = await new Promise<{ location?: string; bytes: Buffer }>((done, fail) => {
-          const req = (url.protocol === "https:" ? https : http).request(url, {
-            signal, agent: false,
-            lookup: (_host, lookupOptions, callback) => {
-              if (typeof lookupOptions === "object" && lookupOptions.all) callback(null, [{ address: address.address, family: address.family }]);
-              else callback(null, address.address, address.family);
-            },
-          }, res => {
-            if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-              res.destroy(); done({ location: res.headers.location, bytes: Buffer.alloc(0) }); return;
-            }
-            if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-              res.destroy(); fail(new DownloadError(`Video HTTP ${res.statusCode}`, (res.statusCode ?? 0) >= 500 || res.statusCode === 429)); return;
-            }
-            if (Number(res.headers["content-length"]) > VIDEO_MAX_BYTES) {
-              res.destroy(); fail(new DownloadError("Video exceeds 50 MiB transport limit; compress or trim.")); return;
-            }
-            const chunks: Buffer[] = []; let size = 0;
-            res.on("data", (chunk: Buffer) => {
-              size += chunk.length;
-              if (size > VIDEO_MAX_BYTES) { res.destroy(new DownloadError("Video exceeds 50 MiB transport limit; compress or trim.")); return; }
-              chunks.push(chunk);
-            });
-            res.on("end", () => done({ bytes: Buffer.concat(chunks) }));
-            res.on("error", fail);
-            res.on("aborted", () => fail(new Error("Video download aborted.")));
-          });
-          req.on("error", fail); req.end();
+        const pinnedHost = address.family === 6 ? `[${address.address}]` : address.address;
+        const pinnedUrl = `${url.protocol}//${pinnedHost}${url.port ? `:${url.port}` : ""}${url.pathname}${url.search}`;
+        const serverName = url.hostname.replace(/^\[|\]$/g, "");
+        const res = await fetch(pinnedUrl, {
+          signal,
+          redirect: "manual",
+          headers: { Host: url.host },
+          ...(url.protocol === "https:" ? { tls: { serverName } } : {}),
         });
-        if (!response.location) return response.bytes;
-        current = new URL(response.location, current).href;
+        const location = res.headers.get("location");
+        if (res.status >= 300 && res.status < 400 && location) {
+          await res.body?.cancel();
+          current = new URL(location, current).href;
+          continue;
+        }
+        if (res.status < 200 || res.status >= 300) {
+          await res.body?.cancel();
+          throw new DownloadError(`Video HTTP ${res.status}`, res.status >= 500 || res.status === 429);
+        }
+        if (Number(res.headers.get("content-length")) > VIDEO_MAX_BYTES) {
+          await res.body?.cancel();
+          throw new DownloadError("Video exceeds 50 MiB transport limit; compress or trim.");
+        }
+        const reader = res.body?.getReader();
+        if (!reader) return Buffer.alloc(0);
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > VIDEO_MAX_BYTES) {
+            await reader.cancel();
+            throw new DownloadError("Video exceeds 50 MiB transport limit; compress or trim.");
+          }
+          chunks.push(value);
+        }
+        return Buffer.concat(chunks);
       }
       throw new DownloadError("Video redirect limit exceeded.");
     } catch (error) {

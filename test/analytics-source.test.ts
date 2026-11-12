@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { openLuna } from "../src/luna.js";
@@ -21,25 +20,25 @@ test("analytics source parses owned entries only, then only the appended tail", 
     }), context);
     const db = conversationStorage(harness).db;
     const first = scanAnalyticsSession(db, Number(conv.id));
-    assert.ok(first);
-    assert.equal(first.session.userTurns, 1);
-    assert.equal(first.entriesScanned, 1);
-    assert.equal(first.session.lastEntryId, Number(firstEntry.id));
-    assert.equal(JSON.stringify(first).includes("private message not to be stored"), false);
-    const unchanged = scanAnalyticsSession(db, Number(conv.id), first.session);
-    assert.ok(unchanged);
-    assert.equal(unchanged.entriesScanned, 0);
-    assert.equal(unchanged.session.userTurns, 1);
+    expect(first).toBeTruthy();
+    expect(first!.session.userTurns).toBe(1);
+    expect(first!.entriesScanned).toBe(1);
+    expect(first!.session.lastEntryId).toBe(Number(firstEntry.id));
+    expect(JSON.stringify(first).includes("private message not to be stored")).toBe(false);
+    const unchanged = scanAnalyticsSession(db, Number(conv.id), first!.session);
+    expect(unchanged).toBeTruthy();
+    expect(unchanged!.entriesScanned).toBe(0);
+    expect(unchanged!.session.userTurns).toBe(1);
     await harness.commit(tx => tx.appendEntry(conv.id, {
       kind: "pi.user", model: [{ role: "user", content: "new message", timestamp: 2000 }],
     }), context);
-    const next = scanAnalyticsSession(db, Number(conv.id), first.session);
-    assert.ok(next);
-    assert.equal(next.entriesScanned, 1);
-    assert.equal(next.session.userTurns, 2);
-    assert.equal(next.session.lastActivity, 2000);
-    assert.equal(next.rebuild, false);
-    assert.equal(scanAnalyticsSession(db, 999999999), undefined);
+    const next = scanAnalyticsSession(db, Number(conv.id), first!.session);
+    expect(next).toBeTruthy();
+    expect(next!.entriesScanned).toBe(1);
+    expect(next!.session.userTurns).toBe(2);
+    expect(next!.session.lastActivity).toBe(2000);
+    expect(next!.rebuild).toBe(false);
+    expect(scanAnalyticsSession(db, 999999999)).toBe(undefined);
   } finally {
     await harness.close(context);
     await rm(dir, { recursive: true, force: true });
@@ -65,9 +64,9 @@ test("analytics source excludes deleted luna.todo tombstones from workflow todo 
 
     const db = conversationStorage(harness).db;
     const scan = scanAnalyticsSession(db, Number(conv.id));
-    assert.ok(scan);
-    assert.equal(scan.session.workflow.todos, 1);
-    assert.equal(scan.session.workflow.completedTodos, 1);
+    expect(scan).toBeTruthy();
+    expect(scan!.session.workflow.todos).toBe(1);
+    expect(scan!.session.workflow.completedTodos).toBe(1);
 
     await harness.commit(async (tx) => {
       const doc = await tx.doc(TodoDoc, conv.id);
@@ -77,10 +76,10 @@ test("analytics source excludes deleted luna.todo tombstones from workflow todo 
       doc.nextId = state.nextId;
     }, context);
 
-    const updated = scanAnalyticsSession(db, Number(conv.id), scan.session);
-    assert.ok(updated);
-    assert.equal(updated.session.workflow.todos, 2);
-    assert.equal(updated.session.workflow.completedTodos, 1);
+    const updated = scanAnalyticsSession(db, Number(conv.id), scan!.session);
+    expect(updated).toBeTruthy();
+    expect(updated!.session.workflow.todos).toBe(2);
+    expect(updated!.session.workflow.completedTodos).toBe(1);
   } finally {
     await harness.close(context);
     await rm(dir, { recursive: true, force: true });

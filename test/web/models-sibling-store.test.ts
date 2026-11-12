@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 
 const check = new URL("./support/models-sibling-check.ts", import.meta.url).pathname;
 
@@ -10,5 +9,5 @@ test("models store handles sibling thinking-level model switching and busy guard
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
-  assert.equal(code, 0, `Sibling store check failed:\n${out}${err}`);
+  expect(code, `Sibling store check failed:\n${out}${err}`).toBe(0);
 });

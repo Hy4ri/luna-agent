@@ -1,7 +1,6 @@
 // Web modules use bundler resolution, so this folder is excluded from the root tsc project; typecheck:web covers them.
 // The client clamp must match the server (pi-ai clampThinkingLevel), so the picker never shows a level the session cannot store.
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import {
   LEVELS,
   buildSiblingIndex,
@@ -24,40 +23,31 @@ const limited = levelsOf(findModel(list, { provider: "p", modelId: "limited" }))
 
 test("levelsOf keeps LEVELS order and shows every standard level for an unknown model; ultra needs a listing", () => {
   const standard = LEVELS.filter(level => level !== "ultra");
-  assert.deepEqual(limited, ["off", "low", "high"]);
-  assert.deepEqual(levelsOf(findModel(list, { provider: "p", modelId: "unknown" })), standard);
-  assert.deepEqual(levelsOf(findModel(list, null)), standard);
-  assert.deepEqual(levelsOf({ provider: "p", id: "u", thinkingLevels: ["high", "max", "ultra"] }), ["high", "max", "ultra"]);
-  assert.equal(clampTo(["off", "high", "max"], "ultra"), "max");
+  expect(limited).toEqual(["off", "low", "high"]);
+  expect(levelsOf(findModel(list, { provider: "p", modelId: "unknown" }))).toEqual(standard);
+  expect(levelsOf(findModel(list, null))).toEqual(standard);
+  expect(levelsOf({ provider: "p", id: "u", thinkingLevels: ["high", "max", "ultra"] })).toEqual(["high", "max", "ultra"]);
+  expect(clampTo(["off", "high", "max"], "ultra")).toBe("max");
 });
 
 test("clampTo picks the nearest supported level above, then below", () => {
-  assert.equal(clampTo(limited, "minimal"), "low");
-  assert.equal(clampTo(limited, "medium"), "high");
-  assert.equal(clampTo(limited, "max"), "high");
-  assert.equal(clampTo(["off"], "high"), "off");
+  expect(clampTo(limited, "minimal")).toBe("low");
+  expect(clampTo(limited, "medium")).toBe("high");
+  expect(clampTo(limited, "max")).toBe("high");
+  expect(clampTo(["off"], "high")).toBe("off");
 });
 
 test("startLevel uses the model default, then the global default, clamped", () => {
-  assert.equal(startLevel(list[0], "medium"), "high");
-  assert.equal(startLevel(list[1], "medium"), "off");
-  assert.equal(startLevel(undefined, "medium"), "medium");
+  expect(startLevel(list[0], "medium")).toBe("high");
+  expect(startLevel(list[1], "medium")).toBe("off");
+  expect(startLevel(undefined, "medium")).toBe("medium");
 });
 
 test("modelDisplayName hides provider and shows only the model name", () => {
-  assert.equal(
-    modelDisplayName({ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }, { provider: "anthropic", modelId: "claude-sonnet-4-5" }),
-    "Claude Sonnet 4.5",
-  );
-  assert.equal(
-    modelDisplayName({ provider: "cli-proxy-api", id: "gemini-4-hydrogen-high" }, { provider: "cli-proxy-api", modelId: "gemini-4-hydrogen-high" }),
-    "gemini-4-hydrogen-high",
-  );
-  assert.equal(
-    modelDisplayName(undefined, { provider: "cli-proxy-api", modelId: "gemini-4-hydrogen-high" }),
-    "gemini-4-hydrogen-high",
-  );
-  assert.equal(modelDisplayName(undefined, null), "Choose model");
+  expect(modelDisplayName({ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }, { provider: "anthropic", modelId: "claude-sonnet-4-5" })).toBe("Claude Sonnet 4.5");
+  expect(modelDisplayName({ provider: "cli-proxy-api", id: "gemini-4-hydrogen-high" }, { provider: "cli-proxy-api", modelId: "gemini-4-hydrogen-high" })).toBe("gemini-4-hydrogen-high");
+  expect(modelDisplayName(undefined, { provider: "cli-proxy-api", modelId: "gemini-4-hydrogen-high" })).toBe("gemini-4-hydrogen-high");
+  expect(modelDisplayName(undefined, null)).toBe("Choose model");
 });
 
 const cliProxyCatalog = [
@@ -87,12 +77,12 @@ const cliProxyCatalog = [
 ];
 
 test("parseSiblingSuffix recognizes only valid trailing level suffixes", () => {
-  assert.deepEqual(parseSiblingSuffix("gemini-4-hydrogen-xhigh"), { base: "gemini-4-hydrogen", level: "xhigh" });
-  assert.deepEqual(parseSiblingSuffix("gpt-oss-120b-medium"), { base: "gpt-oss-120b", level: "medium" });
-  assert.equal(parseSiblingSuffix("gemini-3.8-flash-tiered"), null);
-  assert.equal(parseSiblingSuffix("claude-opus-4-6-thinking"), null);
-  assert.equal(parseSiblingSuffix("-high"), null);
-  assert.equal(parseSiblingSuffix("gemini-3-flash"), null);
+  expect(parseSiblingSuffix("gemini-4-hydrogen-xhigh")).toStrictEqual({ base: "gemini-4-hydrogen", level: "xhigh" });
+  expect(parseSiblingSuffix("gpt-oss-120b-medium")).toStrictEqual({ base: "gpt-oss-120b", level: "medium" });
+  expect(parseSiblingSuffix("gemini-3.8-flash-tiered")).toBe(null);
+  expect(parseSiblingSuffix("claude-opus-4-6-thinking")).toBe(null);
+  expect(parseSiblingSuffix("-high")).toBe(null);
+  expect(parseSiblingSuffix("gemini-3-flash")).toBe(null);
 });
 
 test("buildSiblingIndex groups >= 2 non-reasoning -<level> siblings per provider in LEVELS order", () => {
@@ -100,36 +90,36 @@ test("buildSiblingIndex groups >= 2 non-reasoning -<level> siblings per provider
 
   const hRef = { provider: "cli-proxy-api", modelId: "gemini-4-hydrogen-high" };
   const hGroup = findSiblingGroup(index, hRef);
-  assert.ok(hGroup);
-  assert.deepEqual(hGroup.levels, ["low", "medium", "high", "xhigh"]);
-  assert.deepEqual(levelsOf(findModel(cliProxyCatalog, hRef), hGroup), ["low", "medium", "high", "xhigh"]);
-  assert.equal(siblingLevelOf(index, hRef), "high");
-  assert.equal(siblingTarget(index, hRef, "xhigh")?.id, "gemini-4-hydrogen-xhigh");
-  assert.equal(siblingTarget(index, hRef, "low")?.id, "gemini-4-hydrogen-low");
-  assert.equal(siblingTarget(index, hRef, "off"), undefined);
-  assert.equal(startLevel(findModel(cliProxyCatalog, hRef), "medium", hGroup, hRef), "high");
-  assert.equal(clampTo(levelsOf(findModel(cliProxyCatalog, hRef), hGroup), "off"), "low");
-  assert.equal(clampTo(levelsOf(findModel(cliProxyCatalog, hRef), hGroup), "max"), "xhigh");
+  expect(hGroup).toBeTruthy();
+  expect(hGroup.levels).toStrictEqual(["low", "medium", "high", "xhigh"]);
+  expect(levelsOf(findModel(cliProxyCatalog, hRef), hGroup)).toStrictEqual(["low", "medium", "high", "xhigh"]);
+  expect(siblingLevelOf(index, hRef)).toBe("high");
+  expect(siblingTarget(index, hRef, "xhigh")?.id).toBe("gemini-4-hydrogen-xhigh");
+  expect(siblingTarget(index, hRef, "low")?.id).toBe("gemini-4-hydrogen-low");
+  expect(siblingTarget(index, hRef, "off")).toBe(undefined);
+  expect(startLevel(findModel(cliProxyCatalog, hRef), "medium", hGroup, hRef)).toBe("high");
+  expect(clampTo(levelsOf(findModel(cliProxyCatalog, hRef), hGroup), "off")).toBe("low");
+  expect(clampTo(levelsOf(findModel(cliProxyCatalog, hRef), hGroup), "max")).toBe("xhigh");
 
   // gemini-3.8-flash-tiered is excluded from the gemini-3.8-flash group.
   const fRef = { provider: "cli-proxy-api", modelId: "gemini-3.8-flash-medium" };
   const fGroup = findSiblingGroup(index, fRef);
-  assert.deepEqual(fGroup?.levels, ["low", "medium", "high"]);
+  expect(fGroup?.levels).toStrictEqual(["low", "medium", "high"]);
   const tieredRef = { provider: "cli-proxy-api", modelId: "gemini-3.8-flash-tiered" };
-  assert.equal(findSiblingGroup(index, tieredRef), undefined);
-  assert.deepEqual(levelsOf(findModel(cliProxyCatalog, tieredRef), findSiblingGroup(index, tieredRef)), ["off"]);
+  expect(findSiblingGroup(index, tieredRef)).toBe(undefined);
+  expect(levelsOf(findModel(cliProxyCatalog, tieredRef), findSiblingGroup(index, tieredRef))).toStrictEqual(["off"]);
 
   // Standalone -<level> models with < 2 variants in the same provider are not grouped.
   const ossRef = { provider: "cli-proxy-api", modelId: "gpt-oss-120b-medium" };
-  assert.equal(findSiblingGroup(index, ossRef), undefined);
-  assert.equal(siblingLevelOf(index, ossRef), undefined);
-  assert.deepEqual(levelsOf(findModel(cliProxyCatalog, ossRef)), ["off"]);
-  assert.equal(findSiblingGroup(index, { provider: "other-proxy", modelId: "gpt-oss-120b-high" }), undefined);
+  expect(findSiblingGroup(index, ossRef)).toBe(undefined);
+  expect(siblingLevelOf(index, ossRef)).toBe(undefined);
+  expect(levelsOf(findModel(cliProxyCatalog, ossRef))).toStrictEqual(["off"]);
+  expect(findSiblingGroup(index, { provider: "other-proxy", modelId: "gpt-oss-120b-high" })).toBe(undefined);
 
   // Non-sibling models remain unaffected.
-  assert.equal(findSiblingGroup(index, { provider: "cli-proxy-api", modelId: "claude-opus-4-6-thinking" }), undefined);
-  assert.equal(findSiblingGroup(index, { provider: "cli-proxy-api", modelId: "gemini-3.1-flash-lite" }), undefined);
+  expect(findSiblingGroup(index, { provider: "cli-proxy-api", modelId: "claude-opus-4-6-thinking" })).toBe(undefined);
+  expect(findSiblingGroup(index, { provider: "cli-proxy-api", modelId: "gemini-3.1-flash-lite" })).toBe(undefined);
 
   // Native multi-level reasoning models are not grouped into sibling switching.
-  assert.equal(findSiblingGroup(index, { provider: "native", modelId: "reasoner-low" }), undefined);
+  expect(findSiblingGroup(index, { provider: "native", modelId: "reasoner-low" })).toBe(undefined);
 });

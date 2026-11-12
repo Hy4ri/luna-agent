@@ -2,14 +2,13 @@
 // Regressions: eager addAll(FILES), or changing X-Frame-Options while leaving frame-ancestors 'none'.
 // No existing test exercises the emitted worker. Evaluate its real handlers in an isolated VM;
 // the platform stubs capture Cache API arguments, not the graph selection or response-header logic.
-import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 const stripTs = (code: string) => new Bun.Transpiler({ loader: "ts" }).transformSync(code);
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createWebApp } from "../src/web-assets.js";
 
 type WorkerEvent = { request?: Request; waitUntil(promise: Promise<unknown>): void; respondWith(promise: Promise<Response>): void };
@@ -37,23 +36,23 @@ test("shipped worker installs entry imports and assets, but defers dynamic and u
       lazy: { file: "assets/lazy.js", css: ["assets/lazy.css"] },
     }));
     const app = createWebApp(pathToFileURL(dir + "/"));
-    const response = await app.request("/sw.js"); assert.equal(response.status, 200);
+    const response = await app.request("/sw.js"); expect(response.status).toBe(200);
     const installed: string[] = [], waits: Promise<unknown>[] = [];
     const handlers = worker(await response.text(), { caches: { open: async () => ({ addAll: async (paths: string[]) => { installed.push(...paths); } }) } });
     handlers.get("install")!({ waitUntil: promise => waits.push(promise), respondWith: () => {} });
     await Promise.all(waits);
-    assert.deepEqual(installed.sort(), ["/", "/manifest.webmanifest", "/favicon.png", "/icon.png", "/assets/main.js", "/assets/main.css", "/assets/shared.js", "/assets/font.woff2"].sort());
+    expect(installed.sort()).toEqual(["/", "/manifest.webmanifest", "/favicon.png", "/icon.png", "/assets/main.js", "/assets/main.css", "/assets/shared.js", "/assets/font.woff2"].sort());
     // The legacy SVG wrapper is still served to old pages, but a new install does not download it.
-    assert.equal((await app.request("/icon.svg")).status, 200);
-    assert.equal((await app.request("/favicon.png")).headers.get("content-type"), "image/png");
-    assert.equal((await app.request("/assets/font.woff2")).headers.get("content-type"), "font/woff2");
+    expect((await app.request("/icon.svg")).status).toBe(200);
+    expect((await app.request("/favicon.png")).headers.get("content-type")).toBe("image/png");
+    expect((await app.request("/assets/font.woff2")).headers.get("content-type")).toBe("font/woff2");
     const root = await app.request("/"), pane = await app.request("/?pane=session&session=42");
-    assert.equal(root.headers.get("x-frame-options"), "DENY");
-    assert.equal(root.headers.get("content-security-policy"), "frame-ancestors 'none'");
-    assert.equal(pane.headers.get("x-frame-options"), "SAMEORIGIN");
-    assert.equal(pane.headers.get("content-security-policy"), "frame-ancestors 'self'");
+    expect(root.headers.get("x-frame-options")).toBe("DENY");
+    expect(root.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+    expect(pane.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(pane.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
     writeFileSync(join(dir, ".vite", "manifest.json"), JSON.stringify({ entry: { isEntry: true, file: "assets/missing.js" } }));
-    assert.equal((await app.request("/sw.js")).status, 503, "incomplete builds must not install a broken shell");
+    expect((await app.request("/sw.js")).status).toBe(503) /* "incomplete builds must not install a broken shell" */;
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -71,15 +70,15 @@ test("offline shell canonicalizes pane URLs and keeps both frame restrictions co
   for (const [path, frame, policy] of [["/?session=1", "DENY", "frame-ancestors 'none'"], ["/?pane=session&session=42", "SAMEORIGIN", "frame-ancestors 'self'"]]) {
     let result: Promise<Response> | undefined;
     handlers.get("fetch")!({ request: new Request("https://luna.test" + path), waitUntil: () => {}, respondWith: value => { result = value; } });
-    assert.ok(result); const response = await result;
-    assert.equal(await response.text(), "installed shell"); assert.equal(response.headers.get("x-frame-options"), frame);
-    assert.equal(response.headers.get("content-security-policy"), policy);
-    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    expect(result).toBeTruthy(); const response = await result;
+    expect(await response!.text()).toBe("installed shell"); expect<string | null | undefined>(response!.headers.get("x-frame-options")).toBe(frame);
+    expect<string | null | undefined>(response!.headers.get("content-security-policy")).toBe(policy);
+    expect(response!.headers.get("x-content-type-options")).toBe("nosniff");
   }
-  assert.deepEqual(reads, ["/", "/"]);
+  expect(reads).toEqual(["/", "/"]);
   for (const request of [new Request("https://luna.test/v1/sessions"), new Request("https://other.test/"), new Request("https://luna.test/", { method: "POST" })]) {
     let intercepted = false;
     handlers.get("fetch")!({ request, waitUntil: () => {}, respondWith: () => { intercepted = true; } });
-    assert.equal(intercepted, false, request.url);
+    expect(intercepted).toBe(false) /* request.url */;
   }
 });

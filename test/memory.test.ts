@@ -1,7 +1,6 @@
 // Contract: the memory prompt section is sent with every model call. It must stay within its budget, keep a stable
 // order (a reordered section breaks the prompt cache), show facts before notes, and say when entries are hidden.
-import assert from "node:assert/strict";
-import { afterAll as after, test } from "bun:test";
+import { afterAll as after, test, expect } from "bun:test";
 import { MemoryStore } from "../src/memory.js";
 
 const stores: MemoryStore[] = [];
@@ -15,11 +14,11 @@ test("facts upsert by key; notes append", () => {
   m.remember({ content: "first note" });
   m.remember({ content: "first note" });
   const text = m.render()!;
-  assert.equal(text.match(/printer\.ip/g)?.length, 1);
-  assert.match(text, /printer\.ip: 192\.168\.1\.37/);
-  assert.equal(text.match(/first note/g)?.length, 2);
-  assert.throws(() => m.remember({ kind: "fact", content: "x" }), /needs a key/);
-  assert.throws(() => m.remember({ content: "   " }), /empty/);
+  expect(text.match(/printer\.ip/g)?.length).toBe(1);
+  expect(text).toMatch(/printer\.ip: 192\.168\.1\.37/);
+  expect(text.match(/first note/g)?.length).toBe(2);
+  expect(() => m.remember({ kind: "fact", content: "x" })).toThrow(/needs a key/);
+  expect(() => m.remember({ content: "   " })).toThrow(/empty/);
 });
 
 test("render: facts sorted by key, then newest notes first, independent of insertion order", () => {
@@ -28,10 +27,10 @@ test("render: facts sorted by key, then newest notes first, independent of inser
   b.remember({ key: "a.key", content: "A" }); b.remember({ key: "b.key", content: "B" });
   for (const m of [a, b]) { m.remember({ content: "older" }); m.remember({ content: "newer" }); }
   const text = a.render()!;
-  assert.equal(text.replace(/#\d+/g, "#"), b.render()!.replace(/#\d+/g, "#"));
-  assert.equal(a.render(), text, "rendering twice gives the same bytes");
+  expect(text.replace(/#\d+/g, "#")).toBe(b.render()!.replace(/#\d+/g, "#"));
+  expect(a.render()).toBe(text) /* "rendering twice gives the same bytes" */;
   const order = ["Facts:", "a.key", "b.key", "Recent notes:", "newer", "older"].map(s => text.indexOf(s));
-  assert.deepEqual(order, [...order].sort((x, y) => x - y), text);
+  expect(order).toEqual([...order].sort((x, y) => x - y)) /* text */;
 });
 
 const fill = () => {
@@ -42,15 +41,15 @@ const fill = () => {
 
 test("render stays within the budget and drops the oldest notes first", () => {
   const text = fill();
-  assert.ok(text.length <= 500, `${text.length} chars`);
-  assert.match(text, /note 49 /, "the newest note is kept");
-  assert.doesNotMatch(text, /note 0 /, "the oldest note is dropped first");
+  expect(text.length <= 500).toBeTruthy() /* `${text.length} chars` */;
+  expect(text).toMatch(/note 49 /) /* "the newest note is kept" */;
+  expect(text).not.toMatch(/note 0 /) /* "the oldest note is dropped first" */;
 });
 
 test("render reports hidden entries even when the notes fill the budget", () => {
   const text = fill();
-  assert.match(text, /more entries not shown; use the memory tool action=search/);
-  assert.ok(text.length <= 500, `${text.length} chars`);
+  expect(text).toMatch(/more entries not shown; use the memory tool action=search/);
+  expect(text.length <= 500).toBeTruthy() /* `${text.length} chars` */;
 });
 
 test("render reports hidden entries when facts and digest consume the budget", () => {
@@ -59,15 +58,15 @@ test("render reports hidden entries when facts and digest consume the budget", (
   m.remember({ content: "note 1" });
   m.remember({ content: "note 2" });
   const text = m.render()!;
-  assert.match(text, /more entries not shown; use the memory tool action=search/);
-  assert.ok(text.length <= 300, `${text.length} chars`);
+  expect(text).toMatch(/more entries not shown; use the memory tool action=search/);
+  expect(text.length <= 300).toBeTruthy() /* `${text.length} chars` */;
 });
 
 test("long entries are cut to one line", () => {
   const m = open();
   m.remember({ key: "k", content: `line one\nline two ${"y".repeat(400)}` });
   const line = m.render()!.split("\n").find(l => l.startsWith("- k:"))!;
-  assert.ok(line.endsWith("…") && line.length <= 300 + "- k: ".length, line);
+  expect(line.endsWith("…") && line.length <= 300 + "- k: ".length).toBeTruthy() /* line */;
 });
 
 test("compact folds the oldest notes into a bounded digest and keeps newer ones", () => {
@@ -75,14 +74,14 @@ test("compact folds the oldest notes into a bounded digest and keeps newer ones"
   for (let i = 0; i < 20; i++) m.remember({ content: `n${i} ${"z".repeat(30)}` });
   m.compact();
   const text = m.render()!;
-  assert.match(text, /Older notes \(digest\):/);
+  expect(text).toMatch(/Older notes \(digest\):/);
   const recent = text.slice(text.indexOf("Recent notes:"));
-  assert.equal(recent.match(/^- \[#/gm)?.length, 8, "maxNotes live notes remain");
-  assert.match(recent, /n19 /);
+  expect(recent.match(/^- \[#/gm)?.length).toBe(8); /* "maxNotes live notes remain" */
+  expect(recent).toMatch(/n19 /);
   const digest = text.slice(text.indexOf("Older notes"), text.indexOf("Recent notes:"));
-  assert.ok(digest.length <= 1000 / 2 + "Older notes (digest):\n".length, `${digest.length}`);
+  expect(digest.length <= 1000 / 2 + "Older notes (digest):\n".length).toBeTruthy(); /* `${digest.length}` */
 });
 
 test("an empty store renders no section", () => {
-  assert.equal(open().render(), undefined);
+  expect(open().render()).toBe(undefined);
 });

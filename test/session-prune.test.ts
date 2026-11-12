@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai";
 import type { ConversationId } from "@earendil-works/pi-durable";
@@ -30,8 +29,8 @@ test("prune: links and ages written after a cached preview still protect session
     const p = await session(old), c = await session(old, p), e = await session(old);
 
     const first = await store.prune(options);
-    assert.deepEqual(first.ids, [p, c, e].map(Number).sort((a, b) => a - b));
-    assert.deepEqual(first.sessions.find(s => s.id === Number(p))?.ids, [Number(p), Number(c)]);
+    expect(first.ids).toEqual([p, c, e].map(Number).sort((a, b) => a - b));
+    expect(first.sessions.find(s => s.id === Number(p))?.ids).toEqual([Number(p), Number(c)]);
 
     // A recent subagent created after the cached read protects its parent; new activity protects a session.
     const d = await session(Date.now(), p);
@@ -39,13 +38,13 @@ test("prune: links and ages written after a cached preview still protect session
       await tx.appendEntry(e, { kind: "pi.user", model: [{ role: "user", content: "again", timestamp: Date.now() }] });
     }, BACKGROUND_CONTEXT);
     const second = await store.prune(options);
-    assert.deepEqual(second.ids, [Number(c)]);
+    expect(second.ids).toEqual([Number(c)]);
 
     // An excluded session keeps its subagents.
-    assert.deepEqual((await store.prune({ ...options, excludeIds: [Number(p)] })).ids, []);
+    expect((await store.prune({ ...options, excludeIds: [Number(p)] })).ids).toEqual([]);
     // Deletion forgets the cached links, so a deleted subagent no longer protects its parent.
     await store.delete(Number(d));
-    assert.deepEqual((await store.prune(options)).ids, [p, c].map(Number).sort((a, b) => a - b));
+    expect((await store.prune(options)).ids).toEqual([p, c].map(Number).sort((a, b) => a - b));
   } finally {
     await harness.close(BACKGROUND_CONTEXT);
     await rm(dir, { recursive: true, force: true });

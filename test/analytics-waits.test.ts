@@ -1,6 +1,5 @@
-import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
-import { afterEach, describe, test } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,7 +58,7 @@ describe("analytics waits", () => {
           startedAt: 1_000,
         });
       }, context);
-      assert.equal(first, true);
+      expect(first).toBe(true);
 
       // Duplicate startWait with same callId must return false and preserve startedAt: 1000
       const dup = await harness.commit(async (tx) => {
@@ -73,8 +72,8 @@ describe("analytics waits", () => {
         const doc = await tx.doc(AnalyticsWaitDoc, conv.id);
         return { ok, startAt: doc.pending["call-1"]?.startAt };
       }, context);
-      assert.equal(dup.ok, false);
-      assert.equal(dup.startAt, 1_000);
+      expect(dup.ok).toBe(false);
+      expect(dup.startAt).toBe(1_000);
 
       const closed = await harness.commit(async (tx) => {
         return closeWait(tx, conv.id, {
@@ -83,7 +82,7 @@ describe("analytics waits", () => {
           endedAt: 2_500,
         });
       }, context);
-      assert.equal(closed, true);
+      expect(closed).toBe(true);
 
       // Second closeWait is idempotent
       const closedAgain = await harness.commit(async (tx) => {
@@ -93,7 +92,7 @@ describe("analytics waits", () => {
           endedAt: 3_000,
         });
       }, context);
-      assert.equal(closedAgain, false);
+      expect(closedAgain).toBe(false);
 
       // Closed call cannot restart
       const restarted = await harness.commit(async (tx) => {
@@ -105,16 +104,16 @@ describe("analytics waits", () => {
           startedAt: 4_000,
         });
       }, context);
-      assert.equal(restarted, false);
+      expect(restarted).toBe(false);
 
       // Verify wait metadata entries contain no question/answer fields
       const { items: allEntries } = await conv.entries({}, 100, undefined, context);
       const entries = allEntries.filter((e) => e.kind === "luna.analytics.wait");
-      assert.equal(entries.length, 2);
+      expect(entries.length).toBe(2);
       for (const entry of entries) {
         const data = entry.data as Record<string, unknown>;
-        assert.equal("question" in data, false);
-        assert.equal("answer" in data, false);
+        expect("question" in data).toBe(false);
+        expect("answer" in data).toBe(false);
       }
     } finally {
       await harness.close(context);
@@ -152,8 +151,8 @@ describe("analytics waits", () => {
         const doc = await tx.doc(AnalyticsWaitDoc, conv.id);
         return { ids, remainingKeys: Object.keys(doc.pending) };
       }, context);
-      assert.deepEqual(closedStopped.ids, ["s-1"]);
-      assert.deepEqual(closedStopped.remainingKeys, ["q-1"]);
+      expect(closedStopped.ids).toEqual(["s-1"]);
+      expect(closedStopped.remainingKeys).toEqual(["q-1"]);
 
       await harness.commit(async (tx) => {
         await startWait(tx, conv.id, {
@@ -168,7 +167,7 @@ describe("analytics waits", () => {
       const closedAnswered = await harness.commit(async (tx) => {
         return closeOpenSessionStatusWaits(tx, conv.id, "answered", 3_000);
       }, context);
-      assert.deepEqual(closedAnswered, ["s-2"]);
+      expect(closedAnswered).toEqual(["s-2"]);
 
       const { items: allEntries } = await conv.entries({}, 100, undefined, context);
       const entries = allEntries.filter((e) => e.kind === "luna.analytics.wait");
@@ -176,7 +175,7 @@ describe("analytics waits", () => {
         .map((e) => e.data as { callId: string; outcome: string | null })
         .filter((d) => d.outcome !== null)
         .map((d) => ({ callId: d.callId, outcome: d.outcome }));
-      assert.deepEqual(closedPayloads, [
+      expect(closedPayloads).toEqual([
         { callId: "s-2", outcome: "answered" },
         { callId: "s-1", outcome: "stopped" },
       ]);
@@ -221,9 +220,9 @@ describe("analytics waits", () => {
       const histScan = scanAnalyticsSession(db, conv.id)!;
       store.apply(histScan);
       const histWait = histScan.facts.find((f) => f.key === `wait:${conv.id}:hist-1`);
-      assert.ok(histWait);
-      assert.equal(histWait.kind, "wait");
-      assert.equal(histWait.durationMs, null);
+      expect(histWait).toBeTruthy();
+      expect(histWait!.kind).toBe("wait");
+      expect(histWait!.durationMs).toBe(null);
 
       // 2) Measured metadata wait: first open (endedAt: null -> durationMs: null), then closed (endedAt: 2500 -> durationMs: 1500)
       await harness.commit(async (tx) => {
@@ -263,8 +262,8 @@ describe("analytics waits", () => {
       const rows = store.db
         .query(`SELECT key, duration_ms FROM analytics_facts WHERE session_id = ? AND key = ?`)
         .all(conv.id, `wait:${conv.id}:meta-1`) as { key: string; duration_ms: number | null }[];
-      assert.equal(rows.length, 1);
-      assert.equal(rows[0]!.duration_ms, 1500);
+      expect(rows.length).toBe(1);
+      expect(rows[0]!.duration_ms).toBe(1500);
     } finally {
       await harness.close(context);
     }

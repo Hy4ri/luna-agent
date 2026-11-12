@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels } from "@earendil-works/pi-ai";
 import { openLuna, context } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
@@ -32,18 +31,18 @@ test("user-messages lists user turns oldest first, includes fork-parent turns up
     const app = createApp({ harness, conversations: new ConversationStore(harness), models });
     const read = async (id: unknown) => {
       const res = await app.request(`/v1/sessions/${id}/user-messages`);
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       return ((await res.json()) as { messages: { id: number; label: string }[] }).messages;
     };
     const second = `second message ${"x".repeat(65)}…`;
     const parentRail = await read(parent.id);
-    assert.deepEqual(parentRail.map(m => m.label), ["first message", second, "parent only"]);
-    assert.deepEqual(parentRail.map(m => m.id), [...parentRail.map(m => m.id)].sort((a, b) => a - b));
-    assert.deepEqual((await read(forked.id)).map(m => m.label), ["first message", second, "Message"]);
-    assert.equal((await app.request("/v1/sessions/999999/user-messages")).status, 404);
+    expect(parentRail.map(m => m.label)).toEqual(["first message", second, "parent only"]);
+    expect(parentRail.map(m => m.id)).toEqual([...parentRail.map(m => m.id)].sort((a, b) => a - b));
+    expect((await read(forked.id)).map(m => m.label)).toEqual(["first message", second, "Message"]);
+    expect((await app.request("/v1/sessions/999999/user-messages")).status).toBe(404);
 
     const plan = conversationStorage(harness).db.query("EXPLAIN QUERY PLAN SELECT id, json_extract(record, '$.kind') AS kind FROM entries WHERE conversation_id = ? AND json_extract(record, '$.kind') NOT IN ('pi.assistant', 'pi.tool-result', 'pi.system')").all(1) as { detail: string }[];
-    assert.ok(plan.some(row => row.detail.includes("COVERING INDEX luna_entries_by_conversation_kind")), JSON.stringify(plan));
+    expect(plan.some(row => row.detail.includes("COVERING INDEX luna_entries_by_conversation_kind"))).toBeTruthy() /* JSON.stringify(plan) */;
   } finally {
     await harness.close(context);
     rmSync(dir, { recursive: true, force: true });

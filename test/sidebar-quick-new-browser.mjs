@@ -1,6 +1,5 @@
 // Real-browser verification for Level 1 sidebar project-row quick new session (Option A).
 // Build web first (`bun run build:web`), then run: `bun test/sidebar-quick-new-browser.mjs`
-import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +12,7 @@ import { SettingsStore } from "../src/settings.ts";
 import { UploadStore } from "../src/uploads.ts";
 import { conversationStorage } from "../src/conversation-storage.ts";
 import { WorkerStore, WorkerHub } from "../src/workers.ts";
+import { expect } from "bun:test";
 
 const { chromium } = createRequire(import.meta.url)(process.env.LUNA_PLAYWRIGHT_PATH || "playwright");
 
@@ -76,7 +76,7 @@ try {
       headers: { "content-type": "application/json", authorization: "Bearer " + fixtureToken },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-    assert.ok(res.ok, `${method} ${path}: ${res.status} ${await res.clone().text()}`);
+    expect(res.ok, `${method} ${path}: ${res.status} ${await res.clone().text()}`).toBeTruthy();
     return res.json();
   }
 
@@ -104,31 +104,31 @@ try {
 
   // Verify semantic HTML: no nested <button> inside <button>
   const nestedButtons = await page.evaluate(() => document.querySelectorAll("#sessions button button").length);
-  assert.equal(nestedButtons, 0, "must not nest buttons inside buttons");
+  expect(nestedButtons, "must not nest buttons inside buttons").toBe(0);
 
   const rowB = page.locator(`#sessions .folder-row[data-project="${projB.id}"]`);
   const quickBtnB = rowB.locator(".folder-quick-new");
   const chevronB = rowB.locator(".folder-chevron");
 
   // Resting desktop state: chevron visible, quick-new hidden
-  assert.equal(await quickBtnB.evaluate(el => getComputedStyle(el).opacity), "0");
-  assert.equal(await chevronB.evaluate(el => getComputedStyle(el).opacity), "1");
+  expect(await quickBtnB.evaluate(el => getComputedStyle(el).opacity)).toBe("0");
+  expect(await chevronB.evaluate(el => getComputedStyle(el).opacity)).toBe("1");
 
   // Hover swaps chevron for + without shifting title width
   const widthBefore = await rowB.locator(".folder-title").evaluate(el => el.getBoundingClientRect().width);
   await rowB.hover();
-  assert.equal(await quickBtnB.evaluate(el => getComputedStyle(el).opacity), "1");
-  assert.equal(await chevronB.evaluate(el => getComputedStyle(el).opacity), "0");
+  expect(await quickBtnB.evaluate(el => getComputedStyle(el).opacity)).toBe("1");
+  expect(await chevronB.evaluate(el => getComputedStyle(el).opacity)).toBe("0");
   const widthAfter = await rowB.locator(".folder-title").evaluate(el => el.getBoundingClientRect().width);
-  assert.equal(widthAfter, widthBefore, "title width must not reflow on hover");
+  expect(widthAfter, "title width must not reflow on hover").toBe(widthBefore);
 
   await page.screenshot({ path: "/.luna/generated/images/sidebar-quick-new-desktop-hover-s318926.png" });
 
   // Offline worker-only project has disabled quick-new button with explanation
   const rowOffline = page.locator(`#sessions .folder-row[data-project="${projOffline.id}"]`);
   const quickOffline = rowOffline.locator(".folder-quick-new");
-  assert.equal(await quickOffline.isDisabled(), true);
-  assert.equal(await quickOffline.getAttribute("title"), "arm-worker is offline");
+  expect(await quickOffline.isDisabled()).toBe(true);
+  expect(await quickOffline.getAttribute("title")).toBe("arm-worker is offline");
 
   // Clicking quick-new on hermes-mobile starts a draft session in hermes-mobile WITHOUT drilling into the folder
   const sessionCreates = [];
@@ -140,34 +140,34 @@ try {
 
   await quickBtnB.click();
   // Level 1 folder list remains visible (no #history-back)
-  assert.equal(await page.locator("#history-back").count(), 0, "sidebar must stay on Level 1 project list");
-  assert.equal(await page.evaluate(() => localStorage.getItem("luna.side.project")), null);
-  assert.equal(await page.locator("#input").evaluate(el => el === document.activeElement), true, "#input must receive focus");
+  expect(await page.locator("#history-back").count(), "sidebar must stay on Level 1 project list").toBe(0);
+  expect(await page.evaluate(() => localStorage.getItem("luna.side.project"))).toBe(null);
+  expect(await page.locator("#input").evaluate(el => el === document.activeElement), "#input must receive focus").toBe(true);
 
   // Send a message to confirm the new session actually binds to hermes-mobile
   await page.locator("#input").fill("hello hermes");
   await page.locator("#input").press("Enter");
   for (let i = 0; i < 50 && sessionCreates.length === 0; i++) await new Promise(r => setTimeout(r, 50));
-  assert.equal(sessionCreates.length, 1);
-  assert.equal(sessionCreates[0].project, projB.id);
+  expect(sessionCreates.length).toBe(1);
+  expect(sessionCreates[0].project).toBe(projB.id);
 
   // Clicking quick-new on Chats ("none") starts an unscoped session without drilling
   const rowNone = page.locator('#sessions .folder-row[data-project="none"]');
   await rowNone.hover();
   await rowNone.locator(".folder-quick-new").click();
-  assert.equal(await page.locator("#history-back").count(), 0, "Chats quick-new must not drill into Chats");
+  expect(await page.locator("#history-back").count(), "Chats quick-new must not drill into Chats").toBe(0);
   await page.locator("#input").fill("hello general chat");
   await page.locator("#input").press("Enter");
   for (let i = 0; i < 50 && sessionCreates.length < 2; i++) await new Promise(r => setTimeout(r, 50));
-  assert.equal(sessionCreates.length, 2);
-  assert.equal(sessionCreates[1].project, undefined);
+  expect(sessionCreates.length).toBe(2);
+  expect(sessionCreates[1].project).toBe(undefined);
 
   // Clicking main .folder-open button still drills into the folder as before
   await rowB.locator(".folder-open").click();
   await page.locator("#history-back").waitFor();
-  assert.equal(await page.evaluate(() => localStorage.getItem("luna.side.project")), String(projB.id));
+  expect(await page.evaluate(() => localStorage.getItem("luna.side.project"))).toBe(String(projB.id));
 
-  assert.deepEqual(errors, [], "no desktop browser errors");
+  expect(errors, "no desktop browser errors").toStrictEqual([]);
   await desktopCtx.close();
 
   // 2. Touch / mobile drawer verification
@@ -193,19 +193,19 @@ try {
   const touchChevronA = touchRowA.locator(".folder-chevron");
 
   // On coarse pointer, quick-new is always visible and chevron is hidden
-  assert.equal(await touchQuickA.evaluate(el => getComputedStyle(el).opacity), "1");
-  assert.equal(await touchChevronA.evaluate(el => getComputedStyle(el).display), "none");
+  expect(await touchQuickA.evaluate(el => getComputedStyle(el).opacity)).toBe("1");
+  expect(await touchChevronA.evaluate(el => getComputedStyle(el).display)).toBe("none");
   const box = await touchQuickA.boundingBox();
-  assert.ok(box && box.width >= 36 && box.height >= 36, `touch target >= 36px (got ${box?.width}x${box?.height})`);
+  expect(box && box.width >= 36 && box.height >= 36, `touch target >= 36px (got ${box?.width}x${box?.height})`).toBeTruthy();
 
   await touchPage.screenshot({ path: "/.luna/generated/images/sidebar-quick-new-mobile-touch-s318926.png" });
 
   // Tapping quick-new closes the mobile drawer without drilling into the folder
   await touchQuickA.tap();
   await touchPage.waitForFunction(() => !document.querySelector("aside#side")?.classList.contains("open"));
-  assert.equal(await touchPage.evaluate(() => localStorage.getItem("luna.side.project")), null);
+  expect(await touchPage.evaluate(() => localStorage.getItem("luna.side.project"))).toBe(null);
 
-  assert.deepEqual(touchErrors, [], "no mobile browser errors");
+  expect(touchErrors, "no mobile browser errors").toStrictEqual([]);
   await touchCtx.close();
 
   console.log("All real-browser checks passed.");

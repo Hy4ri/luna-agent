@@ -1,15 +1,15 @@
 // The browser panel: session-owned tabs, the control lock, the HTTP routes, and the live stream.
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { context, openLuna } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
 import { createApp } from "../src/server.js";
 import { BrowserPanel, LOCK_MESSAGE, parseInput, pngSize, type BrowserWsData } from "../src/browser/panel.js";
 import { createBrowserToolsExtension, type BrowserInput, type BrowserProvider } from "../src/browser-tools.js";
+import { rejectsWith } from "./support/expect-error.js";
 
 const TOKEN = "test-token";
 // 1x1 PNG
@@ -72,7 +72,7 @@ async function setup(extra: Partial<BrowserProvider> = {}) {
 
 async function until(fn: () => boolean, what: string) {
   for (let i = 0; i < 200; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)); }
-  assert.fail(`timed out waiting for ${what}`);
+  expect.unreachable(`timed out waiting for ${what}`);
 }
 function attach(port: number, tab: string, ticket: string, headers: Record<string, string> = {}) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/browser/${tab}/attach?ticket=${ticket}`, { headers } as unknown as string);
@@ -92,15 +92,15 @@ function attach(port: number, tab: string, ticket: string, headers: Record<strin
 const ticket = async (s: Awaited<ReturnType<typeof setup>>, sid: number, tab: string) =>
   ((await (await s.call(`/v1/sessions/${sid}/browser/${tab}/ticket`, { method: "POST" })).json()) as { ticket: string }).ticket;
 
-test("pngSize reads the IHDR chunk", () => { assert.deepEqual(pngSize(PNG), { width: 1, height: 1 }); assert.deepEqual(pngSize(Buffer.from("nope")), { width: 0, height: 0 }); });
+test("pngSize reads the IHDR chunk", () => { expect(pngSize(PNG)).toStrictEqual({ width: 1, height: 1 }); expect(pngSize(Buffer.from("nope"))).toStrictEqual({ width: 0, height: 0 }); });
 
 test("parseInput accepts panel events and rejects the rest", () => {
-  assert.deepEqual(parseInput({ kind: "mouse", type: "down", x: 1, y: 2, button: "left", clickCount: 9 }), { kind: "mouse", type: "down", x: 1, y: 2, button: "left", clickCount: 3 });
-  assert.equal(parseInput({ kind: "mouse", type: "down", x: "1", y: 2 }), undefined);
-  assert.equal(parseInput({ kind: "key", type: "down", key: "" }), undefined);
-  assert.equal(parseInput({ kind: "nav", action: "goto", url: "file:///etc/passwd" }), undefined);
-  assert.deepEqual(parseInput({ kind: "nav", action: "goto", url: "https://x.test/" }), { kind: "nav", action: "goto", url: "https://x.test/" });
-  assert.equal(parseInput({ kind: "eval", code: "1" }), undefined);
+  expect(parseInput({ kind: "mouse", type: "down", x: 1, y: 2, button: "left", clickCount: 9 })).toStrictEqual({ kind: "mouse", type: "down", x: 1, y: 2, button: "left", clickCount: 3 });
+  expect(parseInput({ kind: "mouse", type: "down", x: "1", y: 2 })).toBe(undefined);
+  expect(parseInput({ kind: "key", type: "down", key: "" })).toBe(undefined);
+  expect(parseInput({ kind: "nav", action: "goto", url: "file:///etc/passwd" })).toBe(undefined);
+  expect(parseInput({ kind: "nav", action: "goto", url: "https://x.test/" })).toStrictEqual({ kind: "nav", action: "goto", url: "https://x.test/" });
+  expect(parseInput({ kind: "eval", code: "1" })).toBe(undefined);
 });
 
 test("tabs the tools open belong to the session and drop on close", async () => {
@@ -111,12 +111,12 @@ test("tabs the tools open belong to the session and drop on close", async () => 
   const run = (name: string, args: Record<string, unknown>, conversationId = "7") =>
     (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)(args, { conversationId }, {});
   await run("browser", { action: "open", url: "https://x.test/" });
-  assert.deepEqual(panel.list(7).map(t => [t.tabId, t.owner, t.controller]), [["t1", "agent", "agent"]]);
-  assert.deepEqual(panel.list(8), []);
+  expect(panel.list(7).map(t => [t.tabId, t.owner, t.controller])).toStrictEqual([["t1", "agent", "agent"]]);
+  expect(panel.list(8)).toStrictEqual([]);
   await run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/b" });
-  assert.equal(panel.list(7)[0]!.url, "https://x.test/b");
+  expect(panel.list(7)[0]!.url).toBe("https://x.test/b");
   await run("browser", { action: "close", tabId: "t1" });
-  assert.deepEqual(panel.list(7), []);
+  expect(panel.list(7)).toStrictEqual([]);
 });
 
 test("while m57 holds a tab, Luna's actions on it fail and inspection still works", async () => {
@@ -127,14 +127,14 @@ test("while m57 holds a tab, Luna's actions on it fail and inspection still work
   const run = (name: string, args: Record<string, unknown>) => (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)(args, { conversationId: "7" }, {});
   await run("browser", { action: "open", url: "https://x.test/" });
   panel.control(7, "t1", "take");
-  await assert.rejects(run("browser_act", { action: "click", tabId: "t1", selector: "a" }), new RegExp(LOCK_MESSAGE.slice(0, 20)));
-  await assert.rejects(run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/c" }), /m57 is using this tab/);
-  await assert.rejects(run("browser", { action: "close", tabId: "t1" }), /m57 is using this tab/);
-  assert.deepEqual(calls, ["open"]);
+  await rejectsWith(run("browser_act", { action: "click", tabId: "t1", selector: "a" }), new RegExp(LOCK_MESSAGE.slice(0, 20)));
+  await rejectsWith(run("browser", { action: "navigate", tabId: "t1", url: "https://x.test/c" }), /m57 is using this tab/);
+  await rejectsWith(run("browser", { action: "close", tabId: "t1" }), /m57 is using this tab/);
+  expect(calls).toStrictEqual(["open"]);
   await run("browser", { action: "screenshot", tabId: "t1" });
   panel.control(7, "t1", "give");
   await run("browser_act", { action: "click", tabId: "t1", selector: "a" });
-  assert.deepEqual(calls, ["open", "screenshot", "click"]);
+  expect(calls).toStrictEqual(["open", "screenshot", "click"]);
 });
 
 test("a view-only tab cannot be taken", async () => {
@@ -143,7 +143,7 @@ test("a view-only tab cannot be taken", async () => {
     const sid = await s.session();
     s.panel.opened({ session: sid, worker: null, tabId: "t1", url: "https://x.test/", provider: s.fake.provider });
     const r = await s.call(`/v1/sessions/${sid}/browser/t1/control`, { method: "POST", body: JSON.stringify({ action: "take" }) });
-    assert.equal(r.status, 409);
+    expect(r.status).toBe(409);
   } finally { await s.cleanup(); }
 });
 
@@ -153,14 +153,14 @@ test("list route is scoped to the session and reports when the panel is off", as
     const a = await s.session(), b = await s.session();
     s.panel.opened({ session: a, worker: null, tabId: "t1", url: "https://x.test/", provider: s.fake.provider });
     const listA = (await (await s.call(`/v1/sessions/${a}/browser`)).json()) as { enabled: boolean; tabs: { tabId: string; live: boolean; input: boolean }[] };
-    assert.equal(listA.enabled, true);
-    assert.deepEqual(listA.tabs.map(t => [t.tabId, t.live, t.input]), [["t1", false, false]]);
-    assert.deepEqual(((await (await s.call(`/v1/sessions/${b}/browser`)).json()) as { tabs: unknown[] }).tabs, []);
-    assert.equal((await s.call(`/v1/sessions/${b}/browser/t1/ticket`, { method: "POST" })).status, 404);
+    expect(listA.enabled).toBe(true);
+    expect(listA.tabs.map(t => [t.tabId, t.live, t.input])).toStrictEqual([["t1", false, false]]);
+    expect(((await (await s.call(`/v1/sessions/${b}/browser`)).json()) as { tabs: unknown[] }).tabs).toStrictEqual([]);
+    expect((await s.call(`/v1/sessions/${b}/browser/t1/ticket`, { method: "POST" })).status).toBe(404);
     s.state.enabled = false;
-    assert.deepEqual(await (await s.call(`/v1/sessions/${a}/browser`)).json(), { enabled: false, tabs: [] });
-    assert.equal((await s.call(`/v1/sessions/${a}/browser`, { method: "POST", body: JSON.stringify({ url: "https://x.test/" }) })).status, 403);
-    assert.equal((await s.call("/v1/sessions/999/browser")).status, 404);
+    expect(await (await s.call(`/v1/sessions/${a}/browser`)).json()).toStrictEqual({ enabled: false, tabs: [] });
+    expect((await s.call(`/v1/sessions/${a}/browser`, { method: "POST", body: JSON.stringify({ url: "https://x.test/" }) })).status).toBe(403);
+    expect((await s.call("/v1/sessions/999/browser")).status).toBe(404);
   } finally { await s.cleanup(); }
 });
 
@@ -168,16 +168,16 @@ test("m57 opens, takes, gives and closes a tab from the panel", async () => {
   const s = await setup({ input: async () => undefined });
   try {
     const sid = await s.session();
-    assert.equal((await s.call(`/v1/sessions/${sid}/browser`, { method: "POST", body: JSON.stringify({ url: "file:///etc/passwd" }) })).status, 400);
+    expect((await s.call(`/v1/sessions/${sid}/browser`, { method: "POST", body: JSON.stringify({ url: "file:///etc/passwd" }) })).status).toBe(400);
     const open = await s.call(`/v1/sessions/${sid}/browser`, { method: "POST", body: JSON.stringify({ url: "https://x.test/" }) });
-    assert.equal(open.status, 201);
+    expect(open.status).toBe(201);
     const tab = (await open.json()) as { tabId: string; controller: string; owner: string; input: boolean };
-    assert.deepEqual([tab.controller, tab.owner, tab.input], ["user", "user", true]);
+    expect([tab.controller, tab.owner, tab.input]).toStrictEqual(["user", "user", true]);
     const given = await s.call(`/v1/sessions/${sid}/browser/${tab.tabId}/control`, { method: "POST", body: JSON.stringify({ action: "give" }) });
-    assert.equal(((await given.json()) as { controller: string }).controller, "agent");
-    assert.equal((await s.call(`/v1/sessions/${sid}/browser/${tab.tabId}`, { method: "DELETE" })).status, 200);
-    assert.deepEqual(s.panel.list(sid), []);
-    assert.deepEqual(s.fake.calls, ["open", "close"]);
+    expect(((await given.json()) as { controller: string }).controller).toBe("agent");
+    expect((await s.call(`/v1/sessions/${sid}/browser/${tab.tabId}`, { method: "DELETE" })).status).toBe(200);
+    expect(s.panel.list(sid)).toStrictEqual([]);
+    expect(s.fake.calls).toStrictEqual(["open", "close"]);
   } finally { await s.cleanup(); }
 });
 
@@ -190,11 +190,11 @@ test("a ticket works once, expires, and the origin policy applies", async () => 
     const first = attach(s.port, "t1", t1);
     await first.opened;
     first.ws.close();
-    await assert.rejects(attach(s.port, "t1", t1).opened, /HTTP 401/);
+    await rejectsWith(attach(s.port, "t1", t1).opened, /HTTP 401/);
     const stale = await ticket(s, sid, "t1");
     s.state.now += 31_000;
-    await assert.rejects(attach(s.port, "t1", stale).opened, /HTTP 401/);
-    await assert.rejects(attach(s.port, "t1", await ticket(s, sid, "t1"), { origin: "http://evil.test" }).opened, /HTTP 403/);
+    await rejectsWith(attach(s.port, "t1", stale).opened, /HTTP 401/);
+    await rejectsWith(attach(s.port, "t1", await ticket(s, sid, "t1"), { origin: "http://evil.test" }).opened, /HTTP 403/);
     const ok = attach(s.port, "t1", await ticket(s, sid, "t1"), { origin: "http://allowed.test" });
     await ok.opened;
     ok.ws.close();
@@ -210,12 +210,12 @@ test("without watch, the stream polls screenshots and sends meta then image fram
     await c.opened;
     await until(() => c.got.binary >= 2, "two polled frames");
     const meta = c.got.json.filter(m => m.type === "meta").at(-1)!;
-    assert.deepEqual([meta.width, meta.height, meta.url, meta.controller, meta.input, meta.live], [1, 1, "https://x.test/", "agent", false, false]);
+    expect([meta.width, meta.height, meta.url, meta.controller, meta.input, meta.live]).toStrictEqual([1, 1, "https://x.test/", "agent", false, false]);
     c.ws.close();
     await until(() => s.fake.calls.filter(x => x === "screenshot").length >= 2, "screenshots");
     const seen = s.fake.calls.length;
     await new Promise(r => setTimeout(r, 120));
-    assert.ok(s.fake.calls.length <= seen + 1, "polling stops after the last socket leaves");
+    expect(s.fake.calls.length <= seen + 1, "polling stops after the last socket leaves").toBeTruthy();
   } finally { await s.cleanup(); }
 });
 
@@ -237,11 +237,11 @@ test("with watch, pushed frames reach every socket and the feed stops after the 
     push!(PNG);
     await until(() => a.got.binary >= 1 && b.got.binary >= 1, "frames on both sockets");
     const meta = a.got.json.filter(m => m.type === "meta").at(-1)!;
-    assert.deepEqual([meta.width, meta.height, meta.url, meta.live], [800, 600, "https://x.test/live", true]);
-    assert.ok(!s.fake.calls.includes("screenshot"));
+    expect([meta.width, meta.height, meta.url, meta.live]).toStrictEqual([800, 600, "https://x.test/live", true]);
+    expect(!s.fake.calls.includes("screenshot")).toBeTruthy();
     a.ws.close();
     await new Promise(r => setTimeout(r, 50));
-    assert.equal(aborted, false);
+    expect(aborted).toBe(false);
     b.ws.close();
     await until(() => aborted, "feed stop");
   } finally { await s.cleanup(); }
@@ -258,14 +258,14 @@ test("input reaches the provider only while m57 drives", async () => {
     const click = JSON.stringify({ type: "input", event: { kind: "mouse", type: "down", x: 5, y: 6 } });
     c.ws.send(click);
     await new Promise(r => setTimeout(r, 50));
-    assert.deepEqual(events, [], "dropped while Luna drives");
+    expect(events, "dropped while Luna drives").toStrictEqual([]);
     await s.call(`/v1/sessions/${sid}/browser/t1/control`, { method: "POST", body: JSON.stringify({ action: "take" }) });
     await until(() => c.got.json.some(m => m.type === "meta" && m.controller === "user"), "meta shows m57 driving");
     c.ws.send(click);
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "https://x.test/next" } }));
     c.ws.send(JSON.stringify({ type: "input", event: { kind: "nav", action: "goto", url: "javascript:alert(1)" } }));
     await until(() => events.length === 2, "two events");
-    assert.deepEqual((events as BrowserInput[]).map(e => e.kind), ["mouse", "nav"]);
+    expect((events as BrowserInput[]).map(e => e.kind)).toStrictEqual(["mouse", "nav"]);
     await until(() => c.got.json.some(m => m.type === "meta" && m.url === "https://x.test/next"), "url update");
     c.ws.close();
   } finally { await s.cleanup(); }
@@ -293,10 +293,9 @@ test("browser list shows the session's tabs, including the ones m57 opens and cl
   await run({ action: "open", url: "https://x.test/" });
   const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
-  assert.deepEqual((await run({ action: "list" })).tabs.map((t: { tabId: string; url: string; openedBy: string; driving: string }) => [t.tabId, t.url, t.openedBy, t.driving]),
-    [["t1", "https://x.test/", "Luna", "Luna"], [mine.tabId, "https://m57.test/", "m57", "m57"]]);
+  expect((await run({ action: "list" })).tabs.map((t: { tabId: string; url: string; openedBy: string; driving: string }) => [t.tabId, t.url, t.openedBy, t.driving])).toStrictEqual([["t1", "https://x.test/", "Luna", "Luna"], [mine.tabId, "https://m57.test/", "m57", "m57"]]);
   await panel.close(7, mine.tabId);
-  assert.deepEqual((await run({ action: "list" })).tabs.map((t: { tabId: string }) => t.tabId), ["t1"]);
+  expect((await run({ action: "list" })).tabs.map((t: { tabId: string }) => t.tabId)).toStrictEqual(["t1"]);
 });
 
 test("browser list drops tabs the provider lost, and tells Luna once", async () => {
@@ -313,17 +312,17 @@ test("browser list drops tabs the provider lost, and tells Luna once", async () 
   await run({ action: "open", url: "https://y.test/" });
   alive.clear(); alive.add("t2"); // the browser restarted and only t2 came back, say
   const [list, note] = await run({ action: "list" });
-  assert.deepEqual(JSON.parse(list!).tabs.map((t: { tabId: string }) => t.tabId), ["t2"]);
-  assert.match(note!, /t1 is gone \(the page closed or the browser restarted\)/);
-  assert.equal((await run({ action: "list" })).length, 1, "the notice comes once");
-  assert.equal(panel.get("t1"), undefined);
+  expect(JSON.parse(list!).tabs.map((t: { tabId: string }) => t.tabId)).toStrictEqual(["t2"]);
+  expect(note!).toMatch(/t1 is gone \(the page closed or the browser restarted\)/);
+  expect((await run({ action: "list" })).length, "the notice comes once").toBe(1);
+  expect(panel.get("t1")).toBe(undefined);
 });
 
 test("browser list without the panel says how to turn it on", async () => {
   const { provider } = fakeProvider();
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]));
   const tab = (ext.tools ?? []).find(t => t.name === "browser")!;
-  await assert.rejects((tab.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)({ action: "list" }, { conversationId: "7" }, {}), /browser\.panel/);
+  await rejectsWith((tab.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)({ action: "list" }, { conversationId: "7" }, {}), /browser\.panel/);
 });
 
 test("what m57 does in the panel reaches Luna once, on her next browser call", async () => {
@@ -340,7 +339,7 @@ test("what m57 does in the panel reaches Luna once, on her next browser call", a
   await panel.close(7, mine.tabId);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
   const first = await run("browser", { action: "snapshot", tabId: "t1" });
-  assert.match(first, new RegExp(`m57 opened ${mine.tabId} at https://m57.test/; m57 took over t1; m57 gave t1 back to you; m57 closed ${mine.tabId}`));
-  assert.doesNotMatch(first, /other\.test/);
-  assert.doesNotMatch(await run("browser", { action: "snapshot", tabId: "t1" }), /in the panel/);
+  expect(first).toMatch(new RegExp(`m57 opened ${mine.tabId} at https://m57.test/; m57 took over t1; m57 gave t1 back to you; m57 closed ${mine.tabId}`));
+  expect(first).not.toMatch(/other\.test/);
+  expect(await run("browser", { action: "snapshot", tabId: "t1" })).not.toMatch(/in the panel/);
 });

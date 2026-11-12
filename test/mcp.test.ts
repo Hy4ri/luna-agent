@@ -1,8 +1,7 @@
 // Contract: a stdio MCP server receives a minimal environment plus its own `env`, never the daemon's secrets,
 // and its tools are deferred by default so every model call does not carry every MCP schema.
-import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { afterAll as after, beforeAll as before, test } from "bun:test";
+import { afterAll as after, beforeAll as before, test, expect } from "bun:test";
 import { connectMcpServer, type McpConnection } from "../src/mcp.js";
 
 const SECRETS = { LUNA_TOKEN: "luna-secret", ANTHROPIC_API_KEY: "sk-ant-secret", OPENAI_API_KEY: "sk-secret" };
@@ -24,15 +23,15 @@ after(async () => {
 test("stdio child environment excludes daemon secrets and includes the configured env", async () => {
   const result = await connection.callTool("env", {}, AbortSignal.timeout(10_000)) as { content: { text: string }[] };
   const env = JSON.parse(result.content[0]!.text) as Record<string, string>;
-  for (const key of Object.keys(SECRETS)) assert.equal(env[key], undefined, `${key} leaked to the MCP child`);
-  assert.equal(env.ONLY_MINE, "1");
-  assert.ok(env.PATH, "PATH is part of the minimal environment");
+  for (const key of Object.keys(SECRETS)) expect(env[key]).toBe(undefined) /* `${key} leaked to the MCP child` */;
+  expect(env.ONLY_MINE).toBe("1");
+  expect(env.PATH).toBeTruthy() /* "PATH is part of the minimal environment" */;
 });
 
 test("tools are namespaced by a sanitized server name and deferred by default", () => {
-  assert.deepEqual(connection.toolNames, ["env_test__env"]);
+  expect(connection.toolNames).toEqual(["env_test__env"]);
   const tools = (connection.extension as unknown as { tools: { name: string; deferred?: boolean }[] }).tools;
-  assert.deepEqual(tools.map(t => [t.name, t.deferred]), [["env_test__env", true]]);
+  expect(tools.map(t => [t.name, t.deferred])).toEqual([["env_test__env", true]]);
 });
 
 test("a provider-backend server stays connected but its tools leave the registry, and come back when the provider changes", async () => {
@@ -45,17 +44,17 @@ test("a provider-backend server stays connected but its tools leave the registry
   const server = { name: "ddgs", transport: "stdio" as const, command: process.execPath,
     args: [fileURLToPath(new URL("./support/env-mcp-server.mjs", import.meta.url))] };
   let cfg = parseConfig({ web: { extractProvider: "ddgs" } });
-  assert.deepEqual([...providerBackedServers(cfg)], ["ddgs"]);
+  expect([...providerBackedServers(cfg)]).toEqual(["ddgs"]);
   const mcp = new McpManager(registry, [server], undefined, undefined, () => providerBackedServers(cfg));
   try {
     await mcp.start();
-    assert.equal(mcp.connections.length, 1, "backend server is connected");
-    assert.deepEqual(installed, [], "backend tools are not installed");
-    assert.equal(mcp.list()[0]!.backend, true);
+    expect(mcp.connections.length).toBe(1) /* "backend server is connected" */;
+    expect(installed).toEqual([]) /* "backend tools are not installed" */;
+    expect(mcp.list()[0]!.backend).toBe(true);
     cfg = parseConfig({ web: { searchProvider: "searxng", searchFallbacks: [], extractProvider: "disabled" } });
-    assert.deepEqual([...providerBackedServers(cfg)], []);
+    expect([...providerBackedServers(cfg)]).toEqual([]);
     mcp.syncExposure();
-    assert.deepEqual(installed, ["mcp-ddgs"]);
-    assert.equal(mcp.list()[0]!.backend, false);
+    expect(installed).toEqual(["mcp-ddgs"]);
+    expect(mcp.list()[0]!.backend).toBe(false);
   } finally { await mcp.close(); }
 });

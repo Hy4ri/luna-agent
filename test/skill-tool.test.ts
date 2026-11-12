@@ -1,9 +1,8 @@
 // Contract: one `skill` tool. view loads a skill; delegated children only view and list; old tool names in saved config migrate.
-import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { parseConfig } from "../src/config.js";
 import { createSkillManageExtension, SkillManager } from "../src/skill-manage.js";
 import { createSkillViewer } from "../src/skills.js";
@@ -28,21 +27,21 @@ const setup = (child: boolean) => {
 test("skill view loads instructions and linked files", async () => {
   const { dir, tools, run } = setup(false);
   try {
-    assert.deepEqual(tools.map(t => t.name), ["skill"]);
+    expect(tools.map(t => t.name)).toEqual(["skill"]);
     const loaded = await run({ action: "view", name: "demo" });
-    assert.ok(!loaded.isError); assert.match(loaded.output[0]!.text, /Do the demo[\s\S]*notes\.md/);
-    assert.equal((await run({ action: "view", name: "demo", file_path: "notes.md" })).output[0]!.text, "linked notes");
-    assert.match((await run({ action: "view", name: "demo", file_path: "../x" })).output[0]!.text, /escapes/);
+    expect(!loaded.isError).toBeTruthy(); expect(loaded.output[0]!.text).toMatch(/Do the demo[\s\S]*notes\.md/);
+    expect((await run({ action: "view", name: "demo", file_path: "notes.md" })).output[0]!.text).toBe("linked notes");
+    expect((await run({ action: "view", name: "demo", file_path: "../x" })).output[0]!.text).toMatch(/escapes/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("delegated children can view and list but not change skills", async () => {
   const { dir, run } = setup(true);
   try {
-    assert.ok(!(await run({ action: "view", name: "demo" })).isError);
-    assert.ok(!(await run({ action: "list" })).isError);
+    expect(!(await run({ action: "view", name: "demo" })).isError).toBeTruthy();
+    expect(!(await run({ action: "list" })).isError).toBeTruthy();
     const write = await run({ action: "delete", name: "demo" });
-    assert.equal(write.isError, true); assert.match(write.output[0]!.text, /not available to delegated children/);
+    expect(write.isError).toBe(true); expect(write.output[0]!.text).toMatch(/not available to delegated children/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -53,7 +52,7 @@ test("saved configs with retired tool names load with the merged names", () => {
     disabledTools: ["cron_history", "vision_analyze"],
     subagents: { profiles: { scout: { tools: ["read", "skill_view", "session_status"] } } },
   });
-  assert.deepEqual(c.codemode.pinned, ["bash", "web", "skill", "browser", "browser_act", "process_manage"]);
-  assert.deepEqual(c.disabledTools, ["cron", "media_analyze"]);
-  assert.deepEqual(c.subagents.profiles.scout!.tools, ["read", "skill", "session_status"]);
+  expect(c.codemode.pinned).toEqual(["bash", "web", "skill", "browser", "browser_act", "process_manage"]);
+  expect(c.disabledTools).toEqual(["cron", "media_analyze"]);
+  expect(c.subagents.profiles.scout!.tools).toEqual(["read", "skill", "session_status"]);
 });

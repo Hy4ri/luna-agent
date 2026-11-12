@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai";
 import { openLuna, ProcessOwner } from "../src/luna.js";
@@ -38,16 +37,16 @@ test("prime harness.conversation cache for idle conversation, store.delete(id) m
 
     // Prime harness conversation cache
     const cachedConv = await harness.conversation(id, BACKGROUND_CONTEXT);
-    assert.ok(cachedConv, "conversation should be resolvable after creation");
-    assert.equal(cachedConv.id, id);
+    expect(cachedConv).toBeTruthy() /* "conversation should be resolvable after creation" */;
+    expect(cachedConv!.id).toBe(id);
 
     // Hard delete through store
     const deleted = await store.delete(Number(id));
-    assert.deepEqual(deleted, [Number(id)]);
+    expect(deleted).toEqual([Number(id)]);
 
     // Observable contract: harness.conversation(id) is now absent in existing harness
     const afterDeleteConv = await harness.conversation(id, BACKGROUND_CONTEXT);
-    assert.equal(afterDeleteConv, undefined, "conversation should be absent after deletion");
+    expect(afterDeleteConv).toBe(undefined) /* "conversation should be absent after deletion" */;
 
     // Close harness and reopen from scratch dbPath
     await harness.close(BACKGROUND_CONTEXT);
@@ -60,7 +59,7 @@ test("prime harness.conversation cache for idle conversation, store.delete(id) m
     });
 
     const reopenedConv = await harness.conversation(id, BACKGROUND_CONTEXT);
-    assert.equal(reopenedConv, undefined, "conversation remains absent on reopened harness");
+    expect(reopenedConv).toBe(undefined) /* "conversation remains absent on reopened harness" */;
 
     await harness.close(BACKGROUND_CONTEXT);
   } finally {
@@ -107,25 +106,25 @@ test("overlapping delete(a) and metadata update/append for unrelated b preserves
       }, BACKGROUND_CONTEXT),
     ]);
 
-    assert.deepEqual(deletedA, [idA]);
-    assert.equal(updateBResult.title, "Session B Title");
-    assert.equal(updateBResult.pinned, true);
-    assert.ok(appendBResult);
+    expect(deletedA).toEqual([idA]);
+    expect(updateBResult.title).toBe("Session B Title");
+    expect(updateBResult.pinned).toBe(true);
+    expect(appendBResult).toBeTruthy();
 
     // Verify conversation a is deleted
     const checkA = await harness.conversation(convA.id, BACKGROUND_CONTEXT);
-    assert.equal(checkA, undefined, "conversation a should be absent");
+    expect(checkA).toBe(undefined) /* "conversation a should be absent" */;
 
     // Verify conversation b survives with its title, metadata, and entries intact
     const metaB = store.get(idB);
-    assert.equal(metaB.title, "Session B Title");
-    assert.equal(metaB.pinned, true);
+    expect(metaB.title).toBe("Session B Title");
+    expect(metaB.pinned).toBe(true);
 
     const checkB = await harness.conversation(convB.id, BACKGROUND_CONTEXT);
-    assert.ok(checkB, "conversation b must survive");
+    expect(checkB).toBeTruthy() /* "conversation b must survive" */;
 
-    const entriesPage = await checkB.entries({}, 10, undefined, BACKGROUND_CONTEXT);
-    assert.equal(entriesPage.items.length, 2, "conversation b should have preserved all its entries");
+    const entriesPage = await checkB!.entries({}, 10, undefined, BACKGROUND_CONTEXT);
+    expect(entriesPage.items.length).toBe(2) /* "conversation b should have preserved all its entries" */;
 
     await harness.close(BACKGROUND_CONTEXT);
   } finally {
@@ -158,23 +157,23 @@ test("root delete/recreate does not return old context or ProcessOwner", async (
     }, BACKGROUND_CONTEXT);
 
     const owner1 = await harness.snapshot(ProcessOwner, rootConv1.id, BACKGROUND_CONTEXT);
-    assert.ok(owner1?.token, "root conv 1 must have a ProcessOwner token");
+    expect(owner1?.token).toBeTruthy() /* "root conv 1 must have a ProcessOwner token" */;
 
     // Hard delete root conversation
     const deleted = await store.delete(rootId);
-    assert.deepEqual(deleted, [rootId]);
+    expect(deleted).toEqual([rootId]);
 
     const absentCheck = await harness.conversation(rootConv1.id, BACKGROUND_CONTEXT);
-    assert.equal(absentCheck, undefined, "root conversation should be absent after deletion");
+    expect(absentCheck).toBe(undefined) /* "root conversation should be absent after deletion" */;
 
     // Recreate root conversation
     const rootConv2 = await harness.root(BACKGROUND_CONTEXT);
-    assert.equal(Number(rootConv2.id), rootId, "recreated root should share the root ID");
+    expect(Number(rootConv2.id)).toBe(rootId) /* "recreated root should share the root ID" */;
 
     // ProcessOwner token must be fresh (different from incarnation 1)
     const owner2 = await harness.snapshot(ProcessOwner, rootConv2.id, BACKGROUND_CONTEXT);
-    assert.ok(owner2?.token, "root conv 2 must have a ProcessOwner token");
-    assert.notEqual(owner2.token, owner1.token, "recreated root must not inherit old ProcessOwner token");
+    expect(owner2?.token).toBeTruthy() /* "root conv 2 must have a ProcessOwner token" */;
+    expect(owner2!.token).not.toBe(owner1!.token) /* "recreated root must not inherit old ProcessOwner token" */;
 
     // Recreated root context should only see its new context and not old entries
     const entriesPage = await rootConv2.entries({}, 10, undefined, BACKGROUND_CONTEXT);
@@ -182,7 +181,7 @@ test("root delete/recreate does not return old context or ProcessOwner", async (
     const oldEntries = entriesPage.items.filter(
       entry => entry.kind === "pi.user" && JSON.stringify(entry).includes("root message 1"),
     );
-    assert.equal(oldEntries.length, 0, "old entries from deleted root incarnation must not be visible");
+    expect(oldEntries.length).toBe(0) /* "old entries from deleted root incarnation must not be visible" */;
 
     await harness.close(BACKGROUND_CONTEXT);
   } finally {

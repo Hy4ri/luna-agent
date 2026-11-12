@@ -1,9 +1,8 @@
 // Luna's integration must deliver real sandbox results without widening tool permissions.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { AgentDoc } from "@earendil-works/pi-durable";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -32,10 +31,10 @@ async function runCode(code: string, disabledTools: string[] = [], enabledTools?
       ...(enabledTools ? { init: async (tx, id) => { (await tx.doc(AgentDoc, id)).tools = [...enabledTools]; } } : {}),
     }, context);
     const run = await (await session.submit({ type: "input", content: "execute workflow" }, context)).wait(context);
-    assert.equal(run.status, "done");
+    expect(run.status).toBe("done");
     const entries = (await session.entries({}, 50, undefined, context)).items;
     const results = entries.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult");
-    assert.equal(results.length, 1);
+    expect(results.length).toBe(1);
     return results[0]!;
   } finally {
     await rt?.close();
@@ -47,28 +46,28 @@ const text = (result: Awaited<ReturnType<typeof runCode>>) => result.content.fil
 
 test("Code Mode runs through startRuntime and delivers nested read output and audit", async () => {
   const result = await runCode('const value = await tools.read({ path: "sample.txt" }); text(value);');
-  assert.equal(result.isError, false);
-  assert.match(text(result), /scratch-content/);
-  assert.match(JSON.stringify(result.details), /"name":"read"/);
+  expect(result.isError).toBe(false);
+  expect(text(result)).toMatch(/scratch-content/);
+  expect(JSON.stringify(result.details)).toMatch(/"name":"read"/);
 });
 
 test("disabled tools remain blocked inside Code Mode", async () => {
   const result = await runCode('try { text(await tools.read({ path: "sample.txt" })); } catch (e) { text(e.message); }', ["read"]);
-  assert.match(text(result), /Tool "read" is disabled in settings/);
-  assert.doesNotMatch(text(result), /scratch-content/);
+  expect(text(result)).toMatch(/Tool "read" is disabled in settings/);
+  expect(text(result)).not.toMatch(/scratch-content/);
 });
 
 test("the enabled tool set also limits sandbox tool access", async () => {
   const result = await runCode('try { text(await tools.read({ path: "sample.txt" })); } catch (e) { text("BLOCKED: " + e.message); }', [], ["codemode"]);
-  assert.match(text(result), /BLOCKED:/);
-  assert.doesNotMatch(text(result), /scratch-content/);
+  expect(text(result)).toMatch(/BLOCKED:/);
+  expect(text(result)).not.toMatch(/scratch-content/);
 });
 
 for (const directive of ["", '// @options: {"timeout_ms": 600000}\n']) {
   test(`Luna enforces a deadline when the script ${directive ? "requests a longer one" : "omits one"}`, async () => {
     const result = await runCode(`${directive}while (true) {}`, [], undefined, 100);
-    assert.equal(result.isError, true);
-    assert.match(text(result), /timed out|timeout/i);
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/timed out|timeout/i);
   }, 15000);
 }
 
@@ -77,25 +76,25 @@ test("pinned tools stay in the codemode catalog when cheaper tools fill the budg
   const cheap = Array.from({ length: 20 }, (_, i) => ({ name: `cheap_${i}`, description: "x", parameters: params }));
   const bash = { name: "bash", description: "Run a command. ".repeat(40), parameters: params };
   const section = codemodeCatalog([...cheap, bash], ["bash"], 400)!;
-  assert.match(section, /^### `bash`/m);
-  assert.ok(section.indexOf("### `bash`") < section.indexOf("### `cheap_0`"));
-  assert.match(section, /searchTools\(\)/);
-  assert.doesNotMatch(section, /^Example:/m);
+  expect(section).toMatch(/^### `bash`/m);
+  expect(section.indexOf("### `bash`") < section.indexOf("### `cheap_0`")).toBeTruthy();
+  expect(section).toMatch(/searchTools\(\)/);
+  expect(section).not.toMatch(/^Example:/m);
 });
 
 test("the codemode section shows its example only when the session can call the tools it names", () => {
   const params = { type: "object", properties: {} };
   const tools = ["bash", "read"].map(name => ({ name, description: "x", parameters: params }));
   const section = codemodeCatalog(tools, [], 400)!;
-  assert.match(section, /^Example:\n```js\n/m);
-  assert.match(section, /split\("\\n"\)/);
-  assert.ok(section.indexOf("Example:") < section.indexOf("### `bash`"));
+  expect(section).toMatch(/^Example:\n```js\n/m);
+  expect(section).toMatch(/split\("\\n"\)/);
+  expect(section.indexOf("Example:") < section.indexOf("### `bash`")).toBeTruthy();
 });
 
 test("the codemode tool description states Luna's deadline and omits Pi features Luna does not have", () => {
   const extension = createLunaCodemodeExtension({ sandbox: {} as never, models: false }, 120_000, []);
   const description = extension.tools.find(tool => tool.name === "codemode")!.description;
-  assert.equal(description, codemodeToolDescription(120_000));
-  assert.match(description, /time limit is 120000 ms/);
-  assert.doesNotMatch(description, /namespace|models\./i);
+  expect(description).toBe(codemodeToolDescription(120_000));
+  expect(description).toMatch(/time limit is 120000 ms/);
+  expect(description).not.toMatch(/namespace|models\./i);
 });

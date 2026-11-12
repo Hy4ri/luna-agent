@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { afterEach, describe, test } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -271,16 +270,16 @@ function seedStore(store: AnalyticsStore): void {
 describe("parseAnalyticsFilters", () => {
   test("applies defaults and parses valid repeated filters", () => {
     const defaults = parseAnalyticsFilters(new URLSearchParams());
-    assert.equal(defaults.includeDeleted, true);
-    assert.equal(defaults.compare, false);
-    assert.equal(defaults.page, 0);
-    assert.equal(defaults.limit, 20);
-    assert.equal(defaults.search, "");
-    assert.deepEqual(defaults.project, []);
-    assert.deepEqual(defaults.model, []);
-    assert.deepEqual(defaults.provider, []);
-    assert.deepEqual(defaults.worker, []);
-    assert.deepEqual(defaults.cwd, []);
+    expect(defaults.includeDeleted).toBe(true);
+    expect(defaults.compare).toBe(false);
+    expect(defaults.page).toBe(0);
+    expect(defaults.limit).toBe(20);
+    expect(defaults.search).toBe("");
+    expect(defaults.project).toEqual([]);
+    expect(defaults.model).toEqual([]);
+    expect(defaults.provider).toEqual([]);
+    expect(defaults.worker).toEqual([]);
+    expect(defaults.cwd).toEqual([]);
 
     const params = new URLSearchParams([
       ["from", String(T1)],
@@ -299,19 +298,19 @@ describe("parseAnalyticsFilters", () => {
       ["source", "codemode"],
     ]);
     const parsed = parseAnalyticsFilters(params);
-    assert.equal(parsed.from, T1);
-    assert.equal(parsed.to, T3);
-    assert.deepEqual(parsed.project, [10, 20]);
-    assert.deepEqual(parsed.model, ["anthropic/claude-sonnet"]);
-    assert.deepEqual(parsed.provider, ["anthropic"]);
-    assert.deepEqual(parsed.worker, ["main"]);
-    assert.deepEqual(parsed.cwd, ["/work/alpha"]);
-    assert.equal(parsed.includeDeleted, false);
-    assert.equal(parsed.compare, true);
-    assert.equal(parsed.page, 2);
-    assert.equal(parsed.limit, 50);
-    assert.equal(parsed.search, "alpha");
-    assert.equal(parsed.source, "codemode");
+    expect(parsed.from).toBe(T1);
+    expect(parsed.to).toBe(T3);
+    expect(parsed.project).toEqual([10, 20]);
+    expect(parsed.model).toEqual(["anthropic/claude-sonnet"]);
+    expect(parsed.provider).toEqual(["anthropic"]);
+    expect(parsed.worker).toEqual(["main"]);
+    expect(parsed.cwd).toEqual(["/work/alpha"]);
+    expect(parsed.includeDeleted).toBe(false);
+    expect(parsed.compare).toBe(true);
+    expect(parsed.page).toBe(2);
+    expect(parsed.limit).toBe(50);
+    expect(parsed.search).toBe("alpha");
+    expect(parsed.source).toBe("codemode");
   });
 
   test("rejects malformed epoch, page, limit, project, and source", () => {
@@ -330,7 +329,7 @@ describe("parseAnalyticsFilters", () => {
       "source=invalid",
     ];
     for (const qs of badCases) {
-      assert.throws(() => parseAnalyticsFilters(new URLSearchParams(qs)), Error);
+      expect(() => parseAnalyticsFilters(new URLSearchParams(qs))).toThrow(Error);
     }
   });
 });
@@ -341,42 +340,42 @@ describe("queryAnalytics", () => {
     seedStore(store);
 
     const all = queryAnalytics(store, "sessions", parseAnalyticsFilters(new URLSearchParams()));
-    assert.equal(all.table.total, 2);
-    assert.equal(all.table.rows.find(row => row.id === 2)?.deletedAt, T3);
+    expect(all.table.total).toBe(2);
+    expect(all.table.rows.find(row => row.id === 2)?.deletedAt).toBe(T3);
     const dated = queryAnalytics(store, "sessions", parseAnalyticsFilters(new URLSearchParams(`from=${T1}&to=${T3 + 1}`)));
-    assert.equal(dated.table.rows.find(row => row.id === 2)?.deletedAt, T3);
+    expect(dated.table.rows.find(row => row.id === 2)?.deletedAt).toBe(T3);
 
     const activeOnly = queryAnalytics(
       store,
       "sessions",
       parseAnalyticsFilters(new URLSearchParams("includeDeleted=false")),
     );
-    assert.equal(activeOnly.table.total, 1);
-    assert.equal(activeOnly.table.rows[0]?.id, 1);
+    expect(activeOnly.table.total).toBe(1);
+    expect(activeOnly.table.rows[0]?.id).toBe(1);
 
     const byProject = queryAnalytics(
       store,
       "sessions",
       parseAnalyticsFilters(new URLSearchParams("project=20")),
     );
-    assert.equal(byProject.table.total, 1);
-    assert.equal(byProject.table.rows[0]?.id, 2);
+    expect(byProject.table.total).toBe(1);
+    expect(byProject.table.rows[0]?.id).toBe(2);
 
     const byWorker = queryAnalytics(
       store,
       "sessions",
       parseAnalyticsFilters(new URLSearchParams("worker=worker-1")),
     );
-    assert.equal(byWorker.table.total, 1);
-    assert.equal(byWorker.table.rows[0]?.id, 2);
+    expect(byWorker.table.total).toBe(1);
+    expect(byWorker.table.rows[0]?.id).toBe(2);
 
     const byCwd = queryAnalytics(
       store,
       "sessions",
       parseAnalyticsFilters(new URLSearchParams("cwd=/work/alpha")),
     );
-    assert.equal(byCwd.table.total, 1);
-    assert.equal(byCwd.table.rows[0]?.id, 1);
+    expect(byCwd.table.total).toBe(1);
+    expect(byCwd.table.rows[0]?.id).toBe(1);
 
     // Time window [T1, T2) includes T1 fact (cost 1.0) and excludes T2 (2.0) and T3 (5.0).
     const timeBounded = queryAnalytics(
@@ -384,8 +383,8 @@ describe("queryAnalytics", () => {
       "models",
       parseAnalyticsFilters(new URLSearchParams(`from=${T1}&to=${T2}`)),
     );
-    assert.equal(timeBounded.table.total, 1);
-    assert.equal(timeBounded.table.rows[0]?.id, "anthropic/claude-sonnet");
+    expect(timeBounded.table.total).toBe(1);
+    expect(timeBounded.table.rows[0]?.id).toBe("anthropic/claude-sonnet");
   });
 
   test("scopes model and provider filters at facts without leaking other models in same session", () => {
@@ -397,21 +396,21 @@ describe("queryAnalytics", () => {
       "models",
       parseAnalyticsFilters(new URLSearchParams("model=anthropic/claude-sonnet")),
     );
-    assert.equal(sonnetOnly.table.total, 1);
-    assert.equal(sonnetOnly.table.rows[0]?.id, "anthropic/claude-sonnet");
+    expect(sonnetOnly.table.total).toBe(1);
+    expect(sonnetOnly.table.rows[0]?.id).toBe("anthropic/claude-sonnet");
     // Session 1 also has openai/gpt-4o (cost 2.0, tokens 300), which MUST NOT be included.
-    assert.equal(sonnetOnly.summary.cost, 1.0);
-    assert.equal(sonnetOnly.summary.totalTokens, 150);
+    expect(sonnetOnly.summary.cost).toBe(1.0);
+    expect(sonnetOnly.summary.totalTokens).toBe(150);
 
     const openaiOnly = queryAnalytics(
       store,
       "models",
       parseAnalyticsFilters(new URLSearchParams("provider=openai")),
     );
-    assert.equal(openaiOnly.table.total, 1);
-    assert.equal(openaiOnly.table.rows[0]?.id, "openai/gpt-4o");
+    expect(openaiOnly.table.total).toBe(1);
+    expect(openaiOnly.table.rows[0]?.id).toBe("openai/gpt-4o");
     // Session 1 gpt-4o (2.0) + Session 2 gpt-4o (5.0) = 7.0; excludes Session 1 sonnet (1.0).
-    assert.equal(openaiOnly.summary.cost, 7.0);
+    expect(openaiOnly.summary.cost).toBe(7.0);
   });
 
   test("supports compare mode with finite bounds and disables compare on all-time with note", () => {
@@ -423,15 +422,15 @@ describe("queryAnalytics", () => {
       "overview",
       parseAnalyticsFilters(new URLSearchParams("compare=true")),
     );
-    assert.equal(allTimeCompare.previous, undefined);
-    assert.ok(allTimeCompare.notes.some((n) => /compare/i.test(n)));
+    expect(allTimeCompare.previous).toBe(undefined);
+    expect(allTimeCompare.notes.some((n) => /compare/i.test(n))).toBeTruthy();
 
     const boundedCompare = queryAnalytics(
       store,
       "overview",
       parseAnalyticsFilters(new URLSearchParams(`from=${T2}&to=${T3 + 1}&compare=true`)),
     );
-    assert.ok(boundedCompare.previous !== undefined);
+    expect(boundedCompare.previous !== undefined).toBeTruthy();
   });
 
   test("splits tools by source and includes skill rows in tools tab", () => {
@@ -443,16 +442,16 @@ describe("queryAnalytics", () => {
       "tools",
       parseAnalyticsFilters(new URLSearchParams()),
     );
-    assert.ok(allTools.table.rows.some((r) => r.kind === "tool"));
-    assert.ok(allTools.table.rows.some((r) => r.kind === "skill"));
+    expect(allTools.table.rows.some((r) => r.kind === "tool")).toBeTruthy();
+    expect(allTools.table.rows.some((r) => r.kind === "skill")).toBeTruthy();
 
     const codemodeOnly = queryAnalytics(
       store,
       "tools",
       parseAnalyticsFilters(new URLSearchParams("source=codemode")),
     );
-    assert.equal(codemodeOnly.table.total, 2);
-    assert.ok(codemodeOnly.table.rows.every((r) => r.kind === "tool"));
+    expect(codemodeOnly.table.total).toBe(2);
+    expect(codemodeOnly.table.rows.every((r) => r.kind === "tool")).toBeTruthy();
   });
 
   test("supports search, sort, and pagination", () => {
@@ -464,8 +463,8 @@ describe("queryAnalytics", () => {
       "sessions",
       parseAnalyticsFilters(new URLSearchParams("search=Alpha")),
     );
-    assert.equal(searched.table.total, 1);
-    assert.equal(searched.table.rows[0]?.id, 1);
+    expect(searched.table.total).toBe(1);
+    expect(searched.table.rows[0]?.id).toBe(1);
 
     const page0 = queryAnalytics(
       store,
@@ -477,10 +476,10 @@ describe("queryAnalytics", () => {
       "sessions",
       parseAnalyticsFilters(new URLSearchParams("page=1&limit=1")),
     );
-    assert.equal(page0.table.total, 2);
-    assert.equal(page0.table.rows.length, 1);
-    assert.equal(page1.table.rows.length, 1);
-    assert.notEqual(page0.table.rows[0]?.id, page1.table.rows[0]?.id);
+    expect(page0.table.total).toBe(2);
+    expect(page0.table.rows.length).toBe(1);
+    expect(page1.table.rows.length).toBe(1);
+    expect(page0.table.rows[0]?.id).not.toBe(page1.table.rows[0]?.id);
   });
 });
 
@@ -491,7 +490,7 @@ describe("analyticsFilterOptions, analyticsDetail, analyticsExport", () => {
     seedStore(store);
     store.db.run(`UPDATE analytics_facts SET data = json_set(data, '$.provider', 'openrouter') WHERE model = 'anthropic/claude-sonnet'`);
     store.db.run(`UPDATE analytics_facts SET data = json_remove(data, '$.provider') WHERE model = 'openai/gpt-4o'`);
-    assert.deepEqual(analyticsFilterOptions(store).providers.map((p) => p.value), ["openai", "openrouter"]);
+    expect(analyticsFilterOptions(store).providers.map((p) => p.value)).toEqual(["openai", "openrouter"]);
   });
 
   test("returns filter options and detail drawer sections", () => {
@@ -499,18 +498,18 @@ describe("analyticsFilterOptions, analyticsDetail, analyticsExport", () => {
     seedStore(store);
 
     const options = analyticsFilterOptions(store);
-    assert.ok(options.projects.some((p) => p.value === "10"));
-    assert.ok(options.models.some((m) => m.value === "anthropic/claude-sonnet"));
-    assert.ok(options.providers.some((p) => p.value === "anthropic" && p.label === "anthropic"));
-    assert.ok(options.providers.some((p) => p.value === "openai" && p.label === "openai"));
-    assert.equal(options.providers.length, 2);
-    assert.ok(options.workers.some((w) => w.value === "main"));
-    assert.ok(options.cwds.some((c) => c.value === "/work/alpha"));
+    expect(options.projects.some((p) => p.value === "10")).toBeTruthy();
+    expect(options.models.some((m) => m.value === "anthropic/claude-sonnet")).toBeTruthy();
+    expect(options.providers.some((p) => p.value === "anthropic" && p.label === "anthropic")).toBeTruthy();
+    expect(options.providers.some((p) => p.value === "openai" && p.label === "openai")).toBeTruthy();
+    expect(options.providers.length).toBe(2);
+    expect(options.workers.some((w) => w.value === "main")).toBeTruthy();
+    expect(options.cwds.some((c) => c.value === "/work/alpha")).toBeTruthy();
 
     const filters: AnalyticsFilters = parseAnalyticsFilters(new URLSearchParams());
     const detail = analyticsDetail(store, "sessions", "session", "1", filters);
-    assert.ok(detail !== undefined);
-    assert.ok(detail.sections.length > 0);
+    expect(detail !== undefined).toBeTruthy();
+    expect(detail!.sections.length > 0).toBeTruthy();
   });
 
   test("exports full unpaginated CSV with proper escaping and formula guard", () => {
@@ -521,13 +520,13 @@ describe("analyticsFilterOptions, analyticsDetail, analyticsExport", () => {
     const csv = analyticsExport(store, "sessions", filters, "csv");
     const lines = csv.trim().split("\n");
     // Header + 2 sessions (unpaginated despite limit=1)
-    assert.equal(lines.length, 3);
+    expect(lines.length).toBe(3);
     // Session 2 title '=SUM(A1), "Beta"' must be formula-guarded and CSV-escaped
-    assert.ok(csv.includes(`"'=SUM(A1), ""Beta"""`));
+    expect(csv.includes(`"'=SUM(A1), ""Beta"""`)).toBeTruthy();
 
     const json = analyticsExport(store, "sessions", filters, "json");
     const parsed = JSON.parse(json) as unknown[];
-    assert.equal(parsed.length, 2);
+    expect(parsed.length).toBe(2);
   });
 });
 
@@ -535,17 +534,17 @@ describe("analyticsFilterOptions, analyticsDetail, analyticsExport", () => {
 test("every tab and drawer respects fact scope and tools are not counted twice as skills", () => {
   const store = createTempStore(); seedStore(store);
   const all = parseAnalyticsFilters(new URLSearchParams());
-  assert.equal(queryAnalytics(store, "overview", all).summary.toolCalls, 3);
+  expect(queryAnalytics(store, "overview", all).summary.toolCalls).toBe(3);
   const model = parseAnalyticsFilters(new URLSearchParams("model=anthropic%2Fclaude-sonnet"));
   const sessions = queryAnalytics(store, "sessions", model);
-  assert.equal(sessions.table.rows[0]?.cost, 1);
+  expect(sessions.table.rows[0]?.cost).toBe(1);
   const projects = queryAnalytics(store, "projects", model);
-  assert.equal(projects.table.total, 1);
-  assert.equal(projects.table.rows[0]?.cost, 1);
+  expect(projects.table.total).toBe(1);
+  expect(projects.table.rows[0]?.cost).toBe(1);
   const speed = queryAnalytics(store, "speed", all);
-  assert.equal(speed.table.rows.reduce((n, r) => n + Number(r.count), 0), 3);
+  expect(speed.table.rows.reduce((n, r) => n + Number(r.count), 0)).toBe(3);
   const excluded = parseAnalyticsFilters(new URLSearchParams("project=20"));
-  assert.equal(analyticsDetail(store, "sessions", "session", "1", excluded), undefined);
+  expect(analyticsDetail(store, "sessions", "session", "1", excluded)).toBe(undefined);
 });
 
 describe("memo invalidation, cache isolation, and delegation/xsession scoping", () => {
@@ -555,7 +554,7 @@ describe("memo invalidation, cache isolation, and delegation/xsession scoping", 
 
     const activeFilters = parseAnalyticsFilters(new URLSearchParams("includeDeleted=false"));
     const before = queryAnalytics(store, "sessions", activeFilters);
-    assert.equal(before.table.total, 1);
+    expect(before.table.total).toBe(1);
 
     // Update session 1 via store.apply -> memo must invalidate
     store.apply({
@@ -570,12 +569,12 @@ describe("memo invalidation, cache isolation, and delegation/xsession scoping", 
       facts: [],
     });
     const afterApply = queryAnalytics(store, "sessions", activeFilters);
-    assert.equal(afterApply.table.rows[0]?.title, "Alpha Updated");
+    expect(afterApply.table.rows[0]?.title).toBe("Alpha Updated");
 
     // Mark session 1 deleted -> memo must invalidate and exclude it when includeDeleted=false
     store.markDeleted([1], T3 + 1_000);
     const afterDelete = queryAnalytics(store, "sessions", activeFilters);
-    assert.equal(afterDelete.table.total, 0);
+    expect(afterDelete.table.total).toBe(0);
   });
 
   test("isolates memo cache across date scopes and includeDeleted on the same store", () => {
@@ -592,8 +591,8 @@ describe("memo invalidation, cache isolation, and delegation/xsession scoping", 
       "sessions",
       parseAnalyticsFilters(new URLSearchParams("includeDeleted=false")),
     );
-    assert.equal(withDeleted.table.total, 2);
-    assert.equal(withoutDeleted.table.total, 1);
+    expect(withDeleted.table.total).toBe(2);
+    expect(withoutDeleted.table.total).toBe(1);
 
     const window1 = queryAnalytics(
       store,
@@ -605,8 +604,8 @@ describe("memo invalidation, cache isolation, and delegation/xsession scoping", 
       "models",
       parseAnalyticsFilters(new URLSearchParams(`from=${T2}&to=${T3 + 1}`)),
     );
-    assert.equal(window1.summary.cost, 1.0);
-    assert.equal(window2.summary.cost, 7.0);
+    expect(window1.summary.cost).toBe(1.0);
+    expect(window2.summary.cost).toBe(7.0);
   });
 
   test("filters subtree delegated children and xsession edges without cross-scope leakage", () => {
@@ -667,9 +666,9 @@ describe("memo invalidation, cache isolation, and delegation/xsession scoping", 
       "delegation",
       parseAnalyticsFilters(new URLSearchParams("project=20")),
     );
-    assert.equal(proj10.table.total, 1);
-    assert.equal(proj20.table.total, 1);
-    assert.notEqual(proj10.table.rows[0]?.id, proj20.table.rows[0]?.id);
+    expect(proj10.table.total).toBe(1);
+    expect(proj20.table.total).toBe(1);
+    expect(proj10.table.rows[0]?.id).not.toBe(proj20.table.rows[0]?.id);
   });
 });
 
@@ -730,30 +729,30 @@ describe("tab-specific temporal series and detail drawers", () => {
     // tools: real call counts (3 tool facts + 1 skill fact = 4)
     const toolsRes = queryAnalytics(store, "tools", all);
     const toolsCallsSeries = toolsRes.series.find((s) => /calls/i.test(s.name));
-    assert.ok(toolsCallsSeries !== undefined);
-    const toolsSeriesTotal = toolsCallsSeries.points.reduce((ps, p) => ps + p.y, 0);
-    assert.equal(toolsSeriesTotal, 4);
+    expect(toolsCallsSeries !== undefined).toBeTruthy();
+    const toolsSeriesTotal = toolsCallsSeries!.points.reduce((ps, p) => ps + p.y, 0);
+    expect(toolsSeriesTotal).toBe(4);
 
     // context: compaction count (1 compaction fact)
     const contextRes = queryAnalytics(store, "context", all);
     const compactionSeries = contextRes.series.find((s) => /compaction/i.test(s.name));
-    assert.ok(compactionSeries !== undefined);
-    const contextSeriesTotal = compactionSeries.points.reduce((ps, p) => ps + p.y, 0);
-    assert.equal(contextSeriesTotal, 1);
+    expect(compactionSeries !== undefined).toBeTruthy();
+    const contextSeriesTotal = compactionSeries!.points.reduce((ps, p) => ps + p.y, 0);
+    expect(contextSeriesTotal).toBe(1);
 
     // reliability: response-only errors (seedStore has 1 failed tool, 0 failed responses -> 0)
     const reliabilityRes = queryAnalytics(store, "reliability", all);
     const errorsSeries = reliabilityRes.series.find((s) => /errors/i.test(s.name));
-    assert.ok(errorsSeries !== undefined);
-    const reliabilityErrors = errorsSeries.points.reduce((ps, p) => ps + p.y, 0);
-    assert.equal(reliabilityErrors, 0);
+    expect(errorsSeries !== undefined).toBeTruthy();
+    const reliabilityErrors = errorsSeries!.points.reduce((ps, p) => ps + p.y, 0);
+    expect(reliabilityErrors).toBe(0);
 
     // speed: only measured response durations (excludes null durationMs: (1200 + 800 + 2000) / 3)
     const speedRes = queryAnalytics(store, "speed", all);
     const durationSeries = speedRes.series.find((s) => /duration/i.test(s.name));
-    assert.ok(durationSeries !== undefined);
-    assert.ok(durationSeries.points.every((p) => Number.isFinite(p.y) && p.y > 0));
-    assert.ok(Math.abs(Number(speedRes.summary.avgDurationMs) - 4000 / 3) < 0.01);
+    expect(durationSeries !== undefined).toBeTruthy();
+    expect(durationSeries!.points.every((p) => Number.isFinite(p.y) && p.y > 0)).toBeTruthy();
+    expect(Math.abs(Number(speedRes.summary.avgDurationMs) - 4000 / 3) < 0.01).toBeTruthy();
   });
 
   test("model drawer includes recorded usage with cost components and optional reasoning/cacheWrite1h, and opens for zero-response ledger-only model", () => {
@@ -824,12 +823,12 @@ describe("tab-specific temporal series and detail drawers", () => {
 
     const all = parseAnalyticsFilters(new URLSearchParams());
     const detail = analyticsDetail(store, "models", "model", "custom/ledger-only", all);
-    assert.ok(detail !== undefined);
-    const usageRow = detail.sections
+    expect(detail !== undefined).toBeTruthy();
+    const usageRow = detail!.sections
       .flatMap((s) => s.rows)
       .find((r) => "totalTokens" in r || "cost" in r || "totalCost" in r);
-    assert.ok(usageRow !== undefined);
-    assert.ok("reasoning" in usageRow || "cacheWrite1h" in usageRow);
+    expect(usageRow !== undefined).toBeTruthy();
+    expect("reasoning" in usageRow! || "cacheWrite1h" in usageRow!).toBeTruthy();
   });
 
   test("session detail metadata includes deletedAt and separates latest ledger", () => {
@@ -838,10 +837,10 @@ describe("tab-specific temporal series and detail drawers", () => {
 
     const all = parseAnalyticsFilters(new URLSearchParams());
     const detail = analyticsDetail(store, "sessions", "session", "2", all);
-    assert.ok(detail !== undefined);
-    const allRows = detail.sections.flatMap((s) => s.rows);
+    expect(detail !== undefined).toBeTruthy();
+    const allRows = detail!.sections.flatMap((s) => s.rows);
     const hasDeletedAt = allRows.some((r) => "deletedAt" in r && r.deletedAt === T3);
-    assert.equal(hasDeletedAt, true);
-    assert.ok(detail.sections.length >= 2);
+    expect(hasDeletedAt).toBe(true);
+    expect(detail!.sections.length >= 2).toBeTruthy();
   });
 });

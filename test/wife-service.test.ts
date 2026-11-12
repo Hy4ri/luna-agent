@@ -1,10 +1,9 @@
 // Contract: project detectors find the right sessions, and agreeing to a card changes real state, re-checking the target first.
-import assert from "node:assert/strict";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { openLuna } from "../src/luna.js";
@@ -38,18 +37,18 @@ test("three General sessions in one directory become a new-project card; agreein
   try {
     const ids = [await f.session(), await f.session(), await f.session()];
     f.set(ids.map(id => f.rec(id)));
-    assert.equal(f.wife.scan().filed, 1);
+    expect(f.wife.scan().filed).toBe(1);
     const card = f.store.list("open")[0]!;
-    assert.equal(card.kind, "new_project");
-    assert.equal(card.fingerprint, `new_project:main:${f.app}`);
+    expect(card.kind).toBe("new_project");
+    expect(card.fingerprint).toBe(`new_project:main:${f.app}`);
     const done = await f.wife.agree(card.id);
-    assert.equal(done.status, "done");
+    expect(done.status).toBe("done");
     const project = f.conversations.projects.list().find(p => p.name === "app");
-    assert.equal(project?.cwd, f.app);
-    for (const id of ids) assert.equal(f.conversations.projects.links().get(id), project!.id);
+    expect(project?.cwd).toBe(f.app);
+    for (const id of ids) expect(f.conversations.projects.links().get(id)).toBe(project!.id);
     f.set(ids.map(id => f.rec(id, { projectId: project!.id, projectName: "app" })));
     f.wife.scan();
-    assert.equal(f.store.list("open").length, 0);
+    expect(f.store.list("open").length).toBe(0);
   } finally { await f.close(); }
 });
 
@@ -61,10 +60,10 @@ test("a session whose directory is inside another project gets a move card", asy
     f.set([f.rec(id, { cwd: join(f.app, "src") })]);
     f.wife.scan();
     const card = f.store.list("open")[0]!;
-    assert.equal(card.kind, "move_session");
-    assert.deepEqual(card.payload, { sessionId: id, projectId: project.id });
+    expect(card.kind).toBe("move_session");
+    expect(card.payload).toEqual({ sessionId: id, projectId: project.id });
     await f.wife.agree(card.id);
-    assert.equal(f.conversations.projects.links().get(id), project.id);
+    expect(f.conversations.projects.links().get(id)).toBe(project.id);
   } finally { await f.close(); }
 });
 
@@ -77,26 +76,26 @@ test("deleting needs confirm and a session that is archived and unpinned", async
     f.set([f.rec(id, { archived: true, lastActivity: old })]);
     f.wife.scan();
     const card = f.store.list("open")[0]!;
-    assert.equal(card.kind, "delete_session");
-    await assert.rejects(f.wife.agree(card.id), /confirm/);
-    assert.equal(f.store.get(card.id)!.status, "open");
+    expect(card.kind).toBe("delete_session");
+    await expect(f.wife.agree(card.id)).rejects.toThrow(/confirm/);
+    expect(f.store.get(card.id)!.status).toBe("open");
     await f.conversations.update(id, { pinned: true });
-    await assert.rejects(f.wife.agree(card.id, { confirm: true }), /pinned/);
+    await expect(f.wife.agree(card.id, { confirm: true })).rejects.toThrow(/pinned/);
     await f.conversations.update(id, { pinned: false });
-    assert.equal((await f.wife.agree(card.id, { confirm: true })).status, "done");
+    expect((await f.wife.agree(card.id, { confirm: true })).status).toBe("done");
   } finally { await f.close(); }
 });
 
 test("a feature tip needs heavy use of one tool and none of the other, and agree enables its extension", async () => {
   const { matchTips, DEFAULT_TIPS, TipSchema } = await import("../src/wife/tips.js");
   const heavy = (extra: [string, number][] = []) => () => new Map<string, { calls: number; sessions: number }>([["bash", { calls: 500, sessions: 40 }], ...extra.map(([n, c]) => [n, { calls: c, sessions: 3 }] as [string, { calls: number; sessions: number }])]);
-  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy()).map(c => c.fingerprint), ["feature_tip:codemode", "feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
-  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy([["codemode", 1]])).map(c => c.fingerprint), ["feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
-  assert.deepEqual(matchTips(DEFAULT_TIPS, () => new Map([["bash", { calls: 10, sessions: 2 }]])), []);
-  assert.deepEqual(matchTips(DEFAULT_TIPS, heavy(), n => n === "codemode").map(c => c.fingerprint), ["feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
+  expect(matchTips(DEFAULT_TIPS, heavy()).map(c => c.fingerprint)).toEqual(["feature_tip:codemode", "feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
+  expect(matchTips(DEFAULT_TIPS, heavy([["codemode", 1]])).map(c => c.fingerprint)).toEqual(["feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
+  expect(matchTips(DEFAULT_TIPS, () => new Map([["bash", { calls: 10, sessions: 2 }]]))).toEqual([]);
+  expect(matchTips(DEFAULT_TIPS, heavy(), n => n === "codemode").map(c => c.fingerprint)).toEqual(["feature_tip:background-processes", "feature_tip:subagents", "feature_tip:crew"]);
   const bad = TipSchema.safeParse({ id: "x", title: "t", body: "b", when: { tool: "bash", minCalls: 0 } });
-  assert.equal(bad.success, false);
-  assert.match(JSON.stringify(bad.error!.issues[0]!.path), /minCalls/);
+  expect(bad.success).toBe(false);
+  expect(JSON.stringify(bad.error!.issues[0]!.path)).toMatch(/minCalls/);
 
   const f = await fixture();
   try {
@@ -105,8 +104,8 @@ test("a feature tip needs heavy use of one tool and none of the other, and agree
     const wife = new WifeService({ store: f.store, conversations: f.conversations, analytics: () => ({}) as never, config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }),
       extensions: { enabled: n => enabled.has(n), enable: n => void enabled.add(n) } });
     const done = await wife.agree(card.id);
-    assert.equal(done.status, "done");
-    assert.ok(enabled.has("codemode"));
+    expect(done.status).toBe("done");
+    expect(enabled.has("codemode")).toBeTruthy();
   } finally { await f.close(); }
 });
 
@@ -119,18 +118,18 @@ test("five stale sessions make one batch card; agree acts on the checked ones an
     f.set(ids.map(id => f.rec(id, { lastActivity: old, cwd: null })));
     f.wife.scan();
     const open = f.store.list("open");
-    assert.equal(open.length, 1);
-    assert.deepEqual((open[0]!.payload.sessionIds as number[]), ids);
+    expect(open.length).toBe(1);
+    expect((open[0]!.payload.sessionIds as number[])).toEqual(ids);
     await f.conversations.update(ids[4]!, { pinned: true });
     const done = await f.wife.agree(open[0]!.id, { targets: ids.slice(0, 4) });
-    assert.equal(done.result, "Archived 4.");
-    for (const id of ids.slice(0, 4)) assert.equal(f.conversations.get(id).archived, true);
-    assert.equal(f.conversations.get(ids[4]!).archived, false);
-    assert.ok(f.store.get(done.id)!.undoUntil! > Date.now());
+    expect(done.result).toBe("Archived 4.");
+    for (const id of ids.slice(0, 4)) expect(f.conversations.get(id).archived).toBe(true);
+    expect(f.conversations.get(ids[4]!).archived).toBe(false);
+    expect(f.store.get(done.id)!.undoUntil! > Date.now()).toBeTruthy();
     const back = await f.wife.undo(done.id);
-    assert.equal(back.status, "open");
-    for (const id of ids) assert.equal(f.conversations.get(id).archived, false);
-    await assert.rejects(f.wife.undo(done.id), /cannot be undone/);
+    expect(back.status).toBe("open");
+    for (const id of ids) expect(f.conversations.get(id).archived).toBe(false);
+    await expect(f.wife.undo(done.id)).rejects.toThrow(/cannot be undone/);
   } finally { await f.close(); }
 });
 
@@ -141,10 +140,10 @@ test("undoing a new project moves its sessions back and removes it", async () =>
     f.set(ids.map(id => f.rec(id)));
     f.wife.scan();
     const done = await f.wife.agree(f.store.list("open")[0]!.id);
-    assert.ok(f.conversations.projects.list().some(p => p.name === "app"));
+    expect(f.conversations.projects.list().some(p => p.name === "app")).toBeTruthy();
     await f.wife.undo(done.id);
-    assert.ok(!f.conversations.projects.list().some(p => p.name === "app"));
-    for (const id of ids) assert.equal(f.conversations.projects.links().get(id) ?? 0, 0);
+    expect(!f.conversations.projects.list().some(p => p.name === "app")).toBeTruthy();
+    for (const id of ids) expect(f.conversations.projects.links().get(id) ?? 0).toBe(0);
   } finally { await f.close(); }
 });
 
@@ -156,8 +155,8 @@ test("a delete card has no undo", async () => {
     f.set([f.rec(id, { archived: true, lastActivity: Date.now() - 90 * 86_400_000 })]);
     f.wife.scan();
     const done = await f.wife.agree(f.store.list("open")[0]!.id, { confirm: true });
-    assert.equal(done.undoUntil, null);
-    await assert.rejects(f.wife.undo(done.id), /cannot be undone/);
+    expect(done.undoUntil).toBe(null);
+    await expect(f.wife.undo(done.id)).rejects.toThrow(/cannot be undone/);
   } finally { await f.close(); }
 });
 
@@ -173,14 +172,14 @@ test("an outcome history makes exactly one tune card, agreeing changes the confi
     }
     wife.scan(); wife.scan();
     const open = f.store.list("open");
-    assert.equal(open.length, 1);
-    assert.equal(open[0]!.kind, "tune_rule");
-    assert.deepEqual(open[0]!.payload, { rule: "archive_session", key: "staleDays", from: 14, to: 28 });
+    expect(open.length).toBe(1);
+    expect(open[0]!.kind).toBe("tune_rule");
+    expect(open[0]!.payload).toEqual({ rule: "archive_session", key: "staleDays", from: 14, to: 28 });
     await wife.agree(open[0]!.id);
-    assert.equal(cfg.staleDays, 28);
+    expect(cfg.staleDays).toBe(28);
     wife.scan();
-    assert.equal(f.store.list("open").length, 0);  // the old dismissals no longer count
-    assert.equal(wife.stats().agree30.agrees, 0);
+    expect(f.store.list("open").length).toBe(0);  // the old dismissals no longer count
+    expect(wife.stats().agree30.agrees).toBe(0);
   } finally { await f.close(); }
 });
 
@@ -195,10 +194,10 @@ test("five decisions with no agree make a mute card; three 'don't care' make a k
     }
     wife.scan();
     const kinds = f.store.list("open").map(c => c.kind).sort();
-    assert.deepEqual(kinds, ["mute_kind", "mute_rule"]);
+    expect(kinds).toEqual(["mute_kind", "mute_rule"]);
     for (const c of f.store.list("open")) await wife.agree(c.id);
-    assert.deepEqual(cfg.mutedRules, ["tip:codemode"]);
-    assert.deepEqual(cfg.mutedKinds, ["feature_tip"]);
+    expect(cfg.mutedRules).toEqual(["tip:codemode"]);
+    expect(cfg.mutedKinds).toEqual(["feature_tip"]);
   } finally { await f.close(); }
 });
 
@@ -213,8 +212,8 @@ test("agreeing a failing-cron card disables the job; a stuck board card moves to
     wife.scan();
     const card = f.store.list("open").find(c => c.kind === "cron_failing")!;
     await wife.agree(card.id);
-    assert.equal(enabled, false);
+    expect(enabled).toBe(false);
     wife.scan();
-    assert.equal(f.store.list("open").filter(c => c.kind === "cron_failing").length, 0);
+    expect(f.store.list("open").filter(c => c.kind === "cron_failing").length).toBe(0);
   } finally { await f.close(); }
 });

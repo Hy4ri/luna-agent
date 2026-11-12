@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels } from "@earendil-works/pi-ai";
 import { UsageDoc } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
@@ -47,11 +46,11 @@ test("scanAnalyticsSession preserves UsageDoc per-model ledger including compact
 
     const db = conversationStorage(harness).db;
     const scan = scanAnalyticsSession(db, Number(conv.id));
-    assert.ok(scan);
-    assert.equal(scan.session.usage.totalTokens, 215);
-    assert.equal(scan.session.modelUsage?.["anthropic/claude-sonnet-4"]?.totalTokens, 180);
-    assert.equal(scan.session.modelUsage?.["openai/gpt-4o-mini"]?.totalTokens, 35);
-    assert.equal(JSON.stringify(scan).includes("secret assistant text"), false);
+    expect(scan).toBeTruthy();
+    expect(scan!.session.usage.totalTokens).toBe(215);
+    expect(scan!.session.modelUsage?.["anthropic/claude-sonnet-4"]?.totalTokens).toBe(180);
+    expect(scan!.session.modelUsage?.["openai/gpt-4o-mini"]?.totalTokens).toBe(35);
+    expect(JSON.stringify(scan).includes("secret assistant text")).toBe(false);
   } finally {
     await harness.close(context);
     await rm(dir, { recursive: true, force: true });
@@ -135,23 +134,23 @@ test("scanAnalyticsSession reads direct codemode tool plus 2 nested SQLite tool 
     }
 
     const scan = scanAnalyticsSession(db, cid);
-    assert.ok(scan);
-    const toolFacts = scan.facts.filter(f => f.kind === "tool");
-    assert.equal(toolFacts.length, 3);
-    assert.equal(toolFacts.find(f => f.name === "codemode")?.source, "direct");
+    expect(scan).toBeTruthy();
+    const toolFacts = scan!.facts.filter(f => f.kind === "tool");
+    expect(toolFacts.length).toBe(3);
+    expect(toolFacts.find(f => f.name === "codemode")?.source).toBe("direct");
     const nestedBash = toolFacts.find(f => f.key === "tool:nested:9002");
-    assert.equal(nestedBash?.name, "bash");
-    assert.equal(nestedBash?.source, "codemode");
-    assert.equal(nestedBash?.durationMs, 50);
-    assert.equal(nestedBash?.error, false);
+    expect(nestedBash?.name).toBe("bash");
+    expect(nestedBash?.source).toBe("codemode");
+    expect(nestedBash?.durationMs).toBe(50);
+    expect(nestedBash?.error).toBe(false);
     const nestedSkillTool = toolFacts.find(f => f.key === "tool:nested:9003");
-    assert.equal(nestedSkillTool?.name, "skill");
-    assert.equal(nestedSkillTool?.error, true);
-    const skillFact = scan.facts.find(f => f.key === "skill:nested:9003");
-    assert.equal(skillFact?.name, "git-workflows");
-    assert.equal(skillFact?.data.file_path, "README.md");
-    assert.equal(JSON.stringify(scan).includes("secret nested cmd"), false);
-    assert.equal(JSON.stringify(scan).includes("secret codemode output"), false);
+    expect(nestedSkillTool?.name).toBe("skill");
+    expect(nestedSkillTool?.error).toBe(true);
+    const skillFact = scan!.facts.find(f => f.key === "skill:nested:9003");
+    expect(skillFact?.name).toBe("git-workflows");
+    expect(skillFact?.data.file_path).toBe("README.md");
+    expect(JSON.stringify(scan).includes("secret nested cmd")).toBe(false);
+    expect(JSON.stringify(scan).includes("secret codemode output")).toBe(false);
   } finally {
     await harness.close(context);
     await rm(dir, { recursive: true, force: true });
@@ -203,28 +202,28 @@ test("scanAnalyticsSession links delegated ownerless child and parent outcomes, 
     const db = conversationStorage(harness).db;
 
     const parentScan = scanAnalyticsSession(db, Number(parent.id));
-    assert.ok(parentScan);
-    const modelSwitch = parentScan.facts.find(f => f.kind === "model_switch");
-    assert.ok(modelSwitch);
-    assert.equal(modelSwitch.data.previous, "anthropic/claude-sonnet-4");
-    assert.equal(modelSwitch.data.new, "openai/gpt-4o");
-    assert.equal(modelSwitch.ts, null, "unknown timestamps must remain null");
-    assert.equal(parentScan.facts.find(f => f.kind === "turn" || f.kind === "message")?.ts ?? null, null);
-    assert.equal(JSON.stringify(parentScan).includes("private parent prompt"), false);
+    expect(parentScan).toBeTruthy();
+    const modelSwitch = parentScan!.facts.find(f => f.kind === "model_switch");
+    expect(modelSwitch).toBeTruthy();
+    expect(modelSwitch!.data.previous).toBe("anthropic/claude-sonnet-4");
+    expect(modelSwitch!.data.new).toBe("openai/gpt-4o");
+    expect(modelSwitch!.ts).toBe(null) /* "unknown timestamps must remain null" */;
+    expect(parentScan!.facts.find(f => f.kind === "turn" || f.kind === "message")?.ts ?? null).toBe(null);
+    expect(JSON.stringify(parentScan).includes("private parent prompt")).toBe(false);
 
     const childScan = scanAnalyticsSession(db, Number(child.id));
-    assert.ok(childScan);
-    const delegation = childScan.facts.find(f => f.kind === "delegation");
-    assert.ok(delegation);
-    assert.equal(delegation.data.sourceSessionId, Number(parent.id));
-    assert.equal(delegation.data.targetSessionId, Number(child.id));
+    expect(childScan).toBeTruthy();
+    const delegation = childScan!.facts.find(f => f.kind === "delegation");
+    expect(delegation).toBeTruthy();
+    expect(delegation!.data.sourceSessionId).toBe(Number(parent.id));
+    expect(delegation!.data.targetSessionId).toBe(Number(child.id));
 
     const forkScan = scanAnalyticsSession(db, Number(forked.id));
-    assert.ok(forkScan);
-    assert.equal(forkScan.session.parentId, Number(parent.id));
-    assert.equal(forkScan.session.forkDepth, 1);
-    assert.equal(forkScan.session.userTurns, 1, "fork must count only its own owned entries");
-    assert.equal(JSON.stringify(forkScan).includes("private fork prompt"), false);
+    expect(forkScan).toBeTruthy();
+    expect(forkScan!.session.parentId).toBe(Number(parent.id));
+    expect(forkScan!.session.forkDepth).toBe(1);
+    expect(forkScan!.session.userTurns).toBe(1) /* "fork must count only its own owned entries" */;
+    expect(JSON.stringify(forkScan).includes("private fork prompt")).toBe(false);
   } finally {
     await harness.close(context);
     await rm(dir, { recursive: true, force: true });

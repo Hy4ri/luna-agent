@@ -1,7 +1,6 @@
 // Contract: stock pi-durable sums cost exactly but keeps only the first response's provider flag,
 // so Luna labels every ledger total as an estimate.
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createAssistantMessageEventStream, createModels, createProvider, type AssistantMessage, type Usage } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, MemoryStorage, UsageDoc, type ConversationId } from "@earendil-works/pi-durable";
@@ -46,13 +45,13 @@ async function ledgerAfter(flags: (boolean | undefined)[]) {
 
 test("the stock ledger sums cost exactly but keeps the first response's flag", async () => {
   const mixed = await ledgerAfter([true, false]);
-  assert.equal(mixed.cost.total, 1);
-  assert.equal(mixed.cost.totalFromProvider, true, "stock aggregation does not combine the flag; labels must not trust it");
-  assert.equal(mixed.delegate.costUsd, 1);
-  assert.equal("costReported" in mixed.delegate, false, "the delegation summary makes no provider claim");
+  expect(mixed.cost.total).toBe(1);
+  expect(mixed.cost.totalFromProvider).toBe(true) /* "stock aggregation does not combine the flag; labels must not trust it" */;
+  expect(mixed.delegate.costUsd).toBe(1);
+  expect("costReported" in mixed.delegate).toBe(false) /* "the delegation summary makes no provider claim" */;
   const late = await ledgerAfter([false, true]);
-  assert.equal(late.cost.total, 1);
-  assert.equal(late.cost.totalFromProvider, false);
+  expect(late.cost.total).toBe(1);
+  expect(late.cost.totalFromProvider).toBe(false);
 });
 
 test("/usage labels a ledger total as an estimate, even when its flag says provider-reported", () => {
@@ -60,7 +59,7 @@ test("/usage labels a ledger total as an estimate, even when its flag says provi
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.25, ...(flag === undefined ? {} : { totalFromProvider: flag }) } } }, tools: {} });
   for (const flag of [true, false, undefined]) {
     const notice = usageNotice(model(flag) as never);
-    assert.match(notice, /estimated cost \$0\.2500.*not an invoice/s);
-    assert.doesNotMatch(notice, /provider-reported/);
+    expect(notice).toMatch(/estimated cost \$0\.2500.*not an invoice/s);
+    expect(notice).not.toMatch(/provider-reported/);
   }
 });

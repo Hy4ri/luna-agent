@@ -1,9 +1,8 @@
 // Contract: delegation removes Luna's personal identity, not task policy or forked task history.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, getCurrentSystemPrompt, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import { parseConfig } from "../src/config.js";
@@ -47,20 +46,20 @@ for (const fork of [false, true]) {
         agent: { model: modelRef, instructions: "TASK_POLICY: Never publish without approval." },
       }, context);
       const run = await (await session.submit({ type: "input", content: "PARENT_HISTORY_SENTINEL: Delegate this task." }, context)).wait(context);
-      assert.equal(run.status, "done");
-      assert.equal(childPrompts.length, 2, "child must execute and report through the real delegate tool");
+      expect(run.status).toBe("done");
+      expect(childPrompts.length).toBe(2) /* "child must execute and report through the real delegate tool" */;
       for (const prompt of childPrompts) {
-        assert.doesNotMatch(prompt, /PERSONA_SENTINEL/);
-        assert.match(prompt, /task-focused subagent/);
-        assert.match(prompt, /TASK_POLICY: Never publish without approval/);
-        if (fork) assert.match(prompt, /Implement only the assigned scope/);
+        expect(prompt).not.toMatch(/PERSONA_SENTINEL/);
+        expect(prompt).toMatch(/task-focused subagent/);
+        expect(prompt).toMatch(/TASK_POLICY: Never publish without approval/);
+        if (fork) expect(prompt).toMatch(/Implement only the assigned scope/);
       }
-      assert.ok(parentPrompts.every(prompt => prompt.includes("PERSONA_SENTINEL")), "top-level identity must remain unchanged");
-      assert.equal(childHistories[0]!.includes("PARENT_HISTORY_SENTINEL"), fork, "forked task history is preserved");
+      expect(parentPrompts.every(prompt => prompt.includes("PERSONA_SENTINEL"))).toBeTruthy() /* "top-level identity must remain unchanged" */;
+      expect(childHistories[0]!.includes("PARENT_HISTORY_SENTINEL")).toBe(fork) /* "forked task history is preserved" */;
       const entries = (await session.entries({}, 50, undefined, context)).items;
       const results = entries.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult");
-      assert.match(JSON.stringify(results), /child delivered/);
-      assert.match(JSON.stringify(results), /validated result/);
+      expect(JSON.stringify(results)).toMatch(/child delivered/);
+      expect(JSON.stringify(results)).toMatch(/validated result/);
     } finally {
       await rt?.close();
       rmSync(dir, { recursive: true, force: true });
@@ -92,14 +91,14 @@ test("subagent compaction state covers only the child's model", async () => {
     }), { models, model: modelRef });
     const session = await rt.harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: modelRef } }, context);
     const run = await (await session.submit({ type: "input", content: "Delegate." }, context)).wait(context);
-    assert.equal(run.status, "done");
+    expect(run.status).toBe("done");
     const entries = (await session.entries({}, 50, undefined, context)).items;
     const spawned = JSON.stringify(entries.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult")).match(/spawned child (\S+?)(?:\\| |")/);
-    assert.ok(spawned, "spawn result names the child");
-    const child = await rt.harness.conversation(spawned[1] as never, context);
-    assert.ok(child, "child conversation exists");
-    const overrides = (await child.agent(context)).compaction?.modelOverrides ?? {};
-    assert.deepEqual(Object.keys(overrides), [`${parentModel.provider}/child`]);
+    expect(spawned).toBeTruthy(); /* "spawn result names the child" */
+    const child = await rt.harness.conversation(spawned![1] as never, context);
+    expect(child).toBeTruthy(); /* "child conversation exists" */
+    const overrides = (await child!.agent(context)).compaction?.modelOverrides ?? {};
+    expect(Object.keys(overrides)).toEqual([`${parentModel.provider}/child`]);
   } finally {
     await rt?.close();
     rmSync(dir, { recursive: true, force: true });
