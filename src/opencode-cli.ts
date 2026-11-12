@@ -163,6 +163,8 @@ function startMcp() {
     const server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
+      // Tool calls are held open until Luna finishes running them (can take minutes with no bytes flowing).
+      idleTimeout: 0,
       async fetch(req) {
         try {
           const url = new URL(req.url);
@@ -186,10 +188,14 @@ function startMcp() {
             return { content: [{ type: "text" as const, text: r.text }], isError: r.isError };
           });
           const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-          req.signal.addEventListener("abort", () => { void transport.close(); void mcp.close(); }, { once: true });
+          const close = () => { void transport.close(); void mcp.close(); };
+          req.signal.addEventListener("abort", close, { once: true });
           await mcp.connect(transport);
           const body = req.method === "POST" ? await req.text() : "";
-          return await transport.handleRequest(req, body ? { parsedBody: JSON.parse(body) } : undefined);
+          const response = await transport.handleRequest(req, body ? { parsedBody: JSON.parse(body) } : undefined);
+          if (!response.body) { close(); return response; }
+          const stream = response.body.pipeThrough(new TransformStream({ flush() { close(); } }));
+          return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
         } catch (error) {
           return new Response(String(error), { status: 500 });
         }
