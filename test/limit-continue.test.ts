@@ -37,24 +37,24 @@ test("migrateLimitWaits: valid first legacy wait migrates once at max(resumeAt, 
     await harness.commit(async tx => {
       const legacy = await tx.doc(LimitWaitsDoc);
       legacy.waits[String(sid)] = {
-        boundary: failure.boundary,
+        boundary: failure!.boundary,
         resumeAt,
         nextDeliveryAt,
         attempt: 1,
         exact: true,
-        generation: failure.generation,
-        provider: failure.provider ?? ref.provider,
-        model: failure.model ?? ref.modelId,
+        generation: failure!.generation,
+        provider: failure!.provider ?? ref.provider,
+        model: failure!.model ?? ref.modelId,
         resetSource: "provider_evidence",
         deadline: now + 3600_000,
       };
       legacy.chains = {
         [String(sid)]: {
-          boundary: failure.boundary,
-          generation: failure.generation,
-          provider: failure.provider ?? ref.provider,
-          model: failure.model ?? ref.modelId,
-          requestId: `limit-continue-${sid}-${failure.boundary}-${failure.generation}`,
+          boundary: failure!.boundary,
+          generation: failure!.generation,
+          provider: failure!.provider ?? ref.provider,
+          model: failure!.model ?? ref.modelId,
+          requestId: `limit-continue-${sid}-${failure!.boundary}-${failure!.generation}`,
           attemptsAdmitted: 0,
         },
       };
@@ -67,15 +67,15 @@ test("migrateLimitWaits: valid first legacy wait migrates once at max(resumeAt, 
     const list = await harness.commit(tx => scheduledMessages.list(tx, sid), context);
     const migrated = list.find(s => s.source.kind === "limit_recovery");
     expect(migrated).toBeTruthy() /* "migrated schedule created" */;
-    expect(migrated.dueAt).toBe(nextDeliveryAt) /* "dueAt must be max(resumeAt, nextDeliveryAt) with no added grace" */;
-    expect(migrated.content).toBe("Continue");
-    expect(migrated.status).toBe("scheduled");
-    expect(migrated.source.kind).toBe("limit_recovery");
+    expect(migrated!.dueAt).toBe(nextDeliveryAt) /* "dueAt must be max(resumeAt, nextDeliveryAt) with no added grace" */;
+    expect(migrated!.content).toBe("Continue");
+    expect(migrated!.status).toBe("scheduled");
+    expect(migrated!.source.kind).toBe("limit_recovery");
 
     // Verify recovery state recorded
     const state = await harness.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(RecoveryStateDoc))), context);
     expect(state.legacyMigrated).toBe(true);
-    const attempt = state.attempts[`${sid}:${failure.boundary}`];
+    const attempt = state.attempts[`${sid}:${failure!.boundary}`];
     expect(attempt).toBeTruthy();
     expect(attempt.status).toBe("scheduled");
 

@@ -156,7 +156,7 @@ test("cron report HTTP pagination validates cursors and read-all covers unloaded
     expect(page.reports.every(run => run.status === "error")).toBeTruthy();
     const second = await app.request(`/v1/cron/reports?order=attention&limit=20&cursor=${encodeURIComponent(page.nextCursor)}`);
     const rest = await second.json() as typeof page;
-    expect(rest.reports.length).toBe(3); expect(rest.nextCursor).toBe(null);
+    expect(rest.reports.length).toBe(3); expect<string | null>(rest.nextCursor).toBe(null);
     expect(new Set([...page.reports, ...rest.reports].map(run => run.id)).size).toBe(23);
     for (const query of ["order=unknown", "order=attention&history=1", "cursor=0:1", "order=attention&before=1",
       "order=attention&cursor=2:1", "order=attention&cursor=0:0", "order=attention&cursor=0:9007199254740992",

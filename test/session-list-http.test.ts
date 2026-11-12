@@ -127,10 +127,10 @@ test("opt-in GET /v1/sessions pagination protocol: legacy compatibility, bounded
       expect(groups.none).toBeTruthy() /* "General group summary exists" */;
       const alphaSummary = groups[String(projId)];
       expect(alphaSummary).toBeTruthy() /* "Alpha project group summary exists" */;
-      expect(groups.none.count).toBe(3) /* "s1, s2, s5 in General" */;
-      expect(groups.none.machines).toEqual({ main: 2, "99": 1 });
-      expect(alphaSummary.count).toBe(1) /* "s4 in Alpha (s3 is archived)" */;
-      expect(alphaSummary.machines).toEqual({ "42": 1 });
+      expect(groups.none!.count).toBe(3) /* "s1, s2, s5 in General" */;
+      expect(groups.none!.machines).toEqual({ main: 2, "99": 1 });
+      expect(alphaSummary!.count).toBe(1) /* "s4 in Alpha (s3 is archived)" */;
+      expect(alphaSummary!.machines).toEqual({ "42": 1 });
       expect(groups).toEqual({
         none: { count: 3, lastActivity: 300, activity: 300, statuses: { ready: 3 }, machines: { main: 2, "99": 1 } },
         [projId]: { count: 1, lastActivity: 300, activity: 400, statuses: { ready: 1 }, machines: { "42": 1 } },

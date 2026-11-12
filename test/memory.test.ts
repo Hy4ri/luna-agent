@@ -76,7 +76,7 @@ test("compact folds the oldest notes into a bounded digest and keeps newer ones"
   const text = m.render()!;
   expect(text).toMatch(/Older notes \(digest\):/);
   const recent = text.slice(text.indexOf("Recent notes:"));
-  expect(recent.match(/^- \[#/gm)?.length, 8, "maxNotes live notes remain");
+  expect(recent.match(/^- \[#/gm)?.length).toBe(8); /* "maxNotes live notes remain" */
   expect(recent).toMatch(/n19 /);
   const digest = text.slice(text.indexOf("Older notes"), text.indexOf("Recent notes:"));
   expect(digest.length <= 1000 / 2 + "Older notes (digest):\n".length).toBeTruthy(); /* `${digest.length}` */

@@ -116,7 +116,7 @@ test("session creation requestId idempotency, lookup, deletion persistence, and 
       // Session record: verify no ownership/source relationship (ownerless)
       const convRecord = await harness.commit((tx) => tx.conversation(s1Id as never), context);
       expect(convRecord).toBeTruthy() /* "session record exists" */;
-      expect(convRecord.owner).toBe(undefined) /* "session must have no owner task / source ownership" */;
+      expect(convRecord!.owner).toBe(undefined) /* "session must have no owner task / source ownership" */;
 
       // Verify exact settings and project linkage
       const sessionDetail = await app.request(`/v1/sessions/${s1Id}`);

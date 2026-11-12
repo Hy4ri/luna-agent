@@ -171,12 +171,12 @@ test("scheduled messages survive restart, deliver overdue once in dueAt order, a
     const conv = await h2.conversation(convId! as ConversationId, context);
     expect(conv).toBeTruthy();
     await until(async () => {
-      const entries = await conv.entries({}, 20, undefined, context);
+      const entries = await conv!.entries({}, 20, undefined, context);
       const inputs = entries.items.filter(e => e.kind === "luna.scheduled-message");
       return inputs.length === 2 ? inputs : undefined;
     }, "both scheduled messages delivered");
 
-    const entries = await conv.entries({}, 20, undefined, context);
+    const entries = await conv!.entries({}, 20, undefined, context);
     const inputs = entries.items.filter(e => e.kind === "luna.scheduled-message").reverse();
     expect(inputs.length).toBe(2);
     expect(inputs.map(e => (e.model?.[0] as { content?: string })?.content)).toEqual(["first", "second"]);
@@ -539,7 +539,7 @@ test("deterministic reset evidence lower bound and unknown structured window pro
     // Lower bound preserved: evidence is now + 30s, grace is 60s -> dueAt >= now + 90s
     expect(sched.dueAt >= now + 90_000).toBeTruthy() /* `dueAt ${sched.dueAt} should be >= ${now + 90_000}` */;
     expect(sched.source.kind).toBe("limit_recovery");
-    expect(sched.source.exact).toBe(false) /* "exact must be false because requests window has resetAt null" */;
+    expect((sched.source as { exact?: boolean }).exact).toBe(false) /* "exact must be false because requests window has resetAt null" */;
   } finally {
     await recovery.close();
     await scheduledMessages.close();
@@ -757,8 +757,8 @@ test("shared provider evidence floor postpones same-route schedule without seria
 
     expect(sched1Updated.dueAt).toBe(now + 120_000 + 60_000);
     expect(sched1Updated.source.kind === "limit_recovery").toBeTruthy();
-    expect(sched1Updated.source.resetSource).toBe("shared_provider_evidence");
-    expect(sched1Updated.source.exact).toBe(false);
+    expect((sched1Updated.source as { resetSource?: string }).resetSource).toBe("shared_provider_evidence");
+    expect((sched1Updated.source as { exact?: boolean }).exact).toBe(false);
   } finally {
     await recovery.close();
     await scheduledMessages.close();
@@ -789,8 +789,8 @@ test("recovery startup does not wait for a parser or revive unclaimed historical
     await h1.commit(async tx => {
       const failure = await readTurnFailure(tx, claimed.id);
       expect(failure).toBeTruthy();
-      (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(claimedId, failure.boundary)] = {
-        conversationId: claimedId, boundary: failure.boundary, generation: failure.generation,
+      (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(claimedId, failure!.boundary)] = {
+        conversationId: claimedId, boundary: failure!.boundary, generation: failure!.generation,
         provider: ref.provider, model: ref.modelId, status: "parsing", evidenceAt: Date.now() + 120_000, exact: true,
       };
     }, context);
@@ -820,8 +820,8 @@ test("recovery startup does not wait for a parser or revive unclaimed historical
     const restored = await harness.commit(tx => scheduledMessages.list(tx, claimedId), context);
     expect(restored.length).toBe(1) /* "a persisted interrupted claim still restores using captured evidence" */;
     expect(restored[0]).toBeTruthy();
-    expect(restored[0].status).toBe("scheduled");
-    expect(restored[0].content).toBe("Continue");
+    expect(restored[0]!.status).toBe("scheduled");
+    expect(restored[0]!.content).toBe("Continue");
   } finally {
     await recovery.close(); await starting;
     await scheduledMessages.close(); await harness.close(context);

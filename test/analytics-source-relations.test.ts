@@ -47,9 +47,9 @@ test("scanAnalyticsSession preserves UsageDoc per-model ledger including compact
     const db = conversationStorage(harness).db;
     const scan = scanAnalyticsSession(db, Number(conv.id));
     expect(scan).toBeTruthy();
-    expect(scan.session.usage.totalTokens).toBe(215);
-    expect(scan.session.modelUsage?.["anthropic/claude-sonnet-4"]?.totalTokens).toBe(180);
-    expect(scan.session.modelUsage?.["openai/gpt-4o-mini"]?.totalTokens).toBe(35);
+    expect(scan!.session.usage.totalTokens).toBe(215);
+    expect(scan!.session.modelUsage?.["anthropic/claude-sonnet-4"]?.totalTokens).toBe(180);
+    expect(scan!.session.modelUsage?.["openai/gpt-4o-mini"]?.totalTokens).toBe(35);
     expect(JSON.stringify(scan).includes("secret assistant text")).toBe(false);
   } finally {
     await harness.close(context);
@@ -135,7 +135,7 @@ test("scanAnalyticsSession reads direct codemode tool plus 2 nested SQLite tool 
 
     const scan = scanAnalyticsSession(db, cid);
     expect(scan).toBeTruthy();
-    const toolFacts = scan.facts.filter(f => f.kind === "tool");
+    const toolFacts = scan!.facts.filter(f => f.kind === "tool");
     expect(toolFacts.length).toBe(3);
     expect(toolFacts.find(f => f.name === "codemode")?.source).toBe("direct");
     const nestedBash = toolFacts.find(f => f.key === "tool:nested:9002");
@@ -146,7 +146,7 @@ test("scanAnalyticsSession reads direct codemode tool plus 2 nested SQLite tool 
     const nestedSkillTool = toolFacts.find(f => f.key === "tool:nested:9003");
     expect(nestedSkillTool?.name).toBe("skill");
     expect(nestedSkillTool?.error).toBe(true);
-    const skillFact = scan.facts.find(f => f.key === "skill:nested:9003");
+    const skillFact = scan!.facts.find(f => f.key === "skill:nested:9003");
     expect(skillFact?.name).toBe("git-workflows");
     expect(skillFact?.data.file_path).toBe("README.md");
     expect(JSON.stringify(scan).includes("secret nested cmd")).toBe(false);
@@ -203,26 +203,26 @@ test("scanAnalyticsSession links delegated ownerless child and parent outcomes, 
 
     const parentScan = scanAnalyticsSession(db, Number(parent.id));
     expect(parentScan).toBeTruthy();
-    const modelSwitch = parentScan.facts.find(f => f.kind === "model_switch");
+    const modelSwitch = parentScan!.facts.find(f => f.kind === "model_switch");
     expect(modelSwitch).toBeTruthy();
-    expect(modelSwitch.data.previous).toBe("anthropic/claude-sonnet-4");
-    expect(modelSwitch.data.new).toBe("openai/gpt-4o");
-    expect(modelSwitch.ts).toBe(null) /* "unknown timestamps must remain null" */;
-    expect(parentScan.facts.find(f => f.kind === "turn" || f.kind === "message")?.ts ?? null).toBe(null);
+    expect(modelSwitch!.data.previous).toBe("anthropic/claude-sonnet-4");
+    expect(modelSwitch!.data.new).toBe("openai/gpt-4o");
+    expect(modelSwitch!.ts).toBe(null) /* "unknown timestamps must remain null" */;
+    expect(parentScan!.facts.find(f => f.kind === "turn" || f.kind === "message")?.ts ?? null).toBe(null);
     expect(JSON.stringify(parentScan).includes("private parent prompt")).toBe(false);
 
     const childScan = scanAnalyticsSession(db, Number(child.id));
     expect(childScan).toBeTruthy();
-    const delegation = childScan.facts.find(f => f.kind === "delegation");
+    const delegation = childScan!.facts.find(f => f.kind === "delegation");
     expect(delegation).toBeTruthy();
-    expect(delegation.data.sourceSessionId).toBe(Number(parent.id));
-    expect(delegation.data.targetSessionId).toBe(Number(child.id));
+    expect(delegation!.data.sourceSessionId).toBe(Number(parent.id));
+    expect(delegation!.data.targetSessionId).toBe(Number(child.id));
 
     const forkScan = scanAnalyticsSession(db, Number(forked.id));
     expect(forkScan).toBeTruthy();
-    expect(forkScan.session.parentId).toBe(Number(parent.id));
-    expect(forkScan.session.forkDepth).toBe(1);
-    expect(forkScan.session.userTurns).toBe(1) /* "fork must count only its own owned entries" */;
+    expect(forkScan!.session.parentId).toBe(Number(parent.id));
+    expect(forkScan!.session.forkDepth).toBe(1);
+    expect(forkScan!.session.userTurns).toBe(1) /* "fork must count only its own owned entries" */;
     expect(JSON.stringify(forkScan).includes("private fork prompt")).toBe(false);
   } finally {
     await harness.close(context);

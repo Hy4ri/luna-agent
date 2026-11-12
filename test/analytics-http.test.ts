@@ -208,9 +208,9 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
       };
       const rowA = delQueryData.table.rows.find((r) => String(r.id) === String(idA));
       expect(rowA).toBeTruthy() /* "Deleted session A must be present when includeDeleted=true" */;
-      expect(rowA.title).toBe("Session A Analytics");
-      expect(rowA.deletedAt !== null).toBeTruthy() /* "deletedAt should be set on tombstoned session" */;
-      expect(rowA.totalTokens > 0).toBeTruthy() /* "Usage metrics must remain intact after deletion" */;
+      expect(rowA!.title).toBe("Session A Analytics");
+      expect(rowA!.deletedAt !== null).toBeTruthy() /* "deletedAt should be set on tombstoned session" */;
+      expect(rowA!.totalTokens > 0).toBeTruthy() /* "Usage metrics must remain intact after deletion" */;
 
       // Query with includeDeleted=false
       const activeOnlyRes = await app.request("/v1/analytics/v2/sessions?includeDeleted=false");
@@ -229,7 +229,7 @@ test("analytics HTTP contracts: legacy routes, v2 tabs, filters, sorting validat
       expect(sseRes.status).toBe(200);
       expect(sseRes.body).toBeTruthy() /* "SSE response stream must be present" */;
 
-      const reader = sseRes.body.getReader();
+      const reader = sseRes.body!.getReader();
       const decoder = new TextDecoder();
 
       let buffer = "";

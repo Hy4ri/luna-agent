@@ -29,9 +29,9 @@ test("analytics flushes the dirty tail under deletion's maintenance barrier and 
     await f.conversations.delete(Number(conv.id));
     const saved = f.analytics.store.getSession(Number(conv.id));
     expect(saved?.deletedAt).toBeTruthy();
-    expect(saved.title).toBe("Saved title");
-    expect(saved.userTurns).toBe(2);
-    expect(saved.lastActivity).toBe(2000);
+    expect(saved!.title).toBe("Saved title");
+    expect(saved!.userTurns).toBe(2);
+    expect(saved!.lastActivity).toBe(2000);
     expect(conversationStorage(f.harness).db.query("SELECT 1 FROM conversations WHERE id=?").get(Number(conv.id))).toBe(null);
     f.analytics.close();
     const restarted = new AnalyticsService(f.harness, f.conversations);

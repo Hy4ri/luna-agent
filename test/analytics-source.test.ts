@@ -21,23 +21,23 @@ test("analytics source parses owned entries only, then only the appended tail", 
     const db = conversationStorage(harness).db;
     const first = scanAnalyticsSession(db, Number(conv.id));
     expect(first).toBeTruthy();
-    expect(first.session.userTurns).toBe(1);
-    expect(first.entriesScanned).toBe(1);
-    expect(first.session.lastEntryId).toBe(Number(firstEntry.id));
+    expect(first!.session.userTurns).toBe(1);
+    expect(first!.entriesScanned).toBe(1);
+    expect(first!.session.lastEntryId).toBe(Number(firstEntry.id));
     expect(JSON.stringify(first).includes("private message not to be stored")).toBe(false);
-    const unchanged = scanAnalyticsSession(db, Number(conv.id), first.session);
+    const unchanged = scanAnalyticsSession(db, Number(conv.id), first!.session);
     expect(unchanged).toBeTruthy();
-    expect(unchanged.entriesScanned).toBe(0);
-    expect(unchanged.session.userTurns).toBe(1);
+    expect(unchanged!.entriesScanned).toBe(0);
+    expect(unchanged!.session.userTurns).toBe(1);
     await harness.commit(tx => tx.appendEntry(conv.id, {
       kind: "pi.user", model: [{ role: "user", content: "new message", timestamp: 2000 }],
     }), context);
-    const next = scanAnalyticsSession(db, Number(conv.id), first.session);
+    const next = scanAnalyticsSession(db, Number(conv.id), first!.session);
     expect(next).toBeTruthy();
-    expect(next.entriesScanned).toBe(1);
-    expect(next.session.userTurns).toBe(2);
-    expect(next.session.lastActivity).toBe(2000);
-    expect(next.rebuild).toBe(false);
+    expect(next!.entriesScanned).toBe(1);
+    expect(next!.session.userTurns).toBe(2);
+    expect(next!.session.lastActivity).toBe(2000);
+    expect(next!.rebuild).toBe(false);
     expect(scanAnalyticsSession(db, 999999999)).toBe(undefined);
   } finally {
     await harness.close(context);
@@ -65,8 +65,8 @@ test("analytics source excludes deleted luna.todo tombstones from workflow todo 
     const db = conversationStorage(harness).db;
     const scan = scanAnalyticsSession(db, Number(conv.id));
     expect(scan).toBeTruthy();
-    expect(scan.session.workflow.todos).toBe(1);
-    expect(scan.session.workflow.completedTodos).toBe(1);
+    expect(scan!.session.workflow.todos).toBe(1);
+    expect(scan!.session.workflow.completedTodos).toBe(1);
 
     await harness.commit(async (tx) => {
       const doc = await tx.doc(TodoDoc, conv.id);
@@ -76,10 +76,10 @@ test("analytics source excludes deleted luna.todo tombstones from workflow todo 
       doc.nextId = state.nextId;
     }, context);
 
-    const updated = scanAnalyticsSession(db, Number(conv.id), scan.session);
+    const updated = scanAnalyticsSession(db, Number(conv.id), scan!.session);
     expect(updated).toBeTruthy();
-    expect(updated.session.workflow.todos).toBe(2);
-    expect(updated.session.workflow.completedTodos).toBe(1);
+    expect(updated!.session.workflow.todos).toBe(2);
+    expect(updated!.session.workflow.completedTodos).toBe(1);
   } finally {
     await harness.close(context);
     await rm(dir, { recursive: true, force: true });

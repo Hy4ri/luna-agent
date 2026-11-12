@@ -77,10 +77,10 @@ test("quota failure uses selected request identity, and a current handoff takes 
   try {
     const failure = await session.commit(tx => readTurnFailure(tx, id), context);
     expect(failure).toBeTruthy();
-    expect(failure.generation).toBe(task);
-    expect(failure.provider).toBe("selected-provider");
-    expect(failure.model).toBe("selected-model");
-    expect(failure.limit?.kind).toBe("wait");
+    expect(failure!.generation).toBe(task);
+    expect(failure!.provider).toBe("selected-provider");
+    expect(failure!.model).toBe("selected-model");
+    expect(failure!.limit?.kind).toBe("wait");
     expect((await session.commit(tx => readSessionStatus(tx, id, false), context)).status).toBe("limit_reached");
     await session.commit(async tx => {
       (await tx.doc(SessionHandoffDoc, id)).handoff = { status: "needs_approval", reason: "Confirm the next action", boundary: user };

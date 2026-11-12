@@ -26,9 +26,9 @@ test("source reads measured message durations and settles a tool across incremen
     const next = scanAnalyticsSession(db, Number(conv.id), first.session)!;
     const tool = next.facts.find(f => f.kind === "tool");
     expect(tool).toBeTruthy() /* "a late tool result must update the stored tool fact" */;
-    expect(tool.durationMs).toBe(43) /* "never subtract timestamps to invent tool execution duration" */;
-    expect(tool.error).toBe(true);
-    expect(tool.model).toBe("test/model");
+    expect(tool!.durationMs).toBe(43) /* "never subtract timestamps to invent tool execution duration" */;
+    expect(tool!.error).toBe(true);
+    expect(tool!.model).toBe("test/model");
     expect(JSON.stringify(next).includes("private output")).toBe(false);
     expect(JSON.stringify(next).includes("private args")).toBe(false);
   } finally { await harness.close(context); await rm(dir, { recursive: true, force: true }); }

@@ -95,9 +95,9 @@ test("subagent compaction state covers only the child's model", async () => {
     const entries = (await session.entries({}, 50, undefined, context)).items;
     const spawned = JSON.stringify(entries.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult")).match(/spawned child (\S+?)(?:\\| |")/);
     expect(spawned).toBeTruthy(); /* "spawn result names the child" */
-    const child = await rt.harness.conversation(spawned[1] as never, context);
+    const child = await rt.harness.conversation(spawned![1] as never, context);
     expect(child).toBeTruthy(); /* "child conversation exists" */
-    const overrides = (await child.agent(context)).compaction?.modelOverrides ?? {};
+    const overrides = (await child!.agent(context)).compaction?.modelOverrides ?? {};
     expect(Object.keys(overrides)).toEqual([`${parentModel.provider}/child`]);
   } finally {
     await rt?.close();

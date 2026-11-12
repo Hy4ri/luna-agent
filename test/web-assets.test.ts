@@ -71,9 +71,9 @@ test("offline shell canonicalizes pane URLs and keeps both frame restrictions co
     let result: Promise<Response> | undefined;
     handlers.get("fetch")!({ request: new Request("https://luna.test" + path), waitUntil: () => {}, respondWith: value => { result = value; } });
     expect(result).toBeTruthy(); const response = await result;
-    expect(await response.text()).toBe("installed shell"); expect(response.headers.get("x-frame-options")).toBe(frame);
-    expect(response.headers.get("content-security-policy")).toBe(policy);
-    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response!.text()).toBe("installed shell"); expect<string | null | undefined>(response!.headers.get("x-frame-options")).toBe(frame);
+    expect<string | null | undefined>(response!.headers.get("content-security-policy")).toBe(policy);
+    expect(response!.headers.get("x-content-type-options")).toBe("nosniff");
   }
   expect(reads).toEqual(["/", "/"]);
   for (const request of [new Request("https://luna.test/v1/sessions"), new Request("https://other.test/"), new Request("https://luna.test/", { method: "POST" })]) {

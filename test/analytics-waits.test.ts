@@ -221,8 +221,8 @@ describe("analytics waits", () => {
       store.apply(histScan);
       const histWait = histScan.facts.find((f) => f.key === `wait:${conv.id}:hist-1`);
       expect(histWait).toBeTruthy();
-      expect(histWait.kind).toBe("wait");
-      expect(histWait.durationMs).toBe(null);
+      expect(histWait!.kind).toBe("wait");
+      expect(histWait!.durationMs).toBe(null);
 
       // 2) Measured metadata wait: first open (endedAt: null -> durationMs: null), then closed (endedAt: 2500 -> durationMs: 1500)
       await harness.commit(async (tx) => {

@@ -107,9 +107,9 @@ test("recovery compaction retains latest entitlement and older future structured
       await (await conv.submit({ type: "input", content: `work ${i}` }, context)).wait(context);
       await h.commit(async tx => {
         const failure = await readTurnFailure(tx, conv.id); expect(failure).toBeTruthy();
-        latest = failure.boundary;
+        latest = failure!.boundary;
         (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(Number(conv.id), latest)] = {
-          conversationId: Number(conv.id), boundary: latest, generation: failure.generation, provider: ref.provider, model: ref.modelId,
+          conversationId: Number(conv.id), boundary: latest, generation: failure!.generation, provider: ref.provider, model: ref.modelId,
           status: "stopped", ...(i === 0 ? { evidenceAt: now + 120_000 } : {}),
         };
       }, context);
@@ -138,8 +138,8 @@ test("an interrupted claim with expired evidence reports the passed reset, not u
     await (await conv.submit({ type: "input", content: "work" }, context)).wait(context);
     await h.commit(async tx => {
       const failure = await readTurnFailure(tx, conv.id); expect(failure).toBeTruthy();
-      (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(Number(conv.id), failure.boundary)] = {
-        conversationId: Number(conv.id), boundary: failure.boundary, generation: failure.generation, provider: ref.provider, model: ref.modelId,
+      (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(Number(conv.id), failure!.boundary)] = {
+        conversationId: Number(conv.id), boundary: failure!.boundary, generation: failure!.generation, provider: ref.provider, model: ref.modelId,
         status: "parsing", evidenceAt: now - 120_000, exact: true,
       };
     }, context);

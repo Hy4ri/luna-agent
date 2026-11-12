@@ -509,7 +509,7 @@ describe("analyticsFilterOptions, analyticsDetail, analyticsExport", () => {
     const filters: AnalyticsFilters = parseAnalyticsFilters(new URLSearchParams());
     const detail = analyticsDetail(store, "sessions", "session", "1", filters);
     expect(detail !== undefined).toBeTruthy();
-    expect(detail.sections.length > 0).toBeTruthy();
+    expect(detail!.sections.length > 0).toBeTruthy();
   });
 
   test("exports full unpaginated CSV with proper escaping and formula guard", () => {
@@ -730,28 +730,28 @@ describe("tab-specific temporal series and detail drawers", () => {
     const toolsRes = queryAnalytics(store, "tools", all);
     const toolsCallsSeries = toolsRes.series.find((s) => /calls/i.test(s.name));
     expect(toolsCallsSeries !== undefined).toBeTruthy();
-    const toolsSeriesTotal = toolsCallsSeries.points.reduce((ps, p) => ps + p.y, 0);
+    const toolsSeriesTotal = toolsCallsSeries!.points.reduce((ps, p) => ps + p.y, 0);
     expect(toolsSeriesTotal).toBe(4);
 
     // context: compaction count (1 compaction fact)
     const contextRes = queryAnalytics(store, "context", all);
     const compactionSeries = contextRes.series.find((s) => /compaction/i.test(s.name));
     expect(compactionSeries !== undefined).toBeTruthy();
-    const contextSeriesTotal = compactionSeries.points.reduce((ps, p) => ps + p.y, 0);
+    const contextSeriesTotal = compactionSeries!.points.reduce((ps, p) => ps + p.y, 0);
     expect(contextSeriesTotal).toBe(1);
 
     // reliability: response-only errors (seedStore has 1 failed tool, 0 failed responses -> 0)
     const reliabilityRes = queryAnalytics(store, "reliability", all);
     const errorsSeries = reliabilityRes.series.find((s) => /errors/i.test(s.name));
     expect(errorsSeries !== undefined).toBeTruthy();
-    const reliabilityErrors = errorsSeries.points.reduce((ps, p) => ps + p.y, 0);
+    const reliabilityErrors = errorsSeries!.points.reduce((ps, p) => ps + p.y, 0);
     expect(reliabilityErrors).toBe(0);
 
     // speed: only measured response durations (excludes null durationMs: (1200 + 800 + 2000) / 3)
     const speedRes = queryAnalytics(store, "speed", all);
     const durationSeries = speedRes.series.find((s) => /duration/i.test(s.name));
     expect(durationSeries !== undefined).toBeTruthy();
-    expect(durationSeries.points.every((p) => Number.isFinite(p.y) && p.y > 0)).toBeTruthy();
+    expect(durationSeries!.points.every((p) => Number.isFinite(p.y) && p.y > 0)).toBeTruthy();
     expect(Math.abs(Number(speedRes.summary.avgDurationMs) - 4000 / 3) < 0.01).toBeTruthy();
   });
 
@@ -824,11 +824,11 @@ describe("tab-specific temporal series and detail drawers", () => {
     const all = parseAnalyticsFilters(new URLSearchParams());
     const detail = analyticsDetail(store, "models", "model", "custom/ledger-only", all);
     expect(detail !== undefined).toBeTruthy();
-    const usageRow = detail.sections
+    const usageRow = detail!.sections
       .flatMap((s) => s.rows)
       .find((r) => "totalTokens" in r || "cost" in r || "totalCost" in r);
     expect(usageRow !== undefined).toBeTruthy();
-    expect("reasoning" in usageRow || "cacheWrite1h" in usageRow).toBeTruthy();
+    expect("reasoning" in usageRow! || "cacheWrite1h" in usageRow!).toBeTruthy();
   });
 
   test("session detail metadata includes deletedAt and separates latest ledger", () => {
@@ -838,9 +838,9 @@ describe("tab-specific temporal series and detail drawers", () => {
     const all = parseAnalyticsFilters(new URLSearchParams());
     const detail = analyticsDetail(store, "sessions", "session", "2", all);
     expect(detail !== undefined).toBeTruthy();
-    const allRows = detail.sections.flatMap((s) => s.rows);
+    const allRows = detail!.sections.flatMap((s) => s.rows);
     const hasDeletedAt = allRows.some((r) => "deletedAt" in r && r.deletedAt === T3);
     expect(hasDeletedAt).toBe(true);
-    expect(detail.sections.length >= 2).toBeTruthy();
+    expect(detail!.sections.length >= 2).toBeTruthy();
   });
 });

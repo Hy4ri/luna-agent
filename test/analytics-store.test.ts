@@ -112,8 +112,8 @@ describe("AnalyticsStore", () => {
       // Verify session stored
       const storedSession = tmp.store.getSession(101);
       expect(storedSession).toBeTruthy() /* "Session 101 should exist" */;
-      expect(storedSession.id).toBe(101);
-      expect(storedSession.title).toBe("Initial Title");
+      expect(storedSession!.id).toBe(101);
+      expect(storedSession!.title).toBe("Initial Title");
 
       // Verify facts stored via raw db check
       const factsBefore = tmp.store.db
@@ -142,7 +142,7 @@ describe("AnalyticsStore", () => {
       // Check session updated
       const sessionAfter = tmp.store.getSession(101);
       expect(sessionAfter).toBeTruthy();
-      expect(sessionAfter.title).toBe("Updated Title");
+      expect(sessionAfter!.title).toBe("Updated Title");
 
       // Check fact updated rather than duplicated
       const factsAfter = tmp.store.db
@@ -180,8 +180,8 @@ describe("AnalyticsStore", () => {
       try {
         const retrieved = reopened.getSession(42);
         expect(retrieved).toBeTruthy() /* "Session should persist across restart" */;
-        expect(retrieved.id).toBe(42);
-        expect(retrieved.title).toBe("Persistent Session");
+        expect(retrieved!.id).toBe(42);
+        expect(retrieved!.title).toBe("Persistent Session");
 
         const allSessions = reopened.sessions();
         expect(allSessions.length).toBe(1);
@@ -193,8 +193,8 @@ describe("AnalyticsStore", () => {
           )
           .get(42);
         expect(factRow).toBeTruthy() /* "Fact row must persist across restart" */;
-        expect(factRow.key).toBe("fact-42");
-        expect(factRow.model).toBe("gpt-4o");
+        expect(factRow!.key).toBe("fact-42");
+        expect(factRow!.model).toBe("gpt-4o");
       } finally {
         reopened.close();
       }
@@ -296,7 +296,7 @@ describe("AnalyticsStore", () => {
 
       const deletedSession = tmp.store.getSession(20);
       expect(deletedSession).toBeTruthy() /* "Session row remains in store as tombstone" */;
-      expect(deletedSession.deletedAt).toBe(deletedAt) /* "deletedAt must be recorded" */;
+      expect(deletedSession!.deletedAt).toBe(deletedAt) /* "deletedAt must be recorded" */;
 
       // Attempt apply with older or matching incarnation without explicit new created_at
       const sameIncarnation = makeSessionRecord({ id: 20, createdAt: 1000, title: "Stale Scan" });
@@ -339,12 +339,12 @@ describe("AnalyticsStore", () => {
         // Tombstone MUST remain intact because deleted sessions cannot be rescanned/reparsed
         const tombstone = storeV2.getSession(31);
         expect(tombstone).toBeTruthy() /* "Tombstone row must not be destroyed by parser version bump" */;
-        expect(tombstone.deletedAt).toBe(9999);
+        expect(tombstone!.deletedAt).toBe(9999);
 
         // Retained session revision is empty / invalidated on version mismatch to force re-parse
         const retained = storeV2.getSession(30);
         expect(retained).toBeTruthy() /* "Retained session record is accessible" */;
-        expect(retained.revision).toBe("") /* "Revision should be empty on version mismatch for retained session" */;
+        expect(retained!.revision).toBe("") /* "Revision should be empty on version mismatch for retained session" */;
 
         // Facts for retained sessions cleared or flagged on scan, but tombstone preserved
         const tombstoneRow = storeV2.db

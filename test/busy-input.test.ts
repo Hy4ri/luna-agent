@@ -201,7 +201,7 @@ test("restart: queued and steered input survives a daemon restart and is deliver
     for (const sent of [steered, queued]) {
       const sub = await h.submission(sent.body.submissionId as never, context);
       expect(sub).toBeTruthy() /* "the admitted submission survived the restart" */;
-      expect((await sub.wait(context)).status).toBe("done");
+      expect((await sub!.wait(context)).status).toBe("done");
     }
     const all = second.requests.join("\n");
     expect(all.split("STEER_AFTER_RESTART").length - 1 > 0).toBe(true);

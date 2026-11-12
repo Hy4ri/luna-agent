@@ -38,7 +38,7 @@ test("prime harness.conversation cache for idle conversation, store.delete(id) m
     // Prime harness conversation cache
     const cachedConv = await harness.conversation(id, BACKGROUND_CONTEXT);
     expect(cachedConv).toBeTruthy() /* "conversation should be resolvable after creation" */;
-    expect(cachedConv.id).toBe(id);
+    expect(cachedConv!.id).toBe(id);
 
     // Hard delete through store
     const deleted = await store.delete(Number(id));
@@ -123,7 +123,7 @@ test("overlapping delete(a) and metadata update/append for unrelated b preserves
     const checkB = await harness.conversation(convB.id, BACKGROUND_CONTEXT);
     expect(checkB).toBeTruthy() /* "conversation b must survive" */;
 
-    const entriesPage = await checkB.entries({}, 10, undefined, BACKGROUND_CONTEXT);
+    const entriesPage = await checkB!.entries({}, 10, undefined, BACKGROUND_CONTEXT);
     expect(entriesPage.items.length).toBe(2) /* "conversation b should have preserved all its entries" */;
 
     await harness.close(BACKGROUND_CONTEXT);
@@ -173,7 +173,7 @@ test("root delete/recreate does not return old context or ProcessOwner", async (
     // ProcessOwner token must be fresh (different from incarnation 1)
     const owner2 = await harness.snapshot(ProcessOwner, rootConv2.id, BACKGROUND_CONTEXT);
     expect(owner2?.token).toBeTruthy() /* "root conv 2 must have a ProcessOwner token" */;
-    expect(owner2.token).not.toBe(owner1.token) /* "recreated root must not inherit old ProcessOwner token" */;
+    expect(owner2!.token).not.toBe(owner1!.token) /* "recreated root must not inherit old ProcessOwner token" */;
 
     // Recreated root context should only see its new context and not old entries
     const entriesPage = await rootConv2.entries({}, 10, undefined, BACKGROUND_CONTEXT);

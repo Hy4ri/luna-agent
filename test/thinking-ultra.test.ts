@@ -30,7 +30,7 @@ test("ultra follows the Codex catalog: listed GPT models get it, others clamp to
   expect(requestLevel(codex("gpt-6.1-sol"), "high")).toBe("high");
   const models = createModels();
   models.setProvider(openaiCodexProvider());
-  expect(resolveThinkingLevel(models, { provider: "openai-codex", modelId: "gpt-6-sol" }, { thinkingLevel: "ultra" })).toBe("ultra");
+  expect<string>(resolveThinkingLevel(models, { provider: "openai-codex", modelId: "gpt-6-sol" }, { thinkingLevel: "ultra" })).toBe("ultra");
   expect(resolveThinkingLevel(models, { provider: "openai-codex", modelId: "gpt-6-luna" }, { thinkingLevel: "ultra" })).toBe("max");
 });
 

@@ -37,7 +37,6 @@ test("cron inbox lookup stays a per-job seek while the run history grows", () =>
   const store = new CronStore(join(dir, "cron.db"));
   try {
     const { jobs, newest } = seed(store);
-    const total = JOBS * RUNS_PER_JOB;
 
     // The partial index over report rows is the fix. It must exist after the migration.
     const indexes = (store.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runs'").all() as { name: string }[]).map(i => i.name);

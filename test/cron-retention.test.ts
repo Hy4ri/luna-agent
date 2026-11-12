@@ -72,7 +72,7 @@ test("reports keep the newest tail per job, and the report in the inbox survives
     expect(ids(store)).toEqual([old[3]!, ...recent].sort((a, b) => a - b));
     // The inbox still holds the newest report, and it is still unread.
     expect(store.unreadCount()).toBe(1);
-    expect(store.reports().map(run => run.id)).toEqual([recent[1]]);
+    expect<Array<number | undefined>>(store.reports().map(run => run.id)).toEqual([recent[1]]);
     expect(store.reports({ history: true, limit: 100 }).some(run => run.id === old[3]!)).toBeTruthy();
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
