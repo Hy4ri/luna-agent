@@ -1,11 +1,10 @@
 // Contract: automatic reports reach an active run after its current tool, not after its final answer.
 // Existing delegation tests collect with wait; they do not exercise automatic delivery to a busy parent.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
@@ -64,13 +63,13 @@ for (const kind of ["subagent", "crew"] as const) {
       await (await child.submit({ type: "input", content: "report", requestId: "child-task" }, context)).wait(context);
       const run = await parent.submit({ type: "input", content: "keep working" }, context);
       await entered.promise;
-      assert.equal(await notifier.notify(Number(child.id)), true, "report must be admitted while the parent tool is active");
+      expect(await notifier.notify(Number(child.id))).toBe(true) /* "report must be admitted while the parent tool is active" */;
       await notifier.notify(Number(child.id)); // Stable request IDs must prevent duplicate delivery.
       release.resolve();
-      assert.equal((await run.wait(context)).status, "done");
-      assert.match(nextContext, /REPORT_SENTINEL/, "the first model request after the tool must include the report");
+      expect((await run.wait(context)).status).toBe("done");
+      expect(nextContext).toMatch(/REPORT_SENTINEL/) /* "the first model request after the tool must include the report" */;
       const entries = (await parent.entries({}, 100, undefined, context)).items;
-      assert.equal(entries.filter(e => e.kind === "luna.xsession.msg").length, 1);
+      expect(entries.filter(e => e.kind === "luna.xsession.msg").length).toBe(1);
     } finally {
       release.resolve();
       await notifier.close();
@@ -121,8 +120,8 @@ test("background process output reaches the next active model request", async ()
     await writeFile(fifo, "PROCESS_REPORT_SENTINEL");
     await delivered.promise;
     release.resolve();
-    assert.equal((await run.wait(context)).status, "done");
-    assert.match(nextContext, /PROCESS_REPORT_SENTINEL/, "completion must reach the model before its final answer");
+    expect((await run.wait(context)).status).toBe("done");
+    expect(nextContext).toMatch(/PROCESS_REPORT_SENTINEL/) /* "completion must reach the model before its final answer" */;
   } finally {
     release.resolve();
     await harness.close(context);

@@ -1,11 +1,10 @@
 // Contract: attention pages retain global error-first ordering, and read-all covers the full inbox.
 // A legacy ID-only cursor skips older errors; marking only loaded rows leaves unseen inbox reports unread.
 // No existing store test covers cron report ordering or superseded-report read state.
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { CronStore } from "../src/scheduler.js";
 
 // The inbox is the newest report of each job, while it is unread. The lookup became a per-job seek, so it has
@@ -44,20 +43,20 @@ test("inbox matches a plain reference over the whole run table", () => {
 
     const inbox = store.reports({ limit: 100 });
     const expected = [...reference.values()].filter(id => store.getRun(id)!.readAt === null).sort((a, b) => b - a);
-    assert.deepEqual(inbox.map(run => run.id), expected);
-    assert.equal(store.unreadCount(), expected.length);
+    expect(inbox.map(run => run.id)).toEqual(expected);
+    expect(store.unreadCount()).toBe(expected.length);
 
     // Reading the newest report of a job empties its inbox entry and leaves the report in the history.
     const target = inbox[0]!;
     store.markRead(target.id, true);
-    assert.ok(!store.reports({ limit: 100 }).some(run => run.id === target.id));
-    assert.equal(store.unreadCount(), expected.length - 1);
-    assert.ok(store.reports({ history: true, limit: 100 }).some(run => run.id === target.id));
+    expect(!store.reports({ limit: 100 }).some(run => run.id === target.id)).toBeTruthy();
+    expect(store.unreadCount()).toBe(expected.length - 1);
+    expect(store.reports({ history: true, limit: 100 }).some(run => run.id === target.id)).toBeTruthy();
 
     // Marking it unread again puts it back, and it is still the newest report of its job.
     store.markRead(target.id, false);
-    assert.ok(store.reports({ limit: 100 }).some(run => run.id === target.id));
-    assert.equal(store.unreadCount(), expected.length);
+    expect(store.reports({ limit: 100 }).some(run => run.id === target.id)).toBeTruthy();
+    expect(store.unreadCount()).toBe(expected.length);
 
     // A newer report replaces the older unread one: the older report leaves the inbox and stays unread in the
     // history.
@@ -66,18 +65,18 @@ test("inbox matches a plain reference over the whole run table", () => {
     const newer = store.claimManual(job, now + 900_000);
     store.finish(newer.id, "ok", "newest", null, now + 900_001);
     const after = store.reports({ limit: 100 });
-    assert.ok(after.some(run => run.id === newer.id));
-    assert.ok(!after.some(run => run.id === superseded));
-    assert.equal(store.getRun(superseded)!.readAt, null, "a superseded report keeps its unread state");
-    assert.ok(store.reports({ history: true, limit: 100 }).some(run => run.id === superseded));
+    expect(after.some(run => run.id === newer.id)).toBeTruthy();
+    expect(!after.some(run => run.id === superseded)).toBeTruthy();
+    expect(store.getRun(superseded)!.readAt).toBe(null) /* "a superseded report keeps its unread state" */;
+    expect(store.reports({ history: true, limit: 100 }).some(run => run.id === superseded)).toBeTruthy();
 
     // Read all covers the whole inbox, and only the inbox.
     const inboxBefore = store.unreadCount();
     const marked = store.markAllReportsRead(now + 950_000);
-    assert.equal(marked, inboxBefore);
-    assert.equal(store.unreadCount(), 0);
-    assert.deepEqual(store.reports(), []);
-    assert.equal(store.getRun(superseded)!.readAt, null, "read-all must not rewrite the superseded history");
+    expect(marked).toBe(inboxBefore);
+    expect(store.unreadCount()).toBe(0);
+    expect(store.reports()).toEqual([]);
+    expect(store.getRun(superseded)!.readAt).toBe(null) /* "read-all must not rewrite the superseded history" */;
   } finally {
     store.close(); rmSync(dir, { recursive: true, force: true });
   }
@@ -111,21 +110,21 @@ test("attention cursor spans errors and successes without losing reports; read-a
       const last = page.at(-1)!;
       cursor = { rank: last.status === "error" ? 0 : 1, id: last.id };
     }
-    assert.deepEqual(pages.map(page => page.length), [20, 20, 5, 0]);
-    assert.deepEqual(pages.flat(), expected);
-    assert.equal(store.unreadCount(), 45);
+    expect(pages.map(page => page.length)).toEqual([20, 20, 5, 0]);
+    expect(pages.flat()).toEqual(expected);
+    expect(store.unreadCount()).toBe(45);
     const legacy = store.reports({ limit: 20 });
-    assert.deepEqual(legacy.map(run => run.id), [...expected].sort((a, b) => b - a).slice(0, 20));
-    assert.ok(store.reports({ before: legacy.at(-1)!.id }).every(run => run.id < legacy.at(-1)!.id));
-    assert.equal(store.markAllReportsRead(5_000), 45);
-    assert.equal(store.markAllReportsRead(6_000), 0);
-    assert.equal(store.unreadCount(), 0);
-    assert.deepEqual(store.reports(), []);
-    assert.equal(store.getRun(superseded)!.readAt, null, "read-all must not rewrite superseded history");
-    assert.ok(expected.every(id => store.getRun(id)!.readAt === 5_000));
+    expect(legacy.map(run => run.id)).toEqual([...expected].sort((a, b) => b - a).slice(0, 20));
+    expect(store.reports({ before: legacy.at(-1)!.id }).every(run => run.id < legacy.at(-1)!.id)).toBeTruthy();
+    expect(store.markAllReportsRead(5_000)).toBe(45);
+    expect(store.markAllReportsRead(6_000)).toBe(0);
+    expect(store.unreadCount()).toBe(0);
+    expect(store.reports()).toEqual([]);
+    expect(store.getRun(superseded)!.readAt).toBe(null) /* "read-all must not rewrite superseded history" */;
+    expect(expected.every(id => store.getRun(id)!.readAt === 5_000)).toBeTruthy();
     store.close(); store = new CronStore(join(dir, "cron.db"));
-    assert.equal(store.unreadCount(), 0);
-    assert.equal(store.reports({ history: true, limit: 100 }).length, 46);
+    expect(store.unreadCount()).toBe(0);
+    expect(store.reports({ history: true, limit: 100 }).length).toBe(46);
   } finally {
     store.close(); rmSync(dir, { recursive: true, force: true });
   }
@@ -151,21 +150,21 @@ test("cron report HTTP pagination validates cursors and read-all covers unloaded
       store.finish(run.id, i < 21 ? "error" : "ok", i < 21 ? null : "Output", i < 21 ? "Error" : null, 2_001);
     }
     const first = await app.request("/v1/cron/reports?order=attention&limit=20");
-    assert.equal(first.status, 200);
+    expect(first.status).toBe(200);
     const page = await first.json() as { reports: { id: number; status: string }[]; unreadCount: number; nextCursor: string };
-    assert.equal(page.reports.length, 20); assert.equal(page.unreadCount, 23);
-    assert.ok(page.reports.every(run => run.status === "error"));
+    expect(page.reports.length).toBe(20); expect(page.unreadCount).toBe(23);
+    expect(page.reports.every(run => run.status === "error")).toBeTruthy();
     const second = await app.request(`/v1/cron/reports?order=attention&limit=20&cursor=${encodeURIComponent(page.nextCursor)}`);
     const rest = await second.json() as typeof page;
-    assert.equal(rest.reports.length, 3); assert.equal(rest.nextCursor, null);
-    assert.equal(new Set([...page.reports, ...rest.reports].map(run => run.id)).size, 23);
+    expect(rest.reports.length).toBe(3); expect(rest.nextCursor).toBe(null);
+    expect(new Set([...page.reports, ...rest.reports].map(run => run.id)).size).toBe(23);
     for (const query of ["order=unknown", "order=attention&history=1", "cursor=0:1", "order=attention&before=1",
       "order=attention&cursor=2:1", "order=attention&cursor=0:0", "order=attention&cursor=0:9007199254740992",
       "order=attention&cursor=0:1:2", "order=attention&limit=101"]) {
-      assert.equal((await app.request(`/v1/cron/reports?${query}`)).status, 400, query);
+      expect((await app.request(`/v1/cron/reports?${query}`)).status).toBe(400) /* query */;
     }
     const read = await app.request("/v1/cron/reports/read-all", { method: "POST" });
-    assert.equal(read.status, 200); assert.equal(store.unreadCount(), 0);
-    assert.equal(store.reports({ history: true, limit: 100 }).length, 23);
+    expect(read.status).toBe(200); expect(store.unreadCount()).toBe(0);
+    expect(store.reports({ history: true, limit: 100 }).length).toBe(23);
   } finally { store.close(); await harness.close(context); rmSync(dir, { recursive: true, force: true }); }
 });

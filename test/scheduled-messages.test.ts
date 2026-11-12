@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import type { ConversationId } from "@earendil-works/pi-durable";
@@ -41,54 +40,54 @@ test("POST /v1/sessions/:id/scheduled-messages validates, deduplicates by reques
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "   ", dueAt: now + 60_000, requestId: "req-empty" }),
     });
-    assert.equal(badEmpty.status, 400);
+    expect(badEmpty.status).toBe(400);
 
     const badPast = await app.request(`/v1/sessions/${sid}/scheduled-messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "hello", dueAt: now - 1000, requestId: "req-past" }),
     });
-    assert.equal(badPast.status, 400);
+    expect(badPast.status).toBe(400);
 
     const badSlash = await app.request(`/v1/sessions/${sid}/scheduled-messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/schedule test", dueAt: now + 60_000, requestId: "req-slash" }),
     });
-    assert.equal(badSlash.status, 400);
+    expect(badSlash.status).toBe(400);
 
     const badTimestampRange = await app.request(`/v1/sessions/${sid}/scheduled-messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "hello", dueAt: 9e15, requestId: "req-range" }),
     });
-    assert.equal(badTimestampRange.status, 400);
+    expect(badTimestampRange.status).toBe(400);
 
     const first = await app.request(`/v1/sessions/${sid}/scheduled-messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "check status", dueAt: now + 60_000, requestId: "req-1" }),
     });
-    assert.equal(first.status, 201);
+    expect(first.status).toBe(201);
     const firstBody = await first.json() as { schedule: { id: string; content: string; status: string } };
-    assert.equal(firstBody.schedule.content, "check status");
-    assert.equal(firstBody.schedule.status, "scheduled");
+    expect(firstBody.schedule.content).toBe("check status");
+    expect(firstBody.schedule.status).toBe("scheduled");
 
     const replay = await app.request(`/v1/sessions/${sid}/scheduled-messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "check status", dueAt: now + 60_000, requestId: "req-1" }),
     });
-    assert.equal(replay.status, 200);
+    expect(replay.status).toBe(200);
     const replayBody = await replay.json() as { schedule: { id: string } };
-    assert.equal(replayBody.schedule.id, firstBody.schedule.id);
+    expect(replayBody.schedule.id).toBe(firstBody.schedule.id);
 
     const conflict = await app.request(`/v1/sessions/${sid}/scheduled-messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "different", dueAt: now + 60_000, requestId: "req-1" }),
     });
-    assert.equal(conflict.status, 409);
+    expect(conflict.status).toBe(409);
   } finally {
     await scheduledMessages.close();
     await harness.close(context);
@@ -110,29 +109,29 @@ test("scheduled message edits are atomic, session-owned, and frozen after admiss
     const { schedule } = await created.json() as { schedule: { id: string } };
     const patch = (body: unknown, sid = conv.id) => app.request(`/v1/sessions/${sid}/scheduled-messages/${schedule.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const updated = { content: "edited", dueAt: now + 120_000 };
-    assert.equal((await patch(updated, other.id)).status, 404);
-    assert.equal((await patch({ ...updated, dueAt: now - 1 })).status, 400);
-    assert.equal((await patch({ ...updated, content: "/stop" })).status, 400);
-    assert.equal((await patch({ ...updated, attachments: [] })).status, 400);
-    assert.equal((await patch(updated)).status, 200);
-    assert.equal((await patch(updated)).status, 200);
+    expect((await patch(updated, other.id)).status).toBe(404);
+    expect((await patch({ ...updated, dueAt: now - 1 })).status).toBe(400);
+    expect((await patch({ ...updated, content: "/stop" })).status).toBe(400);
+    expect((await patch({ ...updated, attachments: [] })).status).toBe(400);
+    expect((await patch(updated)).status).toBe(200);
+    expect((await patch(updated)).status).toBe(200);
     const listed = await app.request(`/v1/sessions/${conv.id}/scheduled-messages`);
     const { schedules } = await listed.json() as { schedules: { id: string; content: string; dueAt: number }[] };
-    assert.equal(schedules.length, 1);
-    assert.equal(schedules[0]!.id, schedule.id);
-    assert.equal(schedules[0]!.content, "edited");
-    assert.equal(schedules[0]!.dueAt, now + 120_000);
+    expect(schedules.length).toBe(1);
+    expect(schedules[0]!.id).toBe(schedule.id);
+    expect(schedules[0]!.content).toBe("edited");
+    expect(schedules[0]!.dueAt).toBe(now + 120_000);
     const replay = await app.request(`/v1/sessions/${conv.id}/scheduled-messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(original) });
-    assert.equal(replay.status, 200); // Creation receipt survives editing; never duplicate delivery.
+    expect(replay.status).toBe(200); // Creation receipt survives editing; never duplicate delivery.
     await harness.commit(async tx => { (await tx.doc(ScheduledMessagesDoc)).schedules[schedule.id]!.status = "queued"; }, context);
-    assert.equal((await patch({ ...updated, content: "too late" })).status, 409);
-    assert.equal((await patch(updated)).status, 200); // Safe replay of an already applied edit.
+    expect((await patch({ ...updated, content: "too late" })).status).toBe(409);
+    expect((await patch(updated)).status).toBe(200); // Safe replay of an already applied edit.
     await harness.commit(async tx => {
       const rec = (await tx.doc(ScheduledMessagesDoc)).schedules[schedule.id]!;
       rec.status = "scheduled";
       rec.source = { kind: "limit_recovery", boundary: 0, generation: 0, provider: "test", model: "test", exact: false };
     }, context);
-    assert.equal((await patch({ ...updated, content: "manual override" })).status, 409);
+    expect((await patch({ ...updated, content: "manual override" })).status).toBe(409);
   } finally { await scheduledMessages.close(); await harness.close(context); }
 });
 
@@ -170,7 +169,7 @@ test("scheduled messages survive restart, deliver overdue once in dueAt order, a
   try {
     await s2.start();
     const conv = await h2.conversation(convId! as ConversationId, context);
-    assert.ok(conv);
+    expect(conv).toBeTruthy();
     await until(async () => {
       const entries = await conv.entries({}, 20, undefined, context);
       const inputs = entries.items.filter(e => e.kind === "luna.scheduled-message");
@@ -179,8 +178,8 @@ test("scheduled messages survive restart, deliver overdue once in dueAt order, a
 
     const entries = await conv.entries({}, 20, undefined, context);
     const inputs = entries.items.filter(e => e.kind === "luna.scheduled-message").reverse();
-    assert.equal(inputs.length, 2);
-    assert.deepEqual(inputs.map(e => (e.model?.[0] as { content?: string })?.content), ["first", "second"]);
+    expect(inputs.length).toBe(2);
+    expect(inputs.map(e => (e.model?.[0] as { content?: string })?.content)).toEqual(["first", "second"]);
   } finally {
     await s2.close();
     await h2.close(context);
@@ -227,9 +226,9 @@ test("cancellation, /schedule list|cancel, Stop, new input, and archive lifecycl
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/schedule list" }),
     });
-    assert.equal(listRes.status, 200);
+    expect(listRes.status).toBe(200);
     const listBody = (await listRes.json()) as { schedules: { id: string }[] };
-    assert.equal(listBody.schedules.length, 2);
+    expect(listBody.schedules.length).toBe(2);
 
     // New input cancels limit_recovery but preserves user schedule
     const msgRes = await app.request(`/v1/sessions/${sid}/messages`, {
@@ -237,11 +236,11 @@ test("cancellation, /schedule list|cancel, Stop, new input, and archive lifecycl
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "hello" }),
     });
-    assert.equal(msgRes.status, 200);
+    expect(msgRes.status).toBe(200);
 
     const afterMsg = await harness.commit((tx) => scheduledMessages.list(tx, sid), context);
-    assert.equal(afterMsg.find((s) => s.id === recSched.id)?.status, "cancelled");
-    assert.equal(afterMsg.find((s) => s.id === userSched.id)?.status, "scheduled");
+    expect(afterMsg.find((s) => s.id === recSched.id)?.status).toBe("cancelled");
+    expect(afterMsg.find((s) => s.id === userSched.id)?.status).toBe("scheduled");
 
     // /schedule cancel <id>
     const cancelRes = await app.request(`/v1/sessions/${sid}/messages`, {
@@ -249,14 +248,14 @@ test("cancellation, /schedule list|cancel, Stop, new input, and archive lifecycl
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: `/schedule cancel ${userSched.id}` }),
     });
-    assert.equal(cancelRes.status, 200);
+    expect(cancelRes.status).toBe(200);
     const cancelBody = (await cancelRes.json()) as { status: string };
-    assert.equal(cancelBody.status, "cancelled");
+    expect(cancelBody.status).toBe("cancelled");
 
     // Idempotent DELETE
     const delRes = await app.request(`/v1/sessions/${sid}/scheduled-messages/${userSched.id}`, { method: "DELETE" });
-    assert.equal(delRes.status, 200);
-    assert.equal(((await delRes.json()) as { status: string }).status, "already_cancelled");
+    expect(delRes.status).toBe(200);
+    expect(((await delRes.json()) as { status: string }).status).toBe("already_cancelled");
   } finally {
     await scheduledMessages.close();
     await harness.close(context);
@@ -292,16 +291,16 @@ test("limit recovery schedules one-shot Continue via parser or deterministic fal
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
     const sid = Number(conv.id);
     const failed = await (await conv.submit({ type: "input", content: "do work" }, context)).wait(context);
-    assert.equal(failed.status, "unanswered");
+    expect(failed.status).toBe("unanswered");
 
     const sched = await until(async () => {
       const list = await harness.commit((tx) => scheduledMessages.list(tx, sid), context);
       return list.find((s) => s.source.kind === "limit_recovery");
     }, "limit recovery schedule");
 
-    assert.equal(sched.content, "Continue");
-    assert.equal(sched.dueAt, now + 90_000);
-    assert.equal(sched.status, "scheduled");
+    expect(sched.content).toBe("Continue");
+    expect(sched.dueAt).toBe(now + 90_000);
+    expect(sched.status).toBe("scheduled");
   } finally {
     await recovery.close();
     await scheduledMessages.close();
@@ -347,14 +346,14 @@ test("limit recovery parser called once and failing Continue does not trigger se
     const conv = await h1.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
     convId = Number(conv.id);
     const failed = await (await conv.submit({ type: "input", content: "first work" }, context)).wait(context);
-    assert.equal(failed.status, "unanswered");
+    expect(failed.status).toBe("unanswered");
 
     const sched = await until(async () => {
       const list = await h1.commit((tx) => s1.list(tx, convId), context);
       return list.find((s) => s.source.kind === "limit_recovery");
     }, "initial recovery schedule");
-    assert.equal(sched.status, "scheduled");
-    assert.equal(parseCount, 1, "parser called exactly once");
+    expect(sched.status).toBe("scheduled");
+    expect(parseCount).toBe(1) /* "parser called exactly once" */;
   } finally {
     await r1.close();
     await s1.close();
@@ -399,13 +398,13 @@ test("limit recovery parser called once and failing Continue does not trigger se
 
     // Verify durable ledger consumed
     const consumedAttempt = Object.values(state.attempts).find((a: any) => a.conversationId === convId && a.status === "consumed");
-    assert.ok(consumedAttempt, "recursive failure attempt recorded as consumed");
+    expect(consumedAttempt).toBeTruthy() /* "recursive failure attempt recorded as consumed" */;
 
     // Verify NO second limit_recovery schedule or parse occurred
     const list = await h2.commit((tx) => s2.list(tx, convId), context);
     const recoveries = list.filter((s) => s.source.kind === "limit_recovery");
-    assert.equal(recoveries.length, 1, "no second recovery schedule created (one-shot recursive prevention)");
-    assert.equal(r2ParseCount, 0, "no second parser call on recursive failure");
+    expect(recoveries.length).toBe(1) /* "no second recovery schedule created (one-shot recursive prevention)" */;
+    expect(r2ParseCount).toBe(0) /* "no second parser call on recursive failure" */;
   } finally {
     await r2.close();
     await s2.close();
@@ -450,7 +449,7 @@ test("late parser result is fenced by Stop (real HTTP POST slash command /stop)"
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
     const sid = Number(conv.id);
     const failed = await (await conv.submit({ type: "input", content: "do work" }, context)).wait(context);
-    assert.equal(failed.status, "unanswered");
+    expect(failed.status).toBe("unanswered");
 
     // Wait until recovery claim is in parsing state
     await until(async () => {
@@ -468,7 +467,7 @@ test("late parser result is fenced by Stop (real HTTP POST slash command /stop)"
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/stop" }),
     });
-    assert.equal(stopRes.status, 200);
+    expect(stopRes.status).toBe(200);
 
     // Now complete the delayed parser resolution
     finishParse!({ resetAt: now + 30_000, exact: true });
@@ -479,7 +478,7 @@ test("late parser result is fenced by Stop (real HTTP POST slash command /stop)"
 
     // Verify recovery was fenced and did NOT schedule
     const list = await harness.commit((tx) => scheduledMessages.list(tx, sid), context);
-    assert.equal(list.filter((s) => s.source.kind === "limit_recovery").length, 0, "no schedule created after Stop");
+    expect(list.filter((s) => s.source.kind === "limit_recovery").length).toBe(0) /* "no schedule created after Stop" */;
   } finally {
     await recovery.close();
     await scheduledMessages.close();
@@ -530,7 +529,7 @@ test("deterministic reset evidence lower bound and unknown structured window pro
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
     const sid = Number(conv.id);
     const failed = await (await conv.submit({ type: "input", content: "work" }, context)).wait(context);
-    assert.equal(failed.status, "unanswered");
+    expect(failed.status).toBe("unanswered");
 
     const sched = await until(async () => {
       const list = await harness.commit((tx) => scheduledMessages.list(tx, sid), context);
@@ -538,9 +537,9 @@ test("deterministic reset evidence lower bound and unknown structured window pro
     }, "scheduled recovery");
 
     // Lower bound preserved: evidence is now + 30s, grace is 60s -> dueAt >= now + 90s
-    assert.ok(sched.dueAt >= now + 90_000, `dueAt ${sched.dueAt} should be >= ${now + 90_000}`);
-    assert.equal(sched.source.kind, "limit_recovery");
-    assert.equal(sched.source.exact, false, "exact must be false because requests window has resetAt null");
+    expect(sched.dueAt >= now + 90_000).toBeTruthy() /* `dueAt ${sched.dueAt} should be >= ${now + 90_000}` */;
+    expect(sched.source.kind).toBe("limit_recovery");
+    expect(sched.source.exact).toBe(false) /* "exact must be false because requests window has resetAt null" */;
   } finally {
     await recovery.close();
     await scheduledMessages.close();
@@ -593,16 +592,16 @@ test("cancellation of queued scheduled input does not abort an unrelated running
       const s = list.find((item) => item.id === schedule.id);
       return s?.status === "queued" ? s : undefined;
     }, "schedule status queued");
-    assert.equal(queued.status, "queued");
+    expect(queued.status).toBe("queued");
 
     // Cancel the queued schedule directly
     const cancelRes = await scheduledMessages.cancel(sid, schedule.id, "cancelled by user");
-    assert.equal(cancelRes.status, "cancelled");
+    expect(cancelRes.status).toBe("cancelled");
 
     // Release the active turn stream latch
     release!();
     const result = await runningTurn.wait(context);
-    assert.equal(result.status, "done", "active turn was not aborted and completed successfully");
+    expect(result.status).toBe("done") /* "active turn was not aborted and completed successfully" */;
   } finally {
     release?.();
     await scheduledMessages.close();
@@ -636,7 +635,7 @@ test("lost post / deduplication after due stable request id", async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "stable msg", dueAt: originalDueAt, requestId: "stable-req-1" }),
     });
-    assert.equal(res1.status, 201);
+    expect(res1.status).toBe(201);
     const b1 = await res1.json() as { schedule: { id: string } };
 
     // Advance time past dueAt and deliver it
@@ -654,13 +653,13 @@ test("lost post / deduplication after due stable request id", async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "stable msg", dueAt: originalDueAt, requestId: "stable-req-1" }),
     });
-    assert.equal(res2.status, 200, "must return 200 replay for duplicate after due");
+    expect(res2.status).toBe(200) /* "must return 200 replay for duplicate after due" */;
     const b2 = await res2.json() as { schedule: { id: string; status: string } };
-    assert.equal(b2.schedule.id, b1.schedule.id, "must return existing schedule ID");
+    expect(b2.schedule.id).toBe(b1.schedule.id) /* "must return existing schedule ID" */;
 
     const list = await harness.commit((tx) => scheduledMessages.list(tx, sid), context);
-    assert.equal(list.length, 1, "exactly one schedule entry exists");
-    assert.equal(list[0]!.status, "delivered");
+    expect(list.length).toBe(1) /* "exactly one schedule entry exists" */;
+    expect(list[0]!.status).toBe("delivered");
   } finally {
     await scheduledMessages.close();
     await harness.close(context);
@@ -728,25 +727,25 @@ test("shared provider evidence floor postpones same-route schedule without seria
     const conv1 = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: routeRef } }, context);
     const sid1 = Number(conv1.id);
     const f1 = await (await conv1.submit({ type: "input", content: "work 1" }, context)).wait(context);
-    assert.equal(f1.status, "unanswered");
+    expect(f1.status).toBe("unanswered");
 
     const sched1 = await until(async () => {
       const list = await harness.commit((tx) => scheduledMessages.list(tx, sid1), context);
       return list.find((s) => s.source.kind === "limit_recovery");
     }, "conv1 recovery scheduled");
-    assert.equal(sched1.dueAt, now + 30_000 + 60_000);
+    expect(sched1.dueAt).toBe(now + 30_000 + 60_000);
 
     // Session 2 fails on same routeRef with larger limit (evidence = now + 120s)
     const conv2 = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: routeRef } }, context);
     const sid2 = Number(conv2.id);
     const f2 = await (await conv2.submit({ type: "input", content: "work 2" }, context)).wait(context);
-    assert.equal(f2.status, "unanswered");
+    expect(f2.status).toBe("unanswered");
 
     const sched2 = await until(async () => {
       const list = await harness.commit((tx) => scheduledMessages.list(tx, sid2), context);
       return list.find((s) => s.source.kind === "limit_recovery");
     }, "conv2 recovery scheduled");
-    assert.equal(sched2.dueAt, now + 120_000 + 60_000);
+    expect(sched2.dueAt).toBe(now + 120_000 + 60_000);
 
     // Schedule changed reconciliation runs in scheduledMessages service:
     // Session 1's pending automatic dueAt must be postponed to shared floor (now + 120s) + 60s margin
@@ -756,10 +755,10 @@ test("shared provider evidence floor postpones same-route schedule without seria
       return s && s.dueAt >= now + 120_000 + 60_000 ? s : undefined;
     }, "conv1 dueAt postponed to shared floor");
 
-    assert.equal(sched1Updated.dueAt, now + 120_000 + 60_000);
-    assert.ok(sched1Updated.source.kind === "limit_recovery");
-    assert.equal(sched1Updated.source.resetSource, "shared_provider_evidence");
-    assert.equal(sched1Updated.source.exact, false);
+    expect(sched1Updated.dueAt).toBe(now + 120_000 + 60_000);
+    expect(sched1Updated.source.kind === "limit_recovery").toBeTruthy();
+    expect(sched1Updated.source.resetSource).toBe("shared_provider_evidence");
+    expect(sched1Updated.source.exact).toBe(false);
   } finally {
     await recovery.close();
     await scheduledMessages.close();
@@ -779,7 +778,7 @@ test("recovery startup does not wait for a parser or revive unclaimed historical
   try {
     const conv = await h1.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
     sid = Number(conv.id);
-    assert.equal((await (await conv.submit({ type: "input", content: "old work" }, context)).wait(context)).status, "unanswered");
+    expect((await (await conv.submit({ type: "input", content: "old work" }, context)).wait(context)).status).toBe("unanswered");
     // Persist the crash window after claim admission but before any parse result.
     faux.appendResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "429 Rate limit reached." })]);
     const claimed = await h1.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
@@ -789,7 +788,7 @@ test("recovery startup does not wait for a parser or revive unclaimed historical
     const { readTurnFailure } = await import("../src/session-status.js");
     await h1.commit(async tx => {
       const failure = await readTurnFailure(tx, claimed.id);
-      assert.ok(failure);
+      expect(failure).toBeTruthy();
       (await tx.doc(RecoveryStateDoc)).attempts[recoveryKey(claimedId, failure.boundary)] = {
         conversationId: claimedId, boundary: failure.boundary, generation: failure.generation,
         provider: ref.provider, model: ref.modelId, status: "parsing", evidenceAt: Date.now() + 120_000, exact: true,
@@ -815,14 +814,14 @@ test("recovery startup does not wait for a parser or revive unclaimed historical
   const starting = recovery.start();
   try {
     const first = await Promise.race([starting.then(() => "started"), parsing]);
-    assert.equal(first, "started", "startup must not await a parser for a stored failure");
-    assert.equal(parserCalls, 0, "boot must not reinterpret even a recent unclaimed historical error");
-    assert.deepEqual(await harness.commit(tx => scheduledMessages.list(tx, sid), context), []);
+    expect(first).toBe("started") /* "startup must not await a parser for a stored failure" */;
+    expect(parserCalls).toBe(0) /* "boot must not reinterpret even a recent unclaimed historical error" */;
+    expect(await harness.commit(tx => scheduledMessages.list(tx, sid), context)).toEqual([]);
     const restored = await harness.commit(tx => scheduledMessages.list(tx, claimedId), context);
-    assert.equal(restored.length, 1, "a persisted interrupted claim still restores using captured evidence");
-    assert.ok(restored[0]);
-    assert.equal(restored[0].status, "scheduled");
-    assert.equal(restored[0].content, "Continue");
+    expect(restored.length).toBe(1) /* "a persisted interrupted claim still restores using captured evidence" */;
+    expect(restored[0]).toBeTruthy();
+    expect(restored[0].status).toBe("scheduled");
+    expect(restored[0].content).toBe("Continue");
   } finally {
     await recovery.close(); await starting;
     await scheduledMessages.close(); await harness.close(context);
@@ -856,16 +855,16 @@ test("live recovery rejects stale evidence and schedules fresh exact evidence wi
   try {
     for (let i = 0; i < 3; i++) {
       const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
-      assert.equal((await (await conv.submit({ type: "input", content: `work ${i}` }, context)).wait(context)).status, "unanswered");
+      expect((await (await conv.submit({ type: "input", content: `work ${i}` }, context)).wait(context)).status).toBe("unanswered");
       const attempt = await until(async () => harness.commit(async tx => {
         const attempts = Object.values((await tx.doc(RecoveryStateDoc)).attempts);
         const value = attempts.find(a => a.conversationId === Number(conv.id) && a.status !== "parsing");
         return value ? JSON.parse(JSON.stringify(value)) as typeof value : undefined;
       }, context), "terminal recovery eligibility");
-      assert.equal(attempt.status, i < 2 ? "stopped" : "scheduled");
-      assert.equal(parserCalls, 0);
-      if (i === 0) assert.match(attempt.reason!, /older than maxWaitHours/);
-      if (i === 1) assert.match(attempt.reason!, /reset.*passed/i);
+      expect(attempt.status).toBe(i < 2 ? "stopped" : "scheduled");
+      expect(parserCalls).toBe(0);
+      if (i === 0) expect(attempt.reason!).toMatch(/older than maxWaitHours/);
+      if (i === 1) expect(attempt.reason!).toMatch(/reset.*passed/i);
     }
   } finally { await recovery.close(); await scheduledMessages.close(); await harness.close(context); }
 });

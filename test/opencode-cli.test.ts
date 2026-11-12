@@ -1,10 +1,9 @@
 // Contract: two requests with the same session ID (a generation and its background compaction summary) both finish.
 // A fake opencode service stands in for `opencode serve`; it answers each prompt only when the test says so.
-import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 
 const ROUTES = ["/api/session", "/api/session/{sessionID}/prompt", "/api/session/{sessionID}/interrupt",
   "/api/experimental/mcp/{server}", "/api/experimental/mcp/{server}/connect", "/api/event", "/api/model",
@@ -108,23 +107,23 @@ test("a background summary with the same session ID does not hang the live gener
   // The compaction summary starts with the same session ID before the generation finishes.
   const summary = ask("You are a context summarization assistant.", "summarize this");
   const side = await until(() => fake.prompts.find(p => p.text.includes("summarize this")), "the summary prompt");
-  assert.notEqual(side.sessionId, live.sessionId, "the summary must not reuse the live opencode session");
+  expect(side.sessionId).not.toBe(live.sessionId) /* "the summary must not reuse the live opencode session" */;
   fake.emit(side.sessionId, "session.text.delta", { delta: "the summary" });
   fake.emit(side.sessionId, "session.execution.succeeded");
   const summarized = await summary;
-  assert.equal(summarized.stopReason, "stop", summarized.errorMessage);
-  assert.equal(summarized.content.find((c: any) => c.type === "text")?.text, "the summary");
+  expect(summarized.stopReason).toBe("stop") /* summarized.errorMessage */;
+  expect(summarized.content.find((c: any) => c.type === "text")?.text).toBe("the summary");
 
   // The generation's session survived the summary and its answer still arrives.
-  assert.ok(!fake.deleted.has(live.sessionId), "the summary must not delete the live opencode session");
+  expect(!fake.deleted.has(live.sessionId)).toBeTruthy() /* "the summary must not delete the live opencode session" */;
   fake.emit(live.sessionId, "session.text.delta", { delta: "done" });
   fake.emit(live.sessionId, "session.execution.succeeded");
   const answered = await Promise.race([
     generation,
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error("the generation hung after the summary")), 5_000)),
   ]);
-  assert.equal(answered.stopReason, "stop", answered.errorMessage);
-  assert.equal(answered.content.find((c: any) => c.type === "text")?.text, "done");
+  expect(answered.stopReason).toBe("stop") /* answered.errorMessage */;
+  expect(answered.content.find((c: any) => c.type === "text")?.text).toBe("done");
   } finally { fake.server.stop(true); }
 });
 
@@ -132,15 +131,15 @@ test("a background summary with the same session ID does not hang the live gener
 test("thinking levels map to opencode variants", async () => {
   const { variantLevels, variantFor } = await import("../src/opencode-cli.js");
   const { getSupportedThinkingLevels, clampThinkingLevel } = await import("@earendil-works/pi-ai");
-  assert.deepEqual(variantLevels([]), { reasoning: false });
+  expect(variantLevels([])).toEqual({ reasoning: false });
   const m = { ...variantLevels([{ id: "low" }, { id: "high" }, { id: "max" }]), id: "x", provider: "opencode-cli" } as any;
-  assert.deepEqual(getSupportedThinkingLevels(m), ["off", "low", "high", "max"]);
-  assert.equal(variantFor(m, clampThinkingLevel(m, "medium")), "high");
-  assert.equal(variantFor(m, "max"), "max");
-  assert.equal(variantFor(m, "off"), undefined, "off without a none variant runs the model default");
+  expect(getSupportedThinkingLevels(m)).toEqual(["off", "low", "high", "max"]);
+  expect(variantFor(m, clampThinkingLevel(m, "medium"))).toBe("high");
+  expect(variantFor(m, "max")).toBe("max");
+  expect(variantFor(m, "off")).toBe(undefined) /* "off without a none variant runs the model default" */;
   const n = { ...variantLevels([{ id: "none" }, { id: "low" }]) } as any;
-  assert.equal(variantFor(n, "off"), "none");
-  assert.equal(variantFor({ reasoning: false }, "high"), undefined);
+  expect(variantFor(n, "off")).toBe("none");
+  expect(variantFor({ reasoning: false }, "high")).toBe(undefined);
 });
 
 // Contract: a changed opencode executable or config directory gets its own service.
@@ -175,7 +174,7 @@ test("a changed opencode executable starts its own service instead of reusing th
     };
     await run(a, "first");
     await run(b, "second");
-    assert.equal(a.prompts.some(p => p.text.includes("second")), false, "the old executable's service must not get the new prompt");
+    expect(a.prompts.some(p => p.text.includes("second"))).toBe(false) /* "the old executable's service must not get the new prompt" */;
   } finally {
     process.env.XDG_CONFIG_HOME = saved.home; process.env.LUNA_OPENCODE_EXECUTABLE = saved.exe;
     for (const f of [a, b]) { f.server.stop(true); }

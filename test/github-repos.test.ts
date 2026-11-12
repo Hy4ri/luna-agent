@@ -1,10 +1,9 @@
 // Regression: Source Control board linking failed for projects that exist only on an execution machine.
 // Repository discovery read only the main-host directory, so worker-linked projects never matched their repository.
-import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll as after, test } from "bun:test";
+import { afterAll as after, test, expect } from "bun:test";
 import { createRemoteOrigin, projectRepos, type RemoteReader } from "../src/github.js";
 import { startWorker } from "../src/worker.js";
 import { WorkerHub, WorkerStore, type WorkerWsData } from "../src/workers.js";
@@ -21,8 +20,8 @@ test("project discovery reaches a repository through an execution-machine direct
     { resolveRemote, key: "worker-only" },
   );
 
-  assert.deepEqual(repos, [{ repo: "Hy4ri/hermes-mobile", projects: [{ id: 102, name: "hermes-mobile" }] }]);
-  assert.deepEqual(calls, [[1, "/machines/hermes-mobile"]]);
+  expect(repos).toEqual([{ repo: "Hy4ri/hermes-mobile", projects: [{ id: 102, name: "hermes-mobile" }] }]);
+  expect(calls).toEqual([[1, "/machines/hermes-mobile"]]);
 });
 
 test("project discovery falls through to a machine and groups projects that share a repository", async () => {
@@ -44,13 +43,13 @@ test("project discovery falls through to a machine and groups projects that shar
     { resolveRemote, key: "fallthrough" },
   );
 
-  assert.deepEqual(repos, [{
+  expect(repos).toEqual([{
     repo: "Hy4ri/worker-project",
     projects: [{ id: 103, name: "worker-project" }, { id: 104, name: "clone-project" }],
   }]);
-  assert.ok(seen.includes("main:/main/no-remote"));
-  assert.ok(seen.includes("2:/machines/project"));
-  assert.ok(seen.includes("3:/machines/offline"));
+  expect(seen.includes("main:/main/no-remote")).toBeTruthy();
+  expect(seen.includes("2:/machines/project")).toBeTruthy();
+  expect(seen.includes("3:/machines/offline")).toBeTruthy();
 });
 
 // The production resolver over the real worker transport: the daemon reads a machine directory through the worker.
@@ -95,7 +94,7 @@ test("repository discovery reads a machine directory through the worker connecti
     [{ id: 201, name: "machine-only", cwd: "", workerDirs: [{ worker: worker.id, cwd: machineRepo }] }],
     { resolveRemote: createRemoteOrigin(hub), key: `worker-${worker.id}` },
   );
-  assert.deepEqual(repos, [{ repo: "Hy4ri/machine-only", projects: [{ id: 201, name: "machine-only" }] }]);
+  expect(repos).toEqual([{ repo: "Hy4ri/machine-only", projects: [{ id: 201, name: "machine-only" }] }]);
 });
 
 test("repository discovery ignores directories on missing machines", async () => {
@@ -103,5 +102,5 @@ test("repository discovery ignores directories on missing machines", async () =>
     [{ id: 202, name: "gone", cwd: "", workerDirs: [{ worker: worker.id + 100, cwd: machineRepo }] }],
     { resolveRemote: createRemoteOrigin(hub), key: `missing-${worker.id}` },
   );
-  assert.deepEqual(repos, []);
+  expect(repos).toEqual([]);
 });

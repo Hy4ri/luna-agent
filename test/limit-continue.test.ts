@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { openLuna } from "../src/luna.js";
@@ -27,10 +26,10 @@ test("migrateLimitWaits: valid first legacy wait migrates once at max(resumeAt, 
     const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, context);
     const sid = Number(conv.id);
     const failed = await (await conv.submit({ type: "input", content: "work" }, context)).wait(context);
-    assert.equal(failed.status, "unanswered");
+    expect(failed.status).toBe("unanswered");
 
     const failure = await harness.commit(tx => readTurnFailure(tx, conv.id), context);
-    assert.ok(failure, "turn failure recorded");
+    expect(failure).toBeTruthy() /* "turn failure recorded" */;
 
     const resumeAt = now + 60_000;
     const nextDeliveryAt = now + 90_000;
@@ -67,28 +66,28 @@ test("migrateLimitWaits: valid first legacy wait migrates once at max(resumeAt, 
     // Verify scheduled message created with exact dueAt = max(resumeAt, nextDeliveryAt)
     const list = await harness.commit(tx => scheduledMessages.list(tx, sid), context);
     const migrated = list.find(s => s.source.kind === "limit_recovery");
-    assert.ok(migrated, "migrated schedule created");
-    assert.equal(migrated.dueAt, nextDeliveryAt, "dueAt must be max(resumeAt, nextDeliveryAt) with no added grace");
-    assert.equal(migrated.content, "Continue");
-    assert.equal(migrated.status, "scheduled");
-    assert.equal(migrated.source.kind, "limit_recovery");
+    expect(migrated).toBeTruthy() /* "migrated schedule created" */;
+    expect(migrated.dueAt).toBe(nextDeliveryAt) /* "dueAt must be max(resumeAt, nextDeliveryAt) with no added grace" */;
+    expect(migrated.content).toBe("Continue");
+    expect(migrated.status).toBe("scheduled");
+    expect(migrated.source.kind).toBe("limit_recovery");
 
     // Verify recovery state recorded
     const state = await harness.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(RecoveryStateDoc))), context);
-    assert.equal(state.legacyMigrated, true);
+    expect(state.legacyMigrated).toBe(true);
     const attempt = state.attempts[`${sid}:${failure.boundary}`];
-    assert.ok(attempt);
-    assert.equal(attempt.status, "scheduled");
+    expect(attempt).toBeTruthy();
+    expect(attempt.status).toBe("scheduled");
 
     // Verify legacy store emptied
     const legacyAfter = await harness.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(LimitWaitsDoc))), context);
-    assert.deepEqual(legacyAfter.waits, {});
-    assert.deepEqual(legacyAfter.chains, {});
+    expect(legacyAfter.waits).toEqual({});
+    expect(legacyAfter.chains).toEqual({});
 
     // Idempotent migration call must not create another schedule or re-process
     await migrateLimitWaits(harness, scheduledMessages, policy, ref, now);
     const listAfter = await harness.commit(tx => scheduledMessages.list(tx, sid), context);
-    assert.equal(listAfter.filter(s => s.source.kind === "limit_recovery").length, 1);
+    expect(listAfter.filter(s => s.source.kind === "limit_recovery").length).toBe(1);
   } finally {
     await scheduledMessages.close();
     await harness.close(context);
@@ -162,15 +161,15 @@ test("migrateLimitWaits: already admitted, cancelled, stale, or attempt>1 legacy
     // No scheduled messages created for any of sid1..sid4
     for (const sid of [sid1, sid2, sid3, sid4]) {
       const list = await harness.commit(tx => scheduledMessages.list(tx, sid), context);
-      assert.equal(list.filter(s => s.source.kind === "limit_recovery").length, 0, `session ${sid} must have no scheduled recovery`);
+      expect(list.filter(s => s.source.kind === "limit_recovery").length).toBe(0) /* `session ${sid} must have no scheduled recovery` */;
     }
 
     // Ledger checks
     const state = await harness.commit(async tx => JSON.parse(JSON.stringify(await tx.doc(RecoveryStateDoc))), context);
-    assert.equal(state.attempts[`${sid1}:${f1.boundary}`]?.status, "consumed", "already admitted attempt ledgered as consumed");
-    assert.equal(state.attempts[`${sid2}:${f2.boundary}`]?.status, "stopped", "cancelled must be stopped");
-    assert.equal(state.attempts[`${sid3}:${f3.boundary}`]?.status, "stopped", "attempt > 1 must be stopped");
-    assert.equal(state.attempts[`${sid4}:${f4.boundary}`]?.status, "stopped", "stale must be stopped");
+    expect(state.attempts[`${sid1}:${f1.boundary}`]?.status).toBe("consumed") /* "already admitted attempt ledgered as consumed" */;
+    expect(state.attempts[`${sid2}:${f2.boundary}`]?.status).toBe("stopped") /* "cancelled must be stopped" */;
+    expect(state.attempts[`${sid3}:${f3.boundary}`]?.status).toBe("stopped") /* "attempt > 1 must be stopped" */;
+    expect(state.attempts[`${sid4}:${f4.boundary}`]?.status).toBe("stopped") /* "stale must be stopped" */;
   } finally {
     await scheduledMessages.close();
     await harness.close(context);

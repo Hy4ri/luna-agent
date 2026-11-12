@@ -1,5 +1,4 @@
-import { test } from "bun:test";
-import assert from "node:assert/strict";
+import { test, expect } from "bun:test";
 import { normalizeBaseUrl } from "../src/providers.js";
 
 test("custom provider base URL accepts a pasted endpoint URL", () => {
@@ -11,7 +10,7 @@ test("custom provider base URL accepts a pasted endpoint URL", () => {
     ["https://api.example.com/v1/", "https://api.example.com/v1"],
     ["https://api.example.com/v1", "https://api.example.com/v1"],
   ];
-  for (const [input, want] of cases) assert.equal(normalizeBaseUrl(input), want);
+  for (const [input, want] of cases) expect(normalizeBaseUrl(input)).toBe(want);
 });
 
 import { customProvider, detectModels, reasoningInfo } from "../src/providers.js";
@@ -29,23 +28,23 @@ test("OpenCode metadata survives catalog refresh and explicit saved overrides", 
   }, fetchImpl));
   await models.login("go", "api_key", { notify: () => {}, prompt: async () => "none" });
   const refreshed = await models.refresh({ allowNetwork: true, force: true });
-  assert.equal(refreshed.errors.size, 0);
+  expect(refreshed.errors.size).toBe(0);
   const deepseek = models.getModel("go", "deepseek-v4.1-flash")!;
-  assert.equal(deepseek.reasoning, true);
-  assert.equal(deepseek.contextWindow, 1_000_000);
-  assert.equal(deepseek.maxTokens, 384_000);
-  assert.deepEqual(deepseek.input, ["text", "image"]);
-  assert.deepEqual(supportedThinkingLevels(deepseek), ["low", "high", "max"]);
+  expect(deepseek.reasoning).toBe(true);
+  expect(deepseek.contextWindow).toBe(1_000_000);
+  expect(deepseek.maxTokens).toBe(384_000);
+  expect(deepseek.input).toEqual(["text", "image"]);
+  expect(supportedThinkingLevels(deepseek)).toEqual(["low", "high", "max"]);
   const gpt = models.getModel("go", "gpt-6-luna")!;
-  assert.deepEqual(supportedThinkingLevels(gpt), ["off", "low", "medium", "high", "xhigh", "max"]);
-  assert.equal(gpt.thinkingLevelMap?.off, "none");
-  assert.deepEqual(supportedThinkingLevels(models.getModel("go", "qwen3.8-max")), ["off", "low", "medium", "xhigh"]);
-  assert.deepEqual(models.getModel("go", "longcat-2.5-free")!.input, ["text", "image"]);
+  expect(supportedThinkingLevels(gpt)).toEqual(["off", "low", "medium", "high", "xhigh", "max"]);
+  expect(gpt.thinkingLevelMap?.off).toBe("none");
+  expect(supportedThinkingLevels(models.getModel("go", "qwen3.8-max"))).toEqual(["off", "low", "medium", "xhigh"]);
+  expect(models.getModel("go", "longcat-2.5-free")!.input).toEqual(["text", "image"]);
   for (const id of ["mimo-v2.6-pro", "minimax-m3"]) {
     const model = models.getModel("go", id)!;
-    assert.equal(model.reasoning, true);
+    expect(model.reasoning).toBe(true);
     // Reasoning output (even with a toggle) is not evidence of adjustable effort.
-    assert.deepEqual(supportedThinkingLevels(model), ["off"]);
+    expect(supportedThinkingLevels(model)).toEqual(["off"]);
   }
 
   models.setProvider(customProvider({
@@ -55,22 +54,22 @@ test("OpenCode metadata survives catalog refresh and explicit saved overrides", 
       { id: "gpt-6-luna", thinkingLevelMap: { off: null, low: null, medium: null, high: "high", xhigh: null, max: null, minimal: null } },
     ],
   }, fetchImpl));
-  assert.equal((await models.refresh({ allowNetwork: true, force: true })).errors.size, 0);
+  expect((await models.refresh({ allowNetwork: true, force: true })).errors.size).toBe(0);
   const saved = models.getModel("go", "deepseek-v4.1-flash")!;
-  assert.equal(saved.contextWindow, 200_000);
-  assert.equal(saved.maxTokens, 32_000);
-  assert.equal(saved.reasoning, false);
-  assert.deepEqual(saved.input, ["text"]);
-  assert.deepEqual(supportedThinkingLevels(models.getModel("go", "gpt-6-luna")), ["high"]);
+  expect(saved.contextWindow).toBe(200_000);
+  expect(saved.maxTokens).toBe(32_000);
+  expect(saved.reasoning).toBe(false);
+  expect(saved.input).toEqual(["text"]);
+  expect(supportedThinkingLevels(models.getModel("go", "gpt-6-luna"))).toEqual(["high"]);
 });
 
 test("structured reasoning does not invent effort values or ignore explicit false", () => {
-  assert.deepEqual(reasoningInfo({ capabilities: { reasoning: { supported: false, effort: ["high"] } } }), { reasoning: false });
-  assert.deepEqual(reasoningInfo({ reasoning: false, capabilities: { reasoning: { supported: true, effort: ["high"] } } }), { reasoning: false });
-  assert.deepEqual(reasoningInfo({ capabilities: { reasoning: {} } }), {});
+  expect(reasoningInfo({ capabilities: { reasoning: { supported: false, effort: ["high"] } } })).toEqual({ reasoning: false });
+  expect(reasoningInfo({ reasoning: false, capabilities: { reasoning: { supported: true, effort: ["high"] } } })).toEqual({ reasoning: false });
+  expect(reasoningInfo({ capabilities: { reasoning: {} } })).toEqual({});
   const info = reasoningInfo({ capabilities: { reasoning: { supported: true, effort: ["low", "unknown"] } } });
-  assert.equal(info.thinkingLevelMap?.low, "low");
-  assert.equal(info.thinkingLevelMap?.high, null);
+  expect(info.thinkingLevelMap?.low).toBe("low");
+  expect(info.thinkingLevelMap?.high).toBe(null);
 });
 
 test("discovery preserves existing limit and input formats without inferring image output", async () => {
@@ -86,7 +85,7 @@ test("discovery preserves existing limit and input formats without inferring ima
   ];
   const fetchImpl = (async () => Response.json({ data })) as unknown as typeof fetch;
   const defs = await detectModels("https://example.test/v1", undefined, fetchImpl);
-  assert.deepEqual(defs, [
+  expect(defs).toEqual([
     { id: "router", contextWindow: 200_000, maxTokens: 32_000, vision: true },
     { id: "vllm", contextWindow: 64_000, maxTokens: 8_000, vision: false },
     { id: "anthropic", contextWindow: 100_000, maxTokens: 16_000, vision: true },
@@ -100,18 +99,18 @@ test("discovery preserves existing limit and input formats without inferring ima
 
 test("reasoning support is read from OpenRouter, Nous, and ZenMux model lists", () => {
   // ZenMux
-  assert.deepEqual(reasoningInfo({ id: "openai/gpt-5.2", capabilities: { reasoning: true } }), { reasoning: true });
-  assert.deepEqual(reasoningInfo({ id: "x", capabilities: { reasoning: false } }), { reasoning: false });
+  expect(reasoningInfo({ id: "openai/gpt-5.2", capabilities: { reasoning: true } })).toEqual({ reasoning: true });
+  expect(reasoningInfo({ id: "x", capabilities: { reasoning: false } })).toEqual({ reasoning: false });
   // OpenRouter / Nous: listed efforts only; a mandatory model cannot turn reasoning off.
-  assert.deepEqual(reasoningInfo({ id: "a", reasoning: { mandatory: true, supported_efforts: ["high", "medium", "low"] } }), {
+  expect(reasoningInfo({ id: "a", reasoning: { mandatory: true, supported_efforts: ["high", "medium", "low"] } })).toEqual({
     reasoning: true,
     thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null },
   });
-  assert.deepEqual(reasoningInfo({ id: "b", reasoning: { mandatory: false } }), { reasoning: true });
-  assert.deepEqual(reasoningInfo({ id: "c", reasoning: null, supported_parameters: ["reasoning", "tools"] }), { reasoning: true });
-  assert.deepEqual(reasoningInfo({ id: "d", reasoning: null, supported_parameters: ["tools"] }), { reasoning: false });
+  expect(reasoningInfo({ id: "b", reasoning: { mandatory: false } })).toEqual({ reasoning: true });
+  expect(reasoningInfo({ id: "c", reasoning: null, supported_parameters: ["reasoning", "tools"] })).toEqual({ reasoning: true });
+  expect(reasoningInfo({ id: "d", reasoning: null, supported_parameters: ["tools"] })).toEqual({ reasoning: false });
   // Missing metadata stays unknown.
-  assert.deepEqual(reasoningInfo({ id: "e" }), {});
+  expect(reasoningInfo({ id: "e" })).toEqual({});
 });
 
 test("detected custom models expose their real thinking levels", async () => {
@@ -124,7 +123,7 @@ test("detected custom models expose their real thinking levels", async () => {
   const defs = await detectModels("https://example.test/v1", "k", fetchImpl);
   const provider = customProvider({ id: "gw", name: "gw", api: "openai-completions", baseUrl: "https://example.test/v1", models: defs });
   const levels = Object.fromEntries(provider.getModels().map(m => [m.id, getSupportedThinkingLevels(m)]));
-  assert.deepEqual(levels["anthropic/claude-opus-4.6"], ["off", "low", "medium", "high", "max"]);
-  assert.deepEqual(levels["openai/gpt-5.2"], ["off", "minimal", "low", "medium", "high"]);
-  assert.deepEqual(levels["plain/chat"], ["off"]);
+  expect(levels["anthropic/claude-opus-4.6"]).toEqual(["off", "low", "medium", "high", "max"]);
+  expect(levels["openai/gpt-5.2"]).toEqual(["off", "minimal", "low", "medium", "high"]);
+  expect(levels["plain/chat"]).toEqual(["off"]);
 });
