@@ -35,14 +35,6 @@ const activeScale = computed(() => scale(activeLevel.value));
 const color = computed(() => colors[activeScale.value] ?? colors[0]);
 const label = computed(() => levelLabel(activeLevel.value));
 
-// Vertical stack of 8 LED segments for the small composer trigger (top = Max, bottom = Off)
-const triggerSlices = LEVELS.map((level, i) => ({
-  level,
-  index: i,
-  color: colors[i]!,
-  y: 1 + (LEVELS.length - 1 - i) * 2.2,
-})).reverse();
-
 // OpenAI speed tiers: one lightning button cycles Standard, Fast, Ultrafast (where the model offers it).
 const speedColors: Record<Speed, string> = { fast: "#e6c27a", ultrafast: "#e86060" };
 const speedTitle = computed(() => `Speed: ${speedLabel(effectiveSpeed.value)}`);
@@ -171,21 +163,6 @@ onUnmounted(() => {
     :style="{ '--reasoning-color': color }"
     @wheel.prevent="handleWheel"
   >
-    <svg class="think-eq-icon" viewBox="0 0 12 18" fill="none" aria-hidden="true">
-      <rect
-        v-for="item in triggerSlices"
-        :key="item.level"
-        :data-level="item.level"
-        :data-active="item.index <= activeScale"
-        x="1"
-        :y="item.y"
-        width="10"
-        height="1.6"
-        rx="0.4"
-        :fill="item.index <= activeScale ? item.color : 'var(--muted-foreground)'"
-        :opacity="item.index <= activeScale ? 1 : 0.24"
-      />
-    </svg>
     <span class="think-level-text">{{ label }}</span>
   </button>
 
@@ -286,13 +263,6 @@ onUnmounted(() => {
 #think:focus-visible {
   outline: 2px solid var(--reasoning-color);
   outline-offset: 2px;
-}
-
-.think-eq-icon {
-  width: 12px;
-  height: 18px;
-  flex: none;
-  display: block;
 }
 
 .think-level-text {
