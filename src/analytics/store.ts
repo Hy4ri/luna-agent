@@ -20,6 +20,8 @@ export class AnalyticsStore {
     // Configure SQLite pragmas
     this.db.run("PRAGMA journal_mode = WAL;");
     this.db.run("PRAGMA synchronous = NORMAL;");
+    // The analytics scan thread writes through its own connection.
+    this.db.run("PRAGMA busy_timeout = 5000;");
 
     this.initSchema();
     this.checkVersionBump();

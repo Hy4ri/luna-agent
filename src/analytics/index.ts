@@ -7,6 +7,8 @@ import { context } from "../luna.js";
 import { isRunning, readSessionStatus } from "../session-status.js";
 import { AnalyticsStore } from "./store.js";
 import { scanAnalyticsSession } from "./source.js";
+import { AnalyticsScanThread } from "./scan-thread.js";
+import type { AnalyticsScan } from "./types.js";
 
 type Harness = Awaited<ReturnType<typeof import("../luna.js").openLuna>>;
 const services = new WeakMap<Harness, AnalyticsService>();
@@ -22,6 +24,8 @@ export class AnalyticsService {
   private timer?: ReturnType<typeof setTimeout>;
   private stopped = false;
   private failure?: Error;
+  /** Off-main-thread scanner for file databases. Undefined after a thread failure: scans then run inline. */
+  private thread?: AnalyticsScanThread;
   sessionsScanned = 0;
   entriesScanned = 0;
   indexedAt: string | null = null;
@@ -30,6 +34,9 @@ export class AnalyticsService {
     this.source = conversationStorage(harness).db;
     const filename = this.source.filename;
     this.store = new AnalyticsStore(filename === ":memory:" || !filename ? ":memory:" : join(dirname(filename), "analytics.db"));
+    if (filename && filename !== ":memory:" && process.env.LUNA_ANALYTICS_THREAD !== "0") {
+      try { this.thread = new AnalyticsScanThread(filename, join(dirname(filename), "analytics.db")); } catch { this.thread = undefined; }
+    }
     this.store.db.exec("CREATE TABLE IF NOT EXISTS analytics_checkpoints(session_id INTEGER PRIMARY KEY, signature TEXT NOT NULL)");
     const observation = harness.observeCommits({
       advance: publication => {
@@ -120,19 +127,10 @@ export class AnalyticsService {
         if (this.stopped) return;
         this.dirty.delete(id);
         try {
-          const scan = await this.harness.commit(async tx => {
-            if (this.stopped || !await tx.conversation(id as ConversationId)) return undefined;
-            const value = scanAnalyticsSession(this.source, id, this.store.getSession(id));
-            if (value) {
-              const state = await readSessionStatus(tx, id as ConversationId, await isRunning(tx, id as ConversationId));
-              value.session.status = state.status;
-              value.session.statusReason = state.statusReason;
-            }
-            return value;
-          }, context);
+          const scan = await this.scanSession(id);
           if (this.stopped) return;
           if (scan) {
-            this.store.apply(scan);
+            if (!scan.applied) this.store.apply(scan.value);
             // If commits interleaved with the read, keep the checkpoint invalid until their next pass.
             if (!this.dirty.has(id)) this.store.db.query("INSERT OR REPLACE INTO analytics_checkpoints VALUES (?,?)").run(id, this.signature(id));
             this.sessionsScanned++; this.entriesScanned += scan.entriesScanned;
@@ -147,6 +145,47 @@ export class AnalyticsService {
     } catch (error) { this.failure = error instanceof Error ? error : new Error(String(error)); throw error; }
   }
 
+  /**
+   * Scans one session. With the scan thread, the thread scans and writes the facts itself (applied: true); the
+   * main thread only reads the session status. Without it, the scan runs inline in one storage read.
+   */
+  private async scanSession(id: number): Promise<{ applied: true; entriesScanned: number } | { applied: false; value: AnalyticsScan; entriesScanned: number } | undefined> {
+    const thread = this.thread;
+    if (thread) {
+      let handle: number | undefined;
+      try {
+        handle = await thread.scan(id);
+        if (this.stopped) { if (handle !== undefined) thread.drop(handle); return undefined; }
+        const held = handle;
+        const state = await this.harness.commit(async tx => {
+          if (this.stopped || held === undefined || !await tx.conversation(id as ConversationId)) return undefined;
+          return readSessionStatus(tx, id as ConversationId, await isRunning(tx, id as ConversationId));
+        }, context);
+        if (!state) { if (held !== undefined) thread.drop(held); return undefined; }
+        handle = undefined;
+        return { applied: true, entriesScanned: await thread.apply(held!, state.status, state.statusReason) };
+      } catch (error) {
+        if (handle !== undefined) thread.drop(handle);
+        if (this.stopped) return undefined;
+        console.warn("Analytics scan thread failed, scanning inline:", error instanceof Error ? error.message : String(error));
+        thread.close();
+        if (this.thread === thread) this.thread = undefined;
+      }
+    }
+    if (this.stopped) return undefined;
+    const value = await this.harness.commit(async tx => {
+      if (this.stopped || !await tx.conversation(id as ConversationId)) return undefined;
+      const value = scanAnalyticsSession(this.source, id, this.store.getSession(id));
+      if (value) {
+        const state = await readSessionStatus(tx, id as ConversationId, await isRunning(tx, id as ConversationId));
+        value.session.status = state.status;
+        value.session.statusReason = state.statusReason;
+      }
+      return value;
+    }, context);
+    return value ? { applied: false, value, entriesScanned: value.entriesScanned } : undefined;
+  }
+
   async ready(): Promise<void> {
     // Saved results can be served immediately during a restart catch-up. Fresh requests still see its timestamp.
     const count = this.store.db.query("SELECT COUNT(*) AS n FROM analytics_sessions").get() as { n: number };
@@ -157,6 +196,7 @@ export class AnalyticsService {
   close(): void {
     if (this.stopped) return;
     this.stopped = true; clearTimeout(this.timer);
+    this.thread?.close(); this.thread = undefined;
     for (const detach of this.detach.splice(0)) detach();
     this.listeners.clear();
     // An active drain checks stopped after its pending harness read before touching the store.
