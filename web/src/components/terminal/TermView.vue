@@ -21,6 +21,8 @@ let ws: WebSocket | undefined;
 let live = false;
 let finished = false;
 let disposed = false;
+let connecting = false;
+let generation = 0;
 let retry = 0;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let observer: ResizeObserver | undefined;
@@ -38,24 +40,35 @@ function sendResize() {
 }
 
 async function connect() {
-  if (disposed || finished) return;
+  if (disposed || finished || connecting || ws) return;
+  const gen = ++generation;
+  connecting = true;
   let url: string;
   try {
     url = await attachUrl(props.session, props.id);
   } catch (e) {
+    connecting = false;
+    if (disposed || gen !== generation) return;
     const status = (e as { status?: number }).status;
     if (status === 404) { dropTab(props.id); return; }
     if (status === 403) { finished = true; setNote((e as Error).message); return; }
     schedule();
     return;
   }
-  if (disposed) return;
+  connecting = false;
+  if (disposed || finished || gen !== generation) return;
   const socket = new WebSocket(url);
   socket.binaryType = "arraybuffer";
   ws = socket;
   live = false;
-  socket.onopen = () => { retry = 0; setNote(""); };
+  const stale = () => disposed || gen !== generation || ws !== socket;
+  socket.onopen = () => {
+    if (stale()) return;
+    retry = 0;
+    setNote("");
+  };
   socket.onmessage = event => {
+    if (stale()) return;
     if (typeof event.data !== "string") { term?.write(new Uint8Array(event.data as ArrayBuffer)); return; }
     let msg: { type?: string; exitCode?: number | null; reason?: string; controller?: "user" | "agent"; shared?: boolean };
     try { msg = JSON.parse(event.data); } catch { return; }
@@ -73,10 +86,14 @@ async function connect() {
   };
   socket.onclose = () => {
     if (ws === socket) ws = undefined;
+    if (disposed || gen !== generation) return;
     live = false;
-    if (!disposed && !finished) { setNote("Disconnected. Reconnecting..."); schedule(); }
+    if (!finished) { setNote("Disconnected. Reconnecting..."); schedule(); }
   };
-  socket.onerror = () => { /* onclose follows and handles the retry */ };
+  socket.onerror = () => {
+    if (stale()) return;
+    /* onclose follows and handles the retry */
+  };
 }
 
 function schedule() {
@@ -129,6 +146,7 @@ watch(() => props.active, active => {
 
 onBeforeUnmount(() => {
   disposed = true;
+  generation++;
   clearTimeout(retryTimer);
   cancelAnimationFrame(frame);
   observer?.disconnect();
