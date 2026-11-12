@@ -462,7 +462,7 @@ onUnmounted(() => {
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane && chat.session" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Terminal" title="Terminal (Ctrl+`)" @click="toggleTerminal"><SquareTerminal :size="18" /></button>
             <button v-if="!mobile && !sessionPane && !tiled" id="more" class="icon-button" aria-label="Conversation settings" title="Conversation settings" @click="openPanel('session')"><Ellipsis :size="18" /></button>
-            <button v-if="!mobile && (chat.session || (chat.draftOpen && tileIds.length))" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
+            <button v-if="!mobile && (sessionPane || tiled)" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
             <Popover v-if="mobile" v-model:open="mobileMenuOpen">
               <PopoverTrigger as-child>
                 <button id="mobile-more" class="icon-button shrink-0" aria-label="Conversation menu" title="Conversation menu"><Ellipsis :size="18" /></button>
@@ -472,7 +472,7 @@ onUnmounted(() => {
                 <button v-if="activeSession" class="mobile-menu-action" :disabled="askPending" @click="mobileAction(askWifeAboutSession)"><Heart :size="18" />Ask Wife about this session</button>
                 <button v-if="activeSession" class="mobile-menu-action" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="mobileAction(pinSession)"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" />{{ activeSession.pinned ? 'Unpin session' : 'Pin session' }}</button>
                 <button v-if="!sessionPane && !tiled" class="mobile-menu-action" @click="mobileAction(() => openPanel('session'))"><Ellipsis :size="18" />Conversation settings</button>
-                <button v-if="chat.session || (chat.draftOpen && tileIds.length)" class="mobile-menu-action" @click="mobileAction(closeTile)"><X :size="18" />Remove tile</button>
+                <button v-if="sessionPane || tiled" class="mobile-menu-action" @click="mobileAction(closeTile)"><X :size="18" />Remove tile</button>
               </PopoverContent>
             </Popover>
           </header>
