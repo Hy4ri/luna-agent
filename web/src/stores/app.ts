@@ -11,7 +11,7 @@ import * as modelsStore from "./models";
 import * as sessionsStore from "./sessions";
 import * as composerStore from "./composer";
 
-export type View = "chat" | "analytics" | "wife" | "source-control" | "settings";
+export type View = "chat" | "analytics" | "wife" | "source-control" | "mail" | "settings";
 const SIDE_MIN = 200, SIDE_MAX = 480;
 
 function savedWidth(): number | null {
@@ -71,7 +71,7 @@ function closeSettings(force = false): boolean {
   setDrawer(false);
   return true;
 }
-function closePage(view: "analytics" | "wife" | "source-control") {
+function closePage(view: "analytics" | "wife" | "source-control" | "mail") {
   if (ui.view !== view) return;
   ui.view = "chat";
   if (isPageHash(view)) clearHash();
@@ -90,7 +90,7 @@ function openSettings(route?: string) {
   ui.settingsTab = category;
   ui.settingsTarget = target;
   ui.settingsNavigation++;
-  if (ui.view !== "settings") { closePanel(); closePage("analytics"); closePage("wife"); closePage("source-control"); ui.view = "settings"; }
+  if (ui.view !== "settings") { closePanel(); closePage("analytics"); closePage("wife"); closePage("source-control"); closePage("mail"); ui.view = "settings"; }
   setDrawer(false);
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
@@ -104,7 +104,7 @@ export function setSettingsTab(route: string) {
   ui.settingsNavigation++;
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
-function openPage(view: "analytics" | "wife" | "source-control") {
+function openPage(view: "analytics" | "wife" | "source-control" | "mail") {
   if (!closeSettings()) return;
   if (ui.login) return;
   closePanel(); setDrawer(false);
@@ -120,6 +120,7 @@ export function openBoardCard(projectId: number, cardId: number) {
   openPanel('board');
 }
 export const openSourceControl = () => openPage("source-control");
+export const openMail = () => openPage("mail");
 /** "Back to chat" from any page. Focuses the composer. */
 export function backToChat() {
   if (ui.view === "settings") { if (!closeSettings()) return; }
@@ -132,6 +133,7 @@ export function leavePages(): boolean {
   if (ui.view === "analytics") closePage("analytics");
   if (ui.view === "wife") closePage("wife");
   if (ui.view === "source-control") closePage("source-control");
+  if (ui.view === "mail") closePage("mail");
   return true;
 }
 export function navigate(view: View, tab?: string) {
@@ -139,6 +141,7 @@ export function navigate(view: View, tab?: string) {
   else if (view === "analytics") openAnalytics();
   else if (view === "wife") openWife();
   else if (view === "source-control") openSourceControl();
+  else if (view === "mail") openMail();
   else backToChat();
 }
 
@@ -149,6 +152,7 @@ export function openPanel(name: string, options?: { keepSettings?: boolean }) {
   if (name === "analytics") { closePanel(); return openAnalytics(); }
   if (name === "wife") { closePanel(); return openWife(); }
   if (name === "source-control") { closePanel(); return openSourceControl(); }
+  if (name === "mail") { closePanel(); return openMail(); }
   if (!options?.keepSettings && !closeSettings()) return;
   returnFocus = document.activeElement;
   setDrawer(false);
@@ -166,6 +170,7 @@ export function closePanel() {
     else if (ui.view === "analytics") document.getElementById("analytics-menu")?.focus();
     else if (ui.view === "wife") document.getElementById("wife-menu")?.focus();
     else if (ui.view === "source-control") document.getElementById("source-control-menu")?.focus();
+    else if (ui.view === "mail") document.getElementById("mail-menu")?.focus();
     else {
       const menu = document.getElementById("menu");
       (menu?.offsetParent ? menu : document.getElementById("more"))?.focus();
@@ -395,6 +400,7 @@ function applyHash() {
   else if (h === "#analytics" || h.startsWith("#analytics/")) { if (ui.view !== "analytics") openAnalytics(); }
   else if (h === "#wife") { if (ui.view !== "wife") openWife(); }
   else if (h === "#source-control" || h.startsWith("#source-control/")) { if (ui.view !== "source-control") openSourceControl(); }
+  else if (h === "#mail") { if (ui.view !== "mail") openMail(); }
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#cron") { history.replaceState(null, "", location.pathname + location.search); openPanel("cron"); }
 }
@@ -402,9 +408,9 @@ window.addEventListener("hashchange", () => {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) { openSettings(); return; }
   if (!closeSettings()) return;
-  if (h === "#analytics" || h.startsWith("#analytics/") || h === "#wife" || h === "#source-control" || h.startsWith("#source-control/") || h === "#cron") applyHash();
+  if (h === "#analytics" || h.startsWith("#analytics/") || h === "#wife" || h === "#source-control" || h.startsWith("#source-control/") || h === "#mail" || h === "#cron") applyHash();
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
-  else { closePage("analytics"); closePage("wife"); closePage("source-control"); }
+  else { closePage("analytics"); closePage("wife"); closePage("source-control"); closePage("mail"); }
 });
 window.addEventListener("beforeunload", e => {
   if (ui.view === "settings" && guard?.isDirty()) { e.preventDefault(); e.returnValue = ""; }

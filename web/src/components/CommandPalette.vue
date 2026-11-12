@@ -148,6 +148,7 @@ const items = computed<Item[]>(() => {
   add({ id: 'view:wife', group: 'Go to', label: 'Wife', current: ui.view === 'wife', run: () => navigate('wife') });
   add({ id: 'view:analytics', group: 'Go to', label: 'Analytics', current: ui.view === 'analytics', run: () => navigate('analytics') });
   add({ id: 'view:source-control', group: 'Go to', label: 'Source Control', current: ui.view === 'source-control', run: () => navigate('source-control') });
+  add({ id: 'view:mail', group: 'Go to', label: 'Mail', current: ui.view === 'mail', run: () => navigate('mail') });
   add({ id: 'view:github', group: 'Go to', label: 'GitHub (alias)', current: ui.view === 'source-control', run: () => navigate('source-control') });
   for (const s of sections) add({ id: 'settings:' + s.id, group: 'Go to', label: 'Settings: ' + s.title, hint: s.description, current: ui.view === 'settings' && ui.settingsTab === s.id, run: () => navigate('settings', s.id) });
   for (const [id, panel] of Object.entries(PANELS)) add({ id: 'panel:' + id, group: 'Open', label: panel.title, hint: panel.desc, current: ui.panel === id, run: () => openPanel(id) });

@@ -21,6 +21,7 @@ import { browser, loadBrowser } from '@/stores/browser';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
 const WifePage = defineAsyncComponent(() => import('@/pages/WifePage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
+const MailPage = defineAsyncComponent(() => import('@/pages/MailPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
 // The terminal adapter and official WASM load only when a terminal opens.
 const TerminalDock = defineAsyncComponent(() => import('@/components/terminal/TerminalDock.vue'));
@@ -522,6 +523,9 @@ onUnmounted(() => {
       </div>
       <div v-if="ui.view === 'source-control'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Source Control" tabindex="-1"><SourceControlPage :inert="blocked" /></div>
+      </div>
+      <div v-if="ui.view === 'mail'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+        <div class="settings-window" role="dialog" aria-modal="true" aria-label="Mail" tabindex="-1"><MailPage :inert="blocked" /></div>
       </div>
       <div v-if="ui.view === 'settings'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Settings" tabindex="-1"><SettingsPage :inert="blocked" /></div>

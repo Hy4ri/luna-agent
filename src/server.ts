@@ -32,6 +32,9 @@ import { registerSessionConfig } from "./routes/session-config.js";
 import { registerSessionOps } from "./routes/session-ops.js";
 import { registerHookReceiver, registerWebhooks } from "./routes/webhooks.js";
 import { WebhookError, type Webhooks } from "./webhooks.js";
+import { registerMail, registerMailOAuthCallback } from "./routes/mail.js";
+import { MailError } from "./mail/types.js";
+import type { MailService } from "./mail/service.js";
 import { registerPush } from "./routes/push.js";
 import { registerProjects } from "./routes/projects.js";
 import { registerWorkers } from "./routes/workers.js";
@@ -91,6 +94,8 @@ export interface ServerOptions {
   cwd?: string;
   /** Webhooks in (POST /hooks/<slug>) and out (subscriptions). Absent: their endpoints answer 404. */
   webhooks?: Webhooks;
+  /** Integrated Gmail mail service. Absent: its endpoints answer 404. */
+  mail?: MailService;
 }
 
 const safeEq = (a: string, b: string) => {
@@ -114,7 +119,7 @@ export function createApp(opts: ServerOptions) {
 
   app.onError((e, c) => {
     if (e instanceof BusyCommandError) return err(c, e.status, e.message);
-    if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError || e instanceof UploadError || e instanceof WebhookError) return err(c, e.status, e.message);
+    if (e instanceof ConversationError || e instanceof ProjectError || e instanceof BoardError || e instanceof UploadError || e instanceof WebhookError || e instanceof MailError) return err(c, e.status, e.message);
     const name = (e as Error).name;
     if (name === "ConversationBusy") return err(c, 409, "conversation busy");
     return err(c, 500, (e as Error).message ?? String(e));
@@ -140,6 +145,9 @@ export function createApp(opts: ServerOptions) {
 
   // ---- inbound webhooks (unauthenticated by the daemon token; every hook checks its own secret) ----
   registerHookReceiver(app, opts.webhooks);
+
+  // ---- Gmail OAuth2 callback (unauthenticated by the daemon token; protected by single-use state + PKCE) ----
+  registerMailOAuthCallback(app, opts.mail);
 
   // ---- auth ----
   app.use("/v1/*", async (c, next) => {
@@ -171,6 +179,7 @@ export function createApp(opts: ServerOptions) {
   registerTerminals(app, ctx);
   registerBrowser(app, ctx);
   registerGithub(app, ctx);
+  registerMail(app, ctx);
   registerSessionConfig(app, ctx);
   registerSessionOps(app, ctx);
   registerMessages(app, ctx);
