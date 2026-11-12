@@ -65,6 +65,7 @@ export interface Capabilities {
   platform: string;
   arch: string;
   node: string;
+  bun?: string;
   user: string;
   home: string;
   cwd: string;

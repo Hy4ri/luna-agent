@@ -82,7 +82,7 @@ export function startWorker(o: WorkerOptions) {
     // Do not advertise upload capability or fall back to cwd/main after a startup failure.
   }
 
-  const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version,
+  const capabilities: Capabilities = { hostname: hostname(), platform: process.platform, arch: process.arch, node: process.version, bun: Bun.version,
     user: userInfo().username, home: workerHome, cwd, path: process.env.PATH, browser: services.browserCapability(),
     generatedFiles: generatedRootPath !== undefined,
     uploadFiles: uploadStore !== undefined, pty: true, ptyCommand: true };
