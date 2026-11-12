@@ -10,6 +10,12 @@ export function findModel(list: readonly ModelInfo[], ref: ModelRef | null | und
   return ref ? list.find(m => m.provider === ref.provider && m.id === ref.modelId) : undefined;
 }
 
+/** Label for the composer model button: hides the provider and shows only the model name. */
+export function modelDisplayName(model: ModelInfo | undefined, ref: ModelRef | null | undefined): string {
+  if (model) return model.name || model.id;
+  return ref?.modelId || "Choose model";
+}
+
 /** Levels the model accepts, in LEVELS order. An unknown model shows every standard level; the server clamps. Ultra needs a model that lists it. */
 export function levelsOf(model: ModelInfo | undefined): string[] {
   const supported = model?.thinkingLevels;
