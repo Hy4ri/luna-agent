@@ -12,6 +12,7 @@ import { bareShell, highlights, keyBytes, renderScreen, textBytes } from "../src
 import { localLauncher } from "../src/terminal/pty-host.js";
 import { TerminalError, TerminalRegistry } from "../src/terminal/registry.js";
 import { loadVt } from "../src/terminal/vt-model.js";
+import { createVtRuntime } from "../src/terminal/vt-core.js";
 
 const SH = { SHELL: "/bin/sh", PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "/tmp" };
 const made: TerminalRegistry[] = [];
@@ -57,6 +58,90 @@ test("the screen model renders overwrites, wide text, the alternate screen, and 
     assert.equal(vt3.mode(2004), true);
     assert.deepEqual(vt3.screen().lines, ["isolated", "", ""]);
   } finally { vt2.dispose(); vt3.dispose(); }
+});
+
+// These are ABI contracts owned by our binding, not browser/UI tests. The headless snapshot
+// tests cannot catch a uint64 scrollbar, by-value mouse struct, or malformed native selection.
+test("the shared VT core returns styled dirty rows without losing headless updates", async () => {
+  const runtime = await createVtRuntime(readFileSync(new URL("../src/terminal/ghostty-vt-1.0.1-small.wasm", import.meta.url)));
+  const vt = runtime.create(10, 3);
+  try {
+    vt.setTheme(0xeeeeee, 0x121212, 0xff0000);
+    const first = vt.frame(true);
+    assert.equal(first.lines.length, 3);
+    assert.equal(first.scrollOffset, 0);
+    assert.equal(vt.frame().lines.length, 0);
+    vt.write(Buffer.from("\x1b[38;2;17;34;51;48;2;68;85;102;1;3;4m你\x1b[0m"));
+    assert.equal(vt.screen().lines[0], "你");
+    const frame = vt.frame(); // screen() must not consume the browser's dirty state.
+    const cells = frame.lines.find(l => l.row === 0)!.cells;
+    assert.deepEqual(cells.slice(0, 2).map(c => [c.text, c.width]), [["你", 2], ["", 0]]);
+    assert.equal(cells[0]!.fg, 0x112233);
+    assert.equal(cells[0]!.bg, 0x445566);
+    assert.equal(cells[0]!.flags & 3, 3);
+    assert.equal(cells[0]!.underline, 1);
+    assert.equal(vt.frame().lines.length, 0);
+    vt.write(Buffer.from("\x1b[31mX\x1b[0m"));
+    vt.frame();
+    vt.write(Buffer.from("\x1b]4;1;#abcdef\x07")); // Global palette dirtiness does not mark individual rows dirty.
+    assert.equal(vt.frame().lines.find(l => l.row === 0)?.cells[2]?.fg, 0xabcdef);
+    vt.write(Buffer.from("\r\n1\r\n2\r\n3\r\n4"));
+    assert.equal(vt.frame().scrollOffset, 0);
+    vt.scroll(-2);
+    assert.equal(vt.frame().scrollOffset, 2);
+    vt.scrollToBottom();
+    assert.equal(vt.frame().scrollOffset, 0);
+    vt.resize(8, 4);
+    assert.deepEqual([vt.frame(true).cols, vt.screen().rows], [8, 4]);
+  } finally { vt.dispose(); }
+});
+
+test("the shared VT core encodes mode-aware input and copies native wrapped selections", async () => {
+  const runtime = await createVtRuntime(readFileSync(new URL("../src/terminal/ghostty-vt-1.0.1-small.wasm", import.meta.url)));
+  const vt = runtime.create(10, 3);
+  const key = (key: string, code = key, ctrl = false, alt = false, shift = false) => vt.key({ key, code, ctrl, alt, shift, meta: false });
+  const mouse = (button: number, action: "press" | "release" | "motion" = "press", buttons = 1) => vt.mouse({ action, button, buttons, x: 16, y: 17, mods: 0, cellWidth: 8, cellHeight: 17 });
+  try {
+    assert.equal(key("ArrowUp"), "\x1b[A");
+    assert.equal(key("c", "KeyC", true), "\x03");
+    assert.equal(key("x", "KeyX", false, true), "\x1bx");
+    assert.equal(key("ArrowLeft", "ArrowLeft", true), "\x1b[1;5D");
+    assert.equal(key("Tab", "Tab", false, false, true), "\x1b[Z");
+    assert.equal(vt.paste("a\nb"), "a\rb");
+    const fallbackKeys = [
+      ["Enter", "\r"], ["Escape", "\x1b"], ["Backspace", "\x7f"], ["Tab", "\t"],
+      ["ArrowUp", "\x1b[A"], ["ArrowDown", "\x1b[B"], ["ArrowLeft", "\x1b[D"], ["ArrowRight", "\x1b[C"],
+      ["Home", "\x1b[H"], ["End", "\x1b[F"], ["PageUp", "\x1b[5~"], ["PageDown", "\x1b[6~"],
+      ["Insert", "\x1b[2~"], ["Delete", "\x1b[3~"], [" ", " "], ["a", "a"], ["é", "é"], ["😀", "😀"],
+    ] as const;
+    for (const [name, expected] of fallbackKeys) assert.equal(key(name, ""), expected, `missing code: ${name}`);
+    assert.equal(key("é", "", false, true), "\x1bé");
+    assert.equal(mouse(0), "");
+    vt.write(Buffer.from("\x1b[?1h\x1b[?2004h\x1b[?1000h\x1b[?1006h"));
+    assert.equal(key("ArrowUp"), "\x1bOA");
+    assert.equal(vt.paste("a\nb"), "\x1b[200~a\nb\x1b[201~");
+    assert.equal(mouse(0), "\x1b[<0;3;2M");
+    assert.equal(mouse(0, "release", 0), "\x1b[<0;3;2m");
+    assert.equal(mouse(3), "\x1b[<64;3;2M");
+    assert.equal(mouse(4), "\x1b[<65;3;2M");
+    vt.write(Buffer.from("0123456789ABCDEF"));
+    vt.select({ col: 0, row: 0 }, { col: 5, row: 1 });
+    assert.equal(vt.selectionText(), "0123456789ABCDEF");
+    assert.deepEqual(vt.frame().lines.filter(l => l.selection).map(l => [l.row, l.selection]), [
+      [0, { start: 0, end: 9 }], [1, { start: 0, end: 5 }],
+    ]);
+    vt.write(Buffer.from("\r\nnext\r\nlast"));
+    assert.equal(vt.selectionText(), "0123456789ABCDEF"); // Terminal-owned refs track output scrolling.
+    assert.deepEqual(vt.frame().lines.filter(l => l.selection).map(l => [l.row, l.selection]), [[0, { start: 0, end: 5 }]]);
+    vt.clearSelection();
+    assert.equal(vt.frame().lines.filter(l => l.selection).length, 0);
+    assert.equal(vt.selectionText(), "");
+    vt.select({ col: 0, row: 0 }, { col: 5, row: 0 });
+    assert.equal(vt.selectionText(), "ABCDEF"); // Viewport row 0 is not full-screen/history row 0.
+    vt.scroll(-1);
+    vt.select({ col: 0, row: 0 }, { col: 9, row: 0 });
+    assert.equal(vt.selectionText(), "0123456789");
+  } finally { vt.dispose(); }
 });
 
 test("screens name the highlighted item and fold long blank runs", async () => {
