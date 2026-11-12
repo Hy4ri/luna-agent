@@ -9,10 +9,10 @@ const LABEL_MAX = 80;
 
 export type UserMessageLabel = { id: number; label: string };
 
-type Segment = { conversationId: number; upper?: number };
+export type Segment = { conversationId: number; upper?: number };
 
 /** Fork chain from the conversation to its root. Each parent segment ends at its fork point. */
-function segments(db: Database, conversationId: number): Segment[] {
+export function segments(db: Database, conversationId: number): Segment[] {
   const read = db.query<{ parent: string | null }, [number]>("SELECT json_extract(record, '$.parent') AS parent FROM conversations WHERE id = ?");
   const out: Segment[] = [];
   let current: Segment | undefined = { conversationId };

@@ -5,6 +5,9 @@ import { RecoveryStateDoc } from "../recovery-state.js";
 import { newestMessageTime, SessionCreated } from "../session-activity.js";
 import { ExecTarget } from "../workers.js";
 import { context } from "../luna.js";
+import type { Database } from "bun:sqlite";
+import { conversationStorage } from "../conversation-storage.js";
+import { readRowHead, type RowHead } from "../session-row-head.js";
 import { type RouteCtx, textOf } from "./context.js";
 
 export type SessionRow = SessionState & {
@@ -99,7 +102,12 @@ export function createSessionRows(ctx: RouteCtx) {
     caching = false;
   } // No commit feed means no invalidation: rebuild every row instead.
 
-  const buildRow = async (tx: Tx, r: Pick<ConversationRecord, "id" | "parent">): Promise<SessionRow> => {
+  let db: Database | undefined;
+  try {
+    db = conversationStorage(harness).db;
+  } catch {} // Non-Luna storage: fall back to entry scans.
+
+  const scanHead = async (tx: Tx, r: Pick<ConversationRecord, "id" | "parent">): Promise<RowHead> => {
     const head = (await tx.scanEntries({ conversationId: r.id, order: "ascending" }, 30)).items;
     const firstUser = textOf(head.find((e) => (e.kind === "pi.user" || e.kind === "luna.scheduled-message")))
       .replace(/\s+/g, " ")
@@ -112,7 +120,15 @@ export function createSessionRows(ctx: RouteCtx) {
           )
         ).items
       : head;
-    if (ownHead.some((e) => e.kind === "delegate.child"))
+    const delegateChild = ownHead.some((e) => e.kind === "delegate.child");
+    return { firstUser, delegateChild, lastActivity: delegateChild ? null : await newestMessageTime(tx, r.id) };
+  };
+
+  const buildRow = async (tx: Tx, r: Pick<ConversationRecord, "id" | "parent">): Promise<SessionRow> => {
+    const { firstUser, delegateChild, lastActivity } = db
+      ? readRowHead(db, Number(r.id), r.parent ? Number(r.parent.at) : undefined)
+      : await scanHead(tx, r);
+    if (delegateChild)
       return {
         hidden: true,
         parent: null,
@@ -138,7 +154,7 @@ export function createSessionRows(ctx: RouteCtx) {
       wait: recovery?.resumeAt ?? null,
       recovery,
       scheduled,
-      lastActivity: await newestMessageTime(tx, r.id),
+      lastActivity,
       createdAt: (await tx.doc(SessionCreated, r.id)).at ?? null,
       worker: (await tx.doc(ExecTarget, r.id)).worker,
     };
