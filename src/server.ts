@@ -1,3 +1,4 @@
+import { loopLagMonitor } from "./loop-lag.js";
 import { ConversationError, type ConversationStore } from "./conversations.js";
 // HTTP + SSE API over the durable Luna harness. Transport-only: all state lives in the harness (SQLite).
 import { Hono, type Context as HonoContext } from "hono";
@@ -147,6 +148,12 @@ export function createApp(opts: ServerOptions) {
       if (!m || !safeEq(m[1]!, opts.token)) return err(c, 401, "unauthorized");
     }
     await next();
+  });
+
+  // Event-loop lag of this daemon: per-minute buckets for the last 15 minutes, and the worst stall since start.
+  app.get("/v1/diagnostics/event-loop", c => {
+    const monitor = loopLagMonitor();
+    return monitor ? c.json(monitor.view()) : err(c, 404, "event-loop monitor is not running");
   });
 
   app.get("/v1/connection", c => opts.connection ? c.json(opts.connection.info()) : c.json({ error: "Connection discovery unavailable" }, 404));

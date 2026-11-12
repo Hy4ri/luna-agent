@@ -584,16 +584,25 @@ const FALLBACK = ["big-pickle", "beam-free", "deepseek-v4.1-flash-free", "flint-
 /** Fallback models that accept images (the live list reports this itself). */
 const FALLBACK_VISION = new Set(["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "mimo-v2.6-flash-free", "nemotron-3.5-super-vl-free"]);
 
-let versionCheck: { executable: string; expires: number; promise: Promise<boolean> } | undefined;
+let versionCheck: { executable: string; expires: number; promise: Promise<boolean>; settled?: boolean } | undefined;
 export function invalidateOpencodeStatus() { versionCheck = undefined; }
 function checkOpencodeAvailable(): Promise<boolean> {
   const executable = opencodeExecutable();
   if (versionCheck?.executable === executable && versionCheck.expires > Date.now()) return versionCheck.promise;
-  const entry = { executable, expires: Date.now() + 60_000, promise: Promise.resolve(false) };
-  entry.promise = runCli(executable, ["--version"], { timeout: 10_000 }).then(() => true, () => {
+  // Expired check for the same executable: answer with the last result and re-check in the background,
+  // so a request never waits for the ~200 ms `opencode --version` spawn after the first one.
+  const stale = versionCheck?.executable === executable && versionCheck.settled ? versionCheck.promise : undefined;
+  const entry: NonNullable<typeof versionCheck> = { executable, expires: Date.now() + 60_000, promise: Promise.resolve(false) };
+  const check = runCli(executable, ["--version"], { timeout: 10_000 }).then(() => true, () => {
     if (versionCheck === entry) versionCheck = undefined;
     return false;
-  });
+  }).finally(() => { entry.settled = true; });
+  entry.promise = check;
+  if (stale) {
+    // Keep serving the stale result until the new check settles.
+    entry.promise = stale;
+    void check.then(ok => { if (versionCheck === entry) entry.promise = Promise.resolve(ok); });
+  }
   versionCheck = entry;
   return entry.promise;
 }

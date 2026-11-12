@@ -284,8 +284,11 @@ function clearSideJobs() {
 // ---- feeds ----
 let activeFeed: Feed | null = null, listFeed: Feed | null = null;
 let liveMessage: any = null, liveFrame: number | null = null;
+let sessionAbort: AbortController | undefined;
+export function sessionSignal(): AbortSignal | undefined { return sessionAbort?.signal; }
 
 function detachView() {
+  sessionAbort?.abort(); sessionAbort = undefined;
   clearSideJobs();
   chat.epoch++; activeFeed?.stop(); activeFeed = null;
   cancelExtras(); clearTimeout(contextTimer); contextRevision++;
@@ -451,6 +454,7 @@ export const toolArgsText = (args: unknown) => (args ? "args: " + JSON.stringify
 export async function openSession(id: string | number, reattach = false) {
   if (!reattach && (!leavePages() || routeSession(String(id)))) return;
   saveDraft(); detachView();
+  sessionAbort = new AbortController();
   setSession(String(id));
   const sid = chat.session!, epoch = chat.epoch;
   chat.title = history.list.find(s => String(s.id) === sid)?.title || "Conversation " + sid;
@@ -501,14 +505,26 @@ export async function openSession(id: string | number, reattach = false) {
 /** Index of every user message in the session, loaded or not. Drives the transcript rail. */
 export const userIndex = ref<{ id: number; label: string }[]>([]);
 let userIndexSession: string | null = null;
+let userIndexLoading: { sid: string; epoch: number; promise: Promise<void> } | undefined;
 export async function refreshUserIndex() {
   const sid = chat.session, epoch = chat.epoch;
   if (!sid) { userIndex.value = []; userIndexSession = null; return; }
-  try {
-    const r = await json<{ messages: { id: number; label: string }[] }>(`/v1/sessions/${sid}/user-messages`, { timeoutMs: 30000 });
-    if (chat.session !== sid || chat.epoch !== epoch) return;
-    userIndex.value = r.messages; userIndexSession = sid;
-  } catch { /* the rail falls back to loaded entries */ }
+  if (userIndexLoading && userIndexLoading.sid === sid && userIndexLoading.epoch === epoch) {
+    return userIndexLoading.promise;
+  }
+  let promise: Promise<void> | undefined;
+  promise = (async () => {
+    try {
+      const r = await json<{ messages: { id: number; label: string }[] }>(`/v1/sessions/${sid}/user-messages`, { timeoutMs: 30000, signal: sessionSignal() });
+      if (chat.session !== sid || chat.epoch !== epoch) return;
+      userIndex.value = r.messages; userIndexSession = sid;
+    } catch { /* the rail falls back to loaded entries */ }
+    finally {
+      if (userIndexLoading?.promise === promise) userIndexLoading = undefined;
+    }
+  })();
+  userIndexLoading = { sid, epoch, promise };
+  return promise;
 }
 export function userIndexFor(sid: string | null) { return sid && sid === userIndexSession ? userIndex.value : []; }
 /** Loads older pages until the entry is present. */
@@ -611,10 +627,18 @@ export async function startItemSession(prompt: string, project?: number | null, 
   saveDraft(); focusInput.value++;
 }
 
-export function stopFeeds() { activeFeed?.stop(); listFeed?.stop(); }
-// A running session emits sessions_changed for every committed entry. Keep one list request in flight and
-// fold any events that arrive meanwhile into a single trailing reload.
+export function stopFeeds() { clearListDebounce(); activeFeed?.stop(); listFeed?.stop(); }
+// A running session emits sessions_changed for every committed entry. Debounce trailing reloads
+// (300ms, maxWait 1000ms) and keep at most one list request in flight with a single trailing reload.
+const LIST_DEBOUNCE_MS = 300;
+const LIST_MAX_WAIT_MS = 1000;
 let listLoading: Promise<void> | undefined, listAgain = false;
+let listDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let listFirstQueuedAt = 0;
+function clearListDebounce() {
+  if (listDebounceTimer !== undefined) { clearTimeout(listDebounceTimer); listDebounceTimer = undefined; }
+  listFirstQueuedAt = 0;
+}
 function reloadList(): Promise<void> {
   if (listLoading) { listAgain = true; return listLoading; }
   listLoading = loadSessions().finally(() => {
@@ -622,6 +646,17 @@ function reloadList(): Promise<void> {
     if (listAgain) { listAgain = false; void reloadList().catch(() => {}); }
   });
   return listLoading;
+}
+function scheduleListReload() {
+  const now = Date.now();
+  if (!listFirstQueuedAt) listFirstQueuedAt = now;
+  if (listDebounceTimer !== undefined) clearTimeout(listDebounceTimer);
+  const remaining = Math.max(0, LIST_MAX_WAIT_MS - (now - listFirstQueuedAt));
+  const delay = Math.min(LIST_DEBOUNCE_MS, remaining);
+  listDebounceTimer = setTimeout(() => {
+    clearListDebounce();
+    void reloadList().catch(() => {});
+  }, delay);
 }
 export function startListFeed() {
   if (sessionPane) return; // The workspace shares list notifications; each tile keeps its own session feed.
@@ -632,9 +667,13 @@ export function startListFeed() {
     onEvent: async type => {
       if (type === "sessions_changed") {
         // A failed first list read must retry the feed, not leave an empty sidebar until another commit.
-        const loading = reloadList();
-        if (initial) { await loading; initial = false; }
-        else void loading.catch(() => {});
+        if (initial) {
+          clearListDebounce();
+          await reloadList();
+          initial = false;
+        } else {
+          scheduleListReload();
+        }
         notifySessionPanes(type); return;
       }
       if (type === "board_changed") { notifySessionPanes(type); boardChanged.value++; }
@@ -644,7 +683,7 @@ export function startListFeed() {
 }
 window.addEventListener("message", async event => {
   if (!sessionPane || event.origin !== location.origin || event.source !== window.parent || event.data?.type !== "luna:workspace-event") return;
-  if (event.data.event === "sessions_changed") void reloadList().catch(() => {});
+  if (event.data.event === "sessions_changed") scheduleListReload();
   if (event.data.event === "board_changed") { boardChanged.value++; }
 });
 function reconnectFeeds() { activeFeed?.reconnect(); listFeed?.reconnect(); }

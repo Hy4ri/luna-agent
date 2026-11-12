@@ -183,6 +183,7 @@ let notificationController: AbortController | undefined;
 
 /** Bounded background poll for active notifications without draining full history. */
 async function trackActiveNotifications() {
+  // Its own status-filtered query: the overview page holds only the 50 most recent rows, not every unread one.
   void refreshActivity();
   const origin = serverUrl.value, credential = token.value;
   const gen = ++notificationGeneration;
@@ -393,19 +394,28 @@ let moreController: AbortController | undefined;
 let inFlightSessions: { origin: string; credential: string; promise: Promise<void> } | null = null;
 let currentViewGeneration = 0;
 let focusedController: AbortController | undefined;
+let focusedInFlight: { sid: string; promise: Promise<void> } | undefined;
 export async function loadFocusedSession(sid: string) {
-  focusedController?.abort();
   if (!sid || history.list.some(row => String(row.id) === sid)) return;
+  if (focusedInFlight && focusedInFlight.sid === sid) return focusedInFlight.promise;
+  focusedController?.abort();
   const controller = new AbortController(); focusedController = controller;
   const origin = serverUrl.value, credential = token.value;
-  try {
-    const page = await querySessions({ limit: 1, archived: 'all', ids: [Number(sid)] }, controller.signal);
-    if (controller.signal.aborted || sid !== chat.session || origin !== serverUrl.value || credential !== token.value) return;
-    const row = page.sessions[0];
-    if (row) { mergeIntoList([applyPinOverlay(row)]); chat.title = sessionTitle(row); }
-  } catch (error: any) {
-    if (!controller.signal.aborted && sid === chat.session && origin === serverUrl.value && credential === token.value) history.status = error.message;
-  }
+  let promise: Promise<void> | undefined;
+  promise = (async () => {
+    try {
+      const page = await querySessions({ limit: 1, archived: 'all', ids: [Number(sid)] }, controller.signal);
+      if (controller.signal.aborted || sid !== chat.session || origin !== serverUrl.value || credential !== token.value) return;
+      const row = page.sessions[0];
+      if (row) { mergeIntoList([applyPinOverlay(row)]); chat.title = sessionTitle(row); }
+    } catch (error: any) {
+      if (!controller.signal.aborted && sid === chat.session && origin === serverUrl.value && credential === token.value) history.status = error.message;
+    } finally {
+      if (focusedInFlight?.promise === promise) focusedInFlight = undefined;
+    }
+  })();
+  focusedInFlight = { sid, promise };
+  return promise;
 }
 
 function currentSidebarQuery(limit = 50, cursor?: string | null): SessionsQueryOptions {

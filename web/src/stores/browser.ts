@@ -1,6 +1,7 @@
 // Browser panel state. The server owns the tabs; this store lists them per session and remembers which one is shown.
 import { reactive } from "vue";
 import { json, post, serverUrl } from "@/lib/api";
+import { sessionSignal } from "@/stores/chat";
 import { dock } from "@/stores/dock";
 import { terminal } from "@/stores/terminal";
 
@@ -40,13 +41,14 @@ export async function loadBrowser(session: string) {
   if (!session) return;
   browser.loading = true;
   try {
-    const r = await json<{ enabled: boolean; tabs: BrowserTabInfo[] }>(`/v1/sessions/${session}/browser`);
+    const r = await json<{ enabled: boolean; tabs: BrowserTabInfo[] }>(`/v1/sessions/${session}/browser`, { signal: sessionSignal() });
     if (mine !== epoch) return;
     browser.enabled = r.enabled;
     browser.tabs = r.tabs;
     if (!r.tabs.some(t => t.tabId === browser.active)) browser.active = r.tabs[0]?.tabId ?? "";
     if (!r.enabled && dock.pane === "browser") dock.pane = "terminal";
   } catch (e) {
+    if ((e as Error)?.name === "AbortError") return;
     if (mine === epoch) { browser.enabled = false; browser.error = message(e); }
   } finally {
     if (mine === epoch) browser.loading = false;

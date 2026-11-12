@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { Clock } from "@lucide/vue";
 import { json, serverUrl, token } from "@/lib/api";
-import { chat } from "@/stores/chat";
+import { chat, sessionSignal } from "@/stores/chat";
 import { history } from "@/stores/sessions";
 import { scheduleRevision, scheduleReveal, schedulesChanged } from "@/stores/scheduled-messages";
 import SchedulePicker from "../composer/SchedulePicker.vue";
@@ -30,10 +30,13 @@ async function refresh() {
   if (!sid) return;
   loading.value = true;
   try {
-    const result = await json<{ schedules: Schedule[] }>(`/v1/sessions/${sid}/scheduled-messages`);
+    const result = await json<{ schedules: Schedule[] }>(`/v1/sessions/${sid}/scheduled-messages`, { signal: sessionSignal() });
     if (n !== ticket || sid !== chat.session) return;
     rows.value = result.schedules; error.value = ""; loaded.value = true;
-  } catch (e) { if (n === ticket && sid === chat.session) error.value = (e as Error).message; }
+  } catch (e) {
+    if ((e as Error)?.name === "AbortError") return;
+    if (n === ticket && sid === chat.session) error.value = (e as Error).message;
+  }
   finally { if (n === ticket) loading.value = false; }
 }
 watch(() => [chat.session, serverUrl.value, token.value], () => {
@@ -45,7 +48,11 @@ watch(() => [chat.session, serverUrl.value, token.value], () => {
     void refresh();
   }
 }, { immediate: true });
-watch(() => [chat.connected, scheduleRevision.value, summary.value?.version], () => { if (chat.session) void refresh(); });
+// Reconnects, schedule edits and server-side version changes refresh. A session switch does not: the immediate
+// watcher above already loads the new session (its summary version changes in the same tick).
+watch(() => [chat.session, chat.connected, scheduleRevision.value, summary.value?.version] as const, (next, prev) => {
+  if (chat.session && next[0] === prev[0]) void refresh();
+});
 watch(scheduleReveal, async () => {
   notice.value = "";
   await refresh(); await nextTick();

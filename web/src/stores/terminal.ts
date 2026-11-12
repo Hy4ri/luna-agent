@@ -1,6 +1,7 @@
 // Terminal dock state. The server owns the terminals; this store lists them per session and remembers which tab is open.
 import { reactive } from "vue";
 import { json, post, serverUrl } from "@/lib/api";
+import { sessionSignal } from "@/stores/chat";
 import { MIN_HEIGHT, clampHeight, dock } from "@/stores/dock";
 
 export interface TerminalInfo {
@@ -54,13 +55,14 @@ export async function loadTerminals(session: string) {
   if (!session) return;
   terminal.loading = true;
   try {
-    const r = await json<{ enabled: boolean; agentEnabled?: boolean; terminals: TerminalInfo[] }>(`/v1/sessions/${session}/terminals`);
+    const r = await json<{ enabled: boolean; agentEnabled?: boolean; terminals: TerminalInfo[] }>(`/v1/sessions/${session}/terminals`, { signal: sessionSignal() });
     if (mine !== epoch) return;
     terminal.enabled = r.enabled;
     terminal.agentEnabled = !!r.agentEnabled;
     terminal.tabs = r.terminals;
     if (!r.terminals.some(t => t.id === terminal.active)) terminal.active = r.terminals[0]?.id ?? "";
   } catch (e) {
+    if ((e as Error)?.name === "AbortError") return;
     if (mine === epoch) terminal.error = message(e);
   } finally {
     if (mine === epoch) terminal.loading = false;
