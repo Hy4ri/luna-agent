@@ -2,7 +2,6 @@
 // the documented example always loads, and a non-loopback bind needs LUNA_TOKEN.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
@@ -26,7 +25,7 @@ test("config discovery uses home .luna, ignores checkout config, and honors expl
     writeFileSync(join(cwd, "luna.config.json"), JSON.stringify({ model: "checkout" }));
     writeFileSync(join(cwd, "override.json"), JSON.stringify({ model: "override" }));
     // A separate process isolates HOME, cwd, and config overrides from the rest of the suite.
-    const result = spawnSync(process.execPath, ["--eval", `
+    const result = Bun.spawnSync([process.execPath, "--eval", `
       import assert from "node:assert/strict";
       import { unlinkSync } from "node:fs";
       import { join } from "node:path";
@@ -48,15 +47,15 @@ test("config discovery uses home .luna, ignores checkout config, and honors expl
       unlinkSync(expected);
       assert.equal(loadConfig().configPath, expected);
       assert.notEqual(loadConfig().model, "checkout", "no fallback to checkout config");
-    `], { cwd, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8", timeout: 10_000 });
-    assert.equal(result.status, 0, result.stderr || result.error?.message || "config discovery subprocess failed");
+    `], { cwd, env: { ...process.env, HOME: home, USERPROFILE: home }, timeout: 10_000 });
+    assert.equal(result.exitCode, 0, result.stderr.toString() || "config discovery subprocess failed");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("startup config recovery serves authenticated diagnostics and resumes after repair without exiting", () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-config-recovery-"));
   try {
-    const result = spawnSync(process.execPath, ["--eval", `
+    const result = Bun.spawnSync([process.execPath, "--eval", `
       import assert from "node:assert/strict";
       import { writeFileSync, readdirSync } from "node:fs";
       import { loadDaemonConfig } from ${JSON.stringify(new URL("../src/config-recovery.js", import.meta.url).href)};
@@ -85,8 +84,8 @@ test("startup config recovery serves authenticated diagnostics and resumes after
       assert.deepEqual(readdirSync(${JSON.stringify(dir)}).filter(name => name !== ".bun"), ["luna.config.json"], "no agent stores during recovery; Bun may create its own cache");
       writeFileSync(process.env.LUNA_CONFIG, JSON.stringify({ provider: "faux", model: "repaired" }));
       assert.equal((await pending).model, "repaired");
-    `], { env: { PATH: process.env.PATH, HOME: dir, LUNA_DATA: dir }, encoding: "utf8", timeout: 10_000 });
-    assert.equal(result.status, 0, result.stderr || result.error?.message || "config recovery subprocess failed");
+    `], { env: { PATH: process.env.PATH, HOME: dir, LUNA_DATA: dir }, timeout: 10_000 });
+    assert.equal(result.exitCode, 0, result.stderr.toString() || "config recovery subprocess failed");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -3,7 +3,6 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "bun:test";
@@ -85,7 +84,8 @@ for (const kind of ["subagent", "crew"] as const) {
 test("background process output reaches the next active model request", async () => {
   const dir = mkdtempSync(join(tmpdir(), "luna-process-report-"));
   const fifo = join(dir, "output.fifo");
-  execFileSync("mkfifo", [fifo]);
+  const mkfifo = Bun.spawnSync(["mkfifo", fifo]);
+  if (!mkfifo.success) throw new Error(mkfifo.stderr.toString() || "mkfifo failed");
   const entered = signal();
   const release = signal();
   const delivered = signal();

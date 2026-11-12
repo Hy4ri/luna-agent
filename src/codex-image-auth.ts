@@ -2,7 +2,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
 
 export interface CodexImageCredential { accessToken: string; accountId?: string; residency?: string }
 export interface CodexImageAuth {
@@ -32,9 +31,15 @@ function readCredential(home: string): (CodexImageCredential & { expires: number
 export async function refreshCodexImageAuth(home: string, command: string, signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, ["app-server", "--listen", "stdio://"], {
-      env: { ...process.env, CODEX_HOME: home }, stdio: ["pipe", "pipe", "ignore"], detached: true,
-    });
+    let child: Bun.Subprocess<"pipe", "pipe", "ignore">;
+    try {
+      child = Bun.spawn([command, "app-server", "--listen", "stdio://"], {
+        env: { ...process.env, CODEX_HOME: home }, stdin: "pipe", stdout: "pipe", stderr: "ignore", detached: true,
+      });
+    } catch {
+      reject(new Error("Could not start Codex for credential refresh."));
+      return;
+    }
     let buffer = "", total = 0, settled = false, error: Error | undefined, killTimer: ReturnType<typeof setTimeout> | undefined;
     const kill = (kind: NodeJS.Signals) => { if (child.pid) { try { process.kill(-child.pid, kind); } catch { /* Already exited. */ } } };
     const finish = (failure?: Error) => {
@@ -44,35 +49,54 @@ export async function refreshCodexImageAuth(home: string, command: string, signa
       killTimer = setTimeout(() => kill("SIGKILL"), 1000);
     };
     const abort = () => finish(new Error("Codex credential refresh interrupted."));
-    const send = (value: unknown) => child.stdin.write(JSON.stringify(value) + "\n");
-    child.stdin.on("error", () => finish(new Error("Codex auth channel closed.")));
-    child.on("error", () => finish(new Error("Could not start Codex for credential refresh.")));
-    child.on("close", () => {
+    const send = (value: unknown) => {
+      try {
+        child.stdin.write(JSON.stringify(value) + "\n");
+      } catch {
+        finish(new Error("Codex auth channel closed."));
+      }
+    };
+    void child.exited.then(() => {
       signal.removeEventListener("abort", abort); clearTimeout(killTimer);
       if (!settled) error = new Error("Codex closed before credential refresh completed.");
       if (error) reject(error); else resolve();
+    }, () => {
+      signal.removeEventListener("abort", abort); clearTimeout(killTimer);
+      if (!settled) error = new Error("Could not start Codex for credential refresh.");
+      if (error) reject(error); else resolve();
     });
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      if (settled) return;
-      total += Buffer.byteLength(chunk); buffer += chunk;
-      if (total > 1024 * 1024) { finish(new Error("Codex auth response exceeds its limit.")); return; }
-      for (;;) {
-        const end = buffer.indexOf("\n"); if (end < 0) break;
-        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-        let message: any;
-        try { message = JSON.parse(line); } catch { finish(new Error("Invalid Codex auth response.")); return; }
-        if (message.id !== 1 && message.id !== 2) continue;
-        if (message.error) { finish(new Error("Codex rejected credential refresh.")); return; }
-        if (message.id === 1) {
-          send({ method: "initialized" });
-          send({ id: 2, method: "account/read", params: { refreshToken: true } });
-        } else {
-          finish(message.result?.account?.type === "chatgpt" ? undefined : new Error("Codex is not signed in with ChatGPT."));
-          return;
+    void (async () => {
+      const reader = child.stdout.getReader();
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done || settled) break;
+          const chunk = decoder.decode(value, { stream: true });
+          total += Buffer.byteLength(chunk); buffer += chunk;
+          if (total > 1024 * 1024) { finish(new Error("Codex auth response exceeds its limit.")); return; }
+          for (;;) {
+            const end = buffer.indexOf("\n"); if (end < 0) break;
+            const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+            let message: any;
+            try { message = JSON.parse(line); } catch { finish(new Error("Invalid Codex auth response.")); return; }
+            if (message.id !== 1 && message.id !== 2) continue;
+            if (message.error) { finish(new Error("Codex rejected credential refresh.")); return; }
+            if (message.id === 1) {
+              send({ method: "initialized" });
+              send({ id: 2, method: "account/read", params: { refreshToken: true } });
+            } else {
+              finish(message.result?.account?.type === "chatgpt" ? undefined : new Error("Codex is not signed in with ChatGPT."));
+              return;
+            }
+          }
         }
+      } catch {
+        finish(new Error("Codex auth channel closed."));
+      } finally {
+        reader.releaseLock();
       }
-    });
+    })();
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
     else send({ id: 1, method: "initialize", params: { clientInfo: { name: "luna-pi", version: "1.0.0" } } });

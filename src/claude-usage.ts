@@ -1,5 +1,4 @@
 // Control-only usage reads: never submit a prompt or start a model generation.
-import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { UsageState } from "@earendil-works/pi-durable";
 import { claudeControlOptions } from "./claude-native/transport.js";
@@ -23,51 +22,66 @@ export type ClaudeUsageReport = z.infer<typeof reportSchema>;
 export async function readClaudeUsage(signal?: AbortSignal): Promise<ClaudeUsageReport> {
   const { executable, env } = claudeControlOptions();
   if (signal?.aborted) throw new Error("Claude usage request cancelled.");
-  const child = spawn(executable, ["--safe-mode", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+  const child = Bun.spawn([executable, "--safe-mode", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
     "--tools", "", "--no-session-persistence", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"],
-  { env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
-  // Always reap the process group, including native children, before returning.
-  const closed = new Promise<void>(resolve => { child.once("close", () => resolve()); child.once("error", () => resolve()); });
+  { env, detached: true, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  // Drain stderr without exposing CLI diagnostics or account information.
+  void child.stderr.cancel().catch(() => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel: (() => void) | undefined;
   try {
     return await new Promise<ClaudeUsageReport>((resolve, reject) => {
       let buffer = "", bytes = 0, requested = false;
       const fail = () => reject(new Error("Claude usage report is unavailable. Check Claude Code login and version."));
-      const send = (request_id: string, request: object) => child.stdin.write(JSON.stringify({ type: "control_request", request_id, request }) + "\n");
+      const send = (request_id: string, request: object) => {
+        try {
+          child.stdin.write(JSON.stringify({ type: "control_request", request_id, request }) + "\n");
+        } catch {
+          fail();
+        }
+      };
       cancel = () => reject(new Error("Claude usage request cancelled."));
       signal?.addEventListener("abort", cancel, { once: true });
       timer = setTimeout(() => reject(new Error("Claude usage request timed out.")), 20_000);
-      child.once("error", fail);
-      child.once("exit", fail);
-      child.stdin.on("error", fail);
-      // Drain stderr without exposing CLI diagnostics or account information.
-      child.stderr.resume();
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => {
-        bytes += Buffer.byteLength(chunk);
-        if (bytes > 2 * 1024 * 1024) { fail(); return; }
-        buffer += chunk;
-        let end: number;
-        while ((end = buffer.indexOf("\n")) >= 0) {
-          const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-          try {
-            const event = JSON.parse(line);
-            if (event.type !== "control_response") continue;
-            const response = event.response;
-            if (response?.request_id === "luna-usage-init" && !requested) {
-              if (response.subtype !== "success") { fail(); return; }
-              requested = true;
-              send("luna-usage-report", { subtype: "get_usage", skip_behaviors: true });
-            } else if (response?.request_id === "luna-usage-report") {
-              if (response.subtype !== "success") { fail(); return; }
-              const parsed = reportSchema.safeParse(response.response);
-              if (!parsed.success) { fail(); return; }
-              resolve(parsed.data);
+      void child.exited.then(fail, fail);
+      void (async () => {
+        const reader = child.stdout.getReader();
+        const decoder = new TextDecoder();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            bytes += Buffer.byteLength(chunk);
+            if (bytes > 2 * 1024 * 1024) { fail(); return; }
+            buffer += chunk;
+            let end: number;
+            while ((end = buffer.indexOf("\n")) >= 0) {
+              const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+              try {
+                const event = JSON.parse(line);
+                if (event.type !== "control_response") continue;
+                const response = event.response;
+                if (response?.request_id === "luna-usage-init" && !requested) {
+                  if (response.subtype !== "success") { fail(); return; }
+                  requested = true;
+                  send("luna-usage-report", { subtype: "get_usage", skip_behaviors: true });
+                } else if (response?.request_id === "luna-usage-report") {
+                  if (response.subtype !== "success") { fail(); return; }
+                  const parsed = reportSchema.safeParse(response.response);
+                  if (!parsed.success) { fail(); return; }
+                  resolve(parsed.data);
+                  return;
+                }
+              } catch { fail(); return; }
             }
-          } catch { fail(); return; }
+          }
+        } catch {
+          fail();
+        } finally {
+          reader.releaseLock();
         }
-      });
+      })();
       send("luna-usage-init", { subtype: "initialize" });
     });
   } finally {
@@ -76,8 +90,9 @@ export async function readClaudeUsage(signal?: AbortSignal): Promise<ClaudeUsage
     if (child.pid) {
       try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already exited. */ }
     }
-    child.stdin.destroy();
-    await closed;
+    try { child.stdin.end(); } catch { /* Already closed. */ }
+    await child.stdout.cancel().catch(() => {});
+    await child.exited.catch(() => {});
   }
 }
 

@@ -1,5 +1,4 @@
 // Local auth inspection only: never sends a model prompt or reads credential files.
-import { spawn } from "node:child_process";
 import { claudeControlOptions, INSTALL_HINT } from "./transport.js";
 
 export interface ClaudeLoginStatus {
@@ -93,16 +92,20 @@ async function inspectClaudeLoginStatus(signal?: AbortSignal): Promise<Inspectio
     throw error;
   }
   const { executable, env } = control;
-  let child: ReturnType<typeof spawn>;
+  let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
-    child = spawn(executable, ["auth", "status"], { env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    child = Bun.spawn([executable, "auth", "status"], {
+      env,
+      detached: true,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
   } catch {
     return { status: { loggedIn: false }, cacheable: false };
   }
-  const closed = new Promise<void>(resolve => {
-    child.once("close", () => resolve());
-    child.once("error", () => resolve());
-  });
+  // Do not expose stderr, which can contain account or environment details.
+  void child.stderr.cancel().catch(() => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
   try {
@@ -113,18 +116,21 @@ async function inspectClaudeLoginStatus(signal?: AbortSignal): Promise<Inspectio
       signal?.addEventListener("abort", abort, { once: true });
       if (signal?.aborted) { abort(); return; }
       timer = setTimeout(uncacheableFailure, 10_000);
-      child.once("error", uncacheableFailure);
-      // Do not expose stderr, which can contain account or environment details.
-      child.stderr!.resume();
-      child.stdout!.setEncoding("utf8");
-      child.stdout!.on("data", (chunk: string) => {
-        bytes += Buffer.byteLength(chunk);
-        if (bytes > 1024 * 1024) { uncacheableFailure(); return; }
-        output += chunk;
-      });
-      child.once("close", code => {
-        if (code !== 0) { uncacheableFailure(); return; }
+      void (async () => {
+        const reader = child.stdout.getReader();
+        const decoder = new TextDecoder();
         try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            bytes += Buffer.byteLength(chunk);
+            if (bytes > 1024 * 1024) { uncacheableFailure(); return; }
+            output += chunk;
+          }
+          output += decoder.decode();
+          const code = await child.exited;
+          if (code !== 0) { uncacheableFailure(); return; }
           const value: unknown = JSON.parse(output);
           if (value === null || typeof value !== "object" || Array.isArray(value)) {
             uncacheableFailure();
@@ -141,8 +147,10 @@ async function inspectClaudeLoginStatus(signal?: AbortSignal): Promise<Inspectio
           });
         } catch {
           uncacheableFailure();
+        } finally {
+          reader.releaseLock();
         }
-      });
+      })();
     });
   } finally {
     clearTimeout(timer);
@@ -151,9 +159,8 @@ async function inspectClaudeLoginStatus(signal?: AbortSignal): Promise<Inspectio
     if (child.pid && child.exitCode === null && child.signalCode === null) {
       try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already exited. */ }
     }
-    child.stdout!.destroy();
-    child.stderr!.destroy();
-    await closed;
+    await child.stdout.cancel().catch(() => {});
+    await child.exited.catch(() => {});
   }
 }
 

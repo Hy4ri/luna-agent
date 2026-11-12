@@ -1,7 +1,6 @@
 // Regression: Source Control board linking failed for projects that exist only on an execution machine.
 // Repository discovery read only the main-host directory, so worker-linked projects never matched their repository.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,8 +57,10 @@ test("project discovery falls through to a machine and groups projects that shar
 const dir = mkdtempSync(join(tmpdir(), "luna-github-repos-worker-"));
 const machineRepo = join(dir, "machine-repo");
 mkdirSync(machineRepo);
-execFileSync("git", ["init", "--initial-branch", "main", machineRepo], { stdio: "ignore" });
-execFileSync("git", ["-C", machineRepo, "remote", "add", "origin", "git@github.com:Hy4ri/machine-only.git"], { stdio: "ignore" });
+const initRes = Bun.spawnSync(["git", "init", "--initial-branch", "main", machineRepo], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+if (!initRes.success) throw new Error("git init failed");
+const remoteRes = Bun.spawnSync(["git", "-C", machineRepo, "remote", "add", "origin", "git@github.com:Hy4ri/machine-only.git"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+if (!remoteRes.success) throw new Error("git remote add failed");
 const hub = new WorkerHub(new WorkerStore(join(dir, "workers.db")), () => {});
 const server = Bun.serve<WorkerWsData>({
   hostname: "127.0.0.1",

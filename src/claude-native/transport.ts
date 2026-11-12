@@ -1,5 +1,4 @@
 // In-process Claude Code transport: one CLI process group and one admitted API request per generation. POSIX only.
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { accessSync, closeSync, constants, fchmodSync, lstatSync, mkdirSync, mkdtempSync, openSync,
   rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
@@ -148,22 +147,33 @@ class Events {
   private buffer = "";
   private wake: (() => void) | undefined;
 
-  constructor(child: ChildProcessWithoutNullStreams, private readonly tail: () => string) {
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      this.buffer += chunk;
-      let newline: number;
-      while ((newline = this.buffer.indexOf("\n")) >= 0) {
-        this.push(this.buffer.slice(0, newline));
-        this.buffer = this.buffer.slice(newline + 1);
+  constructor(child: Bun.Subprocess<"pipe", "pipe", "pipe">, private readonly tail: () => string) {
+    void (async () => {
+      const reader = child.stdout.getReader();
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          this.buffer += decoder.decode(value, { stream: true });
+          let newline: number;
+          while ((newline = this.buffer.indexOf("\n")) >= 0) {
+            this.push(this.buffer.slice(0, newline));
+            this.buffer = this.buffer.slice(newline + 1);
+          }
+        }
+        this.buffer += decoder.decode();
+      } catch {
+        // Stream closed or aborted; exited/END will follow.
+      } finally {
+        reader.releaseLock();
+        await child.exited.catch(() => {});
+        if (this.buffer.trim()) this.push(this.buffer);
+        this.buffer = "";
+        this.items.push(END);
+        this.notify();
       }
-    });
-    child.on("close", () => {
-      if (this.buffer.trim()) this.push(this.buffer);
-      this.buffer = "";
-      this.items.push(END);
-      this.notify();
-    });
+    })();
   }
 
   private push(line: string) {
@@ -276,7 +286,7 @@ async function prepareRun(request: NativeRequest, options: RunOptions): Promise<
 }
 
 class ProcessController {
-  private child?: ChildProcessWithoutNullStreams;
+  private child?: Bun.Subprocess<"pipe", "pipe", "pipe">;
   private exited = false;
   private handedOff = false;
   private stderr: string[] = [];
@@ -304,7 +314,7 @@ class ProcessController {
   closed = (ms: number) => new Promise<void>(resolve => {
     if (!this.child || this.exited) return resolve();
     const timer = setTimeout(resolve, ms);
-    this.child.once("close", () => { clearTimeout(timer); resolve(); });
+    void this.child.exited.catch(() => {}).finally(() => { clearTimeout(timer); resolve(); });
   });
 
   cancel = () => {
@@ -315,17 +325,33 @@ class ProcessController {
 
   spawnProcess(signal?: AbortSignal): Events {
     if (signal?.aborted) throw aborted();
-    const spawned = this.child = spawn(this.command, this.args, {
-      cwd: workdir(), env: this.env, stdio: ["pipe", "pipe", "pipe"], detached: true,
+    const spawned = this.child = Bun.spawn([this.command, ...this.args], {
+      cwd: workdir(), env: this.env, stdin: "pipe", stdout: "pipe", stderr: "pipe", detached: true,
     });
-    spawned.once("close", () => { this.exited = true; });
-    spawned.on("error", error => { this.stderr.push(error.message); });
-    spawned.stdin.on("error", () => { /* a dead child surfaces through END */ });
-    spawned.stderr.setEncoding("utf8");
-    spawned.stderr.on("data", (chunk: string) => {
-      this.stderr.push(...chunk.split("\n"));
-      this.stderr.splice(0, Math.max(0, this.stderr.length - 40));
-    });
+    void spawned.exited.then(
+      () => { this.exited = true; },
+      error => {
+        this.exited = true;
+        if (error instanceof Error) this.stderr.push(error.message);
+      },
+    );
+    void (async () => {
+      const reader = spawned.stderr.getReader();
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          this.stderr.push(...chunk.split("\n"));
+          this.stderr.splice(0, Math.max(0, this.stderr.length - 40));
+        }
+      } catch {
+        // Ignore stderr read errors on shutdown.
+      } finally {
+        reader.releaseLock();
+      }
+    })();
     return this.events = new Events(spawned, this.tail);
   }
 
@@ -334,7 +360,8 @@ class ProcessController {
     const send = (line: string) => new Promise<void>((resolve, reject) => {
       // A child that stops reading stdin would block past the timeout: kill it then.
       const timer = setTimeout(() => { this.cancel(); reject(new Error("Claude request timed out")); }, this.timeoutMs);
-      spawned.stdin.write(line, () => { clearTimeout(timer); resolve(); });
+      Promise.resolve(spawned.stdin.write(line))
+        .then(() => { clearTimeout(timer); resolve(); }, () => { clearTimeout(timer); resolve(); });
     });
 
     // Historical user frames replay without querying; only the newest user/tool-result frame queries.
