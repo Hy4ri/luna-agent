@@ -1,10 +1,10 @@
-// The learning loop: read the outcome log and file cards that tune or mute a rule. Wife never changes a rule herself; agree does.
+// The learning loop: read the outcome log and file cards that tune or mute a rule. Steward never changes a rule herself; agree does.
 import type { NewSuggestion, Outcome } from "./store.js";
 
 export const STATS_DAYS = 60;
 export const MIN_DECISIONS = 5;
 export const DAY = 86_400_000;
-/** Rules with a numeric threshold in `wife` config. A tune card proposes a larger value. */
+/** Rules with a numeric threshold in `steward` config. A tune card proposes a larger value. */
 export const TUNABLE: Record<string, { key: "staleDays" | "deleteArchivedAfterDays"; label: string; max: number }> = {
   archive_session: { key: "staleDays", label: "Archive idle sessions after (days)", max: 365 },
   delete_session: { key: "deleteArchivedAfterDays", label: "Suggest deleting archived sessions after (days)", max: 365 },

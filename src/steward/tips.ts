@@ -1,4 +1,4 @@
-// Feature tips: data rules matched against tool-call counts. The catalog lives in config (`wife.tips`), so m57 can edit it.
+// Feature tips: data rules matched against tool-call counts. The catalog lives in config (`steward.tips`), so m57 can edit it.
 import { z } from "zod";
 import type { NewSuggestion } from "./store.js";
 
@@ -16,15 +16,15 @@ export const TipSchema = z.strictObject({
     /** Fire only when the newest matching session has been idle for at least this many days. */
     idleDays: z.number().int().min(1).max(365).optional(),
   }),
-  /** `shadow` rules only log what they would flag. A shadow rule that Wife proposed becomes `on` when you agree to its promote card. */
+  /** `shadow` rules only log what they would flag. A shadow rule that Steward proposed becomes `on` when you agree to its promote card. */
   status: z.enum(["on", "shadow"]).default("on"),
   shadowSince: z.number().int().optional(),
   /** Agree turns this extension on through settings. */
   enable: z.strictObject({ extension: z.string().min(1) }).optional(),
 });
-export type WifeTip = z.infer<typeof TipSchema>;
+export type StewardTip = z.infer<typeof TipSchema>;
 
-export const DEFAULT_TIPS: WifeTip[] = [
+export const DEFAULT_TIPS: StewardTip[] = [
   { id: "codemode", title: "Try codemode for batch tool work",
     body: "You call bash a lot, and you never use codemode. One codemode script can run many tool calls and return only the result you need.",
     when: { tool: "bash", minCalls: 100, minSessions: 5, withinDays: 30, withoutTool: "codemode", kind: "tool" }, status: "on", enable: { extension: "codemode" } },
@@ -42,7 +42,7 @@ export const DEFAULT_TIPS: WifeTip[] = [
 export type ToolCounts = Map<string, { calls: number; sessions: number }>;
 
 /** `counts` must cover the widest window of any tip; `countsIn` gives the counts for one window. */
-export function matchTips(tips: WifeTip[], countsIn: (withinDays: number, kind: WifeTip["when"]["kind"], tip: WifeTip) => ToolCounts, enabled: (extension: string) => boolean = () => false, shadow = false, idleDays: (tip: WifeTip) => number | null = () => null): NewSuggestion[] {
+export function matchTips(tips: StewardTip[], countsIn: (withinDays: number, kind: StewardTip["when"]["kind"], tip: StewardTip) => ToolCounts, enabled: (extension: string) => boolean = () => false, shadow = false, idleDays: (tip: StewardTip) => number | null = () => null): NewSuggestion[] {
   const out: NewSuggestion[] = [];
   for (const t of tips) {
     if ((t.status === "shadow") !== shadow) continue;

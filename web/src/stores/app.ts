@@ -11,7 +11,7 @@ import * as modelsStore from "./models";
 import * as sessionsStore from "./sessions";
 import * as composerStore from "./composer";
 
-export type View = "chat" | "analytics" | "wife" | "source-control" | "settings";
+export type View = "chat" | "analytics" | "steward" | "source-control" | "settings";
 const SIDE_MIN = 200, SIDE_MAX = 480;
 
 function savedWidth(): number | null {
@@ -71,7 +71,7 @@ function closeSettings(force = false): boolean {
   setDrawer(false);
   return true;
 }
-function closePage(view: "analytics" | "wife" | "source-control") {
+function closePage(view: "analytics" | "steward" | "source-control") {
   if (ui.view !== view) return;
   ui.view = "chat";
   if (isPageHash(view)) clearHash();
@@ -90,7 +90,7 @@ function openSettings(route?: string) {
   ui.settingsTab = category;
   ui.settingsTarget = target;
   ui.settingsNavigation++;
-  if (ui.view !== "settings") { closePanel(); closePage("analytics"); closePage("wife"); closePage("source-control"); ui.view = "settings"; }
+  if (ui.view !== "settings") { closePanel(); closePage("analytics"); closePage("steward"); closePage("source-control"); ui.view = "settings"; }
   setDrawer(false);
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
@@ -104,7 +104,7 @@ export function setSettingsTab(route: string) {
   ui.settingsNavigation++;
   if (location.hash !== settingsHash()) history.replaceState(null, "", settingsHash());
 }
-function openPage(view: "analytics" | "wife" | "source-control") {
+function openPage(view: "analytics" | "steward" | "source-control") {
   if (!closeSettings()) return;
   if (ui.login) return;
   closePanel(); setDrawer(false);
@@ -112,7 +112,7 @@ function openPage(view: "analytics" | "wife" | "source-control") {
   if (!isPageHash(view)) location.hash = view;
 }
 export const openAnalytics = () => openPage("analytics");
-export const openWife = () => openPage("wife");
+export const openSteward = () => openPage("steward");
 export function openBoardCard(projectId: number, cardId: number) {
   if (ui.boardEditing && !window.confirm('Discard unsaved card edits?')) return;
   if (!leavePages()) return;
@@ -135,14 +135,14 @@ export function backToChat() {
 export function leavePages(): boolean {
   if (!closeSettings()) return false;
   if (ui.view === "analytics") closePage("analytics");
-  if (ui.view === "wife") closePage("wife");
+  if (ui.view === "steward") closePage("steward");
   if (ui.view === "source-control") closePage("source-control");
   return true;
 }
 export function navigate(view: View | "mail", tab?: string) {
   if (view === "settings") openSettings(tab);
   else if (view === "analytics") openAnalytics();
-  else if (view === "wife") openWife();
+  else if (view === "steward") openSteward();
   else if (view === "source-control") openSourceControl();
   else if (view === "mail") openMail();
   else backToChat();
@@ -153,7 +153,7 @@ let returnFocus: Element | null = null;
 export function openPanel(name: string, options?: { keepSettings?: boolean }) {
   if (name === "settings") { closePanel(); return openSettings(); }
   if (name === "analytics") { closePanel(); return openAnalytics(); }
-  if (name === "wife") { closePanel(); return openWife(); }
+  if (name === "steward") { closePanel(); return openSteward(); }
   if (name === "source-control") { closePanel(); return openSourceControl(); }
   if (name === "mail") { closePanel(); return openMail(); }
   if (!options?.keepSettings && !closeSettings()) return;
@@ -171,7 +171,7 @@ export function closePanel() {
     if (el?.isConnected && !el.closest("[inert]") && el.offsetParent !== null) el.focus();
     else if (ui.view === "settings") document.getElementById("settings-menu")?.focus();
     else if (ui.view === "analytics") document.getElementById("analytics-menu")?.focus();
-    else if (ui.view === "wife") document.getElementById("wife-menu")?.focus();
+    else if (ui.view === "steward") document.getElementById("steward-menu")?.focus();
     else if (ui.view === "source-control") document.getElementById("source-control-menu")?.focus();
     else {
       const menu = document.getElementById("menu");
@@ -400,7 +400,11 @@ function applyHash() {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) openSettings();
   else if (h === "#analytics" || h.startsWith("#analytics/")) { if (ui.view !== "analytics") openAnalytics(); }
-  else if (h === "#wife") { if (ui.view !== "wife") openWife(); }
+  else if (h === "#steward" || h === "#wife") {
+    // deprecated: remove "#wife" after next release
+    if (h === "#wife") history.replaceState(null, "", "#steward");
+    if (ui.view !== "steward") openSteward();
+  }
   else if (h === "#source-control" || h.startsWith("#source-control/")) { if (ui.view !== "source-control") openSourceControl(); }
   else if (h === "#mail") { history.replaceState(null, "", location.pathname + location.search); openMail(); }
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
@@ -410,9 +414,9 @@ window.addEventListener("hashchange", () => {
   const h = location.hash;
   if (h === "#settings" || h.startsWith("#settings/")) { openSettings(); return; }
   if (!closeSettings()) return;
-  if (h === "#analytics" || h.startsWith("#analytics/") || h === "#wife" || h === "#source-control" || h.startsWith("#source-control/") || h === "#mail" || h === "#cron") applyHash();
+  if (h === "#analytics" || h.startsWith("#analytics/") || h === "#steward" || h === "#wife" || h === "#source-control" || h.startsWith("#source-control/") || h === "#mail" || h === "#cron") applyHash();
   else if (h === "#github") { history.replaceState(null, "", "#source-control"); if (ui.view !== "source-control") openSourceControl(); }
-  else { closePage("analytics"); closePage("wife"); closePage("source-control"); }
+  else { closePage("analytics"); closePage("steward"); closePage("source-control"); }
 });
 window.addEventListener("beforeunload", e => {
   if (ui.view === "settings" && guard?.isDirty()) { e.preventDefault(); e.returnValue = ""; }

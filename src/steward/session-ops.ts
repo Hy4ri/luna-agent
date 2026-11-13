@@ -1,4 +1,4 @@
-// Housekeeping on other sessions, for the wife tool: finish todos, cancel open questions, clear a stale status, and pause or clear a goal.
+// Housekeeping on other sessions, for the steward tool: finish todos, cancel open questions, clear a stale status, and pause or clear a goal.
 // Each function runs inside one transaction and changes only the session it is given. The tool decides which sessions m57 named.
 import type { ConversationId, Tx } from "@earendil-works/pi-durable";
 import { AskDoc } from "../ask.js";
@@ -16,7 +16,7 @@ export interface SessionView {
   handoff: { status: string; reason: string } | null;
 }
 
-/** What a session holds that Wife can clean: open todos, unanswered questions, the goal, and a handoff status. */
+/** What a session holds that Steward can clean: open todos, unanswered questions, the goal, and a handoff status. */
 export async function viewSession(tx: Tx, id: number): Promise<SessionView> {
   const todo = await tx.doc(TodoDoc, cid(id)), ask = await tx.doc(AskDoc, cid(id)), goal = (await tx.doc(GoalDoc, cid(id))).goal;
   const handoff = (await tx.doc(SessionHandoffDoc, cid(id))).handoff;
@@ -67,6 +67,6 @@ export async function changeGoal(tx: Tx, id: number, change: GoalChange, reason?
   if (change === "clear") { doc.goal = null; return ""; }
   if (doc.goal.status === "complete") return "the goal is already complete";
   doc.goal.status = change === "pause" ? "paused" : "complete";
-  doc.goal.statusReason = (reason?.trim() || (change === "pause" ? "paused by Wife for m57" : "completed by Wife for m57")).slice(0, 300);
+  doc.goal.statusReason = (reason?.trim() || (change === "pause" ? "paused by Steward for m57" : "completed by Steward for m57")).slice(0, 300);
   return "";
 }

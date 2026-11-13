@@ -251,9 +251,18 @@ test("retired recovery budget loads but never reappears in settings, disk saves,
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("configs saved before Wife still load: removed learn/improve keys are dropped", () => {
+test("configs saved before Steward still load: removed learn/improve keys are dropped", () => {
   const c = parseConfig({ extensions: ["coding", "improve", "learn", "skills"], learn: { idleMinutes: 5, files: [] }, improve: { schedule: "0 4 * * *", allowCommandBenchmarks: true } });
   expect(c.extensions).toStrictEqual(["coding", "skills"]);
   expect("learn" in c).toBe(false);
   expect(c.improve).toStrictEqual({ allowCommandBenchmarks: true });
+});
+
+test("deprecated wife config key and extension name migrate to steward", () => {
+  const c = parseConfig({ extensions: ["coding", "wife"], disabledTools: ["wife"], wife: { enabled: false, staleDays: 7 } });
+  expect(c.extensions).toStrictEqual(["coding", "steward"]);
+  expect(c.disabledTools).toStrictEqual(["steward"]);
+  expect(c.steward.enabled).toBe(false);
+  expect(c.steward.staleDays).toBe(7);
+  expect("wife" in c).toBe(false);
 });

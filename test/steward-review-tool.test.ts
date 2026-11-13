@@ -1,4 +1,4 @@
-// Contract: a session can go through Wife cards with m57 and clean up other sessions through the wife tool,
+// Contract: a session can go through Steward cards with m57 and clean up other sessions through the steward tool,
 // acting only on the ids it is given, with a reason for dismiss and confirm for destructive cards.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,25 +12,25 @@ import { AskDoc } from "../src/ask.js";
 import { GoalDoc } from "../src/goal-doc.js";
 import { SessionHandoffDoc, SessionReadDoc } from "../src/session-status.js";
 import { TodoDoc } from "../src/todo.js";
-import { WifeStore } from "../src/wife/store.js";
-import { WifeService } from "../src/wife/service.js";
-import { createWifeExtension } from "../src/wife/tool.js";
+import { StewardStore } from "../src/steward/store.js";
+import { StewardService } from "../src/steward/service.js";
+import { createStewardExtension } from "../src/steward/tool.js";
 
 type Result = { isError?: boolean; output: { text: string }[] };
 type Tool = { execute(args: Record<string, unknown>, api: unknown, ctx: unknown): Promise<Result> };
 
 async function fixture() {
-  const dir = await mkdtemp(join(tmpdir(), "luna-wife-review-"));
+  const dir = await mkdtemp(join(tmpdir(), "luna-steward-review-"));
   const harness = await openLuna({ dbPath: join(dir, "luna.db"), models: createModels(), memory: false, coding: false });
   const conversations = new ConversationStore(harness);
-  const store = new WifeStore(":memory:");
-  const wife = new WifeService({ store, conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }) as never });
+  const store = new StewardStore(":memory:");
+  const steward = new StewardService({ store, conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }) as never });
   const archived: number[] = [];
-  const ext = createWifeExtension({ wife: () => wife, sessionExists: id => conversations.exists(id), conversations: () => conversations, onArchive: async id => { archived.push(id); } });
+  const ext = createStewardExtension({ steward: () => steward, sessionExists: id => conversations.exists(id), conversations: () => conversations, onArchive: async id => { archived.push(id); } });
   const tool = (ext as unknown as { tools: Tool[] }).tools[0]!;
   const api = { conversationId: 1, commit: (fn: never) => harness.commit(fn, context) };
   const run = async (args: Record<string, unknown>) => { const r = await tool.execute(args, api, context); return { error: !!r.isError, text: r.output[0]!.text }; };
-  return { harness, conversations, store, wife, run, archived, async close() { store.close(); await harness.close(context); await rm(dir, { recursive: true, force: true }); } };
+  return { harness, conversations, store, steward, run, archived, async close() { store.close(); await harness.close(context); await rm(dir, { recursive: true, force: true }); } };
 }
 const card = (fp: string, extra: Record<string, unknown> = {}) => ({ kind: "feature_tip", fingerprint: fp, title: fp, body: "why", evidence: [{ sessionId: 3, note: "seen" }], payload: { tip: fp }, source: "detector", ...extra }) as never;
 

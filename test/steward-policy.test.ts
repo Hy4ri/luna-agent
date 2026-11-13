@@ -1,8 +1,8 @@
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { inQuietHours, inScope } from "../src/wife/policy.js";
-import { WifeStore } from "../src/wife/store.js";
-import { WifeService } from "../src/wife/service.js";
+import { inQuietHours, inScope } from "../src/steward/policy.js";
+import { StewardStore } from "../src/steward/store.js";
+import { StewardService } from "../src/steward/service.js";
 
 const at = (h: number, m = 0) => new Date(2026, 5, 10, h, m).getTime();
 
@@ -26,11 +26,11 @@ test("project scope: all, only, except", () => {
 function service(cfg: Record<string, unknown>, sessions: unknown[], clock: { t: number }) {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE analytics_facts(session_id INTEGER, kind TEXT, ts INTEGER, name TEXT, model TEXT, error INTEGER DEFAULT 0, cost_total REAL); CREATE TABLE analytics_sessions(id INTEGER, deleted_at INTEGER)");
-  const store = new WifeStore(":memory:", () => clock.t);
+  const store = new StewardStore(":memory:", () => clock.t);
   const conversations = { projects: { list: () => [], links: () => new Map() }, board: { list: () => [] } } as never;
-  const wife = new WifeService({ store, conversations, analytics: () => ({ sessions: () => sessions, db }) as never, now: () => clock.t,
+  const steward = new StewardService({ store, conversations, analytics: () => ({ sessions: () => sessions, db }) as never, now: () => clock.t,
     config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60, ...cfg }) as never });
-  return { store, wife };
+  return { store, steward };
 }
 const stale = (id: number, projectId = 0) => ({ id, title: `s${id}`, parentId: null, projectId, worker: "main", cwd: null, createdAt: 0, lastActivity: 0, status: "idle", archived: false, pinned: false,
   deletedAt: null, workflow: { goals: 0, completedGoals: 0, todos: 0, completedTodos: 0 } });
@@ -39,65 +39,65 @@ test("the daily cap holds extra cards, and they show the next day", () => {
   const clock = { t: at(12) };
   // 3 archive cards and 2 delete cards: no group is large enough to batch.
   const spread = [1, 2, 3].map(i => stale(i)).concat([4, 5].map(i => ({ ...stale(i), archived: true })));
-  const { store, wife } = service({ maxNewPerDay: 2 }, spread, clock);
-  const r = wife.scan();
+  const { store, steward } = service({ maxNewPerDay: 2 }, spread, clock);
+  const r = steward.scan();
   expect(store.count("open")).toBe(2);
   expect(r.held).toBe(3);
   clock.t += 86_400_000;
-  wife.scan();
+  steward.scan();
   expect(store.count("open")).toBe(2 + 2);
 });
 
 test("quiet hours hide new cards until they end; the badge count stays frozen", () => {
   const clock = { t: at(23) };
-  const { store, wife } = service({ quietHours: { enabled: true, from: "22:00", to: "08:00" } }, [stale(1)], clock);
-  wife.scan();
+  const { store, steward } = service({ quietHours: { enabled: true, from: "22:00", to: "08:00" } }, [stale(1)], clock);
+  steward.scan();
   expect(store.count("open")).toBe(0);
   expect(store.list().length).toBe(0);
   clock.t = at(9) + 86_400_000;
-  wife.scan();
+  steward.scan();
   expect(store.count("open")).toBe(1);
 });
 
-test("a muted project gets no cards, and 'ask wife' on one session bypasses cap and quiet hours", () => {
+test("a muted project gets no cards, and 'ask steward' on one session bypasses cap and quiet hours", () => {
   const clock = { t: at(23) };
-  const { store, wife } = service({ projects: { mode: "except", ids: [7] }, quietHours: { enabled: true, from: "22:00", to: "08:00" } }, [stale(1, 7), stale(2, 8)], clock);
-  wife.scan();
+  const { store, steward } = service({ projects: { mode: "except", ids: [7] }, quietHours: { enabled: true, from: "22:00", to: "08:00" } }, [stale(1, 7), stale(2, 8)], clock);
+  steward.scan();
   expect(store.has("archive_session:1")).toBe(false);
   expect(store.count("open")).toBe(0); // session 2 is held by quiet hours
-  const r = wife.scan({ session: 2 });
+  const r = steward.scan({ session: 2 });
   expect(r.filed).toBe(0);
   expect(store.count("open")).toBe(1);
 });
 
 test("Scan now fills the page up to the cap even when today's cap is used; the timer does not", () => {
   const clock = { t: at(12) };
-  const { store, wife } = service({ maxNewPerDay: 2 }, [1, 2, 3].map(i => stale(i)).concat([4, 5].map(i => ({ ...stale(i), archived: true }))), clock);
-  wife.scan();
+  const { store, steward } = service({ maxNewPerDay: 2 }, [1, 2, 3].map(i => stale(i)).concat([4, 5].map(i => ({ ...stale(i), archived: true }))), clock);
+  steward.scan();
   expect(store.count("open")).toBe(2);
   for (const c of store.list("open")) store.setStatus(c.id, "dismissed");
-  expect(wife.scan().shown).toBe(0);  // the timer respects the used cap
+  expect(steward.scan().shown).toBe(0);  // the timer respects the used cap
   expect(store.count("open")).toBe(0);
-  const r = wife.scan({ manual: true });
+  const r = steward.scan({ manual: true });
   expect(r.shown).toBe(2);
   expect(store.count("open")).toBe(2);
   expect(r.held).toBe(1);
 });
 
-test("Ask Wife shows held cards about the session and reports how many match", () => {
+test("Ask Steward shows held cards about the session and reports how many match", () => {
   const clock = { t: at(12) };
-  const { store, wife } = service({ maxNewPerDay: 0 }, [stale(1), stale(2)], clock);
-  wife.scan();
+  const { store, steward } = service({ maxNewPerDay: 0 }, [stale(1), stale(2)], clock);
+  steward.scan();
   expect(store.count("open")).toBe(0);
-  const r = wife.scan({ session: 1 });
+  const r = steward.scan({ session: 1 });
   expect(r.matched).toBe(1);
   expect(store.count("open")).toBe(1);
-  expect(wife.scan({ session: 99 }).matched).toBe(0);
+  expect(steward.scan({ session: 99 }).matched).toBe(0);
 });
 
 test("held cards are released by value: an unfinished goal before a weekly recap", () => {
   const clock = { t: at(12) };
-  const store = new WifeStore(":memory:", () => clock.t);
+  const store = new StewardStore(":memory:", () => clock.t);
   const card = (kind: string, fp: string) => ({ kind, fingerprint: fp, title: fp, body: "b", evidence: [], payload: {}, source: "detector" }) as never;
   store.file(card("weekly_recap", "a"), false);
   store.file(card("compaction_heavy", "b"), false);

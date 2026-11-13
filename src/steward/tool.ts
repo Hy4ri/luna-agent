@@ -1,11 +1,11 @@
-// The `wife` agent tool. The daily luna-wife cron job uses it to read what Wife already filed and to file model-found cards.
+// The `steward` agent tool. The daily luna-steward cron job uses it to read what Steward already filed and to file model-found cards.
 import { Type, type Static } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { StringEnum } from "../string-enum.js";
-import type { WifeService } from "./service.js";
-import { DISMISS_REASONS, WIFE_STATUSES, type NewSuggestion, type Suggestion } from "./store.js";
+import type { StewardService } from "./service.js";
+import { DISMISS_REASONS, STEWARD_STATUSES, type NewSuggestion, type Suggestion } from "./store.js";
 import type { ConversationStore } from "../conversations.js";
-import { WifeError } from "./service.js";
+import { StewardError } from "./service.js";
 import { cancelQuestions, changeGoal, clearStatus, finishTodos, viewSession } from "./session-ops.js";
 import { TipSchema } from "./tips.js";
 
@@ -17,7 +17,7 @@ const CARD_ACTIONS = ["agree", "dismiss", "snooze"] as const;
 const SESSION_ACTIONS = ["session", "todos_done", "cancel_questions", "clear_status", "goal", "edit_session"] as const;
 const Params = Type.Object({
   action: StringEnum(["list", "suggest", "scan", ...CARD_ACTIONS, ...SESSION_ACTIONS], { description: "list: cards with id, evidence and payload. suggest: file one new card. scan: run the detectors now. agree, dismiss, snooze: act on the cards in ids. session: show a session's open todos, questions, goal and status. todos_done, cancel_questions, clear_status, goal, edit_session: clean up that session." }),
-  status: Type.Optional(StringEnum(WIFE_STATUSES, { description: "list: only cards with this status." })),
+  status: Type.Optional(StringEnum(STEWARD_STATUSES, { description: "list: only cards with this status." })),
   ids: Type.Optional(Type.Array(Type.Number(), { description: "agree, dismiss, snooze: card ids m57 named." })),
   confirm: Type.Optional(Type.Boolean({ description: "agree: true only after m57 confirmed a delete or remove card by id." })),
   targets: Type.Optional(Type.Array(Type.Number(), { description: "agree on a batch card: only these session ids." })),
@@ -35,7 +35,7 @@ const Params = Type.Object({
   kind: Type.Optional(StringEnum(KINDS, { description: "suggest: card kind." })),
   body: Type.Optional(Type.String({ description: "suggest: why, in one or two sentences." })),
   evidence: Type.Optional(Type.Array(Type.Object({ sessionId: Type.Number(), note: Type.String() }), { description: "suggest: sessions that show the pattern. Each must exist." })),
-  payload: Type.Optional(Type.Object({}, { additionalProperties: true, description: "memory: {key?, content}. skill: {name, existing?, outline}. new_project: {name, cwd, worker, sessionIds}. feature_tip: {}. new_rule: {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool?,kind?:tool|skill|compaction}}}. rule_idea (a rule that needs data Wife lacks): {idea}. reminder_unscheduled: {sessionId, content, dueAt (epoch ms, future)}." })),
+  payload: Type.Optional(Type.Object({}, { additionalProperties: true, description: "memory: {key?, content}. skill: {name, existing?, outline}. new_project: {name, cwd, worker, sessionIds}. feature_tip: {}. new_rule: {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool?,kind?:tool|skill|compaction}}}. rule_idea (a rule that needs data Steward lacks): {idea}. reminder_unscheduled: {sessionId, content, dueAt (epoch ms, future)}." })),
 });
 type Args = Static<typeof Params>;
 
@@ -87,8 +87,8 @@ export function cardText(c: Suggestion): string {
   return lines.join("\n");
 }
 
-export interface WifeToolDeps {
-  wife: () => WifeService | undefined;
+export interface StewardToolDeps {
+  steward: () => StewardService | undefined;
   sessionExists: (id: number) => boolean;
   conversations?: () => ConversationStore | undefined;
   /** Archiving a session cancels its scheduled messages, as the web UI does. */
@@ -96,23 +96,21 @@ export interface WifeToolDeps {
 }
 
 const DESCRIPTION = [
-  "Wife suggestion cards and session housekeeping.",
+  "Steward suggestion cards and session housekeeping.",
   "list shows cards with id, body, evidence and payload; it also stops you from filing a card again. suggest files one card (kind skill, memory, feature_tip, new_project, new_rule, reminder_unscheduled) with evidence sessions. scan runs the detectors now.",
   "agree, dismiss and snooze act on card ids. Act only on the ids m57 named, never on all cards. dismiss needs a reason. A delete_session or worktree_orphan card needs confirm:true, and only after m57 confirmed that card.",
   "session shows a session's open todos, unanswered questions, goal and status. todos_done, cancel_questions, clear_status, goal (pause, complete, clear) and edit_session (title, archived, pinned, project) change that session without a message to it. Use them only on sessions m57 named.",
 ].join(" ");
 
-export function createWifeExtension(depsOrWife: WifeToolDeps | (() => WifeService | undefined), exists?: (id: number) => boolean) {
-  const d: WifeToolDeps = typeof depsOrWife === "function" ? { wife: depsOrWife, sessionExists: exists! } : depsOrWife;
-  return defineExtension({
-    name: "wife",
-    tools: [defineTool({
-      name: "wife",
+export function createStewardExtension(depsOrSteward: StewardToolDeps | (() => StewardService | undefined), exists?: (id: number) => boolean) {
+  const d: StewardToolDeps = typeof depsOrSteward === "function" ? { steward: depsOrSteward, sessionExists: exists! } : depsOrSteward;
+  const stewardTool = defineTool({
+      name: "steward",
       description: DESCRIPTION,
       parameters: Params,
       execute: async (a: Args, api, ctx) => {
-        const w = d.wife();
-        if (!w) return text("Error: Wife is disabled.", true);
+        const w = d.steward();
+        if (!w) return text("Error: Steward is disabled.", true);
         const fail = (e: unknown) => text(`Error: ${(e as Error).message}`, true);
         if (a.action === "list") {
           w.store.expireSnoozed();
@@ -137,7 +135,7 @@ export function createWifeExtension(depsOrWife: WifeToolDeps | (() => WifeServic
               const c = a.action === "agree" ? await w.agree(id, { confirm: a.confirm === true, targets: a.targets })
                 : a.action === "dismiss" ? w.dismiss(id, a.reason, a.note) : w.snooze(id, a.days!);
               out.push(`#${id} ${c.status}${c.result ? `: ${c.result}` : ""}`);
-            } catch (e) { bad++; out.push(`#${id} error: ${e instanceof WifeError || e instanceof Error ? e.message : String(e)}`); }
+            } catch (e) { bad++; out.push(`#${id} error: ${e instanceof StewardError || e instanceof Error ? e.message : String(e)}`); }
           }
           return text(out.join("\n"), bad === ids.length);
         }
@@ -201,6 +199,13 @@ export function createWifeExtension(depsOrWife: WifeToolDeps | (() => WifeServic
         } catch (e) { return fail(e); }
         return text(`Error: unknown action ${a.action}`, true);
       },
-    })],
+    });
+  return defineExtension({
+    name: "steward",
+    tools: [
+      stewardTool,
+      // deprecated: remove after next release
+      defineTool({ ...stewardTool, name: "wife", description: "Deprecated alias for steward." }),
+    ],
   });
 }

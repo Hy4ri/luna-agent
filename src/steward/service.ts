@@ -4,20 +4,20 @@ import { ConversationError, type ConversationStore } from "../conversations.js";
 import { batchCards, misfiledSessions, newProjects, staleSessions, type DetectorConfig } from "./detectors.js";
 import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans, browserLeftovers, type BrowserTabView, type TerminalView } from "./detectors3.js";
 import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "./detectors2.js";
-import { inQuietHours, inScope, startOfLocalDay, type WifePolicy } from "./policy.js";
+import { inQuietHours, inScope, startOfLocalDay, type StewardPolicy } from "./policy.js";
 import { agreeRate, DAY as LDAY, metaCards, META_RULES, ruleStats, TUNABLE } from "./learning.js";
 import { type CostRow, compactionHeavy, costHabit, weeklyRecap } from "./detectors4.js";
-import { matchTips, TipSchema, type ToolCounts, type WifeTip } from "./tips.js";
-import { DISMISS_REASONS, type DismissReason, type NewSuggestion, type Inverse, type Suggestion, type WifeStore } from "./store.js";
+import { matchTips, TipSchema, type ToolCounts, type StewardTip } from "./tips.js";
+import { DISMISS_REASONS, type DismissReason, type NewSuggestion, type Inverse, type Suggestion, type StewardStore } from "./store.js";
 import { redact } from "./redact.js";
 
 const DETECTOR_RULES = ["goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "worktree_orphan", "bg_leftover", "browser_leftover", "tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat", "cost_habit", "compaction_heavy", "weekly_recap", "promote_rule", "archive_session", "delete_session", "move_session", "new_project"]  // tip rules are added per tip id;
-export class WifeError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
+export class StewardError extends Error { constructor(readonly status: 400 | 404 | 409, message: string) { super(message); } }
 
-export interface WifeServiceOptions {
-  store: WifeStore; analytics: () => AnalyticsStore; conversations: ConversationStore;
-  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: WifeTip[]; mutedRules?: string[]; mutedKinds?: string[] } & Partial<WifePolicy>;
-  /** Change a value in the `wife` config block. Used by tune and mute cards. */
+export interface StewardServiceOptions {
+  store: StewardStore; analytics: () => AnalyticsStore; conversations: ConversationStore;
+  config: () => DetectorConfig & { enabled: boolean; detectEveryMinutes: number; tips?: StewardTip[]; mutedRules?: string[]; mutedKinds?: string[] } & Partial<StewardPolicy>;
+  /** Change a value in the `steward` config block. Used by tune and mute cards. */
   /** Cron jobs and their latest runs, newest first, and a way to disable one. */
   cron?: { jobs: () => { id: number; name: string; enabled: boolean; runs: { status: string; output: string | null; startedAt: number }[] }[]; disable: (id: number) => void };
   setConfig?: (fn: (w: Record<string, unknown>) => void) => void;
@@ -47,15 +47,15 @@ export interface WifeServiceOptions {
 
 const id_ = (c: { id: number }) => c.id;
 const DAY = 86_400_000;
-export class WifeService {
+export class StewardService {
   private timer?: ReturnType<typeof setInterval>;
-  constructor(private o: WifeServiceOptions) {}
+  constructor(private o: StewardServiceOptions) {}
   get store() { return this.o.store; }
 
   /** Run every detector once. File new cards, refresh open ones, and withdraw open cards that no longer apply. */
   /**
    * `manual`: m57 pressed Scan now, so held cards fill the page up to the daily cap even when today's cap is used.
-   * `session`: Ask Wife about one session. Every card about it shows now, held or new. `matched` counts them.
+   * `session`: Ask Steward about one session. Every card about it shows now, held or new. `matched` counts them.
    */
   scan(opts: { session?: number; manual?: boolean } = {}): { filed: number; withdrawn: number; held: number; shown: number; matched: number } {
     const now = (this.o.now ?? Date.now)();
@@ -67,19 +67,19 @@ export class WifeService {
     const store = this.o.analytics();
     const tips = this.o.config().tips ?? [];
     const FACT = { tool: "tool", skill: "skill", compaction: "compaction" } as const;
-    const scopeSql = (t?: WifeTip): { sql: string; args: (string | number)[] } => {
+    const scopeSql = (t?: StewardTip): { sql: string; args: (string | number)[] } => {
       const sql: string[] = [], args: (string | number)[] = [];
       if (t?.when.project !== undefined) { sql.push("s.project_id=?"); args.push(t.when.project); }
       if (t?.when.cwd) { sql.push("instr(s.cwd, ?)>0"); args.push(t.when.cwd); }
       return { sql: sql.map(x => ` AND ${x}`).join(""), args };
     };
-    const toolCounts = (days: number, kind: keyof typeof FACT = "tool", tip?: WifeTip): ToolCounts => {
+    const toolCounts = (days: number, kind: keyof typeof FACT = "tool", tip?: StewardTip): ToolCounts => {
       const sc = scopeSql(tip);
       const rows = store.db.query<{ name: string; calls: number; sessions: number }, (string | number)[]>(
         `SELECT f.name AS name, COUNT(*) AS calls, COUNT(DISTINCT f.session_id) AS sessions FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='${FACT[kind]}' AND f.ts>=? AND s.deleted_at IS NULL${sc.sql} GROUP BY f.name`).all(now - days * 86_400_000, ...sc.args);
       return new Map(rows.map(r => [r.name, { calls: r.calls, sessions: r.sessions }]));
     };
-    const idleOf = (t: WifeTip): number | null => {
+    const idleOf = (t: StewardTip): number | null => {
       const sc = scopeSql(t);
       const r = store.db.query<{ last: number | null }, (string | number)[]>(`SELECT MAX(f.ts) AS last FROM analytics_facts f JOIN analytics_sessions s ON s.id=f.session_id WHERE f.kind='${FACT[t.when.kind]}' AND f.name=? AND s.deleted_at IS NULL${sc.sql}`).get(t.when.tool, ...sc.args);
       return r?.last ? (now - r.last) / DAY : null;
@@ -138,7 +138,7 @@ export class WifeService {
     for (const o of this.o.store.outcomes()) if (o.action === "agree" && o.ruleId === "tune_rule" && o.note?.startsWith("tuned:")) tunedAt.set(o.note.slice(6), o.ts);
     found.push(...metaCards({ outcomes: this.o.store.outcomes(now - 60 * LDAY), now, tunedAt, values: { staleDays: cfg.staleDays, deleteArchivedAfterDays: cfg.deleteArchivedAfterDays },
       mutedRules: cfg.mutedRules ?? [], mutedKinds: cfg.mutedKinds ?? [] }));
-    // Scope: drop cards about sessions in projects Wife does not watch.
+    // Scope: drop cards about sessions in projects Steward does not watch.
     const projectOf = new Map(sessions.map(s => [s.id, s.projectId]));
     const sessionsOf = (f: NewSuggestion): number[] => [...f.evidence.map(e => e.sessionId), ...(f.payload.sessionId !== undefined ? [Number(f.payload.sessionId)] : []), ...(Array.isArray(f.payload.sessionIds) ? (f.payload.sessionIds as number[]) : [])];
     const scope = cfg.projects ?? { mode: "all" as const, ids: [] };
@@ -168,7 +168,7 @@ export class WifeService {
   }
 
   start() {
-    const run = () => { try { if (this.o.config().enabled) this.scan(); } catch (e) { this.o.log?.(`wife: scan failed: ${(e as Error).message}`); } };
+    const run = () => { try { if (this.o.config().enabled) this.scan(); } catch (e) { this.o.log?.(`steward: scan failed: ${(e as Error).message}`); } };
     run();
     this.timer = setInterval(run, Math.max(1, this.o.config().detectEveryMinutes) * 60_000);
     this.timer.unref();
@@ -178,14 +178,14 @@ export class WifeService {
   /** Close an open or snoozed card. `not_now` snoozes it for 30 days and `already_done` marks it done. */
   dismiss(id: number, reason?: DismissReason, note?: string): Suggestion {
     const card = this.openCard(id);
-    if (reason !== undefined && !(DISMISS_REASONS as readonly string[]).includes(reason)) throw new WifeError(400, `reason must be one of ${DISMISS_REASONS.join(", ")}`);
+    if (reason !== undefined && !(DISMISS_REASONS as readonly string[]).includes(reason)) throw new StewardError(400, `reason must be one of ${DISMISS_REASONS.join(", ")}`);
     this.o.store.dismiss(id, reason, note === undefined ? undefined : redact(note.trim().slice(0, 500)));
     this.onDismiss(card);
     return this.o.store.get(id)!;
   }
   /** Hide an open or snoozed card for 1 to 365 days. */
   snooze(id: number, days: number): Suggestion {
-    if (!Number.isInteger(days) || days < 1 || days > 365) throw new WifeError(400, "days must be 1 to 365");
+    if (!Number.isInteger(days) || days < 1 || days > 365) throw new StewardError(400, "days must be 1 to 365");
     const card = this.openCard(id);
     this.o.store.setStatus(id, "snoozed", { snoozeUntil: (this.o.now ?? Date.now)() + days * DAY });
     this.o.store.record(card, "snooze", null, `${days}d`);
@@ -193,8 +193,8 @@ export class WifeService {
   }
   private openCard(id: number): Suggestion {
     const card = this.o.store.get(id);
-    if (!card) throw new WifeError(404, "no such suggestion");
-    if (card.status !== "open" && card.status !== "snoozed") throw new WifeError(409, `suggestion is ${card.status}`);
+    if (!card) throw new StewardError(404, "no such suggestion");
+    if (card.status !== "open" && card.status !== "snoozed") throw new StewardError(409, `suggestion is ${card.status}`);
     return card;
   }
   /** Dismissing a promote card deletes the trial rule. */
@@ -213,9 +213,9 @@ export class WifeService {
     if (!targets.every(i => inScope(scope, projectOf.get(i) ?? 0))) return "skip";
     return !inQuietHours(cfg.quietHours ?? null, now) && this.o.store.shownSince(startOfLocalDay(now)) < (cfg.maxNewPerDay ?? 10) ? "show" : "hold";
   }
-  /** The text a Discuss session starts with: the card, its evidence, and the action Wife proposes. */
+  /** The text a Discuss session starts with: the card, its evidence, and the action Steward proposes. */
   seedMessage(card: Suggestion): string {
-    const lines = [`Wife suggests: ${card.title}`, "", card.body];
+    const lines = [`Steward suggests: ${card.title}`, "", card.body];
     if (card.evidence.length) lines.push("", "Evidence:", ...card.evidence.map(e => `- session ${e.sessionId}: ${e.note}`));
     lines.push("", `Proposed action: ${this.actionText(card)}`, "", "Let's talk it through. Do not change anything until I say so.");
     return lines.join("\n");
@@ -235,12 +235,12 @@ export class WifeService {
   /** Open a session about a card. The card keeps its status. A card with a session returns that session. */
   async discuss(id: number): Promise<number> {
     const card = this.o.store.get(id);
-    if (!card) throw new WifeError(404, "no such suggestion");
+    if (!card) throw new StewardError(404, "no such suggestion");
     if (card.sessionId) return card.sessionId;
-    if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+    if (!this.o.startSession) throw new StewardError(409, "sessions are not available");
     const first = card.evidence[0]?.sessionId;
     const project = first === undefined ? null : this.o.conversations.projects.projectOf(first) ?? null;
-    const sid = await this.o.startSession(project, `Wife: ${card.title}`.slice(0, 100), this.seedMessage(card), `wife-discuss-${id}`);
+    const sid = await this.o.startSession(project, `Steward: ${card.title}`.slice(0, 100), this.seedMessage(card), `steward-discuss-${id}`);
     this.o.store.setStatus(id, card.status, { sessionId: sid, snoozeUntil: card.snoozeUntil });
     return sid;
   }
@@ -266,8 +266,8 @@ export class WifeService {
   async agree(id: number, opts: { confirm?: boolean; targets?: number[] } = {}): Promise<Suggestion> {
     const now = (this.o.now ?? Date.now)();
     const card = this.o.store.get(id);
-    if (!card) throw new WifeError(404, "no such suggestion");
-    if (card.status !== "open" && card.status !== "snoozed") throw new WifeError(409, `suggestion is ${card.status}`);
+    if (!card) throw new StewardError(404, "no such suggestion");
+    if (card.status !== "open" && card.status !== "snoozed") throw new StewardError(409, `suggestion is ${card.status}`);
     try {
       let result: string;
       const sid = Number(card.payload.sessionId);  // not used by every kind
@@ -276,7 +276,7 @@ export class WifeService {
       const ids = (): number[] => {
         const all = Array.isArray(card.payload.sessionIds) ? (card.payload.sessionIds as number[]) : [sid];
         const picked = opts.targets ? all.filter(i => opts.targets!.includes(i)) : all;
-        if (!picked.length) throw new WifeError(400, "no targets chosen");
+        if (!picked.length) throw new StewardError(400, "no targets chosen");
         return picked;
       };
       if (card.kind === "archive_session") {
@@ -285,21 +285,21 @@ export class WifeService {
           try { const m = conv.get(i); if (m.pinned || m.archived) { skipped++; continue; } await conv.update(i, { archived: true }); done.push(i); }
           catch (e) { if (e instanceof ConversationError) skipped++; else throw e; }
         }
-        if (!done.length) throw new WifeError(409, "nothing to archive: the sessions are pinned, archived, or gone");
+        if (!done.length) throw new StewardError(409, "nothing to archive: the sessions are pinned, archived, or gone");
         inverse = { type: "unarchive", ids: done };
         result = `Archived ${done.length}${skipped ? `, skipped ${skipped}` : ""}.`;
       } else if (card.kind === "delete_session") {
-        if (opts.confirm !== true) throw new WifeError(400, "deleting needs confirm:true");
-        if (!this.o.conversations.get(sid).archived) throw new WifeError(409, "session is no longer archived");
-        if (this.o.conversations.get(sid).pinned) throw new WifeError(409, "session is pinned now");
+        if (opts.confirm !== true) throw new StewardError(400, "deleting needs confirm:true");
+        if (!this.o.conversations.get(sid).archived) throw new StewardError(409, "session is no longer archived");
+        if (this.o.conversations.get(sid).pinned) throw new StewardError(409, "session is pinned now");
         await this.o.conversations.delete(sid);
         result = "Deleted.";
       } else if (card.kind === "move_session") {
         const projectId = Number(card.payload.projectId);
-        if (!conv.projects.get(projectId)) throw new WifeError(409, "the project no longer exists");
+        if (!conv.projects.get(projectId)) throw new StewardError(409, "the project no longer exists");
         const links = conv.projects.links(); const moves: { id: number; projectId: number }[] = [];
         for (const i of ids()) { try { const was = links.get(i) ?? 0; await conv.move(i, projectId); moves.push({ id: i, projectId: was }); } catch (e) { if (!(e instanceof ConversationError)) throw e; } }
-        if (!moves.length) throw new WifeError(409, "no session could be moved");
+        if (!moves.length) throw new StewardError(409, "no session could be moved");
         inverse = { type: "move_back", moves };
         result = `Moved ${moves.length}.`;
       } else if (card.kind === "new_project") {
@@ -315,55 +315,55 @@ export class WifeService {
         inverse = { type: "remove_project", projectId: project.id, moves };
         result = `Created project ${project.name} and moved ${moves.length} sessions.`;
       } else if (card.kind === "cron_failing") {
-        if (!this.o.cron) throw new WifeError(409, "cron is not available");
+        if (!this.o.cron) throw new StewardError(409, "cron is not available");
         this.o.cron.disable(Number(card.payload.jobId));
         result = "Disabled the job. Turn it back on in Cron.";
       } else if (card.kind === "board_stuck") {
         const p = card.payload as { project: number; card: number };
-        conv.board.update(p.project, p.card, { status: "todo" }, "wife");
+        conv.board.update(p.project, p.card, { status: "todo" }, "steward");
         result = "Moved the card to todo.";
       } else if (card.kind === "worktree_orphan") {
         const p = card.payload as { path: string; branch: string };
         const live = this.o.worktrees?.().find(w => w.path === p.path);
         if (!live) { result = "The worktree is already gone."; }
-        else if (opts.confirm !== true) throw new WifeError(400, "removing a worktree needs confirm:true");
-        else if (live.dirty) throw new WifeError(409, "The worktree has uncommitted changes. Clean it up by hand.");
+        else if (opts.confirm !== true) throw new StewardError(400, "removing a worktree needs confirm:true");
+        else if (live.dirty) throw new StewardError(409, "The worktree has uncommitted changes. Clean it up by hand.");
         else { await this.o.removeWorktree!(p.path, p.branch); result = `Removed ${p.branch}.`; }
       } else if (card.kind === "new_rule") {
-        if (!this.o.setConfig) throw new WifeError(409, "settings are not available");
+        if (!this.o.setConfig) throw new StewardError(409, "settings are not available");
         const parsed = TipSchema.safeParse({ ...(card.payload.tip as object), status: "shadow", shadowSince: now });
-        if (!parsed.success) throw new WifeError(400, `the rule is not valid: ${parsed.error.issues[0]?.message}`);
+        if (!parsed.success) throw new StewardError(400, `the rule is not valid: ${parsed.error.issues[0]?.message}`);
         const tip = parsed.data;
-        if ((this.o.config().tips ?? []).some(t => t.id === tip.id)) throw new WifeError(409, `a rule named ${tip.id} already exists`);
+        if ((this.o.config().tips ?? []).some(t => t.id === tip.id)) throw new StewardError(409, `a rule named ${tip.id} already exists`);
         this.o.setConfig(w => { w.tips = [...((w.tips as unknown[] | undefined) ?? []), tip]; });
         result = `Rule ${tip.id} is on trial for 7 days. It only logs what it would flag.`;
       } else if (card.kind === "promote_rule") {
-        if (!this.o.setConfig) throw new WifeError(409, "settings are not available");
+        if (!this.o.setConfig) throw new StewardError(409, "settings are not available");
         const tid = String(card.payload.tipId);
         this.o.setConfig(w => { w.tips = ((w.tips as { id: string }[] | undefined) ?? []).map(t => t.id === tid ? { ...t, status: "on" } : t); });
         result = `Rule ${tid} is on.`;
       } else if (card.kind === "cost_habit" || card.kind === "compaction_heavy" || card.kind === "weekly_recap") {
-        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        if (!this.o.startSession) throw new StewardError(409, "sessions are not available");
         const text = card.kind === "weekly_recap" ? `Help me plan my week. Here is the recap from my boards.\n\n${card.payload.recap}\n\nPick what to finish first and what to drop.`
           : card.kind === "cost_habit" ? `${card.body}\n\nLook at this project's recent sessions. Tell me whether a cheaper model or a lower thinking level would do, and show the project setting to change. Change nothing yourself.`
           : `${Array.isArray(card.payload.sessionIds) && card.payload.sessionIds.length > 1 ? `Sessions ${(card.payload.sessionIds as number[]).join(", ")} have` : `Session ${card.payload.sessionId} has`} compacted many times. Read them and propose how to split the remaining work into smaller sessions. Change nothing yourself.`;
         const first = card.evidence[0]?.sessionId;
         const project = card.kind === "cost_habit" ? Number(card.payload.project) : first === undefined ? null : conv.projects.projectOf(first) ?? null;
-        const sidW = await this.o.startSession(project, `Wife: ${card.title}`.slice(0, 100), text, `wife-${id}`);
+        const sidW = await this.o.startSession(project, `Steward: ${card.title}`.slice(0, 100), text, `steward-${id}`);
         this.o.store.setStatus(id, "working", { sessionId: sidW, result: "Working on it in a session." });
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;
       } else if (card.kind === "reminder_unscheduled") {
         const p = card.payload as { sessionId: number; content: string; dueAt: number };
-        if (!this.o.scheduleMessage) throw new WifeError(409, "scheduled messages are not available");
-        if (!(p.dueAt > now)) throw new WifeError(409, "that time has passed");
-        await this.o.scheduleMessage(p.sessionId, p.content, p.dueAt, `wife-reminder-${id}`);
+        if (!this.o.scheduleMessage) throw new StewardError(409, "scheduled messages are not available");
+        if (!(p.dueAt > now)) throw new StewardError(409, "that time has passed");
+        await this.o.scheduleMessage(p.sessionId, p.content, p.dueAt, `steward-reminder-${id}`);
         result = `Scheduled for ${new Date(p.dueAt).toISOString().slice(0, 16).replace("T", " ")} UTC.`;
       } else if (card.kind === "rule_idea") {
-        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        if (!this.o.startSession) throw new StewardError(409, "sessions are not available");
         const first = card.evidence[0]?.sessionId;
-        const sidR = await this.o.startSession(first === undefined ? null : conv.projects.projectOf(first) ?? null, `Wife rule idea: ${card.title}`.slice(0, 100),
-          `Wife has a rule idea that needs data she does not collect yet.\n\n${card.body}\n\nIdea: ${String(card.payload.idea ?? "")}\n\nIn the luna-pi repo, start your own worktree (session_worktree) and implement it as a detector under src/wife with a test. Commit on that branch. Do not merge, and do not restart the daemon. Tell me when it is ready to review.`, `wife-${id}`);
+        const sidR = await this.o.startSession(first === undefined ? null : conv.projects.projectOf(first) ?? null, `Steward rule idea: ${card.title}`.slice(0, 100),
+          `Steward has a rule idea that needs data she does not collect yet.\n\n${card.body}\n\nIdea: ${String(card.payload.idea ?? "")}\n\nIn the luna-pi repo, start your own worktree (session_worktree) and implement it as a detector under src/steward with a test. Commit on that branch. Do not merge, and do not restart the daemon. Tell me when it is ready to review.`, `steward-${id}`);
         this.o.store.setStatus(id, "working", { sessionId: sidR, result: "Implementing the idea on a branch in a work session. Nothing merges without you." });
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;
@@ -372,54 +372,54 @@ export class WifeService {
       } else if (card.kind === "bg_leftover") {
         this.o.closeTerminal?.(String(card.payload.terminalId)); result = "Stopped the terminal.";
       } else if (card.kind === "skill_unused") {
-        if (!this.o.trashSkill) throw new WifeError(409, "skills are not available");
+        if (!this.o.trashSkill) throw new StewardError(409, "skills are not available");
         this.o.trashSkill(String(card.payload.name)); result = `Moved ${card.payload.name} to the skill trash. Restore it with skill action=restore.`;
       } else if (card.kind === "prompt_repeat" || card.kind === "project_setup_repeat") {
-        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        if (!this.o.startSession) throw new StewardError(409, "sessions are not available");
         const p = card.payload as { prompt?: string; project?: number; text?: string };
         const content = card.kind === "prompt_repeat"
           ? `Draft a cron job for this prompt that I keep sending. Use the cron tool, pick a schedule that matches how often I send it, and show me the job before enabling it.\n\nPrompt: ${p.prompt}`
           : `Add this session setup to the project's AGENTS.md (create it in the project directory if missing), so new sessions no longer need it. Keep it short and show me the change.\n\nSetup text: ${p.text}`;
-        const sid2 = await this.o.startSession(card.kind === "prompt_repeat" ? null : p.project ?? null, card.title.slice(0, 100), content, `wife-work-${id}`);
+        const sid2 = await this.o.startSession(card.kind === "prompt_repeat" ? null : p.project ?? null, card.title.slice(0, 100), content, `steward-work-${id}`);
         this.o.store.setStatus(id, "working", { sessionId: sid2, result: "Working on it in a session." });
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;
       } else if (card.kind === "goal_unfinished" || card.kind === "tool_error_repeat" || card.kind === "quota_waits") {
-        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        if (!this.o.startSession) throw new StewardError(409, "sessions are not available");
         const first3 = card.evidence[0]?.sessionId;
-        const sid3 = await this.o.startSession(first3 === undefined ? null : conv.projects.projectOf(first3) ?? null, `Wife: ${card.title}`.slice(0, 100),
-          `${this.seedMessage(card).replace(/\n\nLet's talk it through\..*$/s, "")}\n\nI agreed to this. Do the work: read the evidence, fix the cause or finish the task, and report what you changed. Do not merge or delete anything.`, `wife-${id}`);
+        const sid3 = await this.o.startSession(first3 === undefined ? null : conv.projects.projectOf(first3) ?? null, `Steward: ${card.title}`.slice(0, 100),
+          `${this.seedMessage(card).replace(/\n\nLet's talk it through\..*$/s, "")}\n\nI agreed to this. Do the work: read the evidence, fix the cause or finish the task, and report what you changed. Do not merge or delete anything.`, `steward-${id}`);
         this.o.store.setStatus(id, "working", { sessionId: sid3, result: "Working on it in a session." });
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;
       } else if (card.kind === "tune_rule") {
         const p = card.payload as { rule: string; key: string; from: number; to: number };
         const tune = TUNABLE[p.rule];
-        if (!tune || tune.key !== p.key || !this.o.setConfig) throw new WifeError(409, "this rule cannot be tuned");
-        if (this.o.config()[tune.key] !== p.from) throw new WifeError(409, "the threshold changed since this card was filed");
+        if (!tune || tune.key !== p.key || !this.o.setConfig) throw new StewardError(409, "this rule cannot be tuned");
+        if (this.o.config()[tune.key] !== p.from) throw new StewardError(409, "the threshold changed since this card was filed");
         this.o.setConfig(w => { w[p.key] = p.to; });
         result = `Set ${tune.label.toLowerCase()} to ${p.to}.`;
         note = `tuned:${p.rule}`;
         inverse = undefined;
       } else if (card.kind === "mute_rule" || card.kind === "mute_kind") {
-        if (!this.o.setConfig) throw new WifeError(409, "settings are not available");
+        if (!this.o.setConfig) throw new StewardError(409, "settings are not available");
         const key = card.kind === "mute_rule" ? "mutedRules" : "mutedKinds";
         const value = String(card.kind === "mute_rule" ? card.payload.rule : card.payload.kind);
         this.o.setConfig(w => { const list = (w[key] as string[] | undefined) ?? []; if (!list.includes(value)) w[key] = [...list, value]; });
         result = `Muted ${value}. Remove it from the muted list in settings to bring it back.`;
       } else if (card.kind === "skill") {
-        if (!this.o.startSession) throw new WifeError(409, "sessions are not available");
+        if (!this.o.startSession) throw new StewardError(409, "sessions are not available");
         const p = card.payload as { name: string; existing?: boolean; outline: string };
         const first = card.evidence[0]?.sessionId;
         const project = first === undefined ? null : conv.projects.projectOf(first) ?? null;
         const evidence = card.evidence.map(e => `session ${e.sessionId} (${e.note})`).join("; ");
-        const sidNew = await this.o.startSession(project, `Wife skill: ${p.name}`.slice(0, 100),
-          `${p.existing ? "Update" : "Create"} the managed skill "${p.name}" from this outline, using the evidence sessions: ${evidence}.\n\nOutline: ${p.outline}\n\nUse \`skill action=${p.existing ? "edit" : "create"}\`. Read the evidence sessions first. Report what you wrote.`, `wife-skill-${id}`);
+        const sidNew = await this.o.startSession(project, `Steward skill: ${p.name}`.slice(0, 100),
+          `${p.existing ? "Update" : "Create"} the managed skill "${p.name}" from this outline, using the evidence sessions: ${evidence}.\n\nOutline: ${p.outline}\n\nUse \`skill action=${p.existing ? "edit" : "create"}\`. Read the evidence sessions first. Report what you wrote.`, `steward-skill-${id}`);
         this.o.store.setStatus(id, "working", { sessionId: sidNew, result: "Writing the skill in a work session." });
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;
       } else if (card.kind === "memory") {
-        if (!this.o.remember) throw new WifeError(409, "memory is not available");
+        if (!this.o.remember) throw new StewardError(409, "memory is not available");
         const m = card.payload as { key?: string; content: string };
         const r = this.o.remember({ key: m.key, content: m.content });
         if (r.key) inverse = { type: "restore_memory", key: r.key, content: r.before };
@@ -428,12 +428,12 @@ export class WifeService {
         const ext = card.payload.enable as string | null;
         if (ext && this.o.extensions && !this.o.extensions.enabled(ext)) { this.o.extensions.enable(ext); result = `Enabled ${ext}. It loads on the next session.`; }
         else result = "Noted.";
-      } else throw new WifeError(400, `${card.kind} cards cannot be agreed yet`);
+      } else throw new StewardError(400, `${card.kind} cards cannot be agreed yet`);
       this.o.store.setStatus(id, "done", { result });
       if (inverse) this.o.store.setUndo(id, inverse);
       this.o.store.record(card, "agree", null, note);
     } catch (e) {
-      if (e instanceof WifeError) throw e;  // a refused precondition leaves the card open
+      if (e instanceof StewardError) throw e;  // a refused precondition leaves the card open
       this.o.store.setStatus(id, "failed", { result: (e as Error).message });
       this.o.store.record(card, "failed", null, (e as Error).message);
       throw e;
@@ -444,9 +444,9 @@ export class WifeService {
   /** Reverse a done card inside its undo window. The card opens again, so it can be decided differently. */
   async undo(id: number): Promise<Suggestion> {
     const card = this.o.store.get(id);
-    if (!card) throw new WifeError(404, "no such suggestion");
+    if (!card) throw new StewardError(404, "no such suggestion");
     const inv = this.o.store.getUndo(id);
-    if (card.status !== "done" || !inv) throw new WifeError(409, "this cannot be undone");
+    if (card.status !== "done" || !inv) throw new StewardError(409, "this cannot be undone");
     const conv = this.o.conversations;
     if (inv.type === "unarchive") { for (const i of inv.ids) { try { await conv.update(i, { archived: false }); } catch (e) { if (!(e instanceof ConversationError)) throw e; } } }
     else if (inv.type === "move_back") { for (const m of inv.moves) { try { await conv.move(m.id, m.projectId); } catch (e) { if (!(e instanceof ConversationError)) throw e; } } }
@@ -454,7 +454,7 @@ export class WifeService {
       const links = conv.projects.links();
       for (const m of inv.moves) if (links.get(m.id) === inv.projectId) { try { await conv.move(m.id, m.projectId); } catch (e) { if (!(e instanceof ConversationError)) throw e; } }
       const left = [...conv.projects.links()].filter(([, pid]) => pid === inv.projectId).length;
-      if (left) throw new WifeError(409, `the project now holds ${left} other sessions, so it was kept`);
+      if (left) throw new StewardError(409, `the project now holds ${left} other sessions, so it was kept`);
       conv.projects.delete(inv.projectId);
     } else if (inv.type === "restore_memory") await this.o.restoreMemory?.(inv.key, inv.content);
     this.o.store.clearUndo(id);

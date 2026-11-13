@@ -1,19 +1,19 @@
 <template>
-  <div id="wife-screen" class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-background" :aria-busy="wife.loading ? 'true' : 'false'">
+  <div id="steward-screen" class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-background" :aria-busy="steward.loading ? 'true' : 'false'">
     <header class="shrink-0 flex items-center gap-3 flex-wrap px-6 py-3 max-[760px]:px-3 border-b border-border/60 bg-background">
-      <Button id="wife-menu" type="button" variant="ghost" size="icon" class="hidden max-[760px]:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground" aria-label="Open navigation" aria-controls="side" @click="setDrawer(true)">
+      <Button id="steward-menu" type="button" variant="ghost" size="icon" class="hidden max-[760px]:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground" aria-label="Open navigation" aria-controls="side" @click="setDrawer(true)">
         <Menu :size="18" />
       </Button>
       <div class="flex-1 min-w-0">
-        <h1 tabindex="-1" class="m-0 text-lg font-semibold tracking-tight leading-tight">Wife</h1>
+        <h1 tabindex="-1" class="m-0 text-lg font-semibold tracking-tight leading-tight">Steward</h1>
         <p class="m-0 text-xs text-muted-foreground truncate">Suggestions from your sessions. Nothing happens until you agree.</p>
       </div>
       <div class="flex items-center gap-2 ml-auto">
-        <Button type="button" variant="outline" size="sm" :disabled="wife.loading || wife.scanning" @click="scanWife()">
-          <RefreshCw :size="14" :class="{ 'animate-spin': wife.scanning }" aria-hidden="true" />
-          {{ wife.scanning ? 'Scanning…' : 'Scan now' }}
+        <Button type="button" variant="outline" size="sm" :disabled="steward.loading || steward.scanning" @click="scanSteward()">
+          <RefreshCw :size="14" :class="{ 'animate-spin': steward.scanning }" aria-hidden="true" />
+          {{ steward.scanning ? 'Scanning…' : 'Scan now' }}
         </Button>
-        <button type="button" class="icon-button p-1.5 rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary" aria-label="Close wife" @click="navigate('chat')"><X :size="18" /></button>
+        <button type="button" class="icon-button p-1.5 rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary" aria-label="Close steward" @click="navigate('chat')"><X :size="18" /></button>
       </div>
     </header>
 
@@ -42,13 +42,13 @@
     </section>
 
     <main class="flex-1 min-h-0 overflow-y-auto px-6 py-4 max-[760px]:px-3">
-      <div v-if="wife.error" class="mb-3 flex items-center gap-3 rounded-[var(--radius)] border border-destructive/40 px-3 py-2 text-sm" role="alert">
-        <span class="flex-1 min-w-0">{{ wife.error }}</span>
-        <Button type="button" variant="outline" size="sm" @click="loadWife()">Retry</Button>
+      <div v-if="steward.error" class="mb-3 flex items-center gap-3 rounded-[var(--radius)] border border-destructive/40 px-3 py-2 text-sm" role="alert">
+        <span class="flex-1 min-w-0">{{ steward.error }}</span>
+        <Button type="button" variant="outline" size="sm" @click="loadSteward()">Retry</Button>
       </div>
-      <p v-if="wife.notice && !wife.error" class="mb-3 text-sm text-muted-foreground" role="status">{{ wife.notice }}</p>
-      <p v-if="wife.loading && !wife.loaded" class="text-sm text-muted-foreground">Loading…</p>
-      <p v-else-if="!shown.length && !wife.error" class="text-sm text-muted-foreground">Nothing to suggest.</p>
+      <p v-if="steward.notice && !steward.error" class="mb-3 text-sm text-muted-foreground" role="status">{{ steward.notice }}</p>
+      <p v-if="steward.loading && !steward.loaded" class="text-sm text-muted-foreground">Loading…</p>
+      <p v-else-if="!shown.length && !steward.error" class="text-sm text-muted-foreground">Nothing to suggest.</p>
       <ul class="grid gap-3 list-none p-0 m-0 max-w-3xl">
         <li v-for="c in shown" :key="c.id" class="rounded-[var(--radius)] border border-border bg-card p-4">
           <div class="flex items-start gap-3">
@@ -76,20 +76,20 @@
             <span class="text-xs text-muted-foreground">{{ c.result }}</span>
           </div>
           <div v-if="c.status === 'done' && c.undoUntil && c.undoUntil > Date.now()" class="mt-3 flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)" @click="run(c, 'undo')"><Undo2 :size="14" aria-hidden="true" />Undo</Button>
+            <Button type="button" variant="outline" size="sm" :disabled="steward.busy.has(c.id)" @click="run(c, 'undo')"><Undo2 :size="14" aria-hidden="true" />Undo</Button>
             <span class="text-xs text-muted-foreground">until {{ new Date(c.undoUntil).toLocaleDateString() }}</span>
           </div>
           <div v-if="c.status === 'open' || c.status === 'snoozed'" class="mt-3 flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" :disabled="wife.busy.has(c.id)" @click="agree(c)">{{ items(c).length ? `Agree (${picked(c).length})` : c.kind === 'delete_session' ? 'Delete…' : c.kind === 'worktree_orphan' ? 'Remove…' : 'Agree' }}</Button>
-            <Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)" @click="discuss(c)"><MessageSquare :size="14" aria-hidden="true" />Discuss</Button>
+            <Button type="button" size="sm" :disabled="steward.busy.has(c.id)" @click="agree(c)">{{ items(c).length ? `Agree (${picked(c).length})` : c.kind === 'delete_session' ? 'Delete…' : c.kind === 'worktree_orphan' ? 'Remove…' : 'Agree' }}</Button>
+            <Button type="button" variant="outline" size="sm" :disabled="steward.busy.has(c.id)" @click="discuss(c)"><MessageSquare :size="14" aria-hidden="true" />Discuss</Button>
             <DropdownMenu>
-              <DropdownMenuTrigger as-child><Button type="button" variant="outline" size="sm" :disabled="wife.busy.has(c.id)"><Clock :size="14" aria-hidden="true" />Snooze</Button></DropdownMenuTrigger>
+              <DropdownMenuTrigger as-child><Button type="button" variant="outline" size="sm" :disabled="steward.busy.has(c.id)"><Clock :size="14" aria-hidden="true" />Snooze</Button></DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem v-for="d in [1, 7, 30]" :key="d" @select="run(c, 'snooze', { days: d })">{{ d }} {{ d === 1 ? 'day' : 'days' }}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <DropdownMenu>
-              <DropdownMenuTrigger as-child><Button type="button" variant="ghost" size="sm" :disabled="wife.busy.has(c.id)">Dismiss</Button></DropdownMenuTrigger>
+              <DropdownMenuTrigger as-child><Button type="button" variant="ghost" size="sm" :disabled="steward.busy.has(c.id)">Dismiss</Button></DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem v-for="r in reasons" :key="r.id" @select="dismiss(c, r.id)">{{ r.label }}</DropdownMenuItem>
                 <DropdownMenuItem @select="dismiss(c)">Dismiss with a note…</DropdownMenuItem>
@@ -110,18 +110,18 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { confirmAction, promptText } from "@/lib/confirm";
 import { navigate, setDrawer } from "@/stores/app";
 import { openSession } from "@/stores/chat";
-import { decide, discussCard, loadWife, scanWife, wife, wifeStats, type Suggestion, type WifeKind, type WifeStatus } from "@/stores/wife";
+import { decide, discussCard, loadSteward, scanSteward, steward, stewardStats, type Suggestion, type StewardKind, type StewardStatus } from "@/stores/steward";
 
-const icons: Record<WifeKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb, tune_rule: SlidersHorizontal, mute_rule: BellOff, mute_kind: BellOff, goal_unfinished: Target, cron_failing: AlarmClock, quota_waits: Gauge, board_stuck: KanbanSquare, worktree_orphan: GitBranch, bg_leftover: Terminal, tool_error_repeat: Wrench, skill_unused: Archive, prompt_repeat: Repeat, project_setup_repeat: FolderPlus, new_rule: Sparkles, rule_idea: Sparkles, browser_leftover: Terminal, promote_rule: Sparkles, cost_habit: Gauge, compaction_heavy: Gauge, weekly_recap: KanbanSquare, reminder_unscheduled: AlarmClock };
-const kindLabels: Record<WifeKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips", tune_rule: "Tuning", mute_rule: "Mute", mute_kind: "Mute", goal_unfinished: "Goals", cron_failing: "Cron", quota_waits: "Quota", board_stuck: "Board", worktree_orphan: "Worktrees", bg_leftover: "Terminals", tool_error_repeat: "Tool errors", skill_unused: "Skills", prompt_repeat: "Prompts", project_setup_repeat: "Setup", new_rule: "Rules", rule_idea: "Rules", browser_leftover: "Leftovers", promote_rule: "Rules", cost_habit: "Cost", compaction_heavy: "Context", weekly_recap: "Recap", reminder_unscheduled: "Reminders" };
-const status = ref<WifeStatus>("open");
-const kind = ref<WifeKind | "">("");
-const stats = computed(() => wifeStats.value);
+const icons: Record<StewardKind, unknown> = { skill: Sparkles, memory: BookOpen, new_project: FolderPlus, move_session: FolderInput, archive_session: Archive, delete_session: Trash2, feature_tip: Lightbulb, tune_rule: SlidersHorizontal, mute_rule: BellOff, mute_kind: BellOff, goal_unfinished: Target, cron_failing: AlarmClock, quota_waits: Gauge, board_stuck: KanbanSquare, worktree_orphan: GitBranch, bg_leftover: Terminal, tool_error_repeat: Wrench, skill_unused: Archive, prompt_repeat: Repeat, project_setup_repeat: FolderPlus, new_rule: Sparkles, rule_idea: Sparkles, browser_leftover: Terminal, promote_rule: Sparkles, cost_habit: Gauge, compaction_heavy: Gauge, weekly_recap: KanbanSquare, reminder_unscheduled: AlarmClock };
+const kindLabels: Record<StewardKind, string> = { skill: "Skills", memory: "Memory", new_project: "New project", move_session: "Move", archive_session: "Archive", delete_session: "Delete", feature_tip: "Tips", tune_rule: "Tuning", mute_rule: "Mute", mute_kind: "Mute", goal_unfinished: "Goals", cron_failing: "Cron", quota_waits: "Quota", board_stuck: "Board", worktree_orphan: "Worktrees", bg_leftover: "Terminals", tool_error_repeat: "Tool errors", skill_unused: "Skills", prompt_repeat: "Prompts", project_setup_repeat: "Setup", new_rule: "Rules", rule_idea: "Rules", browser_leftover: "Leftovers", promote_rule: "Rules", cost_habit: "Cost", compaction_heavy: "Context", weekly_recap: "Recap", reminder_unscheduled: "Reminders" };
+const status = ref<StewardStatus>("open");
+const kind = ref<StewardKind | "">("");
+const stats = computed(() => stewardStats.value);
 const errors = reactive<Record<number, string>>({});
 
-const statusChips = computed(() => (["open", "working", "snoozed", "done", "dismissed", "failed"] as WifeStatus[]).map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1), count: wife.cards.filter(c => c.status === id).length })));
-const kindChips = computed(() => (Object.keys(kindLabels) as WifeKind[]).map(id => ({ id, label: kindLabels[id], count: wife.cards.filter(c => c.status === status.value && c.kind === id).length })).filter(k => k.count > 0 || kind.value === k.id));
-const shown = computed(() => wife.cards.filter(c => c.status === status.value && (!kind.value || c.kind === kind.value)));
+const statusChips = computed(() => (["open", "working", "snoozed", "done", "dismissed", "failed"] as StewardStatus[]).map(id => ({ id, label: id[0]!.toUpperCase() + id.slice(1), count: steward.cards.filter(c => c.status === id).length })));
+const kindChips = computed(() => (Object.keys(kindLabels) as StewardKind[]).map(id => ({ id, label: kindLabels[id], count: steward.cards.filter(c => c.status === status.value && c.kind === id).length })).filter(k => k.count > 0 || kind.value === k.id));
+const shown = computed(() => steward.cards.filter(c => c.status === status.value && (!kind.value || c.kind === kind.value)));
 
 async function run(c: Suggestion, action: "agree" | "dismiss" | "snooze" | "undo", body: object = {}) {
   errors[c.id] = await decide(c.id, action, body);
@@ -139,7 +139,7 @@ const reasons = [
 async function dismiss(c: Suggestion, reason?: string) {
   let note: string | undefined;
   if (!reason) {
-    const text = await promptText({ title: "Dismiss with a note", message: "Wife reads your note when she looks for new cards.", confirmLabel: "Dismiss", input: { label: "Note", required: false } });
+    const text = await promptText({ title: "Dismiss with a note", message: "Steward reads your note when looking for new cards.", confirmLabel: "Dismiss", input: { label: "Note", required: false } });
     if (text === null) return;
     note = text.trim() || undefined;
   }
@@ -154,7 +154,7 @@ async function agree(c: Suggestion) {
   if (c.kind === "worktree_orphan" && !await confirmAction({ title: "Remove this worktree?", message: `The worktree and its branch "${c.payload.branch}" will be removed.`, confirmLabel: "Remove", danger: true })) return;
   await run(c, "agree", { confirm: c.kind === "delete_session" || c.kind === "worktree_orphan", ...(items(c).length ? { targets: picked(c) } : {}) });
 }
-onMounted(loadWife);
+onMounted(loadSteward);
 </script>
 
 <style scoped>

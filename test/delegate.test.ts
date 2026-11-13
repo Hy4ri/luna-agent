@@ -11,7 +11,7 @@ import { startRuntime } from "../src/runtime.js";
 for (const fork of [false, true]) {
   test(`${fork ? "forked" : "fresh"} subagent has a neutral identity and delivers its result`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "luna-delegate-"));
-    writeFileSync(join(dir, "SOUL.md"), "PERSONA_SENTINEL: You are Luna, the user's wife.");
+    writeFileSync(join(dir, "SOUL.md"), "PERSONA_SENTINEL: You are Luna, the user's steward.");
     const faux = fauxProvider({ models: [{ id: "parent" }, { id: "child" }] });
     const models = createModels();
     models.setProvider(faux.provider);

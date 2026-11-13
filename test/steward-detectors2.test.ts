@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "../src/wife/detectors2.js";
+import { boardStuck, cronFailing, goalUnfinished, quotaWaits } from "../src/steward/detectors2.js";
 
 const D = 86_400_000, now = 100 * D;
 const run = (status: string, output: string | null = null, t = 1) => ({ status, output, startedAt: t });

@@ -436,21 +436,21 @@ Saved configs that still list them load unchanged: the keys are dropped. `improv
 shell benchmarks in `skill action=propose`. On start the old `luna-learn` and `luna-self-improve` cron jobs are disabled,
 with their history kept. `learn.db` stays on disk, unused.
 
-## Wife
+## Steward
 
-Wife is a page of suggestion cards built from your session activity. A card can be agreed (Wife does the work), discussed
-(opens a session seeded with the card), snoozed, or dismissed with a reason. State lives in `wife.db`.
-Wife only suggests. She never edits her own rules or code, merges, or acts alone. Agreeing to a delete needs `confirm:true`
+Steward is a page of suggestion cards built from your session activity. A card can be agreed (Steward does the work), discussed
+(opens a session seeded with the card), snoozed, or dismissed with a reason. State lives in `steward.db`.
+Steward only suggests. She never edits her own rules or code, merges, or acts alone. Agreeing to a delete needs `confirm:true`
 (the page asks first); deleting a session cannot be undone. Other direct actions can be undone for 7 days (archive, move,
 new project, memory).
 
-Detectors run every `wife.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
+Detectors run every `steward.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
 misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, stuck board cards, orphan session worktrees (merged branch or deleted session, and clean), leftover terminals in idle sessions, tools that fail on 20% or more of 10+ calls in 3 or more sessions a week (one card per week), sessions that compacted 5 or more times in 14 days (one card per week), managed skills unused for 60 days, a prompt you send on a regular rhythm, and a session opening you repeat in one project. Agreeing to the last two starts a work session. Agreeing to a worktree card removes the worktree and its branch.
-A daily model pass, the built-in cron job `luna-wife`, files skill and memory cards through the `wife` tool.
+A daily model pass, the built-in cron job `luna-steward`, files skill and memory cards through the `steward` tool.
 It is the only part that costs model calls. Run it by hand with `cron action=run`.
 
 ```json
-"wife": {
+"steward": {
   "enabled": true,
   "detectEveryMinutes": 30,
   "staleDays": 14,
@@ -463,21 +463,21 @@ It is the only part that costs model calls. Run it by hand with `cron action=run
 }
 ```
 
-- `modelSchedule`: cron expression for the model pass (default four times a day). A slot is recorded as skipped, with reason `unchanged`, when no non-cron session was active since the last run; a manual run always runs. Empty turns it off. Add `"wife"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
+- `modelSchedule`: cron expression for the model pass (default four times a day). A slot is recorded as skipped, with reason `unchanged`, when no non-cron session was active since the last run; a manual run always runs. Empty turns it off. Add `"steward"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
 - `maxNewPerDay`: new cards over the cap wait and show up on the next day, the most useful kinds first. Quiet hours hide new cards the same way. Scan now on the page fills the page back up to the cap at once, and says what it filed, showed, and held.
-- `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Wife watches.
+- `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Steward watches.
 - `tips`: editable catalog of feature tips. Each rule is `{id, title, body, docs?, when, enable?}`.
-- Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Wife never does it alone.
-- The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap, shows every held card about that session, and says so when there is none.
+- Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Steward never does it alone.
+- The session header has an Ask Steward button. It runs the detectors on that session now, ignoring quiet hours and the cap, shows every held card about that session, and says so when there is none.
 - Peer and crew messages (`[message from session #N ...`) do not count as prompts you repeat or session openings.
-- The `wife` tool lets any session go through the cards with you: `list` (id, fingerprint, body, evidence, payload), `agree`, `dismiss` (needs a reason), and `snooze` on the card ids you name, plus `scan`. Delete and worktree cards need `confirm:true`.
-  It also cleans up a session you name without a message to it: `session` (open todos, unanswered questions, goal, status), `todos_done` (`todo_ids` or `all:true`), `cancel_questions`, `clear_status` (drops a needs-input handoff and marks it read), `goal` (`pause`, `complete`, `clear`), and `edit_session` (`title`, `archived`, `pinned`, `project`). The daily `luna-wife` job uses only `list` and `suggest`.
+- The `steward` tool lets any session go through the cards with you: `list` (id, fingerprint, body, evidence, payload), `agree`, `dismiss` (needs a reason), and `snooze` on the card ids you name, plus `scan`. Delete and worktree cards need `confirm:true`.
+  It also cleans up a session you name without a message to it: `session` (open todos, unanswered questions, goal, status), `todos_done` (`todo_ids` or `all:true`), `cancel_questions`, `clear_status` (drops a needs-input handoff and marks it read), `goal` (`pause`, `complete`, `clear`), and `edit_session` (`title`, `archived`, `pinned`, `project`). The daily `luna-steward` job uses only `list` and `suggest`.
 
 Cost and context: `cost_habit` flags a project whose cost per turn is over 2x the median of projects (30 days). `compaction_heavy` flags a live session that compacted 3 or more times. Agree opens a session that advises. It changes nothing itself. `weekly_recap` files one card a week from your boards. Agree opens a planning session.
 
 Rule trials: the daily model pass can file `new_rule` cards with a rule in the `tips` format. Agree adds it with `status: "shadow"`. A shadow rule only logs what it would flag. After 7 days a `promote_rule` card lists those hits. Agree turns the rule on, and Dismiss deletes it. A tip's `when.kind` can be `tool`, `skill` or `compaction`. The `reminder_unscheduled` card (model-found) schedules a message into a session on Agree.
 
-Rule conditions: a rule's `when` can also set `project` (project id), `cwd` (text the session directory contains) and `idleDays` (the newest matching call is at least that old). Leftover browser tabs in idle sessions are a `browser_leftover` card; Agree closes the tab. The model pass can file `rule_idea` cards for rules that need data Wife does not collect. Agree starts a work session that implements it as a detector on its own worktree branch. Nothing merges without you.
+Rule conditions: a rule's `when` can also set `project` (project id), `cwd` (text the session directory contains) and `idleDays` (the newest matching call is at least that old). Leftover browser tabs in idle sessions are a `browser_leftover` card; Agree closes the tab. The model pass can file `rule_idea` cards for rules that need data Steward does not collect. Agree starts a work session that implements it as a detector on its own worktree branch. Nothing merges without you.
 
 ## Learning from a source
 

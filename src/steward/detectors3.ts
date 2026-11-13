@@ -10,7 +10,7 @@ export function worktreeOrphans(list: WorktreeView[]): NewSuggestion[] {
   return list.filter(w => w.merged || w.sessionGone).map(w => ({
     kind: "worktree_orphan" as const, fingerprint: `worktree_orphan:${w.path}`, source: "detector" as const,
     title: `Remove worktree ${w.branch}`,
-    body: `${w.merged ? "Its branch is merged." : "Its session is deleted."}${w.dirty ? " It has uncommitted changes, so Wife will not remove it. Clean it up by hand." : " Agree removes the worktree and deletes the branch."}`,
+    body: `${w.merged ? "Its branch is merged." : "Its session is deleted."}${w.dirty ? " It has uncommitted changes, so Steward will not remove it. Clean it up by hand." : " Agree removes the worktree and deletes the branch."}`,
     evidence: w.sessionId ? [{ sessionId: w.sessionId, note: w.merged ? "branch merged" : "session deleted" }] : [], payload: { path: w.path, branch: w.branch, dirty: w.dirty } }));
 }
 
@@ -59,7 +59,7 @@ export function skillsUnused(skills: { name: string; managed: boolean; modified:
 }
 
 /** Messages a peer session or the runtime wrote. They are not prompts m57 typed. */
-export const isMachineMessage = (t: string) => /^\[message from session #\d+/.test(t) || t.startsWith("Wife suggests:");
+export const isMachineMessage = (t: string) => /^\[message from session #\d+/.test(t) || t.startsWith("Steward suggests:");
 const norm = (t: string) => t.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
 export interface UserMsg { conv: number; ts: number; text: string }
 /** Almost the same prompt at least 3 times, from different sessions, at least 20 hours apart on average. */

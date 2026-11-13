@@ -3,8 +3,8 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans } from "../src/wife/detectors3.js";
-import { listSessionWorktrees, removeSessionWorktree } from "../src/wife/git.js";
+import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans } from "../src/steward/detectors3.js";
+import { listSessionWorktrees, removeSessionWorktree } from "../src/steward/git.js";
 
 const DAY = 86_400_000;
 
@@ -62,7 +62,7 @@ test("project_setup_repeat groups by project and ignores General", () => {
 
 test("session worktrees: a fresh one is not removed dirty, a clean one is removed with its branch", () => {
   const sh = (cwd: string, ...a: string[]) => { const p = Bun.spawnSync(a, { cwd }); expect(p.exitCode).toBe(0) /* p.stderr.toString() */; return p.stdout.toString().trim(); };
-  const root = mkdtempSync(join(tmpdir(), "wife-git-"));
+  const root = mkdtempSync(join(tmpdir(), "steward-git-"));
   const repo = join(root, "repo");
   sh(root, "git", "init", "-q", "-b", "main", repo);
   sh(repo, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");

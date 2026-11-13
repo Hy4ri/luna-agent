@@ -146,7 +146,7 @@ const items = computed<Item[]>(() => {
   const add = (item: Item) => list.push(item);
 
   add({ id: 'view:chat', group: 'Go to', label: 'Chat', current: ui.view === 'chat' && !ui.panel, run: () => navigate('chat') });
-  add({ id: 'view:wife', group: 'Go to', label: 'Wife', current: ui.view === 'wife', run: () => navigate('wife') });
+  add({ id: 'view:steward', group: 'Go to', label: 'Steward', current: ui.view === 'steward', run: () => navigate('steward') });
   add({ id: 'view:analytics', group: 'Go to', label: 'Analytics', current: ui.view === 'analytics', run: () => navigate('analytics') });
   add({ id: 'view:source-control', group: 'Go to', label: 'Source Control', current: ui.view === 'source-control', run: () => navigate('source-control') });
   add({ id: 'view:mail', group: 'Go to', label: 'Mail', current: terminal.open && dock.pane === 'mail', run: () => { setPane('mail'); terminal.open = true; } });

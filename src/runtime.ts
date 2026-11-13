@@ -11,9 +11,9 @@ import { createMediaExtension } from "./media.js";
 import { SideCommands } from "./side-commands.js";
 import { ConversationStore } from "./conversations.js";
 import { analyticsService } from "./analytics/index.js";
-import { WifeStore } from "./wife/store.js";
-import { WifeService } from "./wife/service.js";
-import { createWifeExtension } from "./wife/tool.js";
+import { StewardStore } from "./steward/store.js";
+import { StewardService } from "./steward/service.js";
+import { createStewardExtension } from "./steward/tool.js";
 import { createBoardExtension } from "./board.js";
 import { BoardAutoRunner } from "./board-auto.js";
 import { createSessionTalkExtension } from "./session-talk.js";
@@ -24,7 +24,7 @@ import { createSkillViewer, scanSkills } from "./skills.js";
 // delegate, cron (scheduler + tools + delivery), MCP servers, tool_search, and the self-improvement loop.
 // Only extensions named in config.extensions and MCP servers in config.mcpServers are loaded.
 import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
-import { listSessionWorktrees, removeSessionWorktree } from "./wife/git.js";
+import { listSessionWorktrees, removeSessionWorktree } from "./steward/git.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, type MutableModels } from "@earendil-works/pi-ai";
@@ -272,10 +272,10 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   const board = createBoardExtension(() => conversationsRef);
   extensions.push(board);
   projectExtensions = [board];
-  let wifeRef: WifeService | undefined;
+  let stewardRef: StewardService | undefined;
   let cancelScheduledRef: ((id: number) => Promise<unknown>) | undefined;
-  if (on("wife")) extensions.push(createWifeExtension({
-    wife: () => wifeRef,
+  if (on("steward")) extensions.push(createStewardExtension({
+    steward: () => stewardRef,
     sessionExists: id => !!conversationsRef && conversationsRef.exists(id),
     conversations: () => conversationsRef,
     onArchive: id => cancelScheduledRef?.(id) ?? Promise.resolve(),
@@ -356,9 +356,12 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   uploads.bind(conversationStorage(harness).db);
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
-  const wifeStore = new WifeStore(join(cfg.dataDir, "wife.db"));
+  const stewardDbPath = join(cfg.dataDir, "steward.db");
+  const legacyWifeDbPath = join(cfg.dataDir, "wife.db");
+  // deprecated: remove after next release
+  const stewardStore = new StewardStore(!existsSync(stewardDbPath) && existsSync(legacyWifeDbPath) ? legacyWifeDbPath : stewardDbPath);
   const skillMgr = improver ? new SkillManager(improver, cfg.allSkillDirs) : undefined;
-  const wife = new WifeService({ store: wifeStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().wife, log,
+  const steward = new StewardService({ store: stewardStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().steward, log,
     cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
       disable: id => { store.setEnabled(id, false); scheduler?.rearm(); } } : undefined,
     startSession: (project, title, content, requestId) => webhookTargets!.newSession(project ?? 0, title, content, requestId),
@@ -387,9 +390,9 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
       for (const r of memory.recall(key, { kind: "fact" })) if (r.key === key) memory.forget(r.id);
       if (content !== null) memory.remember({ key, content });
     } : undefined,
-    setConfig: settings ? fn => settings.update(c => fn(c.wife as unknown as Record<string, unknown>)) : undefined,
+    setConfig: settings ? fn => settings.update(c => fn(c.steward as unknown as Record<string, unknown>)) : undefined,
     extensions: settings ? { enabled: n => settings.read().extensions.includes(n as never), enable: n => settings.update(c => { if (!c.extensions.includes(n as never)) c.extensions.push(n as never); }) } : undefined });
-  wifeRef = wife;
+  stewardRef = steward;
   conversations.subscribeDeleted(ids => { for (const id of ids) { terminals.registry.closeSession(id); browserPanel.closeSession(id); } });
   harnessRef = harness;
   // Board cards with auto on run in their own project sessions. They never get ask_user_question.
@@ -476,17 +479,17 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
         const url = notifyUrl(); return url ? deliverRun(url, job, run, o.fetch) : undefined;
       },
       exclude: [board, ...(ask ? [ask] : []), ...(mailSend ? [mailSend] : [])],
-      // Wife's model pass stays home when no session (other than cron runs) was active since its last run.
+      // Steward's model pass stays home when no session (other than cron runs) was active since its last run.
       skipRun: job => {
-        if (job.name !== WIFE_JOB_NAME || !wifeRef) return null;
+        if (job.name !== STEWARD_JOB_NAME || !stewardRef) return null;
         const last = store!.queryRuns({ jobId: job.id, history: true, limit: 5 }).find(r => r.status === "ok" || r.status === "error");
         if (!last) return null;
         const cron = store!.db.prepare("SELECT 1 FROM runs WHERE conversation_id=? LIMIT 1");
-        return wifeRef.activitySince(last.startedAt, id => !!cron.get(String(id))) ? null : "no session activity since the last run";
+        return stewardRef.activitySince(last.startedAt, id => !!cron.get(String(id))) ? null : "no session activity since the last run";
       },
     });
     disableLegacyJobs(store!);
-    syncWifeJob(store!, live().wife, on("wife"));
+    syncStewardJob(store!, live().steward, on("steward"));
     await scheduler.start();
   }
 
@@ -519,7 +522,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     },
   };
   webhooks.start();
-  wife.start();
+  steward.start();
 
   // Settings saved while running: bring live state in line without a restart.
   settings?.onApply(async (_old, next) => {
@@ -535,7 +538,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     mcp.syncExposure();
     if (scheduler && store) {
       disableLegacyJobs(store);
-      syncWifeJob(store, next.wife, next.extensions.includes("wife" as never));
+      syncStewardJob(store, next.steward, next.extensions.includes("steward" as never));
       scheduler.rearm();
     }
     return warnings;
@@ -577,7 +580,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     skillDirs: on("skills") ? cfg.allSkillDirs : undefined,
     model: built.model,
     improver,
-    wife,
+    steward,
     store,
     scheduler,
     mcp,
@@ -590,8 +593,8 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
     async close() {
       await boardAuto.close();
       mail?.close();
-      wife.stop();
-      wifeStore.close();
+      steward.stop();
+      stewardStore.close();
       await limitRecovery.close();
       await scheduledMessages.close();
       await push?.notifier.close();
@@ -618,29 +621,38 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   };
 }
 
-/** Session learning and the self-improve loop were replaced by Wife. Disable their old jobs and keep the history. */
+/** Session learning and the self-improve loop were replaced by Steward. Disable their old jobs and keep the history. */
 const LEGACY_JOBS = ["luna-learn", "luna-self-improve"];
 function disableLegacyJobs(store: CronStore) {
   for (const job of store.listJobs()) if (LEGACY_JOBS.includes(job.name) && job.enabled) store.setEnabled(job.id, false);
 }
 
 /** Prompt of the daily model pass. Self-contained: a cron run starts with no other context. */
-export const WIFE_JOB_NAME = "luna-wife";
-export const WIFE_JOB_PROMPT = [
-  "You are Wife's daily review. File suggestion cards with the `wife` tool. Use only its list and suggest actions. Do not change anything else.",
-  "1. Call `wife action=list`. Never file a card whose fingerprint is listed.",
+export const STEWARD_JOB_NAME = "luna-steward";
+export const STEWARD_JOB_PROMPT = [
+  "You are Steward's daily review. File suggestion cards with the `steward` tool. Use only its list and suggest actions. Do not change anything else.",
+  "1. Call `steward action=list`. Never file a card whose fingerprint is listed.",
   "2. Use `session_search` and recall to read sessions active since your last run. Read `skill action=list` and search memory first, so you do not duplicate what exists.",
   "3. Procedures that repeat across sessions become kind=skill cards (payload {name, existing, outline}). Stable facts or preferences m57 stated more than once become kind=memory cards (payload {key, content}).",
   "   Two skills that overlap or load together become a kind=skill card with existing=true and an outline that merges them. Facts or notes that contradict each other or are out of date become a kind=memory card with the corrected content for the same key. A correction m57 made in 3 or more sessions becomes a memory card (a fact) or a skill card (a procedure rule).",
-  "   Also: a repeated way m57 uses tools that a new rule could flag becomes kind=new_rule (payload {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool,kind,project,cwd,idleDays}}}); a good rule that needs data Wife does not collect becomes kind=rule_idea (payload {idea}). If m57 said remind me, later, or tomorrow in a session and nothing scheduled it, file kind=reminder_unscheduled with a future dueAt (payload {sessionId, content, dueAt}).",
-  "4. File at most 5 cards with `wife action=suggest`. Each needs real evidence sessions with a note. Prefer fewer, stronger cards.",
+  "   Also: a repeated way m57 uses tools that a new rule could flag becomes kind=new_rule (payload {tip:{id,title,body,when:{tool,minCalls,minSessions,withinDays,withoutTool,kind,project,cwd,idleDays}}}); a good rule that needs data Steward does not collect becomes kind=rule_idea (payload {idea}). If m57 said remind me, later, or tomorrow in a session and nothing scheduled it, file kind=reminder_unscheduled with a future dueAt (payload {sessionId, content, dueAt}).",
+  "4. File at most 5 cards with `steward action=suggest`. Each needs real evidence sessions with a note. Prefer fewer, stronger cards.",
   "5. Finish with one line: what you filed, or 'nothing'.",
 ].join("\n");
-/** Keep the built-in luna-wife job in step with config: create it, change its schedule, or turn it off. */
-export function syncWifeJob(store: CronStore, wife: { enabled: boolean; modelSchedule?: string }, extensionOn: boolean) {
-  const want = wife.enabled && extensionOn && !!wife.modelSchedule;
-  const job = store.listJobs().find(j => j.name === WIFE_JOB_NAME);
-  if (!job) { if (want) store.addJob(WIFE_JOB_NAME, wife.modelSchedule!, WIFE_JOB_PROMPT, undefined, Date.now(), "changes"); return; }
-  if (want && (job.expr !== wife.modelSchedule || job.prompt !== WIFE_JOB_PROMPT)) store.updateJob(job.id, { expr: wife.modelSchedule, prompt: WIFE_JOB_PROMPT });
+/** Keep the built-in luna-steward job in step with config: create it, change its schedule, or turn it off. */
+export function syncStewardJob(store: CronStore, steward: { enabled: boolean; modelSchedule?: string }, extensionOn: boolean) {
+  const want = steward.enabled && extensionOn && !!steward.modelSchedule;
+  const jobs = store.listJobs();
+  let job = jobs.find(j => j.name === STEWARD_JOB_NAME);
+  if (!job) {
+    // deprecated: remove after next release
+    const legacy = jobs.find(j => j.name === "luna-wife");
+    if (legacy) {
+      store.updateJob(legacy.id, { name: STEWARD_JOB_NAME });
+      job = { ...legacy, name: STEWARD_JOB_NAME };
+    }
+  }
+  if (!job) { if (want) store.addJob(STEWARD_JOB_NAME, steward.modelSchedule!, STEWARD_JOB_PROMPT, undefined, Date.now(), "changes"); return; }
+  if (want && (job.expr !== steward.modelSchedule || job.prompt !== STEWARD_JOB_PROMPT)) store.updateJob(job.id, { expr: steward.modelSchedule, prompt: STEWARD_JOB_PROMPT });
   if (job.enabled !== want) store.setEnabled(job.id, want);
 }
