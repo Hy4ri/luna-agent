@@ -46,13 +46,26 @@ function cycleSpeed() {
 function position() {
   if (!trigger.value || !picker.value) return;
   const rect = trigger.value.getBoundingClientRect();
-  const width = Math.min(320, innerWidth - 16);
+  const viewport = window.visualViewport;
+  const visible = viewport?.scale === 1 ? viewport : null;
+  const vpLeft = visible?.offsetLeft ?? 0;
+  const vpTop = visible?.offsetTop ?? 0;
+  const vpWidth = visible?.width ?? innerWidth;
+  const vpHeight = visible?.height ?? innerHeight;
+  const width = Math.min(320, vpWidth - 16);
+  const anchorTop = Math.max(vpTop + 8, Math.min(rect.top, vpTop + vpHeight - 8));
+  const anchorBottom = Math.max(vpTop + 8, Math.min(rect.bottom, vpTop + vpHeight - 8));
+  const above = Math.max(0, anchorTop - vpTop - 16);
+  const below = Math.max(0, vpTop + vpHeight - anchorBottom - 16);
+  const useAbove = above >= 140 || above >= below;
   Object.assign(picker.value.style, {
     width: `${width}px`,
-    left: `${Math.max(8, Math.min(rect.right - width, innerWidth - width - 8))}px`,
-    bottom: `${innerHeight - rect.top + 10}px`,
-    top: "auto",
+    left: `${Math.max(vpLeft + 8, Math.min(rect.right - width, vpLeft + vpWidth - width - 8))}px`,
+    bottom: useAbove ? `${innerHeight - anchorTop + 10}px` : "auto",
+    top: useAbove ? "auto" : `${anchorBottom + 10}px`,
     right: "auto",
+    maxHeight: `${Math.max(120, Math.min(320, useAbove ? above : below))}px`,
+    overflowY: "auto",
   });
 }
 
@@ -141,10 +154,14 @@ watch(() => chat.session, () => picker.value?.hidePopover());
 
 onMounted(() => {
   window.addEventListener("resize", position);
+  window.visualViewport?.addEventListener("resize", position);
+  window.visualViewport?.addEventListener("scroll", position);
   window.addEventListener("pointerup", stopScrub);
 });
 onUnmounted(() => {
   window.removeEventListener("resize", position);
+  window.visualViewport?.removeEventListener("resize", position);
+  window.visualViewport?.removeEventListener("scroll", position);
   window.removeEventListener("pointerup", stopScrub);
 });
 </script>
