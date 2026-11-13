@@ -275,7 +275,7 @@ onMounted(async () => {
       <div class="pw-filter"><input dir="auto" v-model="filter" aria-label="Filter projects" placeholder="Filter projects" /></div>
       <div class="pw-items" role="list">
         <p v-if="loading" class="pw-muted" role="status">Loading…</p>
-        <p v-else-if="errorMsg" class="pw-err">{{ errorMsg }}</p>
+        <p v-else-if="errorMsg" class="pw-err" role="alert">{{ errorMsg }}</p>
         <p v-else-if="!history.projects.length" class="pw-muted">No projects yet.</p>
         <p v-else-if="!filtered.length" class="pw-muted">No match.</p>
         <button
@@ -468,8 +468,9 @@ input:focus-visible, select.pw-input:focus-visible { outline: 2px solid var(--ri
 @media (max-width: 760px) {
   .pw-list { width: 100%; border-right: 0; }
   .pw-item { min-height: 44px; padding: 10px 12px; }
-  .pw-btn, .pw-back { min-height: 44px; }
-  .pw-icon { width: 36px; height: 36px; }
+  .pw-btn, .pw-back, .pw-conv { min-height: 44px; }
+  .pw-icon { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .pw-switch::after { content: ""; position: absolute; inset: -10px -2px; }
   .pw-machine { grid-template-columns: 1fr auto auto; }
   .pw-machine-name, .pw-machine > .pw-mono { grid-column: 1 / -1; }
   .pw-main { display: none; padding: 16px; }

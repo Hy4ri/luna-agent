@@ -56,3 +56,9 @@ onMounted(() => {
     </div></details>
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 760px) {
+  summary.row { min-height: 44px; }
+}
+</style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PanelStatus from "./PanelStatus.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { Copy, KeyRound, Trash2, Send, History, RotateCcw } from "@lucide/vue";
 import { confirmAction } from "@/lib/confirm";
@@ -14,6 +15,7 @@ interface Delivery { id: number; event: string; status: "pending" | "ok" | "fail
 const OUT_EVENTS = ["session.finished", "session.review_finished", "session.needs_input", "session.needs_approval", "session.failed", "session.limit_reached", "cron.run.ok", "cron.run.failed"];
 
 const tab = ref<"inbound" | "outbound">("inbound");
+const loading = ref(true);
 const errorMsg = ref("");
 const inbound = ref<Inbound[]>([]);
 const subs = ref<Sub[]>([]);
@@ -42,13 +44,18 @@ async function guard(fn: () => Promise<unknown>) {
   finally { busy.value = false; }
 }
 async function refresh() {
-  await guard(async () => {
-    const [i, o, cron] = await Promise.all([
-      json<Inbound[]>("/v1/webhooks/inbound"), json<Sub[]>("/v1/webhooks/outbound"),
-      json<{ jobs: { id: number; name: string }[] }>("/v1/cron?summary=1").catch(() => ({ jobs: [] })),
-    ]);
-    inbound.value = i; subs.value = o; jobs.value = cron.jobs ?? [];
-  });
+  loading.value = true;
+  try {
+    await guard(async () => {
+      const [i, o, cron] = await Promise.all([
+        json<Inbound[]>("/v1/webhooks/inbound"), json<Sub[]>("/v1/webhooks/outbound"),
+        json<{ jobs: { id: number; name: string }[] }>("/v1/cron?summary=1").catch(() => ({ jobs: [] })),
+      ]);
+      inbound.value = i; subs.value = o; jobs.value = cron.jobs ?? [];
+    });
+  } finally {
+    loading.value = false;
+  }
 }
 
 async function addInbound() {
@@ -129,7 +136,7 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
       <button type="button" role="tab" :aria-selected="tab === 'inbound'" :class="{ active: tab === 'inbound' }" @click="tab = 'inbound'">Inbound ({{ inbound.length }})</button>
       <button type="button" role="tab" :aria-selected="tab === 'outbound'" :class="{ active: tab === 'outbound' }" @click="tab = 'outbound'">Outbound ({{ subs.length }})</button>
     </div>
-    <p v-if="errorMsg" class="msg err" role="alert">{{ errorMsg }}</p>
+    <PanelStatus :loading="loading" :error="errorMsg" />
 
     <div v-if="secret" class="card grid" id="webhook-secret">
       <b>{{ secret.title }}</b>
@@ -148,7 +155,8 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
 
     <template v-if="tab === 'inbound'">
       <p class="muted text-xs">Other services POST to a hook URL. Luna checks the hook secret, then sends the payload to a session, starts a new session in a project, or runs a cron job.</p>
-      <ul class="grid gap-2" aria-label="Inbound webhooks">
+      <p v-if="!loading && !errorMsg && !inbound.length" class="muted text-xs">No inbound webhooks yet.</p>
+      <ul v-else class="grid gap-2" aria-label="Inbound webhooks">
         <li v-for="h in inbound" :key="h.id" class="card grid" :data-webhook="h.id">
           <div class="row">
             <div class="flex-1 min-w-0">
@@ -209,7 +217,8 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
 
     <template v-else>
       <p class="muted text-xs">Luna POSTs events to these URLs, signed with X-Luna-Signature. Failed deliveries retry for about 7 hours and survive a restart.</p>
-      <ul class="grid gap-2" aria-label="Outbound webhooks">
+      <p v-if="!loading && !errorMsg && !subs.length" class="muted text-xs">No outbound webhooks yet.</p>
+      <ul v-else class="grid gap-2" aria-label="Outbound webhooks">
         <li v-for="s in subs" :key="s.id" class="card grid" :data-subscription="s.id">
           <div class="row">
             <div class="flex-1 min-w-0">
@@ -245,7 +254,7 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
         <b>Add an outbound webhook</b>
         <input v-model="outForm.name" placeholder="Name, e.g. Phone (ntfy)" aria-label="Subscription name" maxlength="60" required />
         <div class="row">
-          <input v-model="outForm.url" type="url" placeholder="https://…" aria-label="URL" required class="flex-1" />
+          <input v-model="outForm.url" type="url" placeholder="https://…" aria-label="URL" required class="flex-1 min-w-0" />
           <select v-model="outForm.format" aria-label="Format">
             <option value="json">JSON</option><option value="ntfy">ntfy</option><option value="discord">Discord</option><option value="slack">Slack</option>
           </select>
@@ -268,4 +277,8 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
 .hook-outcome.delivered, .hook-outcome.ok { color: var(--ok); }
 .hook-outcome.rejected, .hook-outcome.failed { color: var(--destructive); }
 .hook-outcome.pending, .hook-outcome.ignored, .hook-outcome.duplicate { color: var(--muted-foreground); }
+@media (max-width: 760px) {
+  button, select, label.row { min-height: 44px; }
+  .icon-button { min-width: 44px; min-height: 44px; }
+}
 </style>

@@ -327,7 +327,7 @@ onUnmounted(() => {
           <input placeholder="model ids, comma separated (blank: auto-detect via /models)" v-model="customModels" />
         </label>
         <div class="row">
-          <button :disabled="addingCustom" @click="run(addCustomProvider)">Add</button>
+          <button :disabled="addingCustom" :title="addingCustom ? 'Adding provider…' : undefined" @click="run(addCustomProvider)">Add</button>
         </div>
       </div></details>
     </template>
@@ -336,4 +336,7 @@ onUnmounted(() => {
 
 <style scoped>
 .manager-form { border: 0; padding: 0; margin: 0; min-width: 0; }
+@media (max-width: 760px) {
+  button, summary.row, select { min-height: 44px; }
+}
 </style>

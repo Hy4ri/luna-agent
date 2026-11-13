@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { confirmAction } from "@/lib/confirm";
+import PanelStatus from "./PanelStatus.vue";
 import { ref, onMounted } from "vue";
 import { Copy, Trash2 } from "@lucide/vue";
 import { json, post } from "@/lib/api";
 import { loadWorkers, workers, type WorkerRow } from "@/stores/workers";
 
+const loading = ref(true);
 const errorMsg = ref("");
 const name = ref("");
 const adding = ref(false);
@@ -14,8 +16,10 @@ const mainUrl = location.origin;
 const command = (token: string) => `LUNA_URL=${mainUrl} LUNA_WORKER_TOKEN=${token} bun run worker`;
 
 async function refresh() {
+  loading.value = true;
   errorMsg.value = "";
   try { await loadWorkers(); } catch (e: any) { if (e.message !== "unauthorized") errorMsg.value = e.message; }
+  finally { loading.value = false; }
 }
 async function add() {
   adding.value = true; errorMsg.value = "";
@@ -39,7 +43,7 @@ onMounted(refresh);
 
 <template>
   <div class="grid" id="workers-panel">
-    <p v-if="errorMsg" class="msg err" role="alert">{{ errorMsg }}</p>
+    <PanelStatus :loading="loading" :error="errorMsg" />
 
     <div v-if="created" class="card grid" id="worker-token">
       <b>Token for "{{ created.name }}"</b>
@@ -81,4 +85,8 @@ onMounted(refresh);
 <style scoped>
 .worker-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--muted-foreground); vertical-align: middle; }
 .worker-dot.on { background: var(--ok); }
+@media (max-width: 760px) {
+  button { min-height: 44px; }
+  .icon-button { min-width: 44px; min-height: 44px; }
+}
 </style>

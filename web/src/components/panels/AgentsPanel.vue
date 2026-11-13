@@ -89,3 +89,9 @@ onMounted(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 760px) {
+  button { min-height: 44px; }
+}
+</style>

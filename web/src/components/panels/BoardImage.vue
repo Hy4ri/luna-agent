@@ -50,4 +50,5 @@ onUnmounted(release);
 <style scoped>
 .board-image { width:64px; height:48px; flex:none; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius); background:var(--background); color:var(--muted-foreground); }
 .board-image img { width:100%; height:100%; object-fit:contain; }
+.board-image img:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
 </style>

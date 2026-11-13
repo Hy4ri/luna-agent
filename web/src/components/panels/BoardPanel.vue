@@ -840,7 +840,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-priority.low { color:var(--sidebar-foreground); background:var(--secondary); }
 .kb-priority svg { flex:none; }
 .kb-labels { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin:0 0 12px; }
-.kb-tag { border:1px solid var(--border); background:color-mix(in srgb,var(--secondary) 85%,var(--foreground) 5%); padding:2px 7px; border-radius: var(--radius); color:var(--foreground); font-size:11px; line-height:1.4; max-width:100%; overflow-wrap:anywhere; }
+.kb-tag { border:1px solid var(--input); background:var(--secondary); padding:2px 7px; border-radius: var(--radius); color:var(--foreground); font-size:11px; line-height:1.4; max-width:100%; overflow-wrap:anywhere; }
 .kb-owner { display:flex; align-items:flex-start; gap:6px; font-size:12px; color:var(--sidebar-foreground); overflow-wrap:anywhere; }
 .kb-owner svg { flex:none; margin-top:2px; }
 .kb-owner span { min-width:0; }
@@ -877,6 +877,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-editor-meta { display:grid; align-content:start; gap:20px; padding:16px; border-left:1px solid var(--border); background:color-mix(in srgb,var(--background) 40%,var(--card)); min-width:0; }
 .kb-editor label, .kb-field { display:grid; gap:6px; font-size:13px; min-width:0; }
 .kb-editor input, .kb-editor textarea, .kb-editor select { width:100%; background:var(--background); }
+.kb-project select:focus-visible, .kb-filters > select:focus-visible, .kb-editor input:focus-visible, .kb-editor textarea:focus-visible, .kb-editor select:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
 .kb-editor [data-field="subject"] { font-size:15px; font-weight:600; padding-right:62px; }
 .kb-editor textarea { resize:vertical; min-height:80px; max-height:calc(12lh + 18px); field-sizing:content; font-size:14px; line-height:1.5; }
 .kb-editor small { font-size:11px; color:var(--muted-foreground); line-height:1.5; }
@@ -939,12 +940,12 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-auto-title { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:550; color:var(--foreground); }
 .kb-auto-title svg { color:var(--muted-foreground); flex:none; }
 .kb-auto-on .kb-auto-title svg { color:var(--primary-text); }
-.kb-switch { position:relative; flex:none; width:34px; height:20px; border-radius:999px; border:1px solid var(--border); background:var(--muted); cursor:pointer; padding:0; transition:background-color 120ms ease, border-color 120ms ease; }
+.kb-switch { position:relative; flex:none; width:40px; height:24px; border-radius:999px; border:1px solid var(--input); background:var(--muted); cursor:pointer; padding:0; transition:background-color 120ms ease, border-color 120ms ease; }
 .kb-switch:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
 .kb-switch:disabled { opacity:.45; cursor:default; }
-.kb-switch[aria-checked="true"] { background:var(--primary); border-color:var(--primary); }
-.kb-switch-thumb { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:var(--foreground); transition:transform 120ms ease, background-color 120ms ease; }
-.kb-switch[aria-checked="true"] .kb-switch-thumb { transform:translateX(14px); background:var(--primary-foreground); }
+.kb-switch[aria-checked="true"] { background:var(--primary); border-color:var(--primary-text); }
+.kb-switch-thumb { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:var(--foreground); transition:transform 120ms ease, background-color 120ms ease; }
+.kb-switch[aria-checked="true"] .kb-switch-thumb { transform:translateX(16px); background:var(--primary-foreground); }
 .kb-auto-opts { display:grid; gap:8px; padding-top:8px; border-top:1px solid var(--border); }
 .kb-editor .kb-auto-opt { display:grid; gap:4px; font-size:12px; }
 .kb-auto-opt-label { font-size:11px; color:var(--muted-foreground); }
@@ -973,23 +974,24 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 
 @media(max-width:760px) {
   .kb-editing .kb-toolbar { display:none; }
-  .kb { padding:12px; gap:10px; }
+  .kb { padding:10px 12px; gap:8px; }
   .kb-editing { padding-top:8px; padding-bottom:8px; gap:6px; }
-  .kb-toolbar { gap:8px; }
-  .kb-project { flex:1 0 100%; max-width:none; }
-  .kb-filters { flex:1 0 100%; min-width:0; flex-wrap:wrap; }
-  .kb-search { flex:1 1 100%; max-width:none; min-width:0; min-height:44px; }
-  .kb-filters > select { flex:1 1 100%; min-height:44px; }
-  .kb-toolbar-end { width:100%; margin-left:0; }
-  .kb-toolbar-end .kb-primary { margin-left:auto; }
+  .kb-toolbar { gap:6px; }
+  .kb-project { flex:1 1 130px; max-width:none; min-width:0; }
+  .kb-project select { min-height:44px; }
+  .kb-toolbar-end { flex:none; width:auto; margin-left:auto; gap:6px; }
+  .kb-filters { flex:1 0 100%; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; }
+  .kb-search { max-width:none; min-width:0; min-height:44px; }
+  .kb-filters > select { min-height:44px; max-width:138px; }
   .kb-board { flex-direction:column; overflow-x:hidden; overflow-y:auto; gap:12px; }
   .kb-column { flex:0 0 auto; width:100%; min-width:0; border-right:0; border-bottom:1px solid var(--border); padding:0 0 12px 0; }
   .kb-column:last-child { border-bottom-color:transparent; }
-  .kb-archive-card { flex-wrap:wrap; gap:8px; }
-  .kb-grip { height:36px; width:28px; }
+  .kb-archive-card { flex-wrap:wrap; gap:8px; min-height:44px; }
+  .kb-grip { min-height:44px; width:44px; }
   .kb-button,.kb-icon,.kb-add,.kb-move { min-height:44px; }
-  .kb-icon { min-width:44px; }
-  .kb-chip button { width:32px; height:32px; }
+  .kb-icon, .kb-files .kb-icon { min-width:44px; min-height:44px; width:44px; }
+  .kb-chip button { min-width:44px; min-height:44px; width:44px; height:44px; }
+  .kb-switch::after { content:''; position:absolute; inset:-10px -2px; }
   .kb-statusbar { height:30px; min-height:30px; gap:8px; font-size:11px; padding-top:4px; }
   .kb-status-count { display:none; }
 }
