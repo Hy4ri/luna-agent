@@ -54,8 +54,9 @@ function mobileAction(action: () => unknown) {
   action();
 }
 // Floating session widgets: float goal, activity, and dirty git in the right gutter when wide enough,
-// and keep the 760px chat column centered in the viewport (compensating for the left sidebar when room allows).
+// while keeping the 960px chat column centered in the chat pane (nudging left only when docked widgets need clearance).
 // Two gutter thresholds prevent flicker near the boundary.
+const CHAT_COLUMN_WIDTH = 960;
 const RAIL_GUTTER_AT = 344, RAIL_GUTTER_BELOW = 328;
 const mainRef = ref<HTMLElement | null>(null);
 const railRoom = ref(false);
@@ -65,14 +66,17 @@ function updateLayoutMetrics(width?: number) {
   const el = mainRef.value;
   const w = width ?? el?.clientWidth ?? 0;
   if (!el || !w) return;
-  const leftOffset = (!mobile.value && !sessionPane && !tiled.value && !dockSide.value)
-    ? el.getBoundingClientRect().left
+  const naturalGutter = (w - CHAT_COLUMN_WIDTH) / 2;
+  const maxNudge = (!mobile.value && !sessionPane && !tiled.value && !dockSide.value)
+    ? Math.max(0, Math.min(120, naturalGutter - 48))
     : 0;
-  const shift = Math.max(0, Math.min(leftOffset / 2, (w - 760) / 2 - 24));
+  const potentialRight = naturalGutter + maxNudge;
+  if (potentialRight >= RAIL_GUTTER_AT) railRoom.value = true;
+  else if (potentialRight < RAIL_GUTTER_BELOW) railRoom.value = false;
+  const shift = (railRoom.value && railContent.value && !dockSide.value)
+    ? Math.max(0, Math.min(maxNudge, RAIL_GUTTER_AT - naturalGutter))
+    : 0;
   gutterShift.value = Math.round(shift);
-  const rightGutter = (w - 760) / 2 + gutterShift.value;
-  if (rightGutter >= RAIL_GUTTER_AT) railRoom.value = true;
-  else if (rightGutter < RAIL_GUTTER_BELOW) railRoom.value = false;
 }
 const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
@@ -163,7 +167,7 @@ onUnmounted(() => areaObserver?.disconnect());
 const showPrimary = computed(() => sessionPane || !!chat.session || chat.draftOpen || tileIds.value.length === 0);
 const tileCount = computed(() => (chat.session || chat.draftOpen ? 1 : 0) + tileIds.value.length);
 const tiled = computed(() => !sessionPane && tileCount.value > 1);
-watch([dockSide, tiled, mobile], () => updateLayoutMetrics());
+watch([dockSide, tiled, mobile, railContent], () => updateLayoutMetrics());
 // A lone surviving iframe tile becomes the normal single view.
 watch([() => chat.session, () => chat.draftOpen, () => tileIds.value.length], () => {
   if (sessionPane || chat.session || chat.draftOpen || tileIds.value.length !== 1) return;

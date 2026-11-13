@@ -114,18 +114,18 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 ### 2. Chat Transcript, Media, & Tool Renderers (`web/src/components/chat/`)
 
 - **Single Centered Column (`#log`):**
-  - Horizontal padding centers a `760px` reading column (`padding-left: max(24px, calc((100% - 760px) / 2 - var(--gutter-shift, 0px)))`, `padding-right: max(24px, calc((100% - 760px) / 2 + var(--gutter-shift, 0px)))`; `20px 16px` on mobile) with `24px` vertical message gap. `--gutter-shift` compensates for up to half the left sidebar offset when room allows so the reading column stays centered in the viewport rather than drifting right, while freeing extra right-gutter space for `#session-rail`.
+  - Horizontal padding centers a `960px` reading column (`--chat-pad-left: max(24px, calc((100% - 960px) / 2 - var(--gutter-shift, 0px)))`, `--chat-pad-right: max(24px, calc((100% - 960px) / 2 + var(--gutter-shift, 0px)))`; `20px 16px` on mobile) with `24px` vertical message gap. `--gutter-shift` stays `0` by default so the column centers cleanly in the chat pane, and nudges left only as needed when docked `#session-rail` widgets require right-gutter clearance.
   - Empty conversations display `#welcome` centered in the transcript.
   - Conversation context that is not a control is the last row **inside** the scroller, through the `Transcript` default slot (the undocked `GitStatus` footer). A wheel or touch drag that starts on it scrolls the transcript instead of dead-ending on fixed chrome, and it stays visible whenever the log is at the bottom. Only the extras dock, queued dock, and composer sit outside `#log`.
   - Floating scroll jump buttons (`.transcript-jumps`) anchor at `right: 24px; bottom: 140px` when scrolled away from the bottom.
 - **Message Presentation:**
-  - **User messages (`.msg.user`):** Right-aligned (`align-self: flex-end`), `max-width: 85%` (`92%` on mobile), `background: var(--secondary)`, `border: 1px solid var(--border)`, `border-radius: var(--radius)`, `white-space: pre-wrap`.
+  - **User messages (`.msg.user`):** Right-aligned (`align-self: flex-end`), `max-width: 92%`, `background: var(--secondary)`, `border: 1px solid var(--border)`, `border-radius: var(--radius)`, `padding: 14px 18px 8px`, `white-space: pre-wrap`.
   - **Assistant messages (`.msg.assistant`):** Full-bleed prose rendered directly on `--background` (never wrapped in a filled card), prefixed by the `Luna` label (`::before`), using `.md` Markdown styles and copyable code blocks (`.codewrap` + `pre.code`).
   - **In-place Media (`MEDIA:` directives & attachments):** Images (`.att`), audio, video (`.att-video`), and downloadable file cards (`.att-file`) render inline within the message flow where written, never stripped or grouped only at the end. Missing files render `.att-missing` with a destructive border tint.
   - **Thinking & Background Reports (`.thinking`, `.background-report`):** Collapsible `<details>` cards above assistant prose with `max-height: 300px` scrollable preformatted content.
 - **Tool Call Rows (`ToolCall.vue`, `.tool`):**
   - Collapsible `<details>` cards (`background: var(--card)`, `border: 1px solid var(--border)`, `border-radius: var(--radius)`).
-  - `<summary>` (`min-height: 40px`) displays the status icon, monospace `.tool-name`, truncated `.tool-summary` (or `.tool-counts` / `.tool-exit`), and right-aligned `.tool-state`.
+  - `<summary>` (`min-height: 44px`, `padding: 11px 14px`) displays the status icon, monospace `.tool-name`, truncated `.tool-summary` (or `.tool-counts` / `.tool-exit`), and right-aligned `.tool-state`.
   - Failed tools (`data-state="failed"`) tint the border and background with `--destructive` (`color-mix(in srgb, var(--destructive) 4%, var(--card))`).
   - **Specialized Tool Renderers (`tool/`):**
     - `DiffView.vue` (`.diff`): 3-column grid (`line`, `sign`, `text`) with semantic addition (`--ok`) and deletion (`--destructive`) row tints and header `+N / -N` counts.
@@ -139,10 +139,10 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 ### 3. Composer & Header Status Bar (`web/src/components/composer/`, `StatusBar.vue`)
 
 - **Composer Container (`#compose` & `#composer`):**
-  - Centered dock (`max-width: 824px`, `padding: 10px 32px`, `8px 12px` on mobile, respecting `env(safe-area-inset-bottom)`).
+  - Centered dock aligned to the `960px` chat column (`--chat-pad-left` / `--chat-pad-right`, `8px 12px` on mobile, respecting `env(safe-area-inset-bottom)`).
   - `#composer` uses `background: var(--card)`, `border: 1px solid var(--input)`, `border-radius: var(--radius)`, shifting border to `color-mix(in srgb, var(--primary) 55%, var(--border))` on `:focus-within`.
   - **Attachment strip (`#atts`):** Thumbnail previews (`height: 54px`) with circular remove buttons above the textarea.
-  - **Auto-sizing input (`#input`):** `min-height: 38px`, `max-height: 22dvh`, transparent background.
+  - **Auto-sizing input (`#input`):** `min-height: 46px`, `max-height: 22dvh`, `font-size: 16.5px`, transparent background inside `#form` (`padding: 12px 16px`).
   - **Input Integrity:** Never modify, prefill, or inject text into the composer input box without explicit user consent or a direct user-initiated action.
 - **Bottom Action Bar (`.compose-bar`):**
   - Left: Attachment trigger (`#attach`), Model picker trigger (`#model`, truncated `max-width: 240px`, `160px` on mobile), and Reasoning gauge button (`#think`, SVG dial with 7 colored ticks and needle).
@@ -156,7 +156,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - `<summary>` shows a compact context gauge (`#context-meter` with `#context-fill` colored `--ok`, `--warn` at `data-level="amber"`, or `--destructive` at `data-level="red"`), tabular percentage (`.usage-percent`), and session cost (`.usage-cost`, hidden on mobile).
   - Opening `<details>` reveals `.usage-details` popover (`width: min(320px, calc(100vw - 32px))`) with per-model token breakdowns and manual compaction controls.
 - **Session Rail (`#session-rail`):**
-  - Floats as an absolute framed panel (`280px` wide, `top: 12px; right: 36px; max-height: calc(100% - 24px);` (shrinks to content; at most reaches the composer box bottom), clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 760) / 2 + gutterShift`) is at least `344px` (undocks below `328px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
+  - Floats as an absolute framed panel (`280px` wide, `top: 12px; right: 36px; max-height: calc(100% - 24px);` (shrinks to content; at most reaches the composer box bottom), clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 960) / 2 + gutterShift`) is at least `344px` (undocks below `328px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
   - Shows only when there is active or rich content (goal, activity, review jobs, or dirty/unpushed `GitStatus`) and no right-side `WorkDock` is open. Any Git repository counts, clean or dirty, so wide screens never show `GitStatus` inline above the composer; it is inline only on narrow screens. Sessions with no repo and no widgets render zero side chrome.
   - Expanded panel shrinks to fit its content and grows at most to the bottom of the composer box; longer content scrolls inside. Minimizes into a segmented pill (`luna.rail.collapsed`): one icon + value chip per item, in panel order (git, goal, tasks, processes, reviews, subagents); accent icon = live, red = conflict/blocked, muted = done.
   - Order: Git (`GitStatus`), Goal, Processes, Review agents, Subagents, then Tasks (the long list goes last).
