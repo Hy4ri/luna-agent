@@ -223,22 +223,22 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 
 <style scoped>
 .snap-root { pointer-events: auto; }
-.snap-tab { position: fixed; right: 0; top: 55%; z-index: 2147483000; width: 20px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: 8px 0 0 8px; background: var(--card); color: var(--muted-foreground); opacity: .25; transition: opacity .15s, width .15s; }
-.snap-tab:hover, .snap-tab:focus-visible { opacity: 1; width: 30px; color: var(--foreground); }
-.snap-overlay { position: fixed; inset: 0; z-index: 2147483001; cursor: crosshair; background: #0000004d; touch-action: none; outline: none; user-select: none; }
-.snap-box { position: fixed; border: 2px solid var(--primary); background: #ffffff1a; box-shadow: 0 0 0 9999px #0006; pointer-events: none; }
+.snap-tab { position: fixed; right: 0; top: 55%; z-index: 2147483000; width: 28px; height: 44px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: var(--radius) 0 0 var(--radius); background: var(--card); color: var(--muted-foreground); opacity: .35; transition: opacity .15s, width .15s; }
+.snap-tab:hover, .snap-tab:focus-visible { opacity: 1; width: 36px; color: var(--foreground); }
+.snap-overlay { position: fixed; inset: 0; z-index: 2147483001; cursor: crosshair; background: rgb(0 0 0 / 0.3); touch-action: none; outline: none; user-select: none; }
+.snap-box { position: fixed; border: 2px solid var(--primary); background: rgb(255 255 255 / 0.1); box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.4); pointer-events: none; }
 .snap-hint { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); font-size: 13px; cursor: default; }
-.snap-review { position: fixed; z-index: 2147483001; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 12px 40px #0009; }
-.snap-review img { max-height: 180px; width: 100%; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--background); }
-.snap-note { width: 100%; resize: none; padding: 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); font-size: 13px; }
+.snap-review { position: fixed; z-index: 2147483001; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: 0 12px 40px rgb(0 0 0 / 0.56); }
+.snap-review img { max-height: 180px; width: 100%; object-fit: contain; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); }
+.snap-note { width: 100%; resize: none; padding: 8px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); font-size: 13px; }
 .snap-options { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
-.snap-options :deep(.combobox-trigger) { flex: 1 1 140px; min-height: 34px; padding: 6px 10px; border-radius: 6px; }
+.snap-options :deep(.combobox-trigger) { flex: 1 1 140px; min-height: 34px; padding: 6px 10px; border-radius: var(--radius); }
 .snap-options :deep(.combobox-label) { font-size: 13px; }
-.snap-select { min-height: 34px; padding: 0 8px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 13px; }
+.snap-select { min-height: 34px; padding: 0 8px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 13px; }
 .snap-project { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .snap-think { flex: none; }
 .snap-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.snap-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.snap-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
 .snap-primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
 .snap-primary:disabled { opacity: .6; }
 </style>

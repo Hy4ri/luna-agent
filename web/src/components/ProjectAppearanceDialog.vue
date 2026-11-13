@@ -153,7 +153,7 @@ async function save() {
           <div class="grid gap-2">
             <div class="flex items-center justify-between text-sm">
               <span class="font-medium">Icon</span>
-              <Button type="button" variant="ghost" size="sm" class="h-7 px-2 text-xs" :disabled="icon === null && !customDraft" @click="selectIcon(null)">Use default</Button>
+              <Button type="button" variant="ghost" size="sm" class="min-h-11 px-2 text-xs sm:min-h-7" :disabled="icon === null && !customDraft" @click="selectIcon(null)">Use default</Button>
             </div>
 
             <!-- Icon Grid -->
@@ -198,7 +198,7 @@ async function save() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  class="h-9 px-2 text-xs"
+                  class="min-h-11 px-2 text-xs sm:min-h-9"
                   @click="customDraft = ''; if (icon && !PROJECT_ICONS.includes(icon as IconId)) icon = null;"
                 >
                   Clear

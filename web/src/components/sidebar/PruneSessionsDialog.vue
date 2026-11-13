@@ -105,7 +105,7 @@ function close() { if (!busy.value) emit("close"); }
           </div>
           <ul class="min-h-0 flex-1 max-h-64 overflow-y-auto rounded-sm border border-border divide-y divide-border" aria-label="Sessions to delete">
             <li v-for="s in sessions" :key="s.id">
-              <label class="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-secondary min-w-0">
+              <label class="flex min-h-11 sm:min-h-0 items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-secondary min-w-0">
                 <input type="checkbox" class="accent-primary shrink-0" :checked="!kept.has(s.id)" :disabled="busy" @change="toggle(s.id)" />
                 <span class="truncate flex-1 min-w-0" :class="{ 'text-muted-foreground line-through': kept.has(s.id) }">{{ s.title || `Session ${s.id}` }}</span>
                 <span v-if="s.ids.length > 1" class="shrink-0 text-xs text-muted-foreground" :title="`${s.ids.length - 1} fork or subagent ${noun(s.ids.length - 1)} deleted with it`">+{{ s.ids.length - 1 }}</span>
