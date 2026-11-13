@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { navigate } from "@/stores/app";
 import { startItemSession } from "@/stores/chat";
 import { serverUrl } from "@/lib/api";
 import {
@@ -18,6 +19,7 @@ import {
   type MailFolder,
 } from "@/stores/mail";
 import {
+  AlertCircle,
   Archive,
   ArchiveRestore,
   ArrowLeft,
@@ -140,6 +142,7 @@ const composeThreadId = ref<string | undefined>(undefined);
 
 const accounts = computed(() => mailState.status?.accounts ?? []);
 const hasAccounts = computed(() => accounts.value.length > 0);
+const mailDisabled = computed(() => Boolean(mailState.error && /mail disabled/i.test(mailState.error)));
 const oauthConfigured = computed(() => Boolean(mailState.status?.oauthConfigured));
 const redirectUri = computed(() => `${(serverUrl.value || window.location.origin).replace(/\/+$/, "")}/oauth/gmail/callback`);
 
@@ -461,23 +464,38 @@ onUnmounted(() => {
       <input
         v-model="searchInput"
         type="search"
+        aria-label="Search mail"
         placeholder="Search mail..."
         class="search-input"
       />
-      <button v-if="mailState.query" type="button" class="mail-icon-btn" title="Clear search" @click="searchInput = ''; runSearch()">
+      <button v-if="mailState.query" type="button" class="mail-icon-btn" aria-label="Clear search" title="Clear search" @click="searchInput = ''; runSearch()">
         <X :size="13" />
       </button>
     </form>
 
-    <p v-if="mailState.error" class="mail-error" role="alert">{{ mailState.error }}</p>
+    <p v-if="mailState.error && (hasAccounts || !mailDisabled)" class="mail-error" role="alert">
+      <AlertCircle :size="14" aria-hidden="true" />
+      <span>{{ mailState.error }}</span>
+    </p>
+
+    <!-- Disabled state -->
+    <div v-if="!hasAccounts && mailDisabled" class="mail-empty">
+      <Inbox :size="28" class="empty-icon" aria-hidden="true" />
+      <p class="empty-title">Mail is disabled</p>
+      <p class="empty-sub">Enable Mail in Settings &gt; Tools to connect a Gmail account.</p>
+      <button type="button" class="mail-btn" @click="navigate('settings', 'tools')">
+        <Settings2 :size="14" aria-hidden="true" />
+        <span>Open Settings &gt; Tools</span>
+      </button>
+    </div>
 
     <!-- Empty / not connected state -->
-    <div v-if="!hasAccounts" class="mail-empty">
-      <Inbox :size="28" class="empty-icon" />
+    <div v-else-if="!hasAccounts" class="mail-empty">
+      <Inbox :size="28" class="empty-icon" aria-hidden="true" />
       <p class="empty-title">No Gmail account connected</p>
       <p class="empty-sub">Open Settings to add OAuth credentials and connect your Gmail account.</p>
       <button type="button" class="mail-btn primary" @click="showSettings = true">
-        <Settings2 :size="14" />
+        <Settings2 :size="14" aria-hidden="true" />
         <span>Open Mail Settings</span>
       </button>
     </div>
@@ -502,18 +520,18 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="detail-actions-group">
-            <button type="button" class="mail-icon-btn" :title="mailState.detail.unread ? 'Mark read' : 'Mark unread'" @click="handleToggleRead">
+            <button type="button" class="mail-icon-btn" :aria-label="mailState.detail.unread ? 'Mark read' : 'Mark unread'" :title="mailState.detail.unread ? 'Mark read' : 'Mark unread'" @click="handleToggleRead">
               <MailOpen v-if="mailState.detail.unread" :size="14" />
               <Mail v-else :size="14" />
             </button>
-            <button type="button" class="mail-icon-btn" :title="mailState.detail.starred ? 'Unstar' : 'Star'" @click="handleToggleStar">
+            <button type="button" class="mail-icon-btn" :aria-label="mailState.detail.starred ? 'Unstar' : 'Star'" :title="mailState.detail.starred ? 'Unstar' : 'Star'" @click="handleToggleStar">
               <Star :size="14" :class="{ starred: mailState.detail.starred }" />
             </button>
-            <button type="button" class="mail-icon-btn" :title="mailState.detail.inInbox ? 'Archive' : 'Move to Inbox'" @click="handleArchive">
+            <button type="button" class="mail-icon-btn" :aria-label="mailState.detail.inInbox ? 'Archive' : 'Move to Inbox'" :title="mailState.detail.inInbox ? 'Archive' : 'Move to Inbox'" @click="handleArchive">
               <Archive v-if="mailState.detail.inInbox" :size="14" />
               <ArchiveRestore v-else :size="14" />
             </button>
-            <button type="button" class="mail-icon-btn danger" title="Delete" @click="handleTrash">
+            <button type="button" class="mail-icon-btn danger" aria-label="Delete" title="Delete" @click="handleTrash">
               <Trash2 :size="14" />
             </button>
             <button type="button" class="mail-btn" @click="htmlMode = !htmlMode">
@@ -625,7 +643,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Settings & Accounts Modal -->
-    <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false">
+    <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false" @keydown.escape="showSettings = false">
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Mail settings">
         <div class="modal-head">
           <h3>Mail Settings & Accounts</h3>
@@ -658,7 +676,7 @@ onUnmounted(() => {
             <p class="muted-note">
               Authorized redirect URI:
               <code class="uri-code">{{ redirectUri }}</code>
-              <button type="button" class="mail-icon-btn inline" title="Copy redirect URI" @click="copyRedirectUri">
+              <button type="button" class="mail-icon-btn inline" aria-label="Copy redirect URI" title="Copy redirect URI" @click="copyRedirectUri">
                 <Check v-if="copiedUri" :size="12" />
                 <Copy v-else :size="12" />
               </button>
@@ -684,7 +702,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Compose Modal -->
-    <div v-if="showCompose" class="modal-backdrop" @click.self="showCompose = false">
+    <div v-if="showCompose" class="modal-backdrop" @click.self="showCompose = false" @keydown.escape="showCompose = false">
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Compose email">
         <div class="modal-head">
           <h3>{{ composeThreadId ? "Reply" : "New Email" }}</h3>
@@ -730,14 +748,15 @@ onUnmounted(() => {
 .mail-btn.primary:hover:not(:disabled) { opacity: 0.9; }
 .mail-btn.danger { color: var(--destructive); }
 .mail-btn.full { width: 100%; justify-content: center; margin-top: 6px; }
-.mail-icon-btn { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: var(--radius); background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.mail-icon-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius); background: transparent; color: var(--muted-foreground); cursor: pointer; }
 .mail-icon-btn:hover { background: var(--secondary); color: var(--foreground); }
 .mail-icon-btn.danger:hover { color: var(--destructive); }
-.mail-icon-btn.inline { width: 20px; height: 20px; vertical-align: middle; }
+.mail-icon-btn.inline { width: 24px; height: 24px; vertical-align: middle; }
 .mail-search { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--background); }
+.mail-search:focus-within { outline: 2px solid var(--ring); outline-offset: -2px; }
 .search-icon { color: var(--muted-foreground); flex: none; }
 .search-input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--foreground); font-size: 12px; outline: none; }
-.mail-error { margin: 0; padding: 6px 10px; font-size: 12px; color: var(--destructive); border-bottom: 1px solid var(--border); }
+.mail-error { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; font-size: 12px; background: var(--err-soft); color: var(--destructive); border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); }
 .mail-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--muted-foreground); font-size: 13px; }
 .empty-icon { opacity: 0.6; }
 .empty-title { margin: 0; color: var(--foreground); font-weight: 600; }
@@ -752,7 +771,7 @@ onUnmounted(() => {
 .thread-time { flex: none; font-size: 11px; color: var(--muted-foreground); }
 .thread-subject { display: flex; align-items: center; gap: 4px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-snippet { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.starred { color: #eab308; fill: #eab308; }
+.starred { color: var(--warn); fill: var(--warn); }
 .inline-star { flex: none; }
 .mail-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 .detail-head { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; gap: 8px; flex: none; }
@@ -794,8 +813,16 @@ onUnmounted(() => {
 .modal-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 12px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .compose-row { display: flex; gap: 6px; }
-.ok-note { margin: 0; font-size: 12px; color: #22c55e; }
+.ok-note { margin: 0; font-size: 12px; color: var(--ok); }
 .err-note { margin: 0; font-size: 12px; color: var(--destructive); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 520px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .mail-btn, .mail-select { min-height: 36px; }
+  .mail-icon-btn { width: 36px; height: 36px; }
+  .mail-icon-btn.inline { width: 28px; height: 28px; }
+}
 </style>

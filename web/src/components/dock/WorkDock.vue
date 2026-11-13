@@ -23,6 +23,23 @@ const panes = computed(() => {
   return list;
 });
 
+function paneTabKey(event: KeyboardEvent, index: number) {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+  const list = panes.value;
+  const last = list.length - 1;
+  if (last < 0) return;
+  const next = event.key === "ArrowRight" ? (index + 1) % (last + 1)
+    : event.key === "ArrowLeft" ? (index + last) % (last + 1)
+    : event.key === "Home" ? 0
+    : event.key === "End" ? last
+    : -1;
+  if (next < 0) return;
+  event.preventDefault();
+  const target = list[next]!;
+  setPane(target.id);
+  (document.getElementById(`dock-tab-${target.id}`) as HTMLElement | null)?.focus();
+}
+
 function startResize(event: PointerEvent) {
   const handle = event.currentTarget as HTMLElement;
   const vertical = side.value;
@@ -50,22 +67,36 @@ function resizeKey(event: KeyboardEvent) {
 
 <template>
   <section class="work-dock" :class="side ? 'is-side' : 'is-bottom'" :aria-label="label || 'Workspace dock'" :style="size">
-    <div class="dock-resize" role="separator" :aria-orientation="side ? 'vertical' : 'horizontal'" :aria-label="`Resize ${(label || 'dock').toLowerCase()}`" :aria-valuenow="side ? dock.width : terminal.height" tabindex="0" @pointerdown.prevent="startResize" @keydown="resizeKey" />
+    <div
+      class="dock-resize"
+      role="separator"
+      :aria-orientation="side ? 'vertical' : 'horizontal'"
+      :aria-label="`Resize ${(label || 'dock').toLowerCase()}`"
+      :aria-valuemin="side ? 320 : 120"
+      :aria-valuemax="side ? Math.round(area * 0.7) : Math.round(800)"
+      :aria-valuenow="side ? dock.width : terminal.height"
+      tabindex="0"
+      @pointerdown.prevent="startResize"
+      @keydown="resizeKey"
+    />
     <header class="global-dock-bar">
       <div class="global-dock-tabs" role="tablist" aria-label="Workspace panels">
         <button
-          v-for="p in panes"
+          v-for="(p, i) in panes"
+          :id="`dock-tab-${p.id}`"
           :key="p.id"
           type="button"
           role="tab"
           class="global-dock-tab"
           :class="{ active: dock.pane === p.id }"
           :aria-selected="dock.pane === p.id"
+          :tabindex="dock.pane === p.id ? 0 : -1"
           @click="setPane(p.id)"
+          @keydown="paneTabKey($event, i)"
         >
-          <SquareTerminal v-if="p.id === 'terminal'" :size="14" />
-          <Globe v-else-if="p.id === 'browser'" :size="14" />
-          <Mail v-else :size="14" />
+          <SquareTerminal v-if="p.id === 'terminal'" :size="14" aria-hidden="true" />
+          <Globe v-else-if="p.id === 'browser'" :size="14" aria-hidden="true" />
+          <Mail v-else :size="14" aria-hidden="true" />
           <span>{{ p.label }}</span>
           <span v-if="p.badge" class="global-dock-badge">{{ p.badge }}</span>
         </button>
@@ -86,14 +117,25 @@ function resizeKey(event: KeyboardEvent) {
 .work-dock.is-bottom { border-top: 1px solid var(--border); }
 .work-dock.is-side { border-left: 1px solid var(--border); }
 .dock-resize { position: absolute; z-index: 2; touch-action: none; }
+.dock-resize::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: var(--radius); background: var(--border); opacity: 0; transition: opacity .15s; }
 .is-bottom > .dock-resize { inset: -3px 0 auto; height: 6px; cursor: ns-resize; }
+.is-bottom > .dock-resize::after { width: 32px; height: 2px; }
 .is-side > .dock-resize { inset: 0 auto 0 -3px; width: 6px; cursor: ew-resize; }
-.dock-resize:hover, .dock-resize:focus-visible { background: var(--ring); opacity: .5; outline: none; }
-.global-dock-bar { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 0 6px; height: 34px; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
-.global-dock-tabs { display: flex; align-items: stretch; gap: 2px; height: 100%; overflow-x: auto; }
-.global-dock-tab { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted-foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
+.is-side > .dock-resize::after { width: 2px; height: 32px; }
+.dock-resize:hover::after { opacity: 1; background: var(--muted-foreground); }
+.dock-resize:focus-visible { background: color-mix(in srgb, var(--ring) 25%, transparent); outline: 2px solid var(--ring); outline-offset: -1px; }
+.global-dock-bar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 6px; min-height: 36px; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
+.global-dock-tabs { display: flex; align-items: stretch; gap: 2px; min-height: 36px; overflow-x: auto; }
+.global-dock-tab { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted-foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
 .global-dock-tab:hover { color: var(--foreground); }
+.global-dock-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .global-dock-tab.active { color: var(--foreground); border-bottom-color: var(--primary-text); background: var(--card); }
-.global-dock-badge { padding: 0 5px; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font-size: 10px; line-height: 16px; font-weight: 600; }
-.global-dock-actions { display: flex; align-items: center; gap: 2px; }
+.global-dock-badge { padding: 0 5px; border-radius: var(--radius); background: var(--primary); color: var(--primary-foreground); font-size: 10px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.global-dock-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+@media (max-width: 760px), (pointer: coarse) {
+  .global-dock-bar { min-height: 40px; }
+  .global-dock-tabs { min-height: 40px; }
+  .global-dock-tab { min-height: 40px; padding: 0 14px; }
+  .global-dock-actions .icon-button { width: 36px; height: 36px; }
+}
 </style>

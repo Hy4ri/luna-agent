@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Bot, Plus, X } from "@lucide/vue";
+import { AlertCircle, Bot, Plus, RotateCw, SquareTerminal, X } from "@lucide/vue";
 import TermView from "./TermView.vue";
-import { closeTerminal, newTerminal, tabLabel, terminal } from "@/stores/terminal";
+import { closeTerminal, loadTerminals, newTerminal, tabLabel, terminal } from "@/stores/terminal";
 import { navigate } from "@/stores/app";
 
 const views = ref<Record<string, InstanceType<typeof TermView> | null>>({});
 const live = computed(() => terminal.tabs.filter(t => t.status === "running").length);
 // Luna's own terminals stay viewable with only terminal.agent on.
 const usable = computed(() => terminal.enabled || terminal.tabs.length > 0);
+const missingEndpoint = computed(() => /not found|404/i.test(terminal.error));
 
 function tabKey(event: KeyboardEvent, index: number) {
   if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
@@ -35,21 +36,40 @@ function tabKey(event: KeyboardEvent, index: number) {
       </div>
       <button type="button" class="icon-button" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled || !terminal.session" @click="newTerminal()"><Plus :size="14" /></button>
     </header>
-    <p v-if="terminal.error" class="dock-message" role="alert">{{ terminal.error }}</p>
     <div v-if="!terminal.session" class="dock-empty">
-      <p>Open or start a conversation to use Terminal.</p>
+      <SquareTerminal :size="22" class="empty-icon" aria-hidden="true" />
+      <p class="empty-title">No active conversation</p>
+      <p class="empty-sub">Open or start a conversation to use Terminal.</p>
     </div>
     <div v-else-if="!usable" class="dock-empty">
-      <p>Terminals are off.</p>
-      <button type="button" class="dock-link" @click="navigate('settings', 'tools')">Open Settings > Tools > Terminal</button>
+      <SquareTerminal :size="22" class="empty-icon" aria-hidden="true" />
+      <p class="empty-title">Terminals are off</p>
+      <p class="empty-sub">Enable user terminals in Settings &gt; Tools to start a shell.</p>
+      <button type="button" class="dock-action" @click="navigate('settings', 'tools')">Open Settings &gt; Tools</button>
+    </div>
+    <div v-else-if="terminal.error && !terminal.tabs.length" class="dock-empty" role="alert">
+      <AlertCircle :size="22" class="empty-icon is-error" aria-hidden="true" />
+      <p class="empty-title">{{ missingEndpoint ? "Terminal service unavailable" : "Couldn't load terminals" }}</p>
+      <p class="empty-sub">{{ terminal.error }}</p>
+      <button type="button" class="dock-action" @click="loadTerminals(terminal.session)">
+        <RotateCw :size="12" aria-hidden="true" />
+        <span>Retry</span>
+      </button>
     </div>
     <div v-else-if="!terminal.tabs.length" class="dock-empty">
-      <p>{{ terminal.loading ? "Loading..." : "No terminals in this session." }}</p>
+      <SquareTerminal :size="22" class="empty-icon" aria-hidden="true" />
+      <p class="empty-title">{{ terminal.loading ? "Loading terminals..." : "No terminals in this session" }}</p>
       <button v-if="!terminal.loading" type="button" class="dock-link" @click="newTerminal()">New terminal</button>
     </div>
-    <div v-else class="dock-body">
-      <TermView v-for="t in terminal.tabs" :key="t.id" :ref="el => (views[t.id] = el as InstanceType<typeof TermView> | null)" :session="terminal.session" :id="t.id" :active="t.id === terminal.active" />
-    </div>
+    <template v-else>
+      <p v-if="terminal.error" class="dock-message" role="alert">
+        <AlertCircle :size="14" aria-hidden="true" />
+        <span>{{ terminal.error }}</span>
+      </p>
+      <div class="dock-body">
+        <TermView v-for="t in terminal.tabs" :key="t.id" :ref="el => (views[t.id] = el as InstanceType<typeof TermView> | null)" :session="terminal.session" :id="t.id" :active="t.id === terminal.active" />
+      </div>
+    </template>
     <span class="sr-only" aria-live="polite">{{ live }} running terminals</span>
   </div>
 </template>
@@ -61,16 +81,26 @@ function tabKey(event: KeyboardEvent, index: number) {
 .dock-tab { display: flex; align-items: center; border-bottom: 2px solid transparent; font: 12px var(--mono); color: var(--muted-foreground); }
 .dock-tab.active { border-bottom-color: var(--primary-text); color: var(--foreground); }
 .dock-tab > button[role="tab"] { padding: 6px 4px 6px 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
+.dock-tab > button[role="tab"]:focus-visible, .dock-close:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .dock-ended { opacity: .7; }
 .dock-luna { margin-right: 4px; vertical-align: -2px; }
 .dock-state { padding: 0 6px; color: var(--muted-foreground); font: 12px var(--mono); white-space: nowrap; }
-.dock-action { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
+.dock-action { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
 .dock-action:hover { background: var(--secondary); }
-.dock-close { display: grid; place-items: center; width: 20px; height: 20px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; }
+.dock-close { display: grid; place-items: center; width: 24px; height: 24px; margin-right: 2px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; }
 .dock-close:hover { background: var(--secondary); }
 .dock-body { display: flex; flex: 1; min-height: 0; }
-.dock-message { margin: 0; padding: 4px 10px; color: var(--destructive); font: 12px var(--mono); border-bottom: 1px solid var(--border); }
-.dock-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); font: 13px var(--mono); }
+.dock-message { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 10px; background: var(--err-soft); color: var(--destructive); font: 12px var(--mono); border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); }
+.dock-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; text-align: center; color: var(--muted-foreground); font: 12px var(--mono); }
 .dock-empty p { margin: 0; }
-.dock-link { background: none; border: 0; color: var(--primary-text); font: inherit; text-decoration: underline; cursor: pointer; }
+.empty-icon { opacity: 0.65; }
+.empty-icon.is-error { color: var(--destructive); opacity: 0.9; }
+.empty-title { color: var(--foreground); font-size: 13px; font-weight: 600; }
+.empty-sub { max-width: 340px; color: var(--muted-foreground); }
+.dock-link { background: none; border: 0; color: var(--primary-text); font: inherit; text-decoration: underline; cursor: pointer; padding: 4px 8px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .dock-tab > button[role="tab"] { min-height: 36px; padding: 6px 6px 6px 12px; }
+  .dock-close { width: 32px; height: 32px; }
+  .dock-action { min-height: 36px; padding: 6px 12px; }
+}
 </style>
