@@ -267,3 +267,23 @@ test("deprecated wife config key and extension name migrate to steward", () => {
   expect("wife" in c).toBe(false);
 });
 
+
+test("the live settings store loads a pre-Steward config and saves it with the new names", () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-wife-settings-"));
+  try {
+    const path = join(dir, "luna.config.json");
+    writeFileSync(path, JSON.stringify({ dataDir: dir, provider: "faux", model: "faux", extensions: ["coding", "wife"], disabledTools: ["wife"], wife: { enabled: false, staleDays: 7 } }));
+    const settings = new SettingsStore(path, dir);
+    expect(settings.read().extensions).toStrictEqual(["coding", "steward"]);
+    expect(settings.read().steward.staleDays).toBe(7);
+    expect(settings.resolved().steward.enabled).toBe(false);
+    const disk = JSON.parse(readFileSync(path, "utf8"));
+    expect("wife" in disk).toBe(false);
+    expect(disk.extensions).toStrictEqual(["coding", "steward"]);
+    expect(disk.disabledTools).toStrictEqual(["steward"]);
+    // An external edit back to the old names still loads instead of breaking live readers.
+    writeFileSync(path, JSON.stringify({ ...disk, extensions: ["coding", "wife"], wife: disk.steward, steward: undefined }));
+    expect(settings.read().extensions).toStrictEqual(["coding", "steward"]);
+    expect(settings.configError).toBe(undefined);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
