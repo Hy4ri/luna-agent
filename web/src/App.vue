@@ -38,7 +38,7 @@ import { askSteward } from '@/stores/steward';
 import { terminal, loadTerminals, toggleTerminal } from '@/stores/terminal';
 import { dock, effectivePosition } from '@/stores/dock';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, childLive } from '@/stores/chat';
-import { gitStatus as gitStatusData } from '@/stores/git-status';
+import { gitStatus as gitStatusData, registerGitStatusInstance } from '@/stores/git-status';
 import { railCollapsed } from '@/lib/rail-collapse';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
@@ -97,6 +97,13 @@ const railLive = computed(() => {
     || !!(ex?.processes || []).some(p => p.running)
     || !!(ex?.children || []).some(childLive);
 });
+// The minimized pill shows Git counts, so it keeps Git status polling alive while GitStatus is unmounted.
+let pillGit: ReturnType<typeof registerGitStatusInstance> | undefined;
+watch(() => docked.value && railMinimized.value, on => {
+  if (on && !pillGit) { pillGit = registerGitStatusInstance('rail-pill'); pillGit.setVisible(true); }
+  else if (!on && pillGit) { pillGit.unregister(); pillGit = undefined; }
+}, { immediate: true });
+onUnmounted(() => { pillGit?.unregister(); pillGit = undefined; });
 type RailChip = { key: string; icon: any; label: string; value: string; tone?: 'live' | 'warn' | 'done' };
 const railChips = computed<RailChip[]>(() => {
   const chips: RailChip[] = [];
