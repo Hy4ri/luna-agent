@@ -715,10 +715,16 @@ aside#side.collapsed #history-rail {
 pre.code { background: var(--sidebar); border: 1px solid var(--border); padding: 12px 14px; border-radius: var(--radius); overflow: auto; white-space: pre; font: 450 14px/1.6 var(--mono); margin: 0; }
 .codewrap pre.code { background: transparent; border: 0; border-radius: 0; }
 pre.code code { background: transparent; padding: 0; border-radius: 0; font: inherit; overflow-wrap: normal; }
-.thinking, .background-report { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--muted-foreground); font-size: 14px; font-weight: 440; margin: 8px 0 12px; overflow-wrap: break-word; }
-.thinking summary, .background-report summary { cursor: pointer; padding: 9px 12px; }
-.thinking > :not(summary), .background-report > :not(summary) { padding: 0 12px 12px; }
+.thinking, .background-report, .agent-report { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--muted-foreground); font-size: 14px; font-weight: 440; margin: 8px 0 12px; overflow-wrap: break-word; }
+.thinking summary, .background-report summary, .agent-report summary { cursor: pointer; padding: 9px 12px; }
+.thinking > :not(summary), .background-report > :not(summary), .agent-report > :not(summary) { padding: 0 12px 12px; }
 .thinking pre, .background-report pre { white-space: pre-wrap; font: inherit; margin: 0; max-height: 300px; overflow: auto; }
+.agent-report summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; list-style: none; }
+.agent-report summary::-webkit-details-marker { display: none; }
+.agent-report-kind { font-size: 12px; font-weight: 600; color: var(--foreground); }
+.agent-report-state { font-size: 11px; padding: 1px 6px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); }
+.agent-report summary .peer-chip { margin-bottom: 0; }
+.agent-report-body { white-space: pre-wrap; color: var(--foreground); line-height: 1.5; max-height: 360px; overflow: auto; }
 .tool { width: 100%; min-width: 0; color: var(--muted-foreground); border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); margin: 10px 0; font-size: 13px; overflow: hidden; }
 .tool[data-state='failed'] { border-color: rgb(248 113 113 / .5); background: color-mix(in srgb, var(--destructive) 4%, var(--card)); }
 #log > .tool { margin: 0; }

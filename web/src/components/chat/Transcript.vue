@@ -4,6 +4,7 @@ import { ArrowDown, X } from "@lucide/vue";
 import { chat, entryList, activityLabel, dismissNotice, openSession, loadOlderEntries, userIndexFor, refreshUserIndex, ensureEntryLoaded } from "@/stores/chat";
 import { pendingMessages } from "@/stores/composer";
 import { messageText } from "@/lib/message";
+import { parsePeerMessage } from "@/lib/peer-message";
 import ReportContext from "./ReportContext.vue";
 import AssistantText from "./AssistantText.vue";
 import { assistantTextBlocks, mediaDirectives } from "@/lib/media";
@@ -341,13 +342,13 @@ const mediaBase = (entry: any) => `/v1/sessions/${encodeURIComponent(chat.sessio
 function blocks(content: unknown): any[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
 }
-// Peer identity comes from metadata on this exact delivered input, never from a typed header.
-const PEER = /^\[message from session #(\d+) "((?:[^"\\]|\\.)*)": a peer session, not [^\].]+\.[^\]]*\]\n\n/;
-function peerMessage(entry: any, message: any): { from: number; title: string; body: string } | undefined {
-  if (entry.kind !== 'luna.xsession.msg') return undefined;
-  const m = PEER.exec(messageText(message.content));
-  if (!m || Number(entry.data?.from) !== Number(m[1])) return undefined;
-  return { from: Number(m[1]), title: m[2]!, body: messageText(message.content).slice(m[0].length) };
+function peerMessage(entry: any, message: any) {
+  const parsed = parsePeerMessage(entry, messageText(message.content));
+  return parsed?.kind === "peer" ? parsed : undefined;
+}
+function peerReport(entry: any, message: any) {
+  const parsed = parsePeerMessage(entry, messageText(message.content));
+  return parsed && parsed.kind !== "peer" ? parsed : undefined;
 }
 function backgroundReport(entry: any, message: any): boolean {
   // Background commands predate origin metadata. Match only their exact producer header.
@@ -380,6 +381,15 @@ function backgroundReport(entry: any, message: any): boolean {
             <summary>Background report</summary>
             <pre dir="auto">{{ messageText(message.content) }}</pre>
             <MessageFooter :text="messageText(message.content)" :timestamp="message.timestamp" :entry-id="entry.id" />
+          </details>
+          <details v-else-if="message.role === 'user' && peerReport(entry, message)" class="agent-report vl vl-lg" :class="peerReport(entry, message)!.kind" :data-entry="entry.id">
+            <summary>
+              <span class="agent-report-kind">{{ peerReport(entry, message)!.kind === 'crew-report' ? 'Crew report' : 'Subagent report' }}</span>
+              <span v-if="peerReport(entry, message)!.state" class="agent-report-state">{{ peerReport(entry, message)!.state }}</span>
+              <button type="button" class="peer-chip" :data-peer="peerReport(entry, message)!.from" :title="'Open session #' + peerReport(entry, message)!.from" @click.stop="openSession(peerReport(entry, message)!.from)">#{{ peerReport(entry, message)!.from }} {{ peerReport(entry, message)!.title }}</button>
+            </summary>
+            <div dir="auto" class="agent-report-body rtl-plaintext">{{ peerReport(entry, message)!.body }}</div>
+            <MessageFooter :text="peerReport(entry, message)!.body" :timestamp="message.timestamp" :entry-id="entry.id" />
           </details>
           <div v-else-if="message.role === 'user' && peerMessage(entry, message)" class="msg user peer vl vl-lg" :data-entry="entry.id">
             <button type="button" class="peer-chip" :data-peer="peerMessage(entry, message)!.from" :title="'Open session #' + peerMessage(entry, message)!.from" @click="openSession(peerMessage(entry, message)!.from)">From #{{ peerMessage(entry, message)!.from }} {{ peerMessage(entry, message)!.title }}</button>
