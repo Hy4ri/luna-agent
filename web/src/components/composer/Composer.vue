@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { ArrowUp, Square, Camera, ChevronDown } from "@lucide/vue";
+import { ArrowUp, Square, Camera, ChevronDown, Paperclip } from "@lucide/vue";
 import { json, post } from "@/lib/api";
 import { isMobile } from "@/lib/dom";
 import { composer, removeAttachment, saveDraft, submitDraft, retrySend } from "@/stores/composer";
@@ -355,7 +355,7 @@ async function handleSubmit(e?: Event) {
           aria-label="Attach files"
           @click="fileRef?.click()"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L12 3"/></svg>
+          <Paperclip :size="18" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -445,11 +445,29 @@ async function handleSubmit(e?: Event) {
 }
 
 #model {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 32px;
   height: 32px;
+  padding: 0 8px;
   border: 1px solid transparent;
   border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1;
   cursor: pointer;
+}
+
+.model-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-chevron {
+  flex: none;
+  color: var(--muted-foreground);
 }
 
 #model:hover,
@@ -467,6 +485,7 @@ async function handleSubmit(e?: Event) {
 @media (max-width: 760px), (pointer: coarse) {
   .compose-bar {
     flex-wrap: wrap;
+    align-items: center;
     row-gap: 6px;
     column-gap: 6px;
   }
@@ -485,7 +504,8 @@ async function handleSubmit(e?: Event) {
     flex: 1 1 160px;
     min-width: 0;
     flex-wrap: wrap;
-    gap: 4px;
+    align-items: center;
+    gap: 6px;
   }
 
   #model {

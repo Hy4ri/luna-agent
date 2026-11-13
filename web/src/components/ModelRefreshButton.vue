@@ -41,7 +41,7 @@ const stamp = computed(() => {
 
 <style scoped>
 .mr-wrap { flex: none; display: flex; align-items: center; gap: 8px; }
-.mr-stamp { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }
+.mr-stamp { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .mr-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: var(--muted-foreground); cursor: pointer; }
 .mr-btn:hover:not(:disabled) { color: var(--foreground); background: var(--accent); }
 .mr-btn:disabled { cursor: default; color: var(--foreground); border-color: var(--primary); }

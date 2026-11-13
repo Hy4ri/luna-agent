@@ -95,6 +95,7 @@ const emit = defineEmits<{
 .composer-file-size {
   font-size: 11px;
   color: var(--faint);
+  font-variant-numeric: tabular-nums;
   flex: none;
 }
 .composer-uploading-pill {

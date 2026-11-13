@@ -423,7 +423,9 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
           <span v-if="reasoning(item.model)" class="ms-badge" role="img" aria-label="Supports reasoning" title="Supports reasoning"><Brain :size="11" aria-hidden="true" /><span class="ms-sr-only">Supports reasoning</span></span>
           <span v-if="vision(item.model)" class="ms-badge" role="img" aria-label="Vision capable" title="Vision capable"><Eye :size="11" aria-hidden="true" /><span class="ms-sr-only">Vision capable</span></span>
               </span>
-              <Check v-if="isSelected(item.model)" :size="14" class="ms-selected" aria-hidden="true" />
+              <span class="ms-check-slot" aria-hidden="true">
+                <Check v-if="isSelected(item.model)" :size="14" class="ms-selected" />
+              </span>
             </button>
             <div v-if="editingPins && item.pinned" class="ms-pin-actions">
               <button type="button" class="ms-pin" :disabled="pinPending || item.pinIndex === 0" :aria-label="'Move ' + displayName(item.model) + ' up'" @click="updatePin(item.key, -1)"><ArrowUp :size="14" aria-hidden="true" /></button>
@@ -482,7 +484,7 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-pin:disabled { opacity: .35; cursor: default; }
 .ms-edit:focus-visible, .ms-pin:focus-visible, .ms-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 /* One scroll owner. Expanding providers must never shrink or clip pinned rows. */
-.ms-list { flex: 1 1 auto; min-height: 0; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px 2px 6px; overflow-anchor: none; }
+.ms-list { flex: 1 1 auto; min-height: 0; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 2px 2px 14px; overflow-anchor: none; }
 .ms-wrapper { width: 100%; }
 .ms-list > * { flex-shrink: 0; }
 .ms-compact-picker .ms-list { max-height: none; }
@@ -494,17 +496,18 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-name.ms-muted { color: var(--muted-foreground); font-weight: 450; }
 .ms-sub { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
-.ms-badges { display: inline-flex; gap: 4px; flex: none; }
+.ms-badges { display: inline-flex; justify-content: flex-end; gap: 4px; min-width: 44px; flex: none; }
 .ms-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: var(--radius); background: var(--secondary); border: 1px solid var(--border); color: var(--foreground); }
 .ms-row[data-selected="true"] .ms-badge { background: color-mix(in srgb, var(--primary) 24%, var(--secondary)); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); color: var(--foreground); }
 .ms-entry-pinned > .ms-row { min-height: 42px; padding: 5px 10px; }
 .ms-entry-pinned .ms-name { font-size: 13px; }
 .ms-entry-pinned .ms-badge { width: 20px; height: 20px; border: 1px solid var(--border); background: var(--secondary); }
 .ms-entry-pinned .ms-pin { height: 42px; }
-.ms-current { flex: none; font-size: 10px; font-weight: 600; color: var(--primary-foreground); background: var(--primary); border: 1px solid var(--primary); border-radius: var(--radius); padding: 2px 6px; letter-spacing: 0.02em; }
+.ms-current { flex: none; font-size: 10px; font-weight: 600; color: var(--primary-text); background: var(--acc-soft); border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius: var(--radius); padding: 2px 6px; letter-spacing: 0.02em; }
 .ms-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ms-check-slot { flex: none; width: 14px; height: 14px; display: inline-grid; place-items: center; }
 .ms-selected { flex: none; color: var(--primary-text); }
-.ms-pin { flex: none; display: grid; place-items: center; width: 40px; height: 44px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
+.ms-pin { flex: none; display: grid; place-items: center; width: 40px; height: 42px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
 .ms-pin:hover { background: var(--secondary); color: var(--foreground); }
 .ms-pin[data-pinned="true"] { color: var(--primary-text); }
 .ms-empty { padding: 16px 8px; text-align: center; font-size: 13px; color: var(--muted-foreground); }
@@ -520,10 +523,11 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-hint { font-size: 11px; color: var(--muted-foreground); }
 @media (max-width: 760px), (pointer: coarse) {
   .ms-search input { min-height: 44px; font-size: 16px; }
-  .ms-row { min-height: 42px; }
+  .ms-entry { min-height: 46px; height: auto; }
+  .ms-entry > .ms-row, .ms-row { min-height: 44px; height: auto; }
   .ms-provider { min-height: 44px; }
-  .ms-pin { width: 44px; height: 42px; }
-  .ms-entry-pinned > .ms-row, .ms-entry-pinned .ms-pin { min-height: 42px; }
+  .ms-pin { width: 44px; min-height: 44px; height: 44px; }
+  .ms-entry-pinned > .ms-row, .ms-entry-pinned .ms-pin { min-height: 44px; height: 44px; }
   .ms-edit, .ms-retry { min-height: 44px; }
 }
 </style>

@@ -234,7 +234,7 @@ onUnmounted(() => {
 .mp-head h3 { font-size: 14px; font-weight: 650; letter-spacing: -.015em; }
 .mp-search-slot { flex: none; min-width: 0; }
 .mp-error { flex: none; font-size: 13px; color: var(--destructive); text-align: center; padding: 8px; }
-.mp-hint { flex: none; font-size: 11px; color: var(--muted-foreground); text-align: center; padding: 6px 8px 0; }
+.mp-hint { flex: none; font-size: 11px; color: var(--muted-foreground); text-align: center; border-top: 1px solid var(--border); padding: 8px 8px 2px; margin-top: 2px; }
 @media (max-width: 760px), (pointer: coarse) {
   .mp-hint { display: none; }
 }
