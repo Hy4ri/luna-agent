@@ -79,11 +79,7 @@ const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedRev
 watch(() => chat.session, () => { selectedReview.value = null; });
 // The dock follows the loaded session; the server keeps each session's shells alive.
 watch(() => chat.session, id => { void loadTerminals(id || ''); void loadBrowser(id || ''); }, { immediate: true });
-const gitDirty = computed(() => {
-  const s = gitStatusData.value;
-  return s?.state === 'ok' && (s.files.length > 0 || s.ahead > 0 || s.behind > 0 || s.conflicts > 0);
-});
-const railContent = computed(() => reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || gitDirty.value);
+const railContent = computed(() => reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || gitStatusData.value?.state === 'ok');
 // A side dock takes the gutter's place, so widgets fold inline while the dock is on the right.
 const docked = computed(() => railRoom.value && railContent.value && !dockSide.value);
 const railMinimized = computed({
@@ -109,9 +105,9 @@ const railChips = computed<RailChip[]>(() => {
   const chips: RailChip[] = [];
   const ex = chat.extras;
   const gs = gitStatusData.value;
-  if (gs?.state === 'ok' && (gs.conflicts || gs.files.length || gs.ahead || gs.behind)) {
+  if (gs?.state === 'ok') {
     const v = [gs.conflicts ? `${gs.conflicts}!` : '', gs.files.length ? `${gs.files.length}` : '', gs.ahead ? `↑${gs.ahead}` : '', gs.behind ? `↓${gs.behind}` : ''].filter(Boolean).join(' ');
-    chips.push({ key: 'git', icon: GitBranch, label: 'Git', value: v, tone: gs.conflicts ? 'warn' : undefined });
+    chips.push({ key: 'git', icon: GitBranch, label: v ? 'Git' : 'Git clean', value: v, tone: gs.conflicts ? 'warn' : v ? undefined : 'done' });
   }
   if (ex?.goal) {
     const n = ex.goal.tasks?.length || 0;
