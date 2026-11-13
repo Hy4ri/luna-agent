@@ -360,7 +360,7 @@ function handleMouseLeave() {
   gap: 10px;
   background: var(--secondary);
   padding: 10px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   border: 1px solid var(--border);
 }
 .param-row {
@@ -383,7 +383,12 @@ function handleMouseLeave() {
 }
 .param-slider {
   width: 100%;
+  min-height: 32px;
   accent-color: var(--chart-1);
   cursor: pointer;
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .plot-title { padding-right: 100px; }
+  .param-slider { min-height: 44px; }
 }
 </style>

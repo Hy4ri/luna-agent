@@ -386,8 +386,11 @@ function backgroundReport(entry: any, message: any): boolean {
             <summary>
               <span class="agent-report-kind">{{ peerReport(entry, message)!.kind === 'crew-report' ? 'Crew report' : 'Subagent report' }}</span>
               <span v-if="peerReport(entry, message)!.state" class="agent-report-state">{{ peerReport(entry, message)!.state }}</span>
-              <button type="button" class="peer-chip" :data-peer="peerReport(entry, message)!.from" :title="'Open session #' + peerReport(entry, message)!.from" @click.stop="openSession(peerReport(entry, message)!.from)">#{{ peerReport(entry, message)!.from }} {{ peerReport(entry, message)!.title }}</button>
+              <span class="agent-report-peer">#{{ peerReport(entry, message)!.from }} {{ peerReport(entry, message)!.title }}</span>
             </summary>
+            <div class="agent-report-actions">
+              <button type="button" class="peer-chip" :data-peer="peerReport(entry, message)!.from" :title="'Open session #' + peerReport(entry, message)!.from" @click="openSession(peerReport(entry, message)!.from)">Open session #{{ peerReport(entry, message)!.from }}</button>
+            </div>
             <div dir="auto" class="agent-report-body rtl-plaintext">{{ peerReport(entry, message)!.body }}</div>
             <MessageFooter :text="peerReport(entry, message)!.body" :timestamp="message.timestamp" :entry-id="entry.id" />
           </details>
@@ -492,7 +495,7 @@ function backgroundReport(entry: any, message: any): boolean {
 }
 .user-tick:hover .tick-bar, .user-tick:focus-visible .tick-bar { width: 16px; opacity: 1; }
 .user-tick.active .tick-bar { width: 14px; height: 3px; opacity: 1; background: var(--primary); }
-.user-tick:focus-visible { outline: none; }
+.user-tick:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius); }
 .tick-tip {
   position: absolute; right: 24px; top: 50%; transform: translate(6px, -50%); max-width: 260px; width: max-content;
   padding: 4px 8px; border-radius: var(--radius); font-size: 12px; line-height: 1.3; color: var(--foreground);
@@ -537,5 +540,16 @@ function backgroundReport(entry: any, message: any): boolean {
   cursor: wait;
 }
 .queued-dock { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-height: 30%; overflow: auto; padding: 8px max(24px, calc((100% - 760px) / 2)) 0; }
+#log { padding-top: 32px; gap: 26px; }
+.agent-report-peer { font-size: 12px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-report-actions { margin-bottom: 8px; }
+.agent-report-actions .peer-chip { margin-bottom: 0; }
+@media (max-width: 760px), (pointer: coarse) {
+  #log { padding: 24px 16px; gap: 20px; }
+  .transcript-jumps { right: 16px; bottom: 132px; }
+  .transcript-jumps button { width: 44px; height: 44px; }
+  .load-older-btn { min-height: 44px; padding: 8px 14px; }
+  .peer-chip { min-height: 36px; padding: 6px 10px; }
+}
 .top-sentinel { height: 1px; flex-shrink: 0; pointer-events: none; }
 </style>

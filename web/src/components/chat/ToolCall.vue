@@ -205,10 +205,6 @@ const hasBody = computed(() => {
         <span v-if="proc && proc.running" class="tool-counts">running</span>
         <span v-if="exitCode !== undefined && exitCode !== null && exitCode !== 0" class="tool-exit">exit {{ exitCode }}</span>
         <span v-if="state === 'running' || state === 'pending'" class="tool-state">{{ state === 'running' ? 'Running' : 'No result' }}</span>
-        <a v-if="child" href="#" @click.prevent.stop="openSession(child)">Child {{ child }}</a>
-        <button v-if="dockOpen" type="button" class="tool-dock" :title="dockOpen.pane === 'browser' ? 'Show this tab in the browser panel' : 'Show this terminal in the terminal panel'" @click.prevent.stop="openInDock">
-          <Globe v-if="dockOpen.pane === 'browser'" :size="13" aria-hidden="true" /><SquareTerminal v-else :size="13" aria-hidden="true" />{{ dockOpen.pane === 'browser' ? 'Show tab' : 'Show terminal' }}
-        </button>
         <ChevronRight :size="13" class="disclosure-chevron" aria-hidden="true" />
       </summary>
       <!-- Closed tools need only their summary. Build output views only when opened. -->
@@ -328,6 +324,12 @@ const hasBody = computed(() => {
         <SessionImage v-for="(image, i) in images" :key="i" class="tool-image" :image="image" :alt="name + ' result'" />
       </template>
     </details>
+    <div v-if="child || dockOpen" class="tool-actions-bar">
+      <a v-if="child" href="#" class="tool-child-link" @click.prevent="openSession(child)">Open child #{{ child }}</a>
+      <button v-if="dockOpen" type="button" class="tool-dock" :title="dockOpen.pane === 'browser' ? 'Show this tab in the browser panel' : 'Show this terminal in the terminal panel'" @click="openInDock">
+        <Globe v-if="dockOpen.pane === 'browser'" :size="13" aria-hidden="true" /><SquareTerminal v-else :size="13" aria-hidden="true" />{{ dockOpen.pane === 'browser' ? 'Show tab' : 'Show terminal' }}
+      </button>
+    </div>
     <div v-if="state === 'failed' && view === 'bash' && split.exit !== undefined" class="tool-error"><span class="tool-section-label">Exited with code {{ split.exit }}</span><TerminalView :text="body" /></div>
     <div v-else-if="state === 'failed' && view === 'codemode'" class="tool-error"><span class="tool-section-label">Error</span><TerminalView :text="output || 'The tool failed without error details.'" /></div>
     <div v-else-if="state === 'failed'" class="tool-error"><span class="tool-section-label">Error</span><pre>{{ output || 'The tool failed without error details.' }}</pre></div>
@@ -340,7 +342,14 @@ const hasBody = computed(() => {
 .tool-truncated-bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px 8px; }
 .tool-truncated-bar .code-more { margin: 0; padding: 0; }
 .tool-truncated-err { font-size: 11px; color: var(--destructive); }
-.tool-dock { display: inline-flex; flex: none; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--muted-foreground); font: 12px/1.4 var(--mono); white-space: nowrap; cursor: pointer; }
-.tool-dock:hover { background: var(--secondary); color: var(--foreground); }
-.tool-dock:focus-visible { outline: 1px solid var(--ring); outline-offset: 1px; }
+.tool-dock { display: inline-flex; flex: none; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--foreground); font: 12px/1.4 var(--mono); white-space: nowrap; cursor: pointer; }
+.tool-dock:hover { background: var(--accent); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.tool-dock:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.tool-actions-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px 8px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--secondary) 35%, var(--card)); }
+.tool-child-link { color: var(--primary-text); font: 12px/1.4 var(--mono); text-decoration: underline; text-underline-offset: 3px; }
+.tool-child-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .tool-dock, .tool-truncated-bar .code-more { min-height: 44px; padding: 6px 12px; }
+  .tool-child-link { display: inline-flex; align-items: center; min-height: 44px; }
+}
 </style>

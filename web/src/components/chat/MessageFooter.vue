@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
+import { AlertCircle, Check, Copy, GitFork } from '@lucide/vue';
 import { formatTime, formatDateIso, copyToClipboard } from '@/lib/message';
 import { post } from '@/lib/api';
 import { chat, openSession } from '@/stores/chat';
@@ -91,9 +92,9 @@ onUnmounted(() => {
       :disabled="forking"
       @click="handleFork"
     >
-      <span v-if="forkFailed" class="copy-err" aria-label="Fork failed" :title="forkMsg">!</span>
-      <svg v-else-if="forked" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+      <AlertCircle v-if="forkFailed" :size="14" class="copy-err" aria-label="Fork failed" />
+      <Check v-else-if="forked" :size="14" aria-hidden="true" />
+      <GitFork v-else :size="14" aria-hidden="true" />
     </button>
     <button
       v-if="text"
@@ -103,12 +104,20 @@ onUnmounted(() => {
       title="Copy message"
       @click="handleCopy"
     >
-      <svg v-if="!copied && !failed" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-      <svg v-else-if="copied" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      <span v-else class="copy-err" aria-label="Copy failed">!</span>
+      <Copy v-if="!copied && !failed" :size="14" aria-hidden="true" />
+      <Check v-else-if="copied" :size="14" aria-hidden="true" />
+      <AlertCircle v-else :size="14" class="copy-err" aria-label="Copy failed" />
     </button>
     <span class="sr-only" aria-live="polite">
       {{ copied ? 'Copied to clipboard' : failed ? 'Failed to copy' : forkFailed ? 'Fork failed' : '' }}
     </span>
   </div>
 </template>
+
+<style scoped>
+.copy-err { color: var(--destructive); }
+@media (max-width: 760px), (pointer: coarse) {
+  .message-footer { gap: 4px; }
+  .message-footer .icon-button { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
+}
+</style>
