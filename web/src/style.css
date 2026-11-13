@@ -925,6 +925,7 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .att-missing { border-color: color-mix(in srgb, #f87171 40%, var(--border)); }
 .att-missing svg { color: #f87171; flex: none; }
 .transcript-jumps { position: absolute; right: 24px; bottom: 140px; display: flex; flex-direction: column; gap: 6px; }
+.chat-column.rail-docked .transcript-jumps { bottom: 16px; }
 .transcript-jumps button { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border-radius: var(--radius); background: var(--secondary); box-shadow: var(--shadow); border: 1px solid var(--border); }
 .transcript-jumps button[hidden] { display: none; }
 #extras { padding: 0 max(24px, calc((100% - 760px) / 2 + var(--gutter-shift, 0px))) 0 max(24px, calc((100% - 760px) / 2 - var(--gutter-shift, 0px))); display: flex; flex-direction: column; gap: 8px; max-height: 28dvh; overflow: auto; flex-shrink: 0; font-size: 14.5px; font-weight: 440; }
@@ -1004,9 +1005,10 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .chat-extras .activity.docked { padding: 0; border: 0; background: transparent; }
 /* Docked: each section is its own card; live work first, the long task list last. */
 .activity.docked .activity-body { max-height: none; overflow: visible; border-top: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.activity.docked .activity-section { margin: 0; padding: 2px 10px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
+.activity.docked .activity-section { margin: 0; padding: 2px 10px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.activity.docked .activity-section > div { max-height: 220px; overflow-y: auto; scrollbar-width: thin; }
 .activity.docked .activity-section[aria-label='Tasks'] { order: 1; }
-.chat-extras.docked .goal-card { padding: 10px 12px; box-shadow: var(--shadow); }
+.chat-extras.docked .goal-card { padding: 10px 12px; }
 .chat-extras.docked .goal-objective { margin: 8px 0 6px; font-size: 13px; }
 .chat-extras.docked .goal-details summary { min-height: 30px; }
 .chat-extras.docked .goal-actions { margin-top: 8px; }

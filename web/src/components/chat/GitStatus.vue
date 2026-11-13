@@ -109,7 +109,7 @@ onUnmounted(() => {
 <style scoped>
 .git-status-host { display: contents; }
 .git-status { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; flex-shrink: 0; padding: 0; font-size: 12px; color: var(--muted-foreground); }
-.git-status.docked { padding: 10px 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
+.git-status.docked { padding: 10px 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 
 /* Branch row: the branch name gets the full width and wraps to two lines before it truncates. */
 .git-head { display: flex; align-items: center; gap: 6px; min-width: 0; }

@@ -100,23 +100,35 @@ const railLive = computed(() => {
 const railSummary = computed(() => {
   const parts: string[] = [];
   const ex = chat.extras;
+  const gs = gitStatusData.value;
+  if (gs?.state === 'ok') {
+    if (gs.conflicts) parts.push(`${gs.conflicts} conflict`);
+    if (gs.files.length) parts.push(`${gs.files.length} changed`);
+    if (gs.ahead || gs.behind) parts.push([gs.ahead && `↑${gs.ahead}`, gs.behind && `↓${gs.behind}`].filter(Boolean).join(' '));
+  }
+  if (ex?.goal) {
+    const gTasks = ex.goal.tasks?.length || 0;
+    const gDone = gTasks ? ex.goal.tasks.filter((t: any) => t.status !== 'pending').length : 0;
+    const gStatus = ex.goal.status.replaceAll('_', ' ');
+    parts.push(gTasks ? `Goal ${gDone}/${gTasks} ${gStatus}` : `Goal ${gStatus}`);
+  }
   const todos = (ex?.todos || []).filter((t: any) => t.status !== 'deleted');
   if (todos.length) {
     const done = todos.filter((t: any) => t.status === 'completed').length;
     parts.push(`${done}/${todos.length} tasks`);
-  } else if (ex?.goal) {
-    parts.push('Goal');
   }
-  const procs = (ex?.processes || []).filter(p => p.running).length;
-  if (procs) parts.push(`${procs} proc`);
-  const agents = (ex?.children || []).filter(childLive).length;
-  if (agents) parts.push(`${agents} agent`);
-  if (runningReviews.value) parts.push(`${runningReviews.value} review`);
-  const gs = gitStatusData.value;
-  if (gs?.state === 'ok') {
-    if (gs.conflicts) parts.push(`${gs.conflicts} conflict`);
-    else if (gs.files.length) parts.push(`${gs.files.length} changed`);
-    else if (gs.ahead || gs.behind) parts.push([gs.ahead && `↑${gs.ahead}`, gs.behind && `↓${gs.behind}`].filter(Boolean).join(' '));
+  const procs = ex?.processes || [];
+  if (procs.length) {
+    const running = procs.filter(p => p.running).length;
+    parts.push(running ? `${running} proc running` : `${procs.length} proc`);
+  }
+  if (reviewJobs.value.length) {
+    parts.push(runningReviews.value ? `${runningReviews.value} review running` : `${reviewJobs.value.length} review`);
+  }
+  const children = ex?.children || [];
+  if (children.length) {
+    const running = children.filter(childLive).length;
+    parts.push(running ? `${running} subagent running` : `${children.length} subagent`);
   }
   return parts.join(' · ') || 'Session';
 });
@@ -534,7 +546,7 @@ onUnmounted(() => {
           <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
           <div class="work-area" ref="workAreaRef" :class="dockSide ? 'dock-side' : 'dock-bottom'">
           <div class="chat-body">
-            <div class="chat-column" :style="{ '--gutter-shift': gutterShift + 'px' }">
+            <div class="chat-column" :class="{ 'rail-docked': docked && !railMinimized }" :style="{ '--gutter-shift': gutterShift + 'px' }">
               <Transcript>
                 <GitStatus v-if="!docked && chat.session" />
               </Transcript>
@@ -554,7 +566,7 @@ onUnmounted(() => {
                 >
                   <Activity v-if="railLive || activityVisible || chat.extras?.goal || reviewJobs.length" :size="13" aria-hidden="true" />
                   <GitBranch v-else :size="13" aria-hidden="true" />
-                  <span class="truncate">{{ railSummary }}</span>
+                  <span class="rail-pill-text">{{ railSummary }}</span>
                   <ChevronDown :size="13" aria-hidden="true" />
                 </button>
                 <template v-else>
@@ -564,8 +576,10 @@ onUnmounted(() => {
                       <ChevronUp :size="13" />
                     </button>
                   </div>
-                  <GitStatus v-if="chat.session" docked />
-                  <Extras docked />
+                  <div class="rail-scroll">
+                    <GitStatus v-if="chat.session" docked />
+                    <Extras docked />
+                  </div>
                 </template>
               </aside>
             </div>
@@ -666,28 +680,47 @@ onUnmounted(() => {
   right: 36px;
   z-index: 4;
   width: 252px;
-  max-height: calc(100% - 196px);
-  overflow-y: auto;
+  max-height: calc(100% - 108px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  scrollbar-width: thin;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
 #session-rail.collapsed {
   width: auto;
   max-width: 252px;
+  max-height: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   overflow: visible;
 }
 .rail-bar {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 2px;
+  padding: 5px 8px 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .06em;
   text-transform: uppercase;
   color: var(--faint);
+}
+.rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
 }
 .rail-toggle { width: 24px; height: 24px; color: var(--muted-foreground); }
 .rail-pill {
@@ -696,19 +729,22 @@ onUnmounted(() => {
   gap: 6px;
   max-width: 100%;
   min-height: 30px;
-  padding: 4px 10px;
+  padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
   box-shadow: var(--shadow);
   font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
   color: var(--muted-foreground);
   cursor: pointer;
 }
+.rail-pill > svg { flex: none; }
+.rail-pill-text { min-width: 0; overflow-wrap: anywhere; }
 .rail-pill:hover { color: var(--foreground); border-color: var(--input); }
 .rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .rail-pill.live svg:first-child { color: var(--primary-text); }
-.rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .session-pane {
   flex: 1 1 0;
   width: 0;

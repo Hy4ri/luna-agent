@@ -156,9 +156,9 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - `<summary>` shows a compact context gauge (`#context-meter` with `#context-fill` colored `--ok`, `--warn` at `data-level="amber"`, or `--destructive` at `data-level="red"`), tabular percentage (`.usage-percent`), and session cost (`.usage-cost`, hidden on mobile).
   - Opening `<details>` reveals `.usage-details` popover (`width: min(320px, calc(100vw - 32px))`) with per-model token breakdowns and manual compaction controls.
 - **Session Rail (`#session-rail`):**
-  - Floats as an absolute card stack (`252px` wide, `top: 12px; right: 36px;`, clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 760) / 2 + gutterShift`) is at least `316px` (undocks below `300px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
+  - Floats as an absolute framed panel (`252px` wide, `top: 12px; right: 36px; max-height: calc(100% - 108px);`, clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 760) / 2 + gutterShift`) is at least `316px` (undocks below `300px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
   - Shows only when there is active or rich content (goal, activity, review jobs, or dirty/unpushed `GitStatus`) and no right-side `WorkDock` is open. Empty sessions and clean-repo sessions render zero side chrome (`GitStatus` stays inline in `Transcript`).
-  - Can be minimized into a compact live summary pill in the top-right corner (`luna.rail.collapsed`).
+  - Can be minimized into a compact live summary pill in the top-right corner (`luna.rail.collapsed`) summarizing all visible rail items (git changes/sync, goal status, tasks, processes, review agents, and subagents) without truncation.
   - Order: Git (`GitStatus`), Goal, Processes, Review agents, Subagents, then Tasks (the long list goes last).
   - Each item renders in exactly one place. When floating, `#extras` and the inline `GitStatus` are not mounted. When unfloated, they return inline.
 
