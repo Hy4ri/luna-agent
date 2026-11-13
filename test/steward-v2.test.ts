@@ -1,9 +1,9 @@
 // Contract: v2 cards (cost, compaction, recap, rule trials, reminders) fire on their thresholds and act only on Agree.
 import { test, expect } from "bun:test";
-import { compactionHeavy, costHabit, weeklyRecap } from "../src/wife/detectors4.js";
-import { matchTips, TipSchema } from "../src/wife/tips.js";
-import { buildCard } from "../src/wife/tool.js";
-import { WifeStore } from "../src/wife/store.js";
+import { compactionHeavy, costHabit, weeklyRecap } from "../src/steward/detectors4.js";
+import { matchTips, TipSchema } from "../src/steward/tips.js";
+import { buildCard } from "../src/steward/tool.js";
+import { StewardStore } from "../src/steward/store.js";
 
 const DAY = 86_400_000, NOW = 100 * DAY;
 const sess = (id: number, project: number, cost: number, turns: number, extra = {}) => ({ id, projectId: project, projectName: `p${project}`, deletedAt: null, archived: false, lastActivity: NOW - DAY, title: null,
@@ -42,7 +42,7 @@ test("shadow rules fire only in shadow mode, and fact kinds pick the counts", ()
 });
 
 test("shadow hits log once per day", () => {
-  const s = new WifeStore(":memory:");
+  const s = new StewardStore(":memory:");
   s.logShadow("t", "a", NOW); s.logShadow("t", "a", NOW + 1000); s.logShadow("t", "a", NOW + DAY);
   expect(s.shadowHits("t").length).toBe(2);
 });

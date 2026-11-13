@@ -7,7 +7,7 @@ export const sections = [
   { id: 'tools', title: 'Tools', description: 'Configure web access, browser control, commands, and tool availability.', keys: ['web', 'browser', 'processes', 'terminal', 'codemode', 'extensions', 'disabledTools'] },
   { id: 'memory', title: 'Memory & skills', description: 'Configure reusable knowledge.', keys: ['skillDirs', 'disabledSkills'] },
   { id: 'media', title: 'Media', description: 'Configure image analysis, image generation, and video analysis.', keys: ['vision', 'image_gen', 'video'] },
-  { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill benchmark access.', keys: ['cron', 'improve', 'wife'] },
+  { id: 'automation', title: 'Automation', description: 'Set scheduled-run defaults and skill benchmark access.', keys: ['cron', 'improve', 'steward'] },
   { id: 'system', title: 'System', description: 'Set LAN and Tailscale addresses, storage paths, and server access.', keys: ['dataDir', 'cwd', 'server', 'push'] },
 ] as const
 

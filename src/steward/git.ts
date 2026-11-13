@@ -1,4 +1,4 @@
-// Git helpers for the worktree detector. They only touch `luna/s<id>` branches in repos Wife is given.
+// Git helpers for the worktree detector. They only touch `luna/s<id>` branches in repos Steward is given.
 import { existsSync } from "node:fs";
 
 export interface RawWorktree { path: string; branch: string; merged: boolean; dirty: boolean }

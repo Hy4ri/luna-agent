@@ -127,16 +127,16 @@ it("chromium provider attached by cdpUrl: shares the browser's logins, closes on
       void proc.exited.then(() => reject(new Error(`chromium exited: ${err.slice(-500)}`)));
     });
     const cdpUrl = `http://${new URL(ws).host}`;
-    // m57's own session: a login cookie and a tab of his.
+    // The user's own session: a login cookie and a tab of theirs.
     owner = await chromium.connectOverCDP(cdpUrl);
     const ctx = owner.contexts()[0]!;
-    await ctx.addCookies([{ name: "session", value: "m57", url: base }]);
+    await ctx.addCookies([{ name: "session", value: "alex", url: base }]);
     const his = ctx.pages()[0]!;
 
     const p = createChromiumBrowserProvider(() => ({ cdpUrl, headless: true }));
     const s = new AbortController().signal;
     const { tabId } = await p.open({ url: `${base}/` }, s);
-    expect(seen).toEqual(["session=m57"]) /* "Luna's tab sends his login" */;
+    expect(seen).toEqual(["session=alex"]) /* "Luna's tab sends the user's login" */;
     expect(ctx.pages().length).toBe(2);
 
     await p.dispose();

@@ -1,22 +1,22 @@
-// Wife: suggestion cards in wife.db. A card is filed by a detector (or the model pass) and decided by m57.
+// Steward: suggestion cards in steward.db. A card is filed by a detector (or the model pass) and decided by the user.
 // Dedupe is by fingerprint: a dismissed, done, or failed card is never filed again.
 import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 
-export const WIFE_KINDS = ["skill", "memory", "new_project", "move_session", "archive_session", "delete_session", "feature_tip", "tune_rule", "mute_rule", "mute_kind", "goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "new_rule", "promote_rule", "cost_habit", "compaction_heavy", "weekly_recap", "reminder_unscheduled", "worktree_orphan", "bg_leftover",  "browser_leftover", "rule_idea","tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat"] as const;
-export type WifeKind = (typeof WIFE_KINDS)[number];
-export const WIFE_STATUSES = ["open", "snoozed", "dismissed", "working", "done", "failed"] as const;
+export const STEWARD_KINDS = ["skill", "memory", "new_project", "move_session", "archive_session", "delete_session", "feature_tip", "tune_rule", "mute_rule", "mute_kind", "goal_unfinished", "cron_failing", "quota_waits", "board_stuck", "new_rule", "promote_rule", "cost_habit", "compaction_heavy", "weekly_recap", "reminder_unscheduled", "worktree_orphan", "bg_leftover",  "browser_leftover", "rule_idea","tool_error_repeat", "skill_unused", "prompt_repeat", "project_setup_repeat"] as const;
+export type StewardKind = (typeof STEWARD_KINDS)[number];
+export const STEWARD_STATUSES = ["open", "snoozed", "dismissed", "working", "done", "failed"] as const;
 export const DISMISS_REASONS = ["wrong", "not_now", "already_done", "dont_care_kind", "too_aggressive"] as const;
 export type DismissReason = (typeof DISMISS_REASONS)[number];
 export type OutcomeAction = "agree" | "dismiss" | "snooze" | "undo" | "failed";
 export const NOT_NOW_DAYS = 30;
-export type WifeStatus = (typeof WIFE_STATUSES)[number];
+export type StewardStatus = (typeof STEWARD_STATUSES)[number];
 
 export interface Suggestion {
-  id: number; kind: WifeKind; ruleId: string; fingerprint: string; title: string; body: string;
+  id: number; kind: StewardKind; ruleId: string; fingerprint: string; title: string; body: string;
   evidence: { sessionId: number; note: string }[];
   payload: Record<string, unknown>;
-  source: "detector" | "model"; status: WifeStatus;
+  source: "detector" | "model"; status: StewardStatus;
   snoozeUntil: number | null; sessionId: number | null; result: string | null;
   created: number; updated: number;
   /** Until when the action can be undone. Null when it cannot. */
@@ -25,7 +25,7 @@ export interface Suggestion {
 export type NewSuggestion = Pick<Suggestion, "kind" | "fingerprint" | "title" | "body" | "evidence" | "payload" | "source"> & { ruleId?: string };
 export const UNDO_DAYS = 7;
 /** Release order for held cards: work you can act on first, reports and nudges last. Kinds not listed come after these. */
-export const KIND_VALUE: readonly WifeKind[] = ["goal_unfinished", "cron_failing", "reminder_unscheduled", "board_stuck", "memory", "skill", "new_project", "move_session",
+export const KIND_VALUE: readonly StewardKind[] = ["goal_unfinished", "cron_failing", "reminder_unscheduled", "board_stuck", "memory", "skill", "new_project", "move_session",
   "worktree_orphan", "bg_leftover", "browser_leftover", "archive_session", "delete_session", "quota_waits", "tool_error_repeat", "prompt_repeat", "project_setup_repeat",
   "promote_rule", "tune_rule", "mute_rule", "mute_kind", "new_rule", "rule_idea", "feature_tip", "cost_habit", "compaction_heavy", "skill_unused", "weekly_recap"];
 /** How to reverse a direct action. Deleting a session has none. */
@@ -34,14 +34,14 @@ export type Inverse =
   | { type: "move_back"; moves: { id: number; projectId: number }[] }
   | { type: "remove_project"; projectId: number; moves: { id: number; projectId: number }[] }
   | { type: "restore_memory"; key: string; content: string | null };
-export interface Outcome { id: number; suggestionId: number; kind: WifeKind; ruleId: string; source: string; action: OutcomeAction; reason: string | null; note: string | null; ts: number }
+export interface Outcome { id: number; suggestionId: number; kind: StewardKind; ruleId: string; source: string; action: OutcomeAction; reason: string | null; note: string | null; ts: number }
 
-interface Row { id: number; kind: WifeKind; rule_id: string; fingerprint: string; title: string; body: string; evidence: string; payload: string; source: "detector" | "model";
-  status: WifeStatus; snooze_until: number | null; session_id: number | null; result: string | null; created: number; updated: number }
+interface Row { id: number; kind: StewardKind; rule_id: string; fingerprint: string; title: string; body: string; evidence: string; payload: string; source: "detector" | "model";
+  status: StewardStatus; snooze_until: number | null; session_id: number | null; result: string | null; created: number; updated: number }
 const view = (r: Row & { undo_until?: number | null }): Suggestion => ({ id: r.id, kind: r.kind, ruleId: r.rule_id, fingerprint: r.fingerprint, title: r.title, body: r.body, evidence: JSON.parse(r.evidence),
   payload: JSON.parse(r.payload), source: r.source, status: r.status, snoozeUntil: r.snooze_until, sessionId: r.session_id, result: r.result, created: r.created, updated: r.updated, undoUntil: r.undo_until ?? null });
 
-export class WifeStore {
+export class StewardStore {
   readonly db: Database;
   constructor(path: string, private now: () => number = Date.now) {
     this.db = new Database(path);
@@ -81,18 +81,18 @@ export class WifeStore {
     return r ? view(r) : undefined;
   }
   has(fingerprint: string): boolean { return !!this.db.prepare("SELECT 1 FROM suggestions WHERE fingerprint=?").get(fingerprint); }
-  list(status?: WifeStatus): Suggestion[] {
+  list(status?: StewardStatus): Suggestion[] {
     const rows = (status ? this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.shown_at IS NOT NULL AND s.status=? ORDER BY s.created DESC, s.id DESC").all(status)
       : this.db.prepare("SELECT s.*, (SELECT expires FROM undo u WHERE u.suggestion_id=s.id) AS undo_until FROM suggestions s WHERE s.shown_at IS NOT NULL ORDER BY s.created DESC, s.id DESC").all()) as Row[];
     return rows.map(view);
   }
-  count(status: WifeStatus = "open"): number {
+  count(status: StewardStatus = "open"): number {
     return (this.db.prepare("SELECT COUNT(*) AS n FROM suggestions WHERE shown_at IS NOT NULL AND status=?").get(status) as { n: number }).n;
   }
   /** New fingerprint: insert. Open or snoozed: refresh text and evidence. Any other status: leave alone. Returns the card when it was inserted or refreshed. */
   file(s: NewSuggestion, show = true): Suggestion | undefined {
     const t = this.now();
-    const existing = this.db.prepare("SELECT status FROM suggestions WHERE fingerprint=?").get(s.fingerprint) as { status: WifeStatus } | null;
+    const existing = this.db.prepare("SELECT status FROM suggestions WHERE fingerprint=?").get(s.fingerprint) as { status: StewardStatus } | null;
     if (!existing) {
       this.db.prepare(`INSERT INTO suggestions(kind,rule_id,fingerprint,title,body,evidence,payload,source,status,created,updated,shown_at) VALUES (?,?,?,?,?,?,?,?,'open',?,?,?)`)
         .run(s.kind, s.ruleId ?? s.kind, s.fingerprint, s.title, s.body, JSON.stringify(s.evidence), JSON.stringify(s.payload), s.source, t, t, show ? t : null);
@@ -126,7 +126,7 @@ export class WifeStore {
     return n;
   }
   /** Move a card to a status. `patch` sets result, sessionId, or snoozeUntil. */
-  setStatus(id: number, status: WifeStatus, patch: { result?: string | null; sessionId?: number | null; snoozeUntil?: number | null } = {}) {
+  setStatus(id: number, status: StewardStatus, patch: { result?: string | null; sessionId?: number | null; snoozeUntil?: number | null } = {}) {
     this.db.prepare("UPDATE suggestions SET status=?, result=COALESCE(?,result), session_id=COALESCE(?,session_id), snooze_until=?, updated=? WHERE id=?")
       .run(status, patch.result ?? null, patch.sessionId ?? null, status === "snoozed" ? patch.snoozeUntil ?? null : null, this.now(), id);
   }
@@ -158,7 +158,7 @@ export class WifeStore {
   }
   outcomes(sinceMs = 0): Outcome[] {
     return (this.db.prepare("SELECT * FROM outcomes WHERE ts>=? ORDER BY id").all(sinceMs) as Record<string, unknown>[]).map(r => ({
-      id: r.id as number, suggestionId: r.suggestion_id as number, kind: r.kind as WifeKind, ruleId: r.rule_id as string, source: r.source as string,
+      id: r.id as number, suggestionId: r.suggestion_id as number, kind: r.kind as StewardKind, ruleId: r.rule_id as string, source: r.source as string,
       action: r.action as OutcomeAction, reason: r.reason as string | null, note: r.note as string | null, ts: r.ts as number }));
   }
   /** Dismiss with a reason. `not_now` snoozes 30 days, `already_done` closes the card as done, the rest dismiss for good. */

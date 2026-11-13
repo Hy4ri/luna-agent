@@ -1,4 +1,4 @@
-// OpenAI speed tiers. A session stores the speed m57 picked; each provider request sends it as `service_tier`.
+// OpenAI speed tiers. A session stores the speed the user picked; each provider request sends it as `service_tier`.
 // Fast (formerly Priority processing) runs up to 2.5x faster at about 2x the price. Ultrafast runs up to 6-8x faster at
 // about 6x the price, only on gpt-6-astra and gpt-6.1-sol.
 import type { Api, MutableModels, Model } from "@earendil-works/pi-ai";

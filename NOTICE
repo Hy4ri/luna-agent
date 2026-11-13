@@ -1,0 +1,6 @@
+Luna (luna-agent)
+Copyright 2026 Hy4ri
+
+This project includes third-party components under their own licenses:
+- Nerd Fonts symbols in web/src/assets/fonts (see web/src/assets/fonts/NERD-FONTS-LICENSE.txt)
+- libghostty-vt WASM in src/terminal (MIT License, see src/terminal/LICENSE.libghostty-vt)

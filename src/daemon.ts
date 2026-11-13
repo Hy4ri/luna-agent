@@ -25,7 +25,7 @@ const appConnection = daemonConnection(cfg.dataDir, host, port, publicUrls);
 const app = createApp({
   connection: appConnection,
   harness: rt.harness, sideCommands: rt.sideCommands, titler: rt.titler, scheduledMessages: rt.scheduledMessages, push: rt.push, token, agent: { model: rt.model },
-  settings: rt.settings, busyInput: rt.busyInput, sessionTalk: rt.sessionTalk, conversations: rt.conversations, wife: rt.wife, projectExtensions: rt.projectExtensions,
+  settings: rt.settings, busyInput: rt.busyInput, sessionTalk: rt.sessionTalk, conversations: rt.conversations, steward: rt.steward, projectExtensions: rt.projectExtensions,
   models: rt.models, providers: rt.providers, store: rt.store, scheduler: rt.scheduler, memory: rt.memory, skillDirs: rt.skillDirs, mcp: rt.mcp,
   workers: rt.workers, terminals: rt.terminals, browserPanel: rt.browserPanel, uploads: rt.uploads, webhooks: rt.webhooks, mail: rt.mail, cwd: cfg.cwd,
 });

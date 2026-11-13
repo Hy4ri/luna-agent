@@ -38,7 +38,7 @@ export function resolveQuickSessionTarget(
 
 /**
  * Resolve the project a UI snap session should start in.
- * Uses the saved snap project when it still exists; otherwise prefers a `luna-pi` project, then `fallback`, then the first project.
+ * Uses the saved snap project when it still exists; otherwise prefers a `luna-agent` project, then `fallback`, then the first project.
  */
 export function resolveSnapProject(
   projects: readonly Pick<Project, "id" | "name">[],
@@ -49,8 +49,8 @@ export function resolveSnapProject(
     const id = Number(saved);
     if (Number.isInteger(id) && projects.some(p => p.id === id)) return id;
   }
-  const lunaPi = projects.find(p => p.name.toLowerCase() === "luna-pi");
-  if (lunaPi) return lunaPi.id;
+  const lunaAgent = projects.find(p => ["luna-agent", "luna-pi"].includes(p.name.toLowerCase())); // "luna-pi": old name, remove after next release
+  if (lunaAgent) return lunaAgent.id;
   if (fallback !== undefined && fallback !== null && projects.some(p => p.id === fallback)) return fallback;
   return projects[0]?.id ?? fallback ?? null;
 }

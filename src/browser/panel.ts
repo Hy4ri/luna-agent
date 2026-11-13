@@ -4,7 +4,7 @@
 //   binary frames, server → client : one image (JPEG from CDP screencast, PNG from screenshot polling)
 //   text frames,   server → client : {"type":"meta",width,height,url,input,live} | {"type":"closed"} | {"type":"error",message}
 //   text frames,   client → server : {"type":"input",event:BrowserInput}
-// Two-way always: Luna and m57 can both act on any tab without locking.
+// Two-way always: Luna and the user can both act on any tab without locking.
 // The browser never puts the Bearer token in a URL: it asks for a ticket over authenticated HTTP, then opens the socket with the ticket.
 import type { Server, ServerWebSocket } from "bun";
 import type { BrowserFrame, BrowserInput, BrowserProvider, BrowserResolver, BrowserTab, BrowserTabHooks } from "../browser-tools.js";
@@ -19,7 +19,7 @@ export interface PanelTab {
   tabId: string; session: number; worker: number | null; url: string;
   /** Who opened the tab. */
   owner: TabOwner;
-  /** m57 can click and type. False: view only. */
+  /** The user can click and type. False: view only. */
   input: boolean;
   /** Pushed frames. False: screenshots about once a second. */
   live: boolean;
@@ -62,7 +62,7 @@ export class BrowserPanel implements BrowserTabHooks {
   private streams = new Map<string, Stream>();
   private tickets = new Map<string, { tab: string; expires: number }>();
   private issued: number[] = [];
-  /** m57's panel activity per session, until Luna's next browser call. */
+  /** The user's panel activity per session, until Luna's next browser call. */
   private notices = new Map<number, string[]>();
   private readonly now: () => number;
 
@@ -127,7 +127,7 @@ export class BrowserPanel implements BrowserTabHooks {
     const provider = await this.resolveOrThrow(worker, signal);
     const tab = await provider.open({ url }, signal);
     this.opened({ session, worker, ...tab, provider }, "user");
-    this.note(session, `m57 opened ${tab.tabId} at ${tab.url}`);
+    this.note(session, `the user opened ${tab.tabId} at ${tab.url}`);
     return this.get(tab.tabId)!;
   }
   private async resolveOrThrow(worker: number | null, signal: AbortSignal) {
@@ -137,7 +137,7 @@ export class BrowserPanel implements BrowserTabHooks {
     const e = this.owned(session, tabId);
     await e.provider.close({ tabId }, new AbortController().signal).catch(() => {});
     this.closed(tabId);
-    this.note(session, `m57 closed ${tabId}`);
+    this.note(session, `the user closed ${tabId}`);
   }
 
   // --- tickets ---
@@ -208,7 +208,7 @@ export class BrowserPanel implements BrowserTabHooks {
     const event = parseInput(msg.event);
     if (!event) return;
     e.provider.input({ tabId: id, event }).then(result => {
-      if (result?.url && result.url !== e.url) { e.url = result.url; this.pushMeta(e); this.note(e.session, `m57 went to ${result.url} in ${id}`); }
+      if (result?.url && result.url !== e.url) { e.url = result.url; this.pushMeta(e); this.note(e.session, `the user went to ${result.url} in ${id}`); }
     }).catch(error => this.json(ws, { type: "error", message: (error as Error).message }));
   }
 

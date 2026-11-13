@@ -48,7 +48,7 @@ function makeTransport(cfg: McpServerConfig): Transport {
 
 /** Connect one MCP server, list its tools, and wrap them as an Extension `mcp-<name>` with tools `<name>__<tool>`. */
 export async function connectMcpServer(cfg: McpServerConfig): Promise<McpConnection> {
-  const client = new Client({ name: "luna-pi", version: "1.0.0" });
+  const client = new Client({ name: "luna-agent", version: "1.0.0" });
   await client.connect(makeTransport(cfg));
   try {
     const tools: any[] = [];

@@ -2,7 +2,7 @@
 name = "luna-desktop"
 version = "0.1.0"
 edition = "2021"
-description = "Desktop shell for the luna-pi web UI"
+description = "Desktop shell for the luna-agent web UI"
 
 [lib]
 name = "luna_desktop_lib"

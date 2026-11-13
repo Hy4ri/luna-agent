@@ -15,13 +15,13 @@ test("sortProjects places favourites first and keeps relative order inside each 
 test("resolveQuickSessionTarget defaults to main host for Chats, General, or main-host projects", () => {
   const projects = [
     { id: 0, general: true, cwd: "" },
-    { id: 1, cwd: "/home/m57/Projects/luna-pi", workerDirs: [{ worker: 2, cwd: "/srv/luna-pi" }] },
+    { id: 1, cwd: "/home/you/projects/luna-agent", workerDirs: [{ worker: 2, cwd: "/srv/luna-agent" }] },
   ];
   const workers = [{ id: 2, name: "arm-worker", online: true }];
 
   expect(resolveQuickSessionTarget(null, "Chats", projects, workers)).toEqual({ worker: null });
   expect(resolveQuickSessionTarget(0, "General", projects, workers)).toEqual({ worker: null });
-  expect(resolveQuickSessionTarget(1, "luna-pi", projects, workers)).toEqual({ worker: null });
+  expect(resolveQuickSessionTarget(1, "luna-agent", projects, workers)).toEqual({ worker: null });
 });
 
 test("resolveQuickSessionTarget picks the first online linked worker for worker-only projects", () => {
@@ -63,7 +63,7 @@ test("resolveQuickSessionTarget disables quick-new with a clear reason when no l
 const snapProjects = [
   { id: 0, name: "General", general: true, favorite: false },
   { id: 2, name: "hermes-mobile", favorite: true },
-  { id: 5, name: "luna-pi", favorite: false },
+  { id: 5, name: "luna-agent", favorite: false },
 ];
 
 test("resolveSnapProject uses the saved project when it exists in the project list", () => {
@@ -71,20 +71,20 @@ test("resolveSnapProject uses the saved project when it exists in the project li
   expect(resolveSnapProject(snapProjects, "0", 5)).toBe(0);
 });
 
-test("resolveSnapProject defaults to luna-pi when no valid saved project exists", () => {
+test("resolveSnapProject defaults to luna-agent when no valid saved project exists", () => {
   expect(resolveSnapProject(snapProjects, null, 2)).toBe(5);
   expect(resolveSnapProject(snapProjects, "", 0)).toBe(5);
   expect(resolveSnapProject(snapProjects, "999", 2)).toBe(5);
   expect(resolveSnapProject(snapProjects, "not-a-number", 2)).toBe(5);
 });
 
-test("resolveSnapProject falls back to active project or first project when luna-pi is absent", () => {
-  const withoutLunaPi = [
+test("resolveSnapProject falls back to active project or first project when luna-agent is absent", () => {
+  const withoutLunaAgent = [
     { id: 0, name: "General" },
     { id: 2, name: "hermes-mobile" },
   ];
-  expect(resolveSnapProject(withoutLunaPi, null, 2)).toBe(2);
-  expect(resolveSnapProject(withoutLunaPi, "999", null)).toBe(0);
+  expect(resolveSnapProject(withoutLunaAgent, null, 2)).toBe(2);
+  expect(resolveSnapProject(withoutLunaAgent, "999", null)).toBe(0);
   expect(resolveSnapProject([], null, 2)).toBe(2);
   expect(resolveSnapProject([], null, null)).toBe(null);
 });

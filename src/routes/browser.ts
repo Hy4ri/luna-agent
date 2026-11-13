@@ -23,7 +23,7 @@ export function registerBrowser(app: Hono, ctx: RouteCtx): void {
     return c.json({ enabled: panel.enabled(), tabs: panel.enabled() ? panel.list(sid) : [] });
   });
 
-  // m57 opens a tab from the panel. It runs on the machine the session uses, like Luna's own tabs.
+  // The user opens a tab from the panel. It runs on the machine the session uses, like Luna's own tabs.
   app.post("/v1/sessions/:sid/browser", async c => {
     const sid = sessionId(c.req.param("sid"));
     const conv = sid ? await getConv(String(sid)) : undefined;

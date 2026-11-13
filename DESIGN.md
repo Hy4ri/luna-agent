@@ -2,7 +2,7 @@
 
 ## Scope and Sources of Truth
 
-This document defines visual, layout, interaction, and accessibility requirements for new or changed UI in `luna-pi` (`web/`). It complements:
+This document defines visual, layout, interaction, and accessibility requirements for new or changed UI in `luna-agent` (`web/`). It complements:
 
 - [`AGENTS.md`](AGENTS.md): operational rules, runtime contracts, and verification commands.
 - [`CONFIGURATION.md`](CONFIGURATION.md): user settings, tool contracts, and HTTP API reference.

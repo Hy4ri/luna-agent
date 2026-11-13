@@ -1,4 +1,4 @@
-// Contract: a session can go through Wife cards with m57 and clean up other sessions through the wife tool,
+// Contract: a session can go through Steward cards with the user and clean up other sessions through the steward tool,
 // acting only on the ids it is given, with a reason for dismiss and confirm for destructive cards.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,25 +12,25 @@ import { AskDoc } from "../src/ask.js";
 import { GoalDoc } from "../src/goal-doc.js";
 import { SessionHandoffDoc, SessionReadDoc } from "../src/session-status.js";
 import { TodoDoc } from "../src/todo.js";
-import { WifeStore } from "../src/wife/store.js";
-import { WifeService } from "../src/wife/service.js";
-import { createWifeExtension } from "../src/wife/tool.js";
+import { StewardStore } from "../src/steward/store.js";
+import { StewardService } from "../src/steward/service.js";
+import { createStewardExtension } from "../src/steward/tool.js";
 
 type Result = { isError?: boolean; output: { text: string }[] };
 type Tool = { execute(args: Record<string, unknown>, api: unknown, ctx: unknown): Promise<Result> };
 
 async function fixture() {
-  const dir = await mkdtemp(join(tmpdir(), "luna-wife-review-"));
+  const dir = await mkdtemp(join(tmpdir(), "luna-steward-review-"));
   const harness = await openLuna({ dbPath: join(dir, "luna.db"), models: createModels(), memory: false, coding: false });
   const conversations = new ConversationStore(harness);
-  const store = new WifeStore(":memory:");
-  const wife = new WifeService({ store, conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }) as never });
+  const store = new StewardStore(":memory:");
+  const steward = new StewardService({ store, conversations, analytics: () => ({ sessions: () => [] }) as never, config: () => ({ enabled: true, detectEveryMinutes: 30, staleDays: 14, deleteArchivedAfterDays: 60 }) as never });
   const archived: number[] = [];
-  const ext = createWifeExtension({ wife: () => wife, sessionExists: id => conversations.exists(id), conversations: () => conversations, onArchive: async id => { archived.push(id); } });
+  const ext = createStewardExtension({ steward: () => steward, sessionExists: id => conversations.exists(id), conversations: () => conversations, onArchive: async id => { archived.push(id); } });
   const tool = (ext as unknown as { tools: Tool[] }).tools[0]!;
   const api = { conversationId: 1, commit: (fn: never) => harness.commit(fn, context) };
   const run = async (args: Record<string, unknown>) => { const r = await tool.execute(args, api, context); return { error: !!r.isError, text: r.output[0]!.text }; };
-  return { harness, conversations, store, wife, run, archived, async close() { store.close(); await harness.close(context); await rm(dir, { recursive: true, force: true }); } };
+  return { harness, conversations, store, steward, run, archived, async close() { store.close(); await harness.close(context); await rm(dir, { recursive: true, force: true }); } };
 }
 const card = (fp: string, extra: Record<string, unknown> = {}) => ({ kind: "feature_tip", fingerprint: fp, title: fp, body: "why", evidence: [{ sessionId: 3, note: "seen" }], payload: { tip: fp }, source: "detector", ...extra }) as never;
 
@@ -97,7 +97,7 @@ test("session housekeeping: view, finish todos, cancel questions, clear status, 
     expect((await f.run({ action: "todos_done", session: id })).error).toBe(true);   // needs ids or all
     expect((await f.run({ action: "todos_done", session: id, todo_ids: [2, 3] })).text).toMatch(/Completed 2\. Not open: 3\./);
     expect((await f.run({ action: "todos_done", session: id, all: true })).text).toMatch(/Completed 1\./);
-    expect((await f.run({ action: "cancel_questions", session: id, note: "m57 said no" })).text).toMatch(/Cancelled 1 question\./);
+    expect((await f.run({ action: "cancel_questions", session: id, note: "user said no" })).text).toMatch(/Cancelled 1 question\./);
     expect((await f.run({ action: "clear_status", session: id })).text).toMatch(/Cleared the handoff/);
     expect((await f.run({ action: "goal", session: id, goal: "pause" })).text).toMatch(/Goal paused\./);
     expect((await f.run({ action: "goal", session: id, goal: "clear" })).text).toMatch(/Goal cleared\./);
@@ -107,7 +107,7 @@ test("session housekeeping: view, finish todos, cancel questions, clear status, 
       expect((await tx.doc(TodoDoc, conv.id)).tasks.map(t => t.status)).toEqual(["completed", "completed", "completed"]);
       const ask = await tx.doc(AskDoc, conv.id);
       expect(ask.answers.q1?.cancelled).toBe(true);
-      expect(ask.answers.q1?.globalNote).toBe("m57 said no");
+      expect(ask.answers.q1?.globalNote).toBe("user said no");
       expect((await tx.doc(SessionHandoffDoc, conv.id)).handoff).toBe(null);
       expect((await tx.doc(SessionReadDoc, conv.id)).at).toBeTruthy();
       expect((await tx.doc(GoalDoc, conv.id)).goal).toBe(null);

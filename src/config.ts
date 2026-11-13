@@ -6,10 +6,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
-import { DEFAULT_TIPS, TipSchema } from "./wife/tips.js";
+import { DEFAULT_TIPS, TipSchema } from "./steward/tips.js";
 import { DEFAULT_DELEGATE_PROFILES } from "./delegate-profiles.js";
 
-export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks", "wife", "mail"] as const;
+export const BUILTIN_EXTENSIONS = ["coding", "memory", "skills", "delegate", "cron", "tool-search", "todo", "ask-user", "recall", "goal", "codemode", "webhooks", "steward", "mail"] as const;
 export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 /**
  * Registry extensions behind each built-in name. A name missing from `extensions` hides these from every session live.
@@ -17,7 +17,7 @@ export type BuiltinExtension = (typeof BUILTIN_EXTENSIONS)[number];
 export const BUILTIN_REGISTRY_NAMES: Record<BuiltinExtension, readonly string[]> = {
   coding: ["coding-tools", "busy-processes"], memory: ["memory"], skills: ["skills"], delegate: ["delegate", "delegate-results", "session-crew"],
   cron: [], "tool-search": ["tool-search", "deferred-tools"], todo: ["todo"], "ask-user": ["ask-user"],
-  recall: ["recall"], goal: ["goal"], codemode: ["codemode"], webhooks: ["webhooks"], wife: ["wife"], mail: ["mail", "mail-send"],
+  recall: ["recall"], goal: ["goal"], codemode: ["codemode"], webhooks: ["webhooks"], steward: ["steward"], mail: ["mail", "mail-send"],
 };
 
 export const WEB_SEARCH_PROVIDERS = ["searxng", "freeserp", "ddgs"] as const;
@@ -179,7 +179,7 @@ export const ConfigSchema = z
     }).prefault({}),
     browser: z.strictObject({
       provider: z.enum(["disabled", "camofox", "moli", "chromium"]).default("disabled"),
-      /** m57's live view of the browser Luna drives, in the web UI. Off by default: the browser may hold logins. */
+      /** The user's live view of the browser Luna drives, in the web UI. Off by default: the browser may hold logins. */
       panel: z.boolean().default(false),
       /** browser_act evaluate: Luna runs JavaScript in pages. Off by default: pages may hold logins. */
       evaluate: z.boolean().default(false),
@@ -196,9 +196,9 @@ export const ConfigSchema = z
     }).prefault({}),
     /** Interactive terminals. Off by default: a terminal has the same host access as bash. */
     terminal: z.strictObject({
-      /** m57's shells in the web UI. */
+      /** The user's shells in the web UI. */
       user: z.boolean().default(false),
-      /** Luna's `terminal` tool for interactive programs, and terminals m57 shares with her. */
+      /** Luna's `terminal` tool for interactive programs, and terminals the user shares with her. */
       agent: z.boolean().default(false),
     }).prefault({}),
     codemode: z.strictObject({
@@ -244,11 +244,11 @@ export const ConfigSchema = z
     }).prefault({}),
     /** Android push through Firebase Cloud Messaging. Off until a service-account key file is set. */
     push: z.strictObject({ serviceAccountFile: z.string().min(1).optional() }).prefault({}),
-    /** Wife: suggestion cards from session activity. */
-    wife: z.strictObject({
+    /** Steward: suggestion cards from session activity. */
+    steward: z.strictObject({
       enabled: z.boolean().default(true), detectEveryMinutes: z.number().int().min(1).max(1440).default(30),
       staleDays: z.number().int().min(1).max(3650).default(14), deleteArchivedAfterDays: z.number().int().min(1).max(3650).default(60),
-      /** Rule ids and card kinds Wife no longer files. Agreeing to a mute card adds to these. */
+      /** Rule ids and card kinds Steward no longer files. Agreeing to a mute card adds to these. */
       mutedRules: z.array(z.string()).default([]), mutedKinds: z.array(z.string()).default([]),
       /** Cron expression for the model pass. It skips a slot when no session was active since its last run (skill and memory cards). Empty turns it off. */
       modelSchedule: z.string().default("0 4,10,16,22 * * *"),
@@ -256,7 +256,7 @@ export const ConfigSchema = z
       maxNewPerDay: z.number().int().min(1).max(1000).default(10),
       /** Local-time window (HH:MM) in which new cards stay hidden. */
       quietHours: z.strictObject({ enabled: z.boolean().default(false), from: z.string().regex(/^\d{2}:\d{2}$/).default("22:00"), to: z.string().regex(/^\d{2}:\d{2}$/).default("08:00") }).prefault({}),
-      /** Which projects Wife watches. ids hold project ids; 0 is General. */
+      /** Which projects Steward watches. ids hold project ids; 0 is General. */
       projects: z.strictObject({ mode: z.enum(["all", "only", "except"]).default("all"), ids: z.array(z.number().int().min(0)).default([]) }).prefault({}),
       /** Feature tips. Edit, add or remove rules here. */
       tips: z.array(TipSchema).default(() => structuredClone(DEFAULT_TIPS)),
@@ -301,6 +301,7 @@ export const RETIRED_TOOL_NAMES: Readonly<Record<string, string>> = {
   cron_history: "cron", vision_analyze: "media_analyze", video_analyze: "media_analyze",
   browser_tab: "browser", browser_inspect: "browser", process: "process_manage",
   delegate_task: "subagent", session_handoff: "session_status", machine_exec: "worker_exec", session_workspace: "session_worktree",
+  wife: "steward", // deprecated: remove after next release
 };
 export const renameTools = (names: unknown) => Array.isArray(names) ? [...new Set(names.map(n => typeof n === "string" ? RETIRED_TOOL_NAMES[n] ?? n : n))] : names;
 
@@ -311,11 +312,22 @@ function migrateToolNames(obj: Record<string, any>) {
   for (const profile of Object.values(obj.subagents?.profiles ?? {}) as any[]) if (profile?.tools) profile.tools = renameTools(profile.tools);
 }
 
-/** The session-learning and self-improve systems were replaced by Wife. Saved configs that still carry their keys keep loading. */
+/** The session-learning and self-improve systems were replaced by Steward. Saved configs that still carry their keys keep loading. */
 function migrateRemovedLearning(obj: Record<string, any>) {
   if (Array.isArray(obj.extensions)) obj.extensions = obj.extensions.filter((e: unknown) => e !== "improve" && e !== "learn");
   delete obj.learn;
   if (obj.improve && typeof obj.improve === "object") delete obj.improve.schedule;
+}
+
+// deprecated: remove after next release
+function migrateWifeToSteward(obj: Record<string, any>) {
+  if (obj.wife !== undefined) {
+    if (obj.steward === undefined) obj.steward = obj.wife;
+    delete obj.wife;
+  }
+  if (Array.isArray(obj.extensions) && obj.extensions.includes("wife")) {
+    obj.extensions = [...new Set(obj.extensions.map((e: unknown) => (e === "wife" ? "steward" : e)))];
+  }
 }
 
 export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.ProcessEnv = process.env): LunaConfig {
@@ -331,6 +343,7 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
   }
   migrateToolNames(obj);
   migrateRemovedLearning(obj);
+  migrateWifeToSteward(obj);
   const r = ConfigSchema.safeParse(obj);
   if (!r.success) throw new Error("invalid luna config:\n" + r.error.issues.map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n"));
   const c = r.data;
@@ -372,3 +385,4 @@ export function loadConfig(path = process.env.LUNA_CONFIG): LunaConfig {
   try { raw = JSON.parse(readFileSync(file, "utf8")); } catch (e) { throw new Error(`${file}: ${configDiagnostic(e)}`); }
   return { ...parseConfig(raw, dirname(file)), configPath: file };
 }
+

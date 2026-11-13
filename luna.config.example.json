@@ -39,7 +39,7 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/home/m57/Projects"
+        "/home/you/projects"
       ],
       "enabled": false
     },

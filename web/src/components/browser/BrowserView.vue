@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// One browser tab: a canvas that draws the frames the server pushes, and m57's pointer and keys sent back while he drives.
+// One browser tab: a canvas that draws the frames the server pushes, and your pointer and keys sent back while you drive.
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { applyMeta, browser, browserAttachUrl, dropBrowserTab } from "@/stores/browser";
 import { toPagePoint } from "@/lib/browser-view";

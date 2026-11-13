@@ -65,7 +65,7 @@ test("schedules use the process local zone", () => {
   } finally { process.env.TZ = "UTC"; }
 });
 
-// Known DST bugs (Europe/Berlin). m57 runs in Asia/Amman, which has no DST, so these do not fire there today.
+// Known DST bugs (Europe/Berlin). Asia/Amman has no DST, so these do not fire there today.
 test.todo("DST spring forward: a job in the skipped hour still runs that day", () => {
   process.env.TZ = "Europe/Berlin"; // 2026-03-29 02:00 CET -> 03:00 CEST; 02:30 does not exist.
   try {

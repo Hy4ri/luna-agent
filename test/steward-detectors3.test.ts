@@ -3,8 +3,8 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans } from "../src/wife/detectors3.js";
-import { listSessionWorktrees, removeSessionWorktree } from "../src/wife/git.js";
+import { bgLeftovers, projectSetupRepeat, promptRepeat, skillsUnused, toolErrorRepeat, worktreeOrphans } from "../src/steward/detectors3.js";
+import { listSessionWorktrees, removeSessionWorktree } from "../src/steward/git.js";
 
 const DAY = 86_400_000;
 
@@ -54,15 +54,15 @@ test("project_setup_repeat groups by project and ignores General", () => {
   const f = [1, 2, 3].map(i => ({ conv: i, project: 4, text: setup + i }));
   expect(projectSetupRepeat(f).length).toBe(1);
   expect(projectSetupRepeat(f.map(x => ({ ...x, project: 0 }))).length).toBe(0);
-  // Crew and peer messages are written by sessions, not typed by m57.
-  const peer = (n: number) => `[message from session #${n} "Lead": a peer session, not m57. It is your crew lead: it created this session and gives you tasks.`;
+  // Crew and peer messages are written by sessions, not typed by the user.
+  const peer = (n: number) => `[message from session #${n} "Lead": a peer session, not the user. It is your crew lead: it created this session and gives you tasks.`;
   expect(projectSetupRepeat([1, 2, 3].map(i => ({ conv: i, project: 4, text: peer(100 + i) }))).length).toBe(0);
   expect(promptRepeat([1, 2, 3].map(i => ({ conv: i, ts: i * DAY, text: peer(100 + i) }))).length).toBe(0);
 });
 
 test("session worktrees: a fresh one is not removed dirty, a clean one is removed with its branch", () => {
   const sh = (cwd: string, ...a: string[]) => { const p = Bun.spawnSync(a, { cwd }); expect(p.exitCode).toBe(0) /* p.stderr.toString() */; return p.stdout.toString().trim(); };
-  const root = mkdtempSync(join(tmpdir(), "wife-git-"));
+  const root = mkdtempSync(join(tmpdir(), "steward-git-"));
   const repo = join(root, "repo");
   sh(root, "git", "init", "-q", "-b", "main", repo);
   sh(repo, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");

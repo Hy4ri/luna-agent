@@ -13,7 +13,7 @@ const addressInput = ref<HTMLInputElement | null>(null);
 watch(() => [current.value?.tabId, current.value?.url] as const, ([, url]) => { if (!editing.value) address.value = url ?? ""; }, { immediate: true });
 
 const host = (url: string) => { try { return new URL(url).host || url; } catch { return url || "new tab"; } };
-// Navigation goes through the visible tab's socket, which only forwards input while m57 drives.
+// Navigation goes through the visible tab's socket, which only forwards input while you drive.
 const views = ref<Record<string, InstanceType<typeof BrowserView> | null>>({});
 
 function submitAddress() {
@@ -28,7 +28,7 @@ function navInput(event: Record<string, unknown>) {
   if (!t) return;
   views.value[t.tabId]?.sendNav(event);
 }
-// A new tab starts blank, like a browser's: nothing carries over from the tab on screen. The page opens when m57 enters an address.
+// A new tab starts blank, like a browser's: nothing carries over from the tab on screen. The page opens when you enter an address.
 async function newTab() {
   browser.draft = true;
   editing.value = false;

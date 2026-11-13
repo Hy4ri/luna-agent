@@ -442,21 +442,21 @@ Saved configs that still list them load unchanged: the keys are dropped. `improv
 shell benchmarks in `skill action=propose`. On start the old `luna-learn` and `luna-self-improve` cron jobs are disabled,
 with their history kept. `learn.db` stays on disk, unused.
 
-## Wife
+## Steward
 
-Wife is a page of suggestion cards built from your session activity. A card can be agreed (Wife does the work), discussed
-(opens a session seeded with the card), snoozed, or dismissed with a reason. State lives in `wife.db`.
-Wife only suggests. She never edits her own rules or code, merges, or acts alone. Agreeing to a delete needs `confirm:true`
+Steward is a page of suggestion cards built from your session activity. A card can be agreed (Steward does the work), discussed
+(opens a session seeded with the card), snoozed, or dismissed with a reason. State lives in `steward.db`.
+Steward only suggests. She never edits her own rules or code, merges, or acts alone. Agreeing to a delete needs `confirm:true`
 (the page asks first); deleting a session cannot be undone. Other direct actions can be undone for 7 days (archive, move,
 new project, memory).
 
-Detectors run every `wife.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
+Detectors run every `steward.detectEveryMinutes` without a model: idle sessions to archive, archived sessions to delete,
 misfiled sessions, new projects, feature tips, unfinished goals, failing cron jobs, repeated quota waits, stuck board cards, orphan session worktrees (merged branch or deleted session, and clean), leftover terminals in idle sessions, tools that fail on 20% or more of 10+ calls in 3 or more sessions a week (one card per week), sessions that compacted 5 or more times in 14 days (one card per week), managed skills unused for 60 days, a prompt you send on a regular rhythm, and a session opening you repeat in one project. Agreeing to the last two starts a work session. Agreeing to a worktree card removes the worktree and its branch.
-A daily model pass, the built-in cron job `luna-wife`, files skill and memory cards through the `wife` tool.
+A daily model pass, the built-in cron job `luna-steward`, files skill and memory cards through the `steward` tool.
 It is the only part that costs model calls. Run it by hand with `cron action=run`.
 
 ```json
-"wife": {
+"steward": {
   "enabled": true,
   "detectEveryMinutes": 30,
   "staleDays": 14,
@@ -469,21 +469,21 @@ It is the only part that costs model calls. Run it by hand with `cron action=run
 }
 ```
 
-- `modelSchedule`: cron expression for the model pass (default four times a day). A slot is recorded as skipped, with reason `unchanged`, when no non-cron session was active since the last run; a manual run always runs. Empty turns it off. Add `"wife"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
+- `modelSchedule`: cron expression for the model pass (default four times a day). A slot is recorded as skipped, with reason `unchanged`, when no non-cron session was active since the last run; a manual run always runs. Empty turns it off. Add `"steward"` to `extensions` to enable the tool and job on a config that lists extensions by hand.
 - `maxNewPerDay`: new cards over the cap wait and show up on the next day, the most useful kinds first. Quiet hours hide new cards the same way. Scan now on the page fills the page back up to the cap at once, and says what it filed, showed, and held.
-- `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Wife watches.
+- `projects`: `only` or `except` with project ids (`0` is General) limits which sessions Steward watches.
 - `tips`: editable catalog of feature tips. Each rule is `{id, title, body, docs?, when, enable?}`.
-- Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Wife never does it alone.
-- The session header has an Ask Wife button. It runs the detectors on that session now, ignoring quiet hours and the cap, shows every held card about that session, and says so when there is none.
+- Dismiss reasons feed back. Rules that are dismissed often produce a tune card (loosen a threshold) or a mute card (`mutedRules`, `mutedKinds`). Agreeing to those edits this config; Steward never does it alone.
+- The session header has an Ask Steward button. It runs the detectors on that session now, ignoring quiet hours and the cap, shows every held card about that session, and says so when there is none.
 - Peer and crew messages (`[message from session #N ...`) do not count as prompts you repeat or session openings.
-- The `wife` tool lets any session go through the cards with you: `list` (id, fingerprint, body, evidence, payload), `agree`, `dismiss` (needs a reason), and `snooze` on the card ids you name, plus `scan`. Delete and worktree cards need `confirm:true`.
-  It also cleans up a session you name without a message to it: `session` (open todos, unanswered questions, goal, status), `todos_done` (`todo_ids` or `all:true`), `cancel_questions`, `clear_status` (drops a needs-input handoff and marks it read), `goal` (`pause`, `complete`, `clear`), and `edit_session` (`title`, `archived`, `pinned`, `project`). The daily `luna-wife` job uses only `list` and `suggest`.
+- The `steward` tool lets any session go through the cards with you: `list` (id, fingerprint, body, evidence, payload), `agree`, `dismiss` (needs a reason), and `snooze` on the card ids you name, plus `scan`. Delete and worktree cards need `confirm:true`.
+  It also cleans up a session you name without a message to it: `session` (open todos, unanswered questions, goal, status), `todos_done` (`todo_ids` or `all:true`), `cancel_questions`, `clear_status` (drops a needs-input handoff and marks it read), `goal` (`pause`, `complete`, `clear`), and `edit_session` (`title`, `archived`, `pinned`, `project`). The daily `luna-steward` job uses only `list` and `suggest`.
 
 Cost and context: `cost_habit` flags a project whose cost per turn is over 2x the median of projects (30 days). `compaction_heavy` flags a live session that compacted 3 or more times. Agree opens a session that advises. It changes nothing itself. `weekly_recap` files one card a week from your boards. Agree opens a planning session.
 
 Rule trials: the daily model pass can file `new_rule` cards with a rule in the `tips` format. Agree adds it with `status: "shadow"`. A shadow rule only logs what it would flag. After 7 days a `promote_rule` card lists those hits. Agree turns the rule on, and Dismiss deletes it. A tip's `when.kind` can be `tool`, `skill` or `compaction`. The `reminder_unscheduled` card (model-found) schedules a message into a session on Agree.
 
-Rule conditions: a rule's `when` can also set `project` (project id), `cwd` (text the session directory contains) and `idleDays` (the newest matching call is at least that old). Leftover browser tabs in idle sessions are a `browser_leftover` card; Agree closes the tab. The model pass can file `rule_idea` cards for rules that need data Wife does not collect. Agree starts a work session that implements it as a detector on its own worktree branch. Nothing merges without you.
+Rule conditions: a rule's `when` can also set `project` (project id), `cwd` (text the session directory contains) and `idleDays` (the newest matching call is at least that old). Leftover browser tabs in idle sessions are a `browser_leftover` card; Agree closes the tab. The model pass can file `rule_idea` cards for rules that need data Steward does not collect. Agree starts a work session that implements it as a detector on its own worktree branch. Nothing merges without you.
 
 ## Learning from a source
 
@@ -1310,8 +1310,8 @@ Routes (Bearer token; a terminal that belongs to another session returns 404):
 - `start` waits until the program draws its first screen (up to 8 s). `send` returns when the program has answered the input and gone quiet; with `pattern` it waits (up to `timeoutSec`) until a new match shows, so slow programs such as AI chat TUIs return their reply. A match is new when its line shows more often than before the input; scrolling an old match does not count.
 - Keys accept names (Enter, Up, F5, PgDn), modifiers in common spellings (Ctrl-C, C-c, ^C, M-x, Shift-Tab, Shift-Up, Ctrl-Left), single characters (j, /), and repeats (Down*3). Multi-line `text` is sent as one bracketed paste when the program enabled it, else as Enter per line.
 - Each screen ends with a `Highlighted:` line that names the spans drawn on a distinct background, such as the selected menu item, list row, or button; spans of only border or shading glyphs are skipped. Runs of four or more blank rows show as `[rows N-M blank]`.
-- Luna's terminals appear in the dock, with only `terminal.agent` on too, and m57 watches them live. One side types at a time: **Take over** moves the keyboard to m57 and Luna's input is refused until he presses **Give to Luna**. While Luna types, m57's keys and sizes are dropped.
-- m57 can **Share with Luna** one of his own shells. She can read it; she can type only after he gives it to her. **Stop sharing** hides it again.
+- Luna's terminals appear in the dock, with only `terminal.agent` on too, and you watch them live. One side types at a time: **Take over** moves the keyboard to you and Luna's input is refused until you press **Give to Luna**. While Luna types, your keys and sizes are dropped.
+- You can **Share with Luna** one of your own shells. She can read it; she can type only after you give it to her. **Stop sharing** hides it again.
 - Terminals do not survive a daemon restart.
 
 ## Web frontend development
@@ -1649,7 +1649,7 @@ Friendly errors distinguish interruption (`Interrupted`), timeout, authenticatio
 Provider error bodies and credentials are not returned.
 
 Sources can be local regular files (relative to the conversation working directory) or public HTTP(S) URLs.
-Luna-pi has no remote terminal backend or media resolver; remote paths and data URLs are unsupported.
+Luna-agent has no remote terminal backend or media resolver; remote paths and data URLs are unsupported.
 Local files remain in place and are never removed. Video-specific read guards resolve symlinks and block known credential paths,
 including the runtime config, auth/MCP credential files, `.env*`, `.ssh`, `.aws`, and `.gnupg`.
 `video.blocked_paths` adds blocked files/directories, relative to the conversation working directory.
@@ -1783,7 +1783,7 @@ the board prompt section is omitted. The `board` tool remains available for expl
 
 ## Board events
 
-A card whose owner is `session <id>` sends that session short events. Free-text owners such as `m57` get none.
+A card whose owner is `session <id>` sends that session short events. Free-text owners such as `Alex` get none.
 An idle session starts a new turn. A busy session queues the event. A session that no longer exists loses the owner.
 
 - A user change through `PATCH /v1/projects/:id/cards/:cardId` (status, archive, owner) sends one line to the owner.
@@ -2106,7 +2106,7 @@ Verification:
 ```sh
 bun test test/worker-exec.test.ts test/workers-cli.test.ts
 # Opt-in real desktop test. Copies a temporary bundled worker; installs no desktop service.
-LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 bun run verify:workers:desktop
+LUNA_TEST_DESKTOP=user@192.168.1.20 LUNA_TEST_MAIN_URL=http://192.168.1.10 bun run verify:workers:desktop
 ```
 
 ## Manual session pruning

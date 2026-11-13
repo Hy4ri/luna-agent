@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { wifeOpen, startWifeBadge, stopWifeBadge } from "@/stores/wife";
+import { stewardOpen, startStewardBadge, stopStewardBadge } from "@/stores/steward";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { serverUrl, token } from '@/lib/api';
 import {
@@ -38,7 +38,7 @@ import {
 } from "@lucide/vue";
 import { useMobile } from "@/lib/dom";
 import { useVirtualList } from "@vueuse/core";
-import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openWife, openSourceControl } from "@/stores/app";
+import { ui, toggleCollapsed, setSideWidth, openPanel, setDrawer, openAnalytics, openSteward, openSourceControl } from "@/stores/app";
 import { chat, openSession, newSession } from "@/stores/chat";
 import { loadWorkers, workers } from "@/stores/workers";
 import { sortProjects, resolveQuickSessionTarget } from "@/lib/projects";
@@ -398,13 +398,13 @@ function menuKey(e: KeyboardEvent) {
   items[(index + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
 }
 onUnmounted(() => {
-  stopWifeBadge();
+  stopStewardBadge();
   if (copyTimer) clearTimeout(copyTimer);
   document.removeEventListener('pointerdown', outsideMenu);
   document.removeEventListener('keydown', menuKey, true);
 });
 onMounted(() => {
-  startWifeBadge();
+  startStewardBadge();
   loadWorkers().catch((e) => console.warn("Failed to load workers:", e));
   document.addEventListener('pointerdown', outsideMenu);
   document.addEventListener('keydown', menuKey, true);
@@ -461,7 +461,7 @@ onMounted(() => {
         <span class="side-label">Board</span>
       </button>
       <button class="side-item" title="Analytics" :aria-current="ui.view === 'analytics' ? 'page' : undefined" @click="openAnalytics"><ChartNoAxesColumn :size="16" /><span class="side-label">Analytics</span></button>
-      <button class="side-item" title="Wife" :aria-current="ui.view === 'wife' ? 'page' : undefined" @click="openWife"><HeartHandshake :size="16" /><span class="side-label">Wife</span><span v-if="wifeOpen" class="ml-auto text-xs tabular-nums text-muted-foreground">{{ wifeOpen }}</span></button>
+      <button class="side-item" title="Steward" :aria-current="ui.view === 'steward' ? 'page' : undefined" @click="openSteward"><HeartHandshake :size="16" /><span class="side-label">Steward</span><span v-if="stewardOpen" class="ml-auto text-xs tabular-nums text-muted-foreground">{{ stewardOpen }}</span></button>
       <button class="side-item" title="Source Control" :aria-current="ui.view === 'source-control' ? 'page' : undefined" @click="openSourceControl"><GitBranch :size="16" /><span class="side-label">Source Control</span></button>
     </nav>
 

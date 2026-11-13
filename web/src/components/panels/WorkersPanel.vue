@@ -43,7 +43,7 @@ onMounted(refresh);
 
     <div v-if="created" class="card grid" id="worker-token">
       <b>Token for "{{ created.name }}"</b>
-      <p class="muted text-xs">Shown once. Run this in a luna-pi checkout on that machine. The worker dials this address, so it must reach it.</p>
+      <p class="muted text-xs">Shown once. Run this in a luna-agent checkout on that machine. The worker dials this address, so it must reach it.</p>
       <pre class="select-all whitespace-pre-wrap break-all">{{ command(created.token) }}</pre>
       <div class="row">
         <button type="button" @click="copy(command(created.token))"><Copy :size="14" /> Copy command</button>

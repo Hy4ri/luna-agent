@@ -19,7 +19,7 @@ import ImageViewer from '@/components/ui/ImageViewer.vue';
 import SnapTool from '@/components/SnapTool.vue';
 import { browser, loadBrowser } from '@/stores/browser';
 const AnalyticsPage = defineAsyncComponent(() => import('@/pages/AnalyticsPage.vue'));
-const WifePage = defineAsyncComponent(() => import('@/pages/WifePage.vue'));
+const StewardPage = defineAsyncComponent(() => import('@/pages/StewardPage.vue'));
 const SourceControlPage = defineAsyncComponent(() => import('@/pages/SourceControlPage.vue'));
 const SettingsPage = defineAsyncComponent(() => import('@/pages/SettingsPage.vue'));
 // The terminal adapter and official WASM load only when a terminal opens.
@@ -34,7 +34,7 @@ watch(() => ui.palette, open => { if (open) paletteUsed.value = true; }, { immed
 import { recoveryOpen } from '@/lib/connections';
 import { isDesktop, serverUrl } from '@/lib/api';
 import { ui, boot, login, setDrawer, closePanel, setPalette, navigate } from '@/stores/app';
-import { askWife } from '@/stores/wife';
+import { askSteward } from '@/stores/steward';
 import { terminal, loadTerminals, toggleTerminal } from '@/stores/terminal';
 import { dock, effectivePosition } from '@/stores/dock';
 import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible } from '@/stores/chat';
@@ -301,15 +301,15 @@ async function pinSession() {
   } finally { pinPending.value = false; }
 }
 const askPending = ref(false);
-async function askWifeAboutSession() {
+async function askStewardAboutSession() {
   const session = activeSession.value;
   if (!session || askPending.value) return;
   askPending.value = true;
   try {
-    const r = await askWife(session.id);
+    const r = await askSteward(session.id);
     if (r.error) addErr(r.error);
-    else if (!r.matched) addErr('Wife has no suggestions about this session.', 'muted');
-    else navigate('wife');
+    else if (!r.matched) addErr('Steward has no suggestions about this session.', 'muted');
+    else navigate('steward');
   } finally { askPending.value = false; }
 }
 const password = ref('');
@@ -460,7 +460,7 @@ onUnmounted(() => {
             <button v-if="!docked && reviewJobs.length" type="button" class="icon-button shrink-0" :aria-label="`Inspect review agents${runningReviews ? ' · ' + runningReviews + ' running' : ''}`" title="Review agents" @click="selectedReview = reviewJobs[0]!.id"><ScanEye :size="18" :class="{ 'text-primary-text': runningReviews > 0 }" /></button>
             <MachineStatus v-if="!mobile" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
-            <button v-if="!mobile && activeSession" id="ask-wife" class="icon-button shrink-0" aria-label="Ask Wife about this session" title="Ask Wife about this session" :disabled="askPending" @click="askWifeAboutSession"><Heart :size="18" /></button>
+            <button v-if="!mobile && activeSession" id="ask-steward" class="icon-button shrink-0" aria-label="Ask Steward about this session" title="Ask Steward about this session" :disabled="askPending" @click="askStewardAboutSession"><Heart :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Workspace sidebar" title="Workspace sidebar (Ctrl+`)" @click="toggleTerminal"><PanelRightClose v-if="terminal.open" :size="18" /><PanelRightOpen v-else :size="18" /></button>
             <button v-if="!mobile && (sessionPane || tiled)" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
@@ -470,7 +470,7 @@ onUnmounted(() => {
               </PopoverTrigger>
               <PopoverContent align="end" aria-label="Conversation menu" class="mobile-conversation-menu grid w-64 gap-2 p-2">
                 <MachineStatus />
-                <button v-if="activeSession" class="mobile-menu-action" :disabled="askPending" @click="mobileAction(askWifeAboutSession)"><Heart :size="18" />Ask Wife about this session</button>
+                <button v-if="activeSession" class="mobile-menu-action" :disabled="askPending" @click="mobileAction(askStewardAboutSession)"><Heart :size="18" />Ask Steward about this session</button>
                 <button v-if="activeSession" class="mobile-menu-action" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="mobileAction(pinSession)"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" />{{ activeSession.pinned ? 'Unpin session' : 'Pin session' }}</button>
                 <button v-if="sessionPane || tiled" class="mobile-menu-action" @click="mobileAction(closeTile)"><X :size="18" />Remove tile</button>
               </PopoverContent>
@@ -520,8 +520,8 @@ onUnmounted(() => {
       <div v-if="ui.view === 'analytics'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Analytics" tabindex="-1"><AnalyticsPage :inert="blocked" /></div>
       </div>
-      <div v-if="ui.view === 'wife'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
-        <div class="settings-window" role="dialog" aria-modal="true" aria-label="Wife" tabindex="-1"><WifePage :inert="blocked" /></div>
+      <div v-if="ui.view === 'steward'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+        <div class="settings-window" role="dialog" aria-modal="true" aria-label="Steward" tabindex="-1"><StewardPage :inert="blocked" /></div>
       </div>
       <div v-if="ui.view === 'source-control'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Source Control" tabindex="-1"><SourceControlPage :inert="blocked" /></div>
@@ -538,7 +538,7 @@ onUnmounted(() => {
         <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">
           <div class="flex items-center gap-3"><Moon :size="22" class="text-primary-text" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>
           <p class="text-sm text-muted-foreground">{{ isDesktop ? 'Enter the address of your Luna daemon (localhost or another machine) and its token.' : 'Enter your server token to open your workspace.' }}</p>
-          <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.57:8787" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
+          <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.10:8787" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
           <label class="grid gap-2 text-xs">Server token<input id="token" v-model="password" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" :required="!isDesktop" class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
           <button class="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">Connect</button>
           <span id="loginErr" role="alert" class="text-sm text-destructive">{{ ui.loginError }}</span>

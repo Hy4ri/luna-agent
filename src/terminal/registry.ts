@@ -190,7 +190,7 @@ export class TerminalRegistry {
     return { info: { ...e.info }, replay: Buffer.concat(e.ring), detach: () => { e.listeners.delete(listener); } };
   }
 
-  /** m57's keys. Always two-way: m57 and Luna can both type without locking. */
+  /** The user's keys. Always two-way: the user and Luna can both type without locking. */
   write(id: string, data: string | Buffer) {
     const e = this.entry(id);
     if (e.proc && e.info.status === "running") e.proc.write(data);
@@ -210,7 +210,7 @@ export class TerminalRegistry {
     e.info.cols = c; e.info.rows = r;
   }
 
-  /** Luna's keys. Refused while m57 has control. */
+  /** Luna's keys. Refused while the user has control. */
   agentWrite(id: string, session: number, data: string) {
     const e = this.agentControlled(id, session);
     e.proc?.write(data);
