@@ -114,7 +114,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 ### 2. Chat Transcript, Media, & Tool Renderers (`web/src/components/chat/`)
 
 - **Single Centered Column (`#log`):**
-  - Horizontal padding centers a `760px` reading column (`padding: 28px max(24px, calc((100% - 760px) / 2))`; `20px 16px` on mobile) with `24px` vertical message gap.
+  - Horizontal padding centers a `760px` reading column (`padding-left: max(24px, calc((100% - 760px) / 2 - var(--gutter-shift, 0px)))`, `padding-right: max(24px, calc((100% - 760px) / 2 + var(--gutter-shift, 0px)))`; `20px 16px` on mobile) with `24px` vertical message gap. `--gutter-shift` compensates for up to half the left sidebar offset when room allows so the reading column stays centered in the viewport rather than drifting right, while freeing extra right-gutter space for `#session-rail`.
   - Empty conversations display `#welcome` centered in the transcript.
   - Conversation context that is not a control is the last row **inside** the scroller, through the `Transcript` default slot (the undocked `GitStatus` footer). A wheel or touch drag that starts on it scrolls the transcript instead of dead-ending on fixed chrome, and it stays visible whenever the log is at the bottom. Only the extras dock, queued dock, and composer sit outside `#log`.
   - Floating scroll jump buttons (`.transcript-jumps`) anchor at `right: 24px; bottom: 140px` when scrolled away from the bottom.
@@ -156,7 +156,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - `<summary>` shows a compact context gauge (`#context-meter` with `#context-fill` colored `--ok`, `--warn` at `data-level="amber"`, or `--destructive` at `data-level="red"`), tabular percentage (`.usage-percent`), and session cost (`.usage-cost`, hidden on mobile).
   - Opening `<details>` reveals `.usage-details` popover (`width: min(320px, calc(100vw - 32px))`) with per-model token breakdowns and manual compaction controls.
 - **Session Rail (`#session-rail`):**
-  - Floats as an absolute card stack (`252px` wide, `top: 12px; right: 36px;`, clearing `.user-rail` and `#jump`) in the unused right gutter when the chat tile (`#main`, measured with `ResizeObserver`, not the window) is at least `1360px` wide (undocks below `1320px`; the dead zone prevents flicker). Split-view tiles measure their own width.
+  - Floats as an absolute card stack (`252px` wide, `top: 12px; right: 36px;`, clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 760) / 2 + gutterShift`) is at least `316px` (undocks below `300px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
   - Shows only when there is active or rich content (goal, activity, review jobs, or dirty/unpushed `GitStatus`) and no right-side `WorkDock` is open. Empty sessions and clean-repo sessions render zero side chrome (`GitStatus` stays inline in `Transcript`).
   - Can be minimized into a compact live summary pill in the top-right corner (`luna.rail.collapsed`).
   - Order: Git (`GitStatus`), Goal, Processes, Review agents, Subagents, then Tasks (the long list goes last).

@@ -53,13 +53,27 @@ function mobileAction(action: () => unknown) {
   mobileMenuOpen.value = false;
   action();
 }
-// Floating session widgets: float goal, activity, and dirty git in the right gutter when wide enough.
-// Measure the tile, not the window: split view gives each tile its own width.
-// Two thresholds prevent flicker near the boundary.
-const RAIL_DOCK_AT = 1360, RAIL_UNDOCK_BELOW = 1320;
+// Floating session widgets: float goal, activity, and dirty git in the right gutter when wide enough,
+// and keep the 760px chat column centered in the viewport (compensating for the left sidebar when room allows).
+// Two gutter thresholds prevent flicker near the boundary.
+const RAIL_GUTTER_AT = 316, RAIL_GUTTER_BELOW = 300;
 const mainRef = ref<HTMLElement | null>(null);
 const railRoom = ref(false);
+const gutterShift = ref(0);
 let railObserver: ResizeObserver | undefined;
+function updateLayoutMetrics(width?: number) {
+  const el = mainRef.value;
+  const w = width ?? el?.clientWidth ?? 0;
+  if (!el || !w) return;
+  const leftOffset = (!mobile.value && !sessionPane && !tiled.value && !dockSide.value)
+    ? el.getBoundingClientRect().left
+    : 0;
+  const shift = Math.max(0, Math.min(leftOffset / 2, (w - 760) / 2 - 24));
+  gutterShift.value = Math.round(shift);
+  const rightGutter = (w - 760) / 2 + gutterShift.value;
+  if (rightGutter >= RAIL_GUTTER_AT) railRoom.value = true;
+  else if (rightGutter < RAIL_GUTTER_BELOW) railRoom.value = false;
+}
 const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
 watch(() => chat.session, () => { selectedReview.value = null; });
@@ -132,6 +146,7 @@ onUnmounted(() => areaObserver?.disconnect());
 const showPrimary = computed(() => sessionPane || !!chat.session || chat.draftOpen || tileIds.value.length === 0);
 const tileCount = computed(() => (chat.session || chat.draftOpen ? 1 : 0) + tileIds.value.length);
 const tiled = computed(() => !sessionPane && tileCount.value > 1);
+watch([dockSide, tiled, mobile], () => updateLayoutMetrics());
 // A lone surviving iframe tile becomes the normal single view.
 watch([() => chat.session, () => chat.draftOpen, () => tileIds.value.length], () => {
   if (sessionPane || chat.session || chat.draftOpen || tileIds.value.length !== 1) return;
@@ -453,11 +468,10 @@ let stopViewport: (() => void) | undefined;
 onMounted(() => {
   if (mainRef.value && typeof ResizeObserver !== 'undefined') {
     railObserver = new ResizeObserver(([entry]) => {
-      const width = entry.contentRect.width;
-      if (width >= RAIL_DOCK_AT) railRoom.value = true;
-      else if (width < RAIL_UNDOCK_BELOW) railRoom.value = false;
+      updateLayoutMetrics(entry.contentRect.width);
     });
     railObserver.observe(mainRef.value);
+    updateLayoutMetrics();
   }
   stopViewport = trackViewport(document.getElementById('app')!);
   document.addEventListener('keydown', keyboard);
@@ -520,12 +534,12 @@ onUnmounted(() => {
           <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
           <div class="work-area" ref="workAreaRef" :class="dockSide ? 'dock-side' : 'dock-bottom'">
           <div class="chat-body">
-            <div class="chat-column">
+            <div class="chat-column" :style="{ '--gutter-shift': gutterShift + 'px' }">
               <Transcript>
                 <GitStatus v-if="!docked && chat.session" />
               </Transcript>
               <Extras v-if="!docked" />
-              <div id="compose" class="mx-auto w-full max-w-4xl shrink-0 px-4 pb-3 pt-2 md:px-8">
+              <div id="compose" class="w-full shrink-0">
                 <Composer />
               </div>
               <aside v-if="docked" id="session-rail" :class="{ collapsed: railMinimized }" aria-label="Session details">
@@ -675,7 +689,7 @@ onUnmounted(() => {
   text-transform: uppercase;
   color: var(--faint);
 }
-.rail-toggle { width: 22px; height: 22px; color: var(--muted-foreground); }
+.rail-toggle { width: 24px; height: 24px; color: var(--muted-foreground); }
 .rail-pill {
   display: inline-flex;
   align-items: center;
@@ -692,6 +706,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .rail-pill:hover { color: var(--foreground); border-color: var(--input); }
+.rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .rail-pill.live svg:first-child { color: var(--primary-text); }
 .rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .session-pane {
