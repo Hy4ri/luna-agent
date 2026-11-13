@@ -330,6 +330,15 @@ function migrateWifeToSteward(obj: Record<string, any>) {
   }
 }
 
+/** Rewrites old config names in place. Every reader of the config file must call it before ConfigSchema parses the file. Returns true when it changed something. */
+export function migrateLegacyConfig(obj: Record<string, any>): boolean {
+  const before = JSON.stringify(obj);
+  migrateToolNames(obj);
+  migrateRemovedLearning(obj);
+  migrateWifeToSteward(obj);
+  return JSON.stringify(obj) !== before;
+}
+
 export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.ProcessEnv = process.env): LunaConfig {
   const obj: Record<string, any> = raw && typeof raw === "object" ? structuredClone(raw as object) : {};
   if (env.LUNA_DATA) obj.dataDir = env.LUNA_DATA;
@@ -341,9 +350,7 @@ export function parseConfig(raw: unknown, base = process.cwd(), env: NodeJS.Proc
     if (env.LUNA_HOST) obj.server.host = env.LUNA_HOST;
     if (env.LUNA_PORT) obj.server.port = Number(env.LUNA_PORT);
   }
-  migrateToolNames(obj);
-  migrateRemovedLearning(obj);
-  migrateWifeToSteward(obj);
+  migrateLegacyConfig(obj);
   const r = ConfigSchema.safeParse(obj);
   if (!r.success) throw new Error("invalid luna config:\n" + r.error.issues.map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n"));
   const c = r.data;

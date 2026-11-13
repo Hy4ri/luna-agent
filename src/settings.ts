@@ -1,7 +1,7 @@
 // Shared user settings. Credentials and generated OAuth device state are not user configuration.
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, chmodSync, unlinkSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ConfigSchema, configDiagnostic, parseConfig, type LunaConfig } from "./config.js";
+import { ConfigSchema, configDiagnostic, migrateLegacyConfig, parseConfig, type LunaConfig } from "./config.js";
 
 export type Settings = ReturnType<typeof ConfigSchema.parse>;
 export interface SettingsView {
@@ -35,7 +35,8 @@ export class SettingsStore {
   }
   constructor(readonly path: string, dataDir: string) {
     const raw = this.readRaw();
-    let changed = !existsSync(path) || raw.providers === undefined;
+    const renamed = migrateLegacyConfig(raw);
+    let changed = renamed || !existsSync(path) || raw.providers === undefined;
     const migrate = raw.providers === undefined;
     const legacyProviders = join(dataDir, "providers.json"), legacyMcp = join(dataDir, "mcp.json");
     // Only migrate absent fields. Old files remain as backups and never override the new file.
@@ -63,7 +64,9 @@ export class SettingsStore {
   }
   private readValidated(): Settings {
     // A deleted live file is not a request to reset all settings to defaults.
-    const value = ConfigSchema.parse(JSON.parse(readFileSync(this.path, "utf8")));
+    const raw = JSON.parse(readFileSync(this.path, "utf8"));
+    migrateLegacyConfig(raw);
+    const value = ConfigSchema.parse(raw);
     this.lastValid = structuredClone(value);
     return value;
   }
