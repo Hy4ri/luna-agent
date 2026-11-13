@@ -732,7 +732,7 @@ onUnmounted(() => {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 2px;
   max-width: 100%;
   min-height: 32px;
