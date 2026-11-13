@@ -13,3 +13,23 @@ const shown = computed(() => all.value ? lines.value : lines.value.slice(0, LIMI
     <button v-if="lines.length > LIMIT" type="button" class="code-more" @click="all = !all">{{ all ? 'Show less' : `Show all ${lines.length} lines` }}</button>
   </div>
 </template>
+
+<style scoped>
+.code-line { color: var(--muted-foreground); }
+.code-more {
+  min-height: 28px;
+  padding: 4px 10px;
+  margin: 8px 12px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+.code-more:hover { border-color: var(--primary-text); }
+.code-more:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .code-more { min-height: 44px; padding: 8px 14px; }
+}
+</style>

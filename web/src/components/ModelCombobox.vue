@@ -125,4 +125,7 @@ watch(open, (v) => {
 .combobox-chevron { flex: none; color: var(--muted-foreground); }
 .input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 14px; }
 .input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .input { min-height: 44px; }
+}
 </style>

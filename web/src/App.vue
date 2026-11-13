@@ -517,16 +517,16 @@ onUnmounted(() => {
           <span>{{ dropMessage }}</span>
         </div>
       </div>
-      <div v-if="ui.view === 'analytics'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+      <div v-if="ui.view === 'analytics'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-[2px]" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Analytics" tabindex="-1"><AnalyticsPage :inert="blocked" /></div>
       </div>
-      <div v-if="ui.view === 'steward'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+      <div v-if="ui.view === 'steward'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-[2px]" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Steward" tabindex="-1"><StewardPage :inert="blocked" /></div>
       </div>
-      <div v-if="ui.view === 'source-control'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+      <div v-if="ui.view === 'source-control'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-[2px]" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Source Control" tabindex="-1"><SourceControlPage :inert="blocked" /></div>
       </div>
-      <div v-if="ui.view === 'settings'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/60" @click.self="navigate('chat')">
+      <div v-if="ui.view === 'settings'" class="settings-backdrop fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-[2px]" @click.self="navigate('chat')">
         <div class="settings-window" role="dialog" aria-modal="true" aria-label="Settings" tabindex="-1"><SettingsPage :inert="blocked" /></div>
       </div>
       <PanelHost />
@@ -608,10 +608,10 @@ onUnmounted(() => {
 .tile-split-actions .icon-button { width: 28px; height: 28px; }
 @media (hover: none), (pointer: coarse) {
   .tile-split-actions { opacity: 1; pointer-events: auto; }
-  .tile-split-actions .icon-button { width: 36px; height: 36px; }
+  .tile-split-actions .icon-button { width: 44px; height: 44px; }
 }
 .tile-resize { cursor: col-resize; touch-action: none; }
-#main.tile-focused, .session-pane.tile-focused { border: 1px solid var(--primary); }
+#main.tile-focused, .session-pane.tile-focused { outline: 1px solid var(--primary-text); outline-offset: -1px; }
 .tile-close { width: 28px; height: 28px; }
 .tile-drop-target {
   position: absolute;

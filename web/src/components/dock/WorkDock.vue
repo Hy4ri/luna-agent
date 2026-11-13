@@ -117,7 +117,7 @@ function resizeKey(event: KeyboardEvent) {
 .work-dock.is-bottom { border-top: 1px solid var(--border); }
 .work-dock.is-side { border-left: 1px solid var(--border); }
 .dock-resize { position: absolute; z-index: 2; touch-action: none; }
-.dock-resize::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: var(--radius); background: var(--border); opacity: 0; transition: opacity .15s; }
+.dock-resize::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: var(--radius); background: var(--border); opacity: 0.45; transition: opacity .15s, background .15s; }
 .is-bottom > .dock-resize { inset: -3px 0 auto; height: 6px; cursor: ns-resize; }
 .is-bottom > .dock-resize::after { width: 32px; height: 2px; }
 .is-side > .dock-resize { inset: 0 auto 0 -3px; width: 6px; cursor: ew-resize; }
@@ -129,13 +129,13 @@ function resizeKey(event: KeyboardEvent) {
 .global-dock-tab { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted-foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
 .global-dock-tab:hover { color: var(--foreground); }
 .global-dock-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.global-dock-tab.active { color: var(--foreground); border-bottom-color: var(--primary-text); background: var(--card); }
+.global-dock-tab.active { color: var(--foreground); font-weight: 600; border-bottom-color: var(--primary); background: var(--card); }
 .global-dock-badge { padding: 0 5px; border-radius: var(--radius); background: var(--primary); color: var(--primary-foreground); font-size: 10px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .global-dock-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 @media (max-width: 760px), (pointer: coarse) {
-  .global-dock-bar { min-height: 40px; }
-  .global-dock-tabs { min-height: 40px; }
-  .global-dock-tab { min-height: 40px; padding: 0 14px; }
-  .global-dock-actions .icon-button { width: 36px; height: 36px; }
+  .global-dock-bar { min-height: 44px; }
+  .global-dock-tabs { min-height: 44px; }
+  .global-dock-tab { min-height: 44px; padding: 0 14px; }
+  .global-dock-actions .icon-button { width: 44px; height: 44px; }
 }
 </style>

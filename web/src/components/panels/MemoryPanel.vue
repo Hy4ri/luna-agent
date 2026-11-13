@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { confirmAction } from "@/lib/confirm";
+import PanelStatus from "./PanelStatus.vue";
 import { ref, onMounted } from "vue";
 import { ChevronRight } from "@lucide/vue";
 import { json, post } from "@/lib/api";
@@ -77,13 +78,7 @@ onMounted(() => {
 
 <template>
   <div class="grid">
-    <!-- Toasts -->
-    <div v-if="toasts.length" class="flex flex-col gap-1 mb-2">
-      <div v-for="t in toasts" :key="t" class="muted text-xs">{{ t }}</div>
-    </div>
-
-    <!-- Error -->
-    <p v-if="errorMsg" class="msg err">{{ errorMsg }}</p>
+    <PanelStatus :toasts="toasts" :loading="loading" :error="errorMsg" />
 
     <!-- Remember Form Card -->
     <details class="card" data-manager-form="memory-add"><summary class="row"><ChevronRight :size="16" /><b>Save a memory</b></summary><div class="grid manager-body">
@@ -106,9 +101,6 @@ onMounted(() => {
       <input dir="auto" placeholder="search" v-model="searchQuery" @input="handleSearchInput" />
     </label>
 
-    <!-- Loading -->
-    <p v-if="loading" class="muted" role="status">Loading…</p>
-
     <!-- Items List -->
     <div class="grid">
       <p v-if="!loading && !errorMsg && !items.length" class="muted">Nothing stored.</p>
@@ -122,3 +114,15 @@ onMounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 760px) {
+  button, summary.row { min-height: 44px; }
+}
+</style>
+
+<style scoped>
+@media (max-width: 760px) {
+  button, summary.row { min-height: 44px; }
+}
+</style>

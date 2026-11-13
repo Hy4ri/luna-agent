@@ -140,7 +140,7 @@ button, summary, [role="tab"], [role="tabpanel"], [role="dialog"], [role="separa
 
 h1, h2, h3 { text-wrap: balance; }
 
-:is(button, a[href], select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+:is(button, input, textarea, a[href], select, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 2px solid var(--ring);
   /* Keep the indicator visible inside clipped rows and scrolling containers. */
   outline-offset: -2px;
@@ -172,6 +172,13 @@ aside#side.collapsed .history-head h2,
 aside#side.collapsed .history-head button,
 aside#side.collapsed #search-bar,
 aside#side.collapsed #sessions,
+aside#side.collapsed .brand {
+  display: none;
+}
+aside#side.collapsed .side-head {
+  justify-content: center;
+  padding: 12px 0;
+}
 aside#side.collapsed .side-head h1 {
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
@@ -374,7 +381,7 @@ aside#side.collapsed #history-rail {
 .device-chip:hover:not(:disabled) { background: var(--sidebar-accent); color: var(--sidebar-foreground); }
 .device-chip[aria-pressed="true"] { background: var(--acc-soft); border-color: var(--primary); color: var(--foreground); }
 .device-chip:disabled { opacity: 0.45; cursor: default; }
-.device-chip.offline .device-name { color: var(--faint); }
+.device-chip.offline .device-name { color: var(--muted-foreground); }
 .device-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .device-count, .folder-time { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .folder-note {
@@ -442,14 +449,14 @@ aside#side.collapsed #history-rail {
 @media (hover: none), (pointer: coarse) {
   .folder-quick-new {
     position: static;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     opacity: 1;
     pointer-events: auto;
   }
   .folder-trailing {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
   }
   .folder-chevron {
     display: none;
@@ -576,12 +583,15 @@ aside#side.collapsed #history-rail {
 @media (hover: none), (pointer: coarse) {
   .session-manage {
     opacity: 1;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
   .device-chip {
-    min-height: 36px;
-    padding: 4px 10px;
+    min-height: 44px;
+    padding: 6px 12px;
+  }
+  #session-menu button[role="menuitem"] {
+    min-height: 44px;
   }
 }
 
@@ -672,8 +682,11 @@ aside#side.collapsed #history-rail {
   #bulk-bar .icon-button,
   .folder-bar .icon-button,
   .folder-bar .group-new {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
+  }
+  #session-menu button[role="menuitem"] {
+    min-height: 44px;
   }
 }
 

@@ -55,4 +55,5 @@ watch(() => props.kind, load)
 strong { display: block; font-size: 14px; font-weight: 500; }
 small { display: block; margin-top: 4px; }
 button { min-height: 44px; text-decoration: underline; }
+.filter input:focus-visible, .item input:focus-visible, button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 </style>

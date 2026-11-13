@@ -44,6 +44,30 @@ function blocks(content: unknown): any[] {
 </template>
 
 <style scoped>
-.steer-now { border: 1px solid var(--border); padding: 3px 8px; border-radius: 1px; cursor: pointer; }
-.steer-now:disabled { opacity: 0.5; cursor: default; }
+.pending-message-footer { flex-wrap: wrap; color: var(--muted-foreground); }
+.pending-message-footer button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pending-message-footer button:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--primary-text);
+}
+.pending-message-footer button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.pending-message-footer button:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 760px), (pointer: coarse) {
+  .pending-message-footer button {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+}
 </style>

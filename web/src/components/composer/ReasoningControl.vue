@@ -17,14 +17,14 @@ const preview = ref(index.value);
 const active = computed(() => (open.value ? preview.value : index.value));
 
 const colors = [
-  "#9ba1a6", // Off
-  "#7dd3fc", // Minimal
-  "#5eead4", // Low
-  "#86d3a0", // Medium
-  "#e6c27a", // High
-  "#f4a571", // Xhigh
-  "#e86060", // Max
-  "#e86060", // Ultra (uses --primary-text contrast on dark surfaces)
+  "var(--muted-foreground)", // Off
+  "var(--info)",             // Minimal
+  "var(--success)",          // Low
+  "var(--status-finished)",  // Medium
+  "var(--warning)",          // High
+  "var(--status-limit)",     // Xhigh
+  "var(--primary-text)",     // Max
+  "var(--primary-text)",     // Ultra
 ];
 
 const shortLabels = ["OFF", "MIN", "LOW", "MED", "HIGH", "XHGH", "MAX", "ULTRA"];
@@ -36,7 +36,7 @@ const color = computed(() => colors[activeScale.value] ?? colors[0]);
 const label = computed(() => levelLabel(activeLevel.value));
 
 // OpenAI speed tiers: one lightning button cycles Standard, Fast, Ultrafast (where the model offers it).
-const speedColors: Record<Speed, string> = { fast: "#e6c27a", ultrafast: "#e86060" };
+const speedColors: Record<Speed, string> = { fast: "var(--warning)", ultrafast: "var(--primary-text)" };
 const speedTitle = computed(() => `Speed: ${speedLabel(effectiveSpeed.value)}`);
 function cycleSpeed() {
   const order: (Speed | null)[] = [null, ...availableSpeeds.value];
@@ -46,13 +46,26 @@ function cycleSpeed() {
 function position() {
   if (!trigger.value || !picker.value) return;
   const rect = trigger.value.getBoundingClientRect();
-  const width = Math.min(320, innerWidth - 16);
+  const viewport = window.visualViewport;
+  const visible = viewport?.scale === 1 ? viewport : null;
+  const vpLeft = visible?.offsetLeft ?? 0;
+  const vpTop = visible?.offsetTop ?? 0;
+  const vpWidth = visible?.width ?? innerWidth;
+  const vpHeight = visible?.height ?? innerHeight;
+  const width = Math.min(320, vpWidth - 16);
+  const anchorTop = Math.max(vpTop + 8, Math.min(rect.top, vpTop + vpHeight - 8));
+  const anchorBottom = Math.max(vpTop + 8, Math.min(rect.bottom, vpTop + vpHeight - 8));
+  const above = Math.max(0, anchorTop - vpTop - 16);
+  const below = Math.max(0, vpTop + vpHeight - anchorBottom - 16);
+  const useAbove = above >= 140 || above >= below;
   Object.assign(picker.value.style, {
     width: `${width}px`,
-    left: `${Math.max(8, Math.min(rect.right - width, innerWidth - width - 8))}px`,
-    bottom: `${innerHeight - rect.top + 10}px`,
-    top: "auto",
+    left: `${Math.max(vpLeft + 8, Math.min(rect.right - width, vpLeft + vpWidth - width - 8))}px`,
+    bottom: useAbove ? `${innerHeight - anchorTop + 10}px` : "auto",
+    top: useAbove ? "auto" : `${anchorBottom + 10}px`,
     right: "auto",
+    maxHeight: `${Math.max(120, Math.min(320, useAbove ? above : below))}px`,
+    overflowY: "auto",
   });
 }
 
@@ -141,10 +154,14 @@ watch(() => chat.session, () => picker.value?.hidePopover());
 
 onMounted(() => {
   window.addEventListener("resize", position);
+  window.visualViewport?.addEventListener("resize", position);
+  window.visualViewport?.addEventListener("scroll", position);
   window.addEventListener("pointerup", stopScrub);
 });
 onUnmounted(() => {
   window.removeEventListener("resize", position);
+  window.visualViewport?.removeEventListener("resize", position);
+  window.visualViewport?.removeEventListener("scroll", position);
   window.removeEventListener("pointerup", stopScrub);
 });
 </script>
@@ -315,9 +332,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-height: 44px;
-  padding: 8px 4px 7px;
+  padding: 9px 5px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--background);
@@ -369,16 +386,16 @@ onUnmounted(() => {
 .eq-led {
   display: block;
   width: 100%;
-  height: 6px;
+  height: 5px;
   border-radius: 1px;
-  background: var(--secondary);
-  opacity: 0.45;
+  background: color-mix(in srgb, var(--muted-foreground) 16%, var(--secondary));
+  opacity: 1;
   transition: background-color 0.1s, opacity 0.1s;
 }
 
 .eq-led.dim {
-  background: var(--muted-foreground);
-  opacity: 0.25;
+  background: color-mix(in srgb, var(--muted-foreground) 38%, transparent);
+  opacity: 1;
 }
 
 .eq-led.lit {

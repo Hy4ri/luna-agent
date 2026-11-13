@@ -15,7 +15,7 @@
             v-if="sessionMetadataId !== null"
             variant="outline"
             size="sm"
-            class="shrink-0 gap-1.5 rounded-[var(--radius)]"
+            class="shrink-0 gap-1.5 rounded-[var(--radius)] min-h-6 max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring"
             @click="$emit('open-session', sessionMetadataId)"
           >
             <ExternalLink class="size-3.5" aria-hidden="true" />
@@ -38,7 +38,7 @@
           <p class="m-0 font-medium">{{ error }}</p>
           <button
             type="button"
-            class="px-3 py-1.5 text-xs font-medium border border-border rounded-[var(--radius)] bg-background text-foreground hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+            class="px-3 py-1.5 min-h-6 max-[760px]:min-h-11 text-xs font-medium border border-border rounded-[var(--radius)] bg-background text-foreground hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
             @click="$emit('retry')"
           >
             Retry
@@ -76,7 +76,7 @@
               <button
                 v-if="sec.rows.length === 1 && emptyCount(sec.rows[0]) > 0"
                 type="button"
-                class="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline rounded-[var(--radius)] px-1.5 py-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                class="min-h-6 max-[760px]:min-h-11 text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline rounded-[var(--radius)] px-1.5 py-0.5 focus-visible:outline-2 focus-visible:outline-ring"
                 @click="toggleEmpty(sIdx)"
               >
                 {{ showEmpty[sIdx] ? `Hide empty fields (${emptyCount(sec.rows[0])})` : `Show empty fields (${emptyCount(sec.rows[0])})` }}
@@ -107,7 +107,7 @@
                     <button
                       v-if="isSessionLink(sec.title, k, v)"
                       type="button"
-                      class="text-[var(--primary-text)] hover:underline font-medium rounded-[var(--radius)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                      class="min-h-6 max-[760px]:min-h-11 text-[var(--primary-text)] hover:underline font-medium rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring"
                       :aria-label="`Open session #${v}`"
                       @click="$emit('open-session', Number(v))"
                     >
@@ -154,7 +154,7 @@
                         <button
                           v-if="isSessionLink(sec.title, col, row[col])"
                           type="button"
-                          class="text-[var(--primary-text)] hover:underline font-medium rounded-[var(--radius)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                          class="min-h-6 max-[760px]:min-h-11 text-[var(--primary-text)] hover:underline font-medium rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring"
                           :aria-label="`Open session #${row[col]}`"
                           @click="$emit('open-session', Number(row[col]))"
                         >
@@ -175,7 +175,7 @@
                 </span>
                 <button
                   type="button"
-                  class="text-[11px] font-medium text-[var(--primary-text)] hover:underline rounded-[var(--radius)] px-1.5 py-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                  class="min-h-6 max-[760px]:min-h-11 text-[11px] font-medium text-[var(--primary-text)] hover:underline rounded-[var(--radius)] px-1.5 py-0.5 focus-visible:outline-2 focus-visible:outline-ring"
                   @click="toggleAll(sIdx)"
                 >
                   {{ showAll[sIdx] ? "Show first 25" : `Show all ${sec.rows.length}` }}

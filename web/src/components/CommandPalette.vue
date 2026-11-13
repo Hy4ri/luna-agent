@@ -273,7 +273,7 @@ const optionId = (index: number) => 'palette-option-' + index;
 <template>
   <DialogRoot v-model:open="open">
     <DialogPortal>
-      <DialogOverlay class="fixed inset-0 z-[90] bg-black/60" />
+      <DialogOverlay class="fixed inset-0 z-[90] bg-black/80 backdrop-blur-[2px]" />
       <DialogContent id="command-palette" class="palette" aria-describedby="palette-desc" @close-auto-focus.prevent="restoreFocus">
         <DialogTitle class="sr-only">Command palette</DialogTitle>
         <DialogDescription id="palette-desc" class="sr-only">Type to filter commands. Use the arrow keys to move and Enter to run.</DialogDescription>
@@ -307,22 +307,22 @@ const optionId = (index: number) => 'palette-option-' + index;
 .palette {
   position: fixed; z-index: 91; left: 50%; top: 12dvh; transform: translateX(-50%);
   display: flex; flex-direction: column; width: min(640px, calc(100vw - 24px)); max-height: min(560px, 76dvh);
-  background: var(--popover); border: 1px solid var(--border); border-radius: var(--r); box-shadow: 0 24px 90px rgb(0 0 0 / 0.56); overflow: hidden;
+  background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 24px 90px rgb(0 0 0 / 0.56); overflow: hidden;
 }
 .palette-search { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--border); color: var(--muted-foreground); }
 .palette-search input { flex: 1; min-width: 0; height: 48px; background: transparent; border: 0; outline: none; color: var(--foreground); font-size: 15px; }
-.palette-kbd { font-family: var(--mono); font-size: 11px; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--muted-foreground); }
+.palette-kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted-foreground); }
 .palette-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
 .palette-group + .palette-group { margin-top: 6px; }
 .palette-group-name { padding: 6px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground); }
-.palette-item { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; color: var(--foreground); }
+.palette-item { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; color: var(--foreground); }
 .palette-item[aria-selected="true"] { background: var(--acc-soft); }
-.palette-item[aria-disabled="true"] { color: var(--faint); cursor: default; }
+.palette-item[aria-disabled="true"] { color: var(--muted-foreground); opacity: 0.6; cursor: default; }
 .palette-check { display: inline-flex; width: 14px; flex: none; color: var(--primary-text); }
 .palette-label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted-foreground); }
-.palette-state { margin-left: auto; flex: none; font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: var(--r-sm); border: 1px solid var(--border); color: var(--muted-foreground); }
-.palette-state[data-state="On"] { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.palette-state { margin-left: auto; flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 1px 6px; border-radius: var(--radius); border: 1px solid var(--border); color: var(--muted-foreground); }
+.palette-state[data-state="On"] { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
 .palette-note { margin: 0; padding: 6px 8px 6px 30px; font-size: 12px; color: var(--muted-foreground); }
 .palette-empty { padding: 18px 8px; text-align: center; color: var(--muted-foreground); font-size: 13px; }
 .palette-status { margin: 0; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }

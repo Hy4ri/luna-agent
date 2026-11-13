@@ -15,7 +15,7 @@ const error = computed(() => (props.excess ? `Not rendered: more than ${MAX_WIDG
 
 // ---- inline: static markup in a shadow root ----
 const host = ref<HTMLElement>();
-const HOST_CSS = ":host{display:block;position:relative;contain:layout paint;isolation:isolate;overflow:hidden;color:var(--foreground);font:inherit;line-height:1.5}.luna-doc{min-width:0}.luna-doc [data-luna-prompt]{cursor:pointer}";
+const HOST_CSS = ":host{display:block;position:relative;contain:layout paint;isolation:isolate;overflow-x:auto;overflow-y:hidden;color:var(--foreground);font:inherit;line-height:1.5}.luna-doc{min-width:0}.luna-doc [data-luna-prompt]{cursor:pointer}";
 
 // Page CSS often targets html/body/:root, which do not exist in a shadow root. Point those at the wrapper.
 function scopeRules(rules: CSSRuleList) {

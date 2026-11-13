@@ -28,7 +28,7 @@ const emit = defineEmits<{
   confirmCustom: [];
 }>();
 const known = computed(() => props.repos.some(r => r.repo === props.repo));
-const select = "bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary max-w-[200px]";
+const select = "bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary min-w-0 truncate max-w-[160px] sm:max-w-[220px] max-[760px]:min-h-11";
 </script>
 
 <template>

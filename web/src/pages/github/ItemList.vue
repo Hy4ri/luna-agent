@@ -72,7 +72,7 @@ function formatTime(iso: string): string {
       @click="$emit('select', item)"
       @pointerenter="schedulePrefetch(item)" @pointerleave="cancelPrefetch"
       @focus="schedulePrefetch(item, true)" @blur="cancelPrefetch"
-      class="flex items-start gap-3 p-3 text-left hover:bg-accent/60 transition-colors w-full relative"
+      class="flex items-start gap-3 p-3 text-left hover:bg-accent/60 transition-colors w-full relative focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[-2px]"
       :class="{ 'bg-accent/80': selectedNumber === item.number }"
     >
       <div class="mt-0.5 shrink-0">

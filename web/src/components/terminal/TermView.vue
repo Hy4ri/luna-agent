@@ -158,6 +158,6 @@ defineExpose({ sendInput, focus: () => term?.focus() });
 <style scoped>
 .term-view { position: relative; display: flex; flex-direction: column; min-height: 0; flex: 1; background: var(--background); }
 .term-view[hidden] { display: none; }
-.term-host { flex: 1; min-height: 0; overflow: hidden; padding: 4px 6px; font: 13px var(--mono); }
-.term-note { margin: 0; padding: 3px 8px; border-top: 1px solid var(--border); background: var(--card); color: var(--muted-foreground); font: 12px var(--mono); }
+.term-host { flex: 1; min-height: 0; overflow: hidden; padding: 6px 8px; font: 13px var(--mono); }
+.term-note { margin: 0; padding: 4px 10px; border-top: 1px solid var(--border); background: var(--card); color: var(--muted-foreground); font: 12px var(--mono); }
 </style>

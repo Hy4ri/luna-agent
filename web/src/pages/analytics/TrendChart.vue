@@ -243,6 +243,12 @@ function onBarKeydown(e: KeyboardEvent, idx: number) {
   buttonRefs.value[target]?.focus()
 }
 
+const allZero = computed(
+  () =>
+    bucketed.value.buckets.length > 0 &&
+    bucketed.value.buckets.every((b) => b.value == null || b.value === 0),
+)
+
 const unitCaption = computed(() => {
   const u = bucketed.value.unit
   const per = u === "hour" ? "Per hour" : u === "week" ? "Per week" : "Per day"
@@ -263,22 +269,22 @@ const unitCaption = computed(() => {
 
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <h3 class="text-sm font-medium text-foreground">{{ name }}</h3>
-      <div class="text-xs text-muted-foreground tabular-nums">
+      <div v-if="bucketed.buckets.length > 0" class="text-xs text-muted-foreground tabular-nums">
         <span class="mr-1">{{ aggregate === "mean" ? "avg" : "sum" }}</span>
         <span class="font-medium text-foreground">{{ summary.headlineText }}</span>
         <span class="mx-1.5">·</span>
         <span>peak {{ summary.peakText }}</span>
       </div>
     </div>
-    <p class="mt-0.5 text-[11px] text-muted-foreground">{{ unitCaption }}</p>
+    <p class="mt-0.5 text-[11px] text-muted-foreground">{{ bucketed.buckets.length === 0 ? "No data in range" : unitCaption }}</p>
 
     <div
       v-if="bucketed.buckets.length === 0"
       class="mt-3 flex h-[160px] flex-col items-center justify-center gap-1.5 text-center"
     >
-      <BarChart3 :size="20" class="text-muted-foreground/60" aria-hidden="true" />
+      <BarChart3 :size="20" class="text-muted-foreground" aria-hidden="true" />
       <p class="m-0 text-xs font-medium text-muted-foreground">No activity in this range.</p>
-      <p class="m-0 text-[11px] text-muted-foreground/80">Try expanding the time range or clearing active filters.</p>
+      <p class="m-0 text-[11px] text-muted-foreground">Try expanding the time range or clearing active filters.</p>
     </div>
 
     <div v-else class="mt-3 flex gap-2">
@@ -318,6 +324,16 @@ const unitCaption = computed(() => {
               />
             </template>
           </svg>
+
+          <!-- Zero-state caption -->
+          <div
+            v-if="allZero"
+            class="pointer-events-none absolute inset-0 flex items-center justify-center"
+          >
+            <span class="rounded-[var(--radius)] bg-card/80 px-2.5 py-1 text-xs text-muted-foreground">
+              {{ unit === "usd" ? "No cost recorded in this range" : "No activity recorded in this range" }}
+            </span>
+          </div>
 
           <!-- Interactive overlay for hover & keyboard navigation -->
           <div class="absolute inset-0 flex">

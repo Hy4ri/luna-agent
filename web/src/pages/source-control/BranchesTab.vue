@@ -154,7 +154,7 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
       <span class="text-muted-foreground" aria-hidden="true">…</span>
       <input v-model="head" list="sc-branch-names" aria-label="Compare revision" placeholder="compare" class="bg-muted border border-border rounded px-2 py-1 w-36 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" />
       <datalist id="sc-branch-names"><option v-for="n in names" :key="n" :value="n" /></datalist>
-      <button type="submit" class="px-2.5 py-1 bg-primary text-primary-foreground rounded disabled:opacity-50" :disabled="comparing || !base.trim() || !head.trim()">Compare</button>
+      <button type="submit" class="px-2.5 py-1 bg-primary text-primary-foreground rounded disabled:opacity-50 max-[760px]:min-h-11" :disabled="comparing || !base.trim() || !head.trim()">Compare</button>
       <button type="button" class="ml-auto p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground disabled:opacity-50 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring" aria-label="Refresh branches" title="Refresh branches" :disabled="loading" @click="load">
         <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
       </button>
@@ -218,10 +218,10 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
               <span v-if="b.behind" class="flex items-center" :title="`${b.behind} behind ${b.upstream}`"><ArrowDown class="w-3 h-3" />{{ b.behind }}</span>
               <span v-if="!b.ahead && !b.behind" :title="`Same as ${b.upstream}`">synced</span>
             </template>
-            <button v-if="(branches.default && b.name !== branches.default) || b.upstream" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent"
+            <button v-if="(branches.default && b.name !== branches.default) || b.upstream" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent max-[760px]:min-h-11"
               :title="branches.default && b.name !== branches.default ? `Compare with ${branches.default}` : `Compare with ${b.upstream}`" @click="compareBranch(b.name, b.upstream)">Compare</button>
-            <button v-if="b.name === branches.current && branches.default && b.name !== branches.default" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent disabled:opacity-50" :disabled="!!acting" :title="`Merge origin/${branches.default} into this branch`" @click="updateFromDefault">Update</button>
-            <button v-if="b.name !== branches.current && b.name !== branches.default" type="button" class="px-2 py-0.5 border border-border rounded text-destructive hover:bg-accent disabled:opacity-50" :disabled="!!acting" :aria-label="`Delete branch ${b.name}`" @click="deleteBranch(b.name)">Delete</button>
+            <button v-if="b.name === branches.current && branches.default && b.name !== branches.default" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent disabled:opacity-50 max-[760px]:min-h-11" :disabled="!!acting" :title="`Merge origin/${branches.default} into this branch`" @click="updateFromDefault">Update</button>
+            <button v-if="b.name !== branches.current && b.name !== branches.default" type="button" class="px-2 py-0.5 border border-border rounded text-destructive hover:bg-accent disabled:opacity-50 max-[760px]:min-h-11" :disabled="!!acting" :aria-label="`Delete branch ${b.name}`" @click="deleteBranch(b.name)">Delete</button>
           </div>
         </div>
       </section>
@@ -229,7 +229,7 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
         <h2 class="px-2 pb-1 font-medium text-muted-foreground">Remote branches without a local branch ({{ branches.remote.length }})</h2>
         <div v-for="r in branches.remote" :key="r" class="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted vl vl-sm">
           <span class="flex-1 truncate font-mono">{{ r }}</span>
-          <button v-if="branches.default && r !== `origin/${branches.default}`" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent shrink-0" :title="`Compare with ${branches.default}`" @click="compareBranch(r)">Compare</button>
+          <button v-if="branches.default && r !== `origin/${branches.default}`" type="button" class="px-2 py-0.5 border border-border rounded hover:bg-accent shrink-0 max-[760px]:min-h-11" :title="`Compare with ${branches.default}`" @click="compareBranch(r)">Compare</button>
         </div>
       </section>
     </div>

@@ -41,3 +41,13 @@ async function sendReview() {
     <MessageFooter :text="job.text || ''" :timestamp="job.createdAt" />
   </div>
 </template>
+
+<style scoped>
+.side-job-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .side-job-btn { min-height: 44px; padding: 8px 14px; }
+}
+</style>

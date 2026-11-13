@@ -58,6 +58,21 @@ const emit = defineEmits<{
 <style scoped>
 .cron-context { display: flex; align-items: start; gap: 8px; margin-bottom: 8px; }
 .cron-context > :first-child { flex: 1; }
+.cron-context button {
+  flex: none;
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.cron-context button:hover { color: var(--foreground); background: var(--accent); }
+.cron-context button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .cron-context button { min-width: 44px; min-height: 44px; }
+}
 .composer-att-item { display: inline-flex; align-items: center; position: relative; }
 .composer-file-pill {
   display: flex;
@@ -68,7 +83,7 @@ const emit = defineEmits<{
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  max-width: 220px;
+  max-width: min(220px, calc(100vw - 64px));
 }
 .composer-file-name {
   font-size: 13px;

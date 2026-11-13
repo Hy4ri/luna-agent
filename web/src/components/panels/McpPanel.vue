@@ -156,7 +156,7 @@ onMounted(() => {
         Defer tools (load on demand with tool_search; keeps the prompt small)
       </label>
       <div class="row">
-        <button :disabled="connecting" @click="run(addServer)">Connect and save</button>
+        <button :disabled="connecting" :title="connecting ? 'Connecting…' : undefined" @click="run(addServer)">Connect and save</button>
       </div>
     </div></details>
 
@@ -191,4 +191,7 @@ onMounted(() => {
 
 <style scoped>
 .manager-form { border: 0; padding: 0; margin: 0; min-width: 0; }
+@media (max-width: 760px) {
+  button, summary.row, select { min-height: 44px; }
+}
 </style>

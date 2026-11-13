@@ -684,12 +684,13 @@ onUnmounted(() => {
             <textarea
               v-model="credentialsJson"
               rows="3"
+              aria-label="Google OAuth credentials JSON"
               placeholder='Paste Google OAuth credentials.json here (or enter Client ID & Secret below)'
               class="modal-input"
             />
             <div class="grid-2">
-              <input v-model="clientId" type="text" placeholder="Client ID" class="modal-input" />
-              <input v-model="clientSecret" type="password" placeholder="Client Secret" class="modal-input" />
+              <input v-model="clientId" type="text" aria-label="Client ID" placeholder="Client ID" class="modal-input" />
+              <input v-model="clientSecret" type="password" aria-label="Client Secret" placeholder="Client Secret" class="modal-input" />
             </div>
             <button type="button" class="mail-btn" :disabled="setupBusy" @click="handleSaveOAuth">
               Save OAuth Credentials
@@ -709,19 +710,19 @@ onUnmounted(() => {
           <button type="button" class="mail-icon-btn" aria-label="Close" @click="showCompose = false"><X :size="16" /></button>
         </div>
         <form class="modal-body" @submit.prevent="handleSend">
-          <select v-if="accounts.length > 1" v-model="composeAccount" class="modal-input">
+          <select v-if="accounts.length > 1" v-model="composeAccount" aria-label="From account" class="modal-input">
             <option v-for="acc in accounts" :key="acc.email" :value="acc.email">From: {{ acc.email }}</option>
           </select>
           <div class="compose-row">
-            <input v-model="composeTo" type="text" placeholder="To" required class="modal-input" />
+            <input v-model="composeTo" type="text" aria-label="To" placeholder="To" required class="modal-input" />
             <button type="button" class="mail-btn" @click="showCcBcc = !showCcBcc">Cc/Bcc</button>
           </div>
           <template v-if="showCcBcc">
-            <input v-model="composeCc" type="text" placeholder="Cc" class="modal-input" />
-            <input v-model="composeBcc" type="text" placeholder="Bcc" class="modal-input" />
+            <input v-model="composeCc" type="text" aria-label="Cc" placeholder="Cc" class="modal-input" />
+            <input v-model="composeBcc" type="text" aria-label="Bcc" placeholder="Bcc" class="modal-input" />
           </template>
-          <input v-model="composeSubject" type="text" placeholder="Subject" class="modal-input" />
-          <textarea v-model="composeBody" rows="8" placeholder="Write your message..." class="modal-input" />
+          <input v-model="composeSubject" type="text" aria-label="Subject" placeholder="Subject" class="modal-input" />
+          <textarea v-model="composeBody" rows="8" aria-label="Message body" placeholder="Write your message..." class="modal-input" />
           <p v-if="composeErr" class="err-note">{{ composeErr }}</p>
           <div class="modal-foot">
             <button type="button" class="mail-btn" :disabled="composeBusy" @click="handleSaveDraft">Save Draft</button>
@@ -771,7 +772,8 @@ onUnmounted(() => {
 .thread-time { flex: none; font-size: 11px; color: var(--muted-foreground); }
 .thread-subject { display: flex; align-items: center; gap: 4px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-snippet { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.starred { color: var(--warn); fill: var(--warn); }
+.mail-btn:focus-visible, .mail-select:focus-visible, .mail-icon-btn:focus-visible, .thread-row:focus-visible, .msg-header-btn:focus-visible, .att-chip:focus-visible, .modal-input:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.starred { color: var(--warning); fill: var(--warning); }
 .inline-star { flex: none; }
 .mail-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 .detail-head { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; gap: 8px; flex: none; }
@@ -796,8 +798,8 @@ onUnmounted(() => {
 .msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--card); flex: none; }
 .att-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 11px; cursor: pointer; }
 .att-chip:hover { background: var(--secondary); }
-.modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.modal-card { width: 100%; max-width: 480px; max-height: 85vh; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgb(0 0 0 / 0.65); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal-card { width: 100%; max-width: 480px; max-height: 90dvh; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .modal-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .modal-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
@@ -813,7 +815,7 @@ onUnmounted(() => {
 .modal-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 12px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .compose-row { display: flex; gap: 6px; }
-.ok-note { margin: 0; font-size: 12px; color: var(--ok); }
+.ok-note { margin: 0; font-size: 12px; color: var(--success); }
 .err-note { margin: 0; font-size: 12px; color: var(--destructive); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -821,8 +823,10 @@ onUnmounted(() => {
   .grid-2 { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px), (pointer: coarse) {
-  .mail-btn, .mail-select { min-height: 36px; }
-  .mail-icon-btn { width: 36px; height: 36px; }
-  .mail-icon-btn.inline { width: 28px; height: 28px; }
+  .mail-btn, .mail-select { min-height: 44px; }
+  .mail-icon-btn { width: 44px; height: 44px; }
+  .mail-icon-btn.inline { width: 32px; height: 32px; }
+  .thread-row { padding: 12px; }
+  .att-chip { min-height: 36px; padding: 4px 10px; }
 }
 </style>

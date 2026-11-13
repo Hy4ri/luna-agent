@@ -241,4 +241,9 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 .snap-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
 .snap-primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
 .snap-primary:disabled { opacity: .6; }
+@media (hover: none), (pointer: coarse), (max-width: 760px) {
+  .snap-tab { width: 44px; height: 44px; }
+  .snap-select { min-height: 44px; }
+  .snap-btn { min-height: 44px; }
+}
 </style>

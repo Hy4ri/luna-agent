@@ -341,10 +341,20 @@ function openSessionMenu(s: any, event: MouseEvent) {
   void titleModelAvailable().then(ok => { if (activeMenuSession.value?.id === s.id) titleAvailable.value = ok; });
   const rect = btn.getBoundingClientRect();
   menuPos.value = {
-    top: Math.min(rect.top, window.innerHeight - 300),
-    left: Math.min(rect.right + 4, window.innerWidth - 180),
+    top: Math.max(8, Math.min(rect.top, window.innerHeight - 300)),
+    left: Math.max(8, Math.min(rect.right + 4, window.innerWidth - 180)),
   };
-  void nextTick(() => document.querySelector<HTMLButtonElement>('#session-menu button:not(:disabled)')?.focus());
+  void nextTick(() => {
+    const menuEl = document.getElementById('session-menu');
+    if (menuEl) {
+      const m = menuEl.getBoundingClientRect();
+      menuPos.value = {
+        top: Math.max(8, Math.min(rect.top, window.innerHeight - m.height - 8)),
+        left: Math.max(8, Math.min(rect.right + 4, window.innerWidth - m.width - 8)),
+      };
+    }
+    menuEl?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  });
 }
 
 async function handleMenuAction(action: string, s: any) {
@@ -471,6 +481,7 @@ onMounted(() => {
         id="history-rail"
         class="side-item"
         aria-label="Show history"
+        title="History"
         @click="toggleCollapsed"
       >
         <HistoryIcon :size="18" />

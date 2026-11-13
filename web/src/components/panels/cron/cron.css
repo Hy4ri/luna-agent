@@ -50,7 +50,12 @@
 .cron-item:focus-visible,
 .cron-back:focus-visible,
 .cron-preset:focus-visible,
-.cron-run > summary:focus-visible {
+.cron-run > summary:focus-visible,
+.cron-filter-field select:focus-visible,
+.cron-field input:focus-visible,
+.cron-field textarea:focus-visible,
+.cron-field select:focus-visible,
+.cron-check input:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
@@ -146,7 +151,7 @@
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--input);
   background: var(--sidebar);
 }
 
@@ -176,8 +181,8 @@
 }
 
 .cron-item.active {
-  background: var(--card);
-  box-shadow: inset 2px 0 0 var(--primary-text);
+  background: var(--secondary);
+  box-shadow: inset 3px 0 0 var(--primary-text);
 }
 
 .cron-item-outcome {
@@ -494,8 +499,8 @@
 
 .cron-form {
   display: grid;
-  gap: 12px;
-  padding: 18px 22px 36px;
+  gap: 10px;
+  padding: 14px 20px 20px;
   max-width: 640px;
 }
 
@@ -537,7 +542,7 @@
   padding: 7px 10px;
   border: 1px solid var(--input);
   border-radius: var(--radius);
-  background: var(--background);
+  background: var(--card);
   color: var(--foreground);
   font-size: 14px;
 }
@@ -593,8 +598,14 @@
 }
 
 .cron-form-actions {
+  position: sticky;
+  bottom: 0;
   display: flex;
   gap: 8px;
+  padding: 10px 0 4px;
+  background: var(--background);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
 
 @media (max-width: 760px) {
@@ -603,9 +614,12 @@
     flex-direction: column;
   }
   .cron-list {
-    flex: 0 1 45%;
+    flex: 1;
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    border-bottom: none;
+  }
+  .cron-panel:not(.detail-only) .cron-detail {
+    display: none;
   }
   .cron-panel.detail-only .cron-list {
     display: none;
@@ -626,15 +640,20 @@
     padding: 0 12px;
   }
   .cron-btn.sm {
-    min-height: 38px;
+    min-height: 44px;
   }
   .cron-back {
     min-height: 44px;
     padding: 6px 10px 6px 6px;
   }
   .cron-preset {
-    min-height: 36px;
-    padding: 6px 10px;
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+  .cron-filter-field select,
+  .cron-run > summary,
+  .cron-check {
+    min-height: 44px;
   }
   .cron-detail-head {
     padding: 12px;

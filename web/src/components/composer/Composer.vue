@@ -482,9 +482,9 @@ async function handleSubmit(e?: Event) {
   }
 
   #controls {
-    flex: 1 1 180px;
+    flex: 1 1 160px;
     min-width: 0;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 4px;
   }
 
@@ -493,7 +493,7 @@ async function handleSubmit(e?: Event) {
     height: 44px;
     flex: 0 1 auto;
     min-width: 0;
-    max-width: min(190px, 100%);
+    max-width: min(220px, 100%);
     padding: 0 8px;
   }
 
@@ -508,6 +508,13 @@ async function handleSubmit(e?: Event) {
     content: "";
     position: absolute;
     inset: -8px;
+  }
+}
+
+@media (max-width: 420px) {
+  #model {
+    flex: 1 1 120px;
+    max-width: 100%;
   }
 }
 </style>

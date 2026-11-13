@@ -54,3 +54,33 @@ onMounted(render);
 <template>
   <div ref="container" class="md" @click="zoom" @keydown="onKeydown"></div>
 </template>
+
+<style scoped>
+.md :deep(.code-copy-btn:focus-visible),
+.md :deep(.codewrap button:focus-visible),
+.md :deep(a:focus-visible),
+.md :deep(img[role="button"]:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.md :deep(.code-copy-btn),
+.md :deep(.codewrap button) {
+  color: var(--foreground);
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .md :deep(.code-copy-btn),
+  .md :deep(.codewrap button) {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 12px;
+  }
+  .md :deep(.table-wrap) {
+    -webkit-overflow-scrolling: touch;
+  }
+  .md :deep(.table-wrap th),
+  .md :deep(.table-wrap td) {
+    padding: 6px 10px;
+    font-size: 13.5px;
+  }
+}
+</style>

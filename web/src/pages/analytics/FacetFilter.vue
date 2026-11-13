@@ -93,7 +93,7 @@ function clear() {
         :disabled="disabled"
         :title="disabled ? disabledReason : undefined"
         :class="[
-          'inline-flex h-8 items-center gap-1.5 rounded-[var(--radius)] border bg-secondary px-2.5 text-xs transition-colors',
+          'inline-flex h-8 max-[760px]:min-h-11 items-center gap-1.5 rounded-[var(--radius)] border bg-secondary px-2.5 text-xs transition-colors',
           'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]',
           selected.length > 0
             ? 'border-[var(--primary-text)]/60 text-foreground'
