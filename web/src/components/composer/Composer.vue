@@ -2,6 +2,7 @@
 import { ref, computed } from "vue";
 import { ArrowUp, Square, Camera, ChevronDown } from "@lucide/vue";
 import { json, post } from "@/lib/api";
+import { isMobile } from "@/lib/dom";
 import { composer, removeAttachment, saveDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history } from "@/stores/sessions";
@@ -271,7 +272,7 @@ function handleKeydown(e: KeyboardEvent) {
       return;
     }
   }
-  if (e.key === "Enter" && !e.shiftKey && !matchMedia("(max-width: 760px)").matches) {
+  if (e.key === "Enter" && !e.shiftKey && !isMobile()) {
     e.preventDefault();
     if (!sendDisabled.value) submit();
   }

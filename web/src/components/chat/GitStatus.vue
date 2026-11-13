@@ -151,8 +151,8 @@ onUnmounted(() => {
 .git-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 11px; }
 .git-file-count { color: var(--faint); font-size: 11px; }
 @media (max-width: 760px), (pointer: coarse) {
-  .git-open { min-width: 44px; min-height: 44px; width: 44px; height: 44px; margin: -10px -10px -10px 0; }
-  .git-changes summary { min-height: 44px; }
+  .git-open { min-width: 44px; min-height: 44px; width: 44px; height: 44px; margin: -8px 0; }
+  .git-changes summary { min-height: 44px; margin-inline: 0; padding-inline: 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .git-changes :deep(.git-chevron) { transition: none; } }
 </style>

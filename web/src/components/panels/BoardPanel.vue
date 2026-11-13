@@ -982,8 +982,9 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
   .kb-filters > select { flex:1 1 100%; min-height:44px; }
   .kb-toolbar-end { width:100%; margin-left:0; }
   .kb-toolbar-end .kb-primary { margin-left:auto; }
-  .kb-board { scroll-snap-type:x proximity; }
-  .kb-column { flex:0 0 min(300px, calc(100vw - 56px)); min-width:min(300px, calc(100vw - 56px)); scroll-snap-align:start; }
+  .kb-board { flex-direction:column; overflow-x:hidden; overflow-y:auto; gap:12px; }
+  .kb-column { flex:0 0 auto; width:100%; min-width:0; border-right:0; border-bottom:1px solid var(--border); padding:0 0 12px 0; }
+  .kb-column:last-child { border-bottom-color:transparent; }
   .kb-archive-card { flex-wrap:wrap; gap:8px; }
   .kb-grip { height:36px; width:28px; }
   .kb-button,.kb-icon,.kb-add,.kb-move { min-height:44px; }
