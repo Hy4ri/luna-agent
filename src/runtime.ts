@@ -356,10 +356,7 @@ export async function startRuntime(cfg: LunaConfig, o: RuntimeOptions = {}) {
   uploads.bind(conversationStorage(harness).db);
   const conversations = new ConversationStore(harness, recall, uploads);
   conversationsRef = conversations;
-  const stewardDbPath = join(cfg.dataDir, "steward.db");
-  const legacyWifeDbPath = join(cfg.dataDir, "wife.db");
-  // deprecated: remove after next release
-  const stewardStore = new StewardStore(!existsSync(stewardDbPath) && existsSync(legacyWifeDbPath) ? legacyWifeDbPath : stewardDbPath);
+  const stewardStore = new StewardStore(join(cfg.dataDir, "steward.db"));
   const skillMgr = improver ? new SkillManager(improver, cfg.allSkillDirs) : undefined;
   const steward = new StewardService({ store: stewardStore, analytics: () => analyticsService(harness, conversations).store, conversations, config: () => live().steward, log,
     cron: store ? { jobs: () => store.listJobs().map(j => ({ id: j.id, name: j.name, enabled: j.enabled, runs: store.runs(j.id, 7).map(r => ({ status: r.status, output: r.output ?? null, startedAt: r.startedAt })) })),
