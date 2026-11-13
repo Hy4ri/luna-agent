@@ -98,8 +98,19 @@ export function usageNotice(usage: UsageState, report?: ClaudeUsageReport): stri
   const totals = Object.values(usage.models).reduce((sum, value) => ({
     tokens: sum.tokens + value.totalTokens, cost: sum.cost + value.cost.total,
   }), { tokens: 0, cost: 0 });
+  const toolEntries = Object.entries(usage.tools ?? {});
+  const toolTotals = toolEntries.reduce((sum, [, value]) => ({
+    tokens: sum.tokens + value.totalTokens, cost: sum.cost + value.cost.total,
+  }), { tokens: 0, cost: 0 });
   // Stock ledger sums keep the first response's totalFromProvider flag, so a session total is always an estimate.
   const lines = [`Luna session: ${totals.tokens.toLocaleString("en-US")} tokens · estimated cost $${totals.cost.toFixed(4)} (catalog rates, a CLI estimate, or mixed sources; not an invoice or your subscription bill).`];
+  if (toolTotals.tokens > 0 || toolTotals.cost > 0) {
+    const breakdown = toolEntries
+      .filter(([, v]) => v.totalTokens > 0 || v.cost.total > 0)
+      .map(([name, v]) => `${name}: ${v.totalTokens.toLocaleString("en-US")} tok / $${v.cost.total.toFixed(4)}`)
+      .join(", ");
+    lines.push(`Tool usage (auxiliary/sub-calls, separate from model total): ${toolTotals.tokens.toLocaleString("en-US")} tokens · $${toolTotals.cost.toFixed(4)}${breakdown ? ` (${breakdown})` : ""}.`);
+  }
   if (!report) return lines.join("\n");
   lines.push(`Claude plan (daemon host): ${report.subscription_type ?? "unavailable"}.`);
   if (!report.rate_limits_available || !report.rate_limits) {

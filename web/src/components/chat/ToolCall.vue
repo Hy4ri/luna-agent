@@ -7,7 +7,7 @@ import { sessionPane } from '@/lib/pane';
 import { chat, openSession, toolArgsText } from '@/stores/chat';
 import { json as fetchJson } from '@/lib/api';
 import { formatTime, formatDateIso } from '@/lib/message';
-import { ANALYZE_TOOLS, dockTarget, toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits, parseCodemodeCalls } from '@/lib/tool-view';
+import { ANALYZE_TOOLS, dockTarget, toolView, toolSummary, parseEditDiff, argsEditDiff, diffCounts, splitHarness, diagnosticLines, parseJson, searchHits, parseCodemodeCalls, parseMediaAnalysis } from '@/lib/tool-view';
 import Markdown from './Markdown.vue';
 import SessionImage from './SessionImage.vue';
 import DiffView from './tool/DiffView.vue';
@@ -131,10 +131,16 @@ const tasks = computed(() => view.value === 'todo' && Array.isArray(details.valu
 const hits = computed(() => view.value === 'web_search' ? searchHits(body.value) : []);
 const page = computed(() => view.value === 'web_extract' && typeof json.value?.url === 'string' ? json.value : undefined);
 const answers = computed(() => view.value === 'answers' && Array.isArray(details.value?.answers) ? details.value.answers : []);
+const mediaAnalysis = computed(() => view.value === 'media' && ANALYZE_TOOLS.has(props.name) ? parseMediaAnalysis(body.value) : undefined);
 const media = computed(() => {
-  if (view.value !== 'media' || !json.value || typeof json.value !== 'object') return '';
+  if (view.value !== 'media') return '';
+  if (ANALYZE_TOOLS.has(props.name)) {
+    const m = mediaAnalysis.value;
+    if (!m) return '';
+    return [m.route, m.dimensions, m.region].filter(Boolean).join(' · ');
+  }
+  if (!json.value || typeof json.value !== 'object') return '';
   const j = json.value;
-  if (ANALYZE_TOOLS.has(props.name)) return typeof j.width === 'number' ? `${j.width}×${j.height}` : '';
   return [j.model, j.image].filter((x: unknown) => typeof x === 'string' && x).join(' · ');
 });
 // Browser and terminal calls open their tab in the dock. Split tiles have no dock.
@@ -177,7 +183,7 @@ const hasBody = computed(() => {
     case 'write': return writeLines.value > 0;
     case 'process': return !!proc.value?.output || (!proc.value && !!body.value);
     case 'todo': return tasks.value.length > 0 || !!body.value;
-    case 'media': return !!media.value || (ANALYZE_TOOLS.has(props.name) && typeof json.value?.analysis === 'string' && !!json.value.analysis);
+    case 'media': return !!media.value || !!mediaAnalysis.value?.analysis || !!mediaAnalysis.value?.warning || !!mediaAnalysis.value?.rawFallback;
     case 'skill': return (['skill', 'skill_manage'].includes(props.name) && typeof a.value.content === 'string') || !!body.value;
     case 'codemode': return !!codemodeCode.value || codemodeCalls.value.length > 0 || !!body.value;
     default: return !!body.value;
@@ -294,7 +300,12 @@ const hasBody = computed(() => {
             </template>
           </template>
           <template v-else-if="view === 'media'">
-            <Markdown v-if="ANALYZE_TOOLS.has(name) && typeof json?.analysis === 'string'" class="tool-md" :content="json.analysis" />
+            <template v-if="ANALYZE_TOOLS.has(name) && mediaAnalysis">
+              <p v-if="media" class="tool-section-label">{{ media }}</p>
+              <p v-if="mediaAnalysis.warning" class="tool-line" dir="auto">{{ mediaAnalysis.warning }}</p>
+              <Markdown v-if="mediaAnalysis.analysis" class="tool-md" :content="mediaAnalysis.analysis" />
+              <pre v-else-if="mediaAnalysis.rawFallback">{{ mediaAnalysis.rawFallback }}</pre>
+            </template>
             <p v-else class="tool-line">{{ media }}</p>
           </template>
           <pre v-else>{{ body }}</pre>

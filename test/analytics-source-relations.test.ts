@@ -229,3 +229,172 @@ test("scanAnalyticsSession links delegated ownerless child and parent outcomes, 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("scanAnalyticsSession emits vision facts and preserves tool-result usage for media_analyze", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "luna-analytics-vision-"));
+  const harness = await openLuna({ dbPath: join(dir, "luna.db"), models: createModels(), memory: false, coding: false });
+  try {
+    const conv = await harness.createConversation({ ownership: { kind: "ownerless" } }, context);
+    await harness.commit(async tx => {
+      await tx.appendEntry(conv.id, {
+        kind: "pi.assistant",
+        model: [{
+          role: "assistant",
+          provider: "test",
+          model: "model",
+          api: "openai-completions",
+          timestamp: 1000,
+          stopReason: "toolUse",
+          content: [{ type: "toolCall", id: "call-media", name: "media_analyze", arguments: { source: "clip.mp4", question: "what?" } }],
+          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        }],
+      });
+      await tx.appendEntry(conv.id, {
+        kind: "pi.tool-result",
+        model: [{
+          role: "toolResult",
+          toolCallId: "call-media",
+          toolName: "media_analyze",
+          content: [{ type: "text", text: '{"success":true,"analysis":"ok"}' }],
+          isError: false,
+          durationMs: 250,
+          timestamp: 1250,
+          usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { input: 0.01, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.02 } },
+        }],
+      });
+      const usage = await tx.doc(UsageDoc, conv.id);
+      usage.tools["media_analyze"] = {
+        input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120,
+        cost: { input: 0.01, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.02 },
+      };
+    }, context);
+
+    const db = conversationStorage(harness).db;
+    const scan = scanAnalyticsSession(db, Number(conv.id));
+    expect(scan).toBeTruthy();
+    const visionFact = scan!.facts.find(f => f.kind === "vision");
+    expect(visionFact).toBeTruthy();
+    expect(visionFact!.name).toBe("media_analyze");
+    expect(visionFact!.usage?.totalTokens).toBe(120);
+    expect(visionFact!.usage?.cost?.total).toBe(0.02);
+    expect(scan!.session.workflow.visionCalls).toBe(1);
+    expect(scan!.session.toolUsage?.["media_analyze"]?.totalTokens).toBe(120);
+  } finally {
+    await harness.close(context);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("scanAnalyticsSession does not double-count codemode or boundary-straddling vision calls across incremental scans", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "luna-analytics-vision-incr-"));
+  const harness = await openLuna({ dbPath: join(dir, "luna.db"), models: createModels(), memory: false, coding: false });
+  try {
+    const conv = await harness.createConversation({ ownership: { kind: "ownerless" } }, context);
+    await harness.commit(async tx => {
+      await tx.appendEntry(conv.id, {
+        kind: "pi.assistant",
+        model: [{
+          role: "assistant",
+          provider: "test",
+          model: "model",
+          api: "openai-completions",
+          timestamp: 1000,
+          stopReason: "toolUse",
+          content: [{ type: "toolCall", id: "call-cm-v", name: "codemode", arguments: { code: "return 1;" } }],
+          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        }],
+      });
+      await tx.appendEntry(conv.id, {
+        kind: "pi.tool-result",
+        model: [{
+          role: "toolResult",
+          toolCallId: "call-cm-v",
+          toolName: "codemode",
+          content: [{ type: "text", text: "ok" }],
+          isError: false,
+          durationMs: 100,
+          timestamp: 1100,
+        }],
+      });
+    }, context);
+
+    const db = conversationStorage(harness).db;
+    const cid = Number(conv.id);
+    db.run(
+      `INSERT INTO tasks (id, conversation_id, kind, status, abort_requested, background, record)
+       VALUES (?, ?, ?, 'terminal', 0, 0, ?)`,
+      [9501, cid, JSON.stringify("pi.tool"), JSON.stringify({ id: 9501, kind: "pi.tool", startedAt: 1000, endedAt: 1100 })],
+    );
+    db.run(
+      `INSERT INTO tasks (id, conversation_id, kind, status, abort_requested, background, record)
+       VALUES (?, ?, ?, 'terminal', 0, 0, ?)`,
+      [9502, cid, JSON.stringify("pi.tool"), JSON.stringify({
+        id: 9502,
+        kind: "pi.tool",
+        startedAt: 1010,
+        endedAt: 1090,
+        input: { kind: "nested", call: { name: "media_analyze", arguments: { source: "a.png", question: "q" } } },
+      })],
+    );
+    db.run(
+      `INSERT INTO documents (id, kind, family, key_value, scope_kind, owner_id, created_at, retired_at, record)
+       VALUES (?, ?, 0, '', 'task', 9501, 1000, NULL, '{}')`,
+      [9601, JSON.stringify("pi.tool.nested-call")],
+    );
+    db.run(
+      `INSERT INTO document_revisions (document_id, seq, kind, version, content)
+       VALUES (?, 1, 'base', 1, ?)`,
+      [9601, JSON.stringify({ taskId: 9502, result: { isError: false } })],
+    );
+
+    const scan1 = scanAnalyticsSession(db, cid)!;
+    expect(scan1.rebuild).toBe(true);
+    expect(scan1.session.workflow.visionCalls).toBe(1);
+
+    // Append an assistant call for a direct media_analyze (before toolResult) and scan incrementally
+    await harness.commit(async tx => {
+      await tx.appendEntry(conv.id, {
+        kind: "pi.assistant",
+        model: [{
+          role: "assistant",
+          provider: "test",
+          model: "model",
+          api: "openai-completions",
+          timestamp: 2000,
+          stopReason: "toolUse",
+          content: [{ type: "toolCall", id: "call-direct-v", name: "media_analyze", arguments: { source: "b.png", question: "q" } }],
+          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        }],
+      });
+    }, context);
+
+    const scan2 = scanAnalyticsSession(db, cid, scan1.session)!;
+    expect(scan2.rebuild).toBe(false);
+    // Must be 2 (1 nested + 1 direct), NOT 3 (re-counted nested)
+    expect(scan2.session.workflow.visionCalls).toBe(2);
+
+    // Now append the matching pi.tool-result and scan incrementally again
+    await harness.commit(async tx => {
+      await tx.appendEntry(conv.id, {
+        kind: "pi.tool-result",
+        model: [{
+          role: "toolResult",
+          toolCallId: "call-direct-v",
+          toolName: "media_analyze",
+          content: [{ type: "text", text: '{"success":true,"analysis":"ok"}' }],
+          isError: false,
+          durationMs: 50,
+          timestamp: 2050,
+        }],
+      });
+    }, context);
+
+    const scan3 = scanAnalyticsSession(db, cid, scan2.session)!;
+    expect(scan3.rebuild).toBe(false);
+    // Still 2 (neither the nested call nor the settled direct call should double-count)
+    expect(scan3.session.workflow.visionCalls).toBe(2);
+  } finally {
+    await harness.close(context);
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -35,7 +35,8 @@ const ctx = computed(() => {
 
 const usage = computed(() => {
   const rows = Object.values(chat.usage?.models || {}) as any[];
-  if (!rows.length) return null;
+  const toolEntries = Object.entries(chat.usage?.tools || {}) as [string, any][];
+  if (!rows.length && !toolEntries.length) return null;
   let fresh = 0;
   let cacheRead = 0;
   let cacheWrite = 0;
@@ -52,8 +53,30 @@ const usage = computed(() => {
       priced++;
     }
   }
+  let toolTokens = 0;
+  let toolCost = 0;
+  let toolPriced = 0;
+  const toolsList: { name: string; tokensLabel: string; costLabel: string }[] = [];
+  for (const [name, row] of toolEntries) {
+    const t = row?.totalTokens || 0;
+    const c = Number.isFinite(row?.cost?.total) ? row.cost.total : 0;
+    if (!t && !c) continue;
+    toolTokens += t;
+    if (Number.isFinite(row?.cost?.total)) {
+      toolCost += c;
+      toolPriced++;
+    }
+    toolsList.push({
+      name,
+      tokensLabel: compactNumber(t),
+      costLabel: Number.isFinite(row?.cost?.total) ? `$${c.toFixed(4)}` : "—",
+    });
+  }
   const input = fresh + cacheRead + cacheWrite;
+  const combinedCost = cost + toolCost;
+  const anyPriced = priced + toolPriced > 0;
   return {
+    hasModels: rows.length > 0,
     fresh,
     cacheRead,
     cacheWrite,
@@ -65,9 +88,13 @@ const usage = computed(() => {
     cacheWriteLabel: compactNumber(cacheWrite),
     outputLabel: compactNumber(output),
     outputTitle: `${output.toLocaleString()} output tokens`,
-    shortCost: priced ? `$${cost < 10 ? cost.toFixed(2) : cost.toFixed(0)}` : "",
+    shortCost: anyPriced ? `$${combinedCost < 10 ? combinedCost.toFixed(2) : combinedCost.toFixed(0)}` : "",
     exactCost: priced ? `$${cost.toFixed(4)}` : "—",
     costTitle: priced ? `$${cost.toFixed(4)} · estimated model cost, not an invoice` : "No pricing for this model",
+    toolTokens,
+    toolTokensLabel: compactNumber(toolTokens),
+    toolCostLabel: toolPriced ? `$${toolCost.toFixed(4)}` : "—",
+    toolsList,
   };
 });
 
@@ -166,7 +193,7 @@ onUnmounted(() => window.removeEventListener("resize", position));
       </div>
     </div>
 
-    <div v-if="usage" class="usage-pop-input">
+    <div v-if="usage && usage.hasModels" class="usage-pop-input">
       <div class="usage-pop-head">
         <span class="usage-pop-sublabel">Input</span>
         <span class="usage-pop-total" :title="usage.inputTitle">{{ usage.inputLabel }}</span>
@@ -183,9 +210,20 @@ onUnmounted(() => window.removeEventListener("resize", position));
       </div>
     </div>
 
-    <div v-if="usage" class="usage-pop-foot">
+    <div v-if="usage && usage.hasModels" class="usage-pop-foot">
       <span :title="usage.outputTitle">Out <b>{{ usage.outputLabel }}</b></span>
       <span :title="usage.costTitle">Est. <b>{{ usage.exactCost }}</b></span>
+    </div>
+
+    <div v-if="usage && usage.toolsList.length" class="usage-pop-tools" title="Auxiliary and sub-call usage recorded separately from the main model ledger">
+      <div class="usage-pop-head">
+        <span class="usage-pop-sublabel">Tools (separate)</span>
+        <span class="usage-pop-total">{{ usage.toolTokensLabel }} · {{ usage.toolCostLabel }}</span>
+      </div>
+      <div v-for="t in usage.toolsList" :key="t.name" class="usage-tool-row">
+        <span>{{ t.name }}</span>
+        <span>{{ t.tokensLabel }} · {{ t.costLabel }}</span>
+      </div>
     </div>
 
     <div v-if="chat.session" class="usage-pop-actions">
@@ -443,6 +481,21 @@ onUnmounted(() => window.removeEventListener("resize", position));
   color: var(--foreground);
   font-weight: 500;
   margin-left: 4px;
+}
+
+.usage-pop-tools {
+  display: grid;
+  gap: 5px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.usage-tool-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted-foreground);
 }
 
 .usage-pop-actions {

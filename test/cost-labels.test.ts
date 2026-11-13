@@ -63,3 +63,13 @@ test("/usage labels a ledger total as an estimate, even when its flag says provi
     expect(notice).not.toMatch(/provider-reported/);
   }
 });
+
+test("/usage includes usage.tools separately when auxiliary tool spend is recorded", () => {
+  const state = {
+    models: { "p/m": { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.1 } } },
+    tools: { media_analyze: { input: 200, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 250, cost: { input: 0.01, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.02 } } },
+  };
+  const notice = usageNotice(state as never);
+  expect(notice).toMatch(/Luna session: 15 tokens · estimated cost \$0\.1000/);
+  expect(notice).toMatch(/Tool usage \(auxiliary\/sub-calls, separate from model total\): 250 tokens · \$0\.0200 \(media_analyze: 250 tok \/ \$0\.0200\)/);
+});

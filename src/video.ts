@@ -1,6 +1,66 @@
-import type { Model, Models } from "@earendil-works/pi-ai";
+import { calculateCost, type Model, type Models, type Usage } from "@earendil-works/pi-ai";
 import type { LunaConfig } from "./config.js";
 import { materializeVideo } from "./video-source.js";
+
+const tokenNum = (v: unknown): number =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
+
+function addVideoUsage(total: Usage | undefined, next: Usage): Usage {
+  if (!total) return structuredClone(next);
+  for (const k of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[k] += next[k];
+  for (const k of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[k] += next.cost[k];
+  if (next.reasoning !== undefined) total.reasoning = (total.reasoning ?? 0) + next.reasoning;
+  return total;
+}
+
+export function parseVideoUsage(payload: unknown, model: Model<any>): Usage | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const rec = payload as Record<string, unknown>;
+  if (model.api === "google-generative-ai") {
+    const m = rec.usageMetadata;
+    if (!m || typeof m !== "object") return undefined;
+    const meta = m as Record<string, unknown>;
+    const prompt = tokenNum(meta.promptTokenCount);
+    const cacheRead = tokenNum(meta.cachedContentTokenCount);
+    const candidates = tokenNum(meta.candidatesTokenCount);
+    const thoughts = tokenNum(meta.thoughtsTokenCount);
+    const input = Math.max(0, prompt - cacheRead);
+    const output = candidates + thoughts;
+    const totalTokens = tokenNum(meta.totalTokenCount) || (input + output + cacheRead);
+    if (!totalTokens && !input && !output && !cacheRead) return undefined;
+    const usage: Usage = {
+      input, output, cacheRead, cacheWrite: 0,
+      ...(thoughts > 0 ? { reasoning: thoughts } : {}),
+      totalTokens,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+    calculateCost(model, usage);
+    return usage;
+  }
+  const raw = rec.usage;
+  if (!raw || typeof raw !== "object") return undefined;
+  const u = raw as Record<string, unknown>;
+  const promptDetails = (u.prompt_tokens_details && typeof u.prompt_tokens_details === "object"
+    ? u.prompt_tokens_details : {}) as Record<string, unknown>;
+  const compDetails = (u.completion_tokens_details && typeof u.completion_tokens_details === "object"
+    ? u.completion_tokens_details : {}) as Record<string, unknown>;
+  const promptTokens = tokenNum(u.prompt_tokens ?? u.input_tokens);
+  const cacheRead = tokenNum(promptDetails.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens);
+  const cacheWrite = tokenNum(promptDetails.cache_write_tokens);
+  const input = Math.max(0, promptTokens - cacheRead - cacheWrite);
+  const output = tokenNum(u.completion_tokens ?? u.output_tokens);
+  const reasoning = tokenNum(compDetails.reasoning_tokens);
+  const totalTokens = tokenNum(u.total_tokens) || (input + output + cacheRead + cacheWrite);
+  if (!totalTokens && !input && !output && !cacheRead && !cacheWrite) return undefined;
+  const usage: Usage = {
+    input, output, cacheRead, cacheWrite,
+    ...(reasoning > 0 ? { reasoning } : {}),
+    totalTokens,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+  calculateCost(model, usage);
+  return usage;
+}
 
 export type VideoConfig = Pick<LunaConfig, "auxiliary" | "video" | "dataDir" | "configPath">;
 type Ref = { provider: string; modelId: string };
@@ -53,6 +113,7 @@ export async function analyzeVideo(options: { models: Models; config: VideoConfi
   const { signal } = options;
   let video: Awaited<ReturnType<typeof materializeVideo>> | undefined;
   let analysisSignal: AbortSignal | undefined;
+  let usage: Usage | undefined;
   try {
     if (signal.aborted) throw new Error("Interrupted");
     if (!options.question.trim()) throw new Error("Invalid video source: question is empty.");
@@ -87,14 +148,21 @@ export async function analyzeVideo(options: { models: Models; config: VideoConfi
       } catch (error) { if (requestSignal.aborted && !signal.aborted) throw new Error("Video analysis timed out"); throw error; }
       if (!response.ok) { await response.body?.cancel(); throw new Error(`Auxiliary video HTTP ${response.status}`); }
       const payload = await response.json() as { choices?: { message?: { content?: unknown } }[]; candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: unknown };
+      const parsedUsage = parseVideoUsage(payload, model);
+      if (parsedUsage) usage = addVideoUsage(usage, parsedUsage);
       if (signal.aborted) throw new Error("Interrupted");
       if (requestSignal.aborted) throw new Error("Video analysis timed out");
       if (payload.error) throw new Error("Unsupported video request");
       const content = google ? payload.candidates?.[0]?.content?.parts?.map(p => p.text ?? "").join("\n") : payload.choices?.[0]?.message?.content;
       const analysis = typeof content === "string" ? content.trim() : "";
-      if (analysis) return { success: true as const, analysis, ...(video.warning ? { warning: video.warning } : {}) };
+      if (analysis) return { success: true as const, analysis, ...(video.warning ? { warning: video.warning } : {}), ...(usage ? { usage } : {}) };
     }
     throw new Error("Auxiliary video returned an empty reply after retry.");
-  } catch (error) { return videoError(analysisSignal?.aborted && !signal.aborted ? new Error("Video analysis timed out") : error, signal); }
+  } catch (error) {
+    return {
+      ...videoError(analysisSignal?.aborted && !signal.aborted ? new Error("Video analysis timed out") : error, signal),
+      ...(usage ? { usage } : {}),
+    };
+  }
   finally { await video?.cleanup(); }
 }

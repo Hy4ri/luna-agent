@@ -760,7 +760,9 @@ function queryTabTable(
            SUM(CASE WHEN f.source = 'direct' THEN 1 ELSE 0 END) AS directCalls,
            SUM(CASE WHEN f.source = 'codemode' THEN 1 ELSE 0 END) AS codemodeCalls,
            SUM(f.error) AS errors,
-           AVG(f.duration_ms) AS avgDurationMs
+           AVG(f.duration_ms) AS avgDurationMs,
+           COALESCE(SUM(f.total_tokens), 0) AS toolTokens,
+           COALESCE(SUM(f.cost_total), 0) AS toolCost
          FROM analytics_facts f
          JOIN analytics_sessions s ON s.id = f.session_id
          WHERE ${sWhere.sql} AND ${fWhere.sql} AND f.kind IN ('tool', 'skill') AND f.name IS NOT NULL
@@ -768,10 +770,55 @@ function queryTabTable(
       )
       .all(...sWhere.params, ...fWhere.params) as AnalyticsRow[];
 
-    const rows = raw.map((r) => ({
-      ...r,
-      errorRate: Number(r.calls) > 0 ? Number(r.errors) / Number(r.calls) : 0,
-    }));
+    const toolUsageByName = new Map<string, { totalTokens: number; cost: number }>();
+    if (!factScoped) {
+      const ledgerToolRows = store.db
+        .query(
+          `SELECT
+             j.key AS name,
+             COALESCE(SUM(CAST(json_extract(j.value, '$.totalTokens') AS REAL)), 0) AS totalTokens,
+             COALESCE(SUM(CAST(json_extract(j.value, '$.cost.total') AS REAL)), 0) AS cost
+           FROM analytics_sessions s, json_each(s.record, '$.toolUsage') j
+           WHERE ${sWhere.sql} AND json_type(s.record, '$.toolUsage') = 'object'
+           GROUP BY j.key`,
+        )
+        .all(...sWhere.params) as { name: string; totalTokens: number; cost: number }[];
+      for (const r of ledgerToolRows) {
+        toolUsageByName.set(r.name, { totalTokens: Number(r.totalTokens ?? 0), cost: Number(r.cost ?? 0) });
+      }
+    }
+
+    const seenToolNames = new Set<string>();
+    const rows: AnalyticsRow[] = raw.map((r) => {
+      const name = String(r.name ?? "");
+      const ledger = r.kind === "tool" ? toolUsageByName.get(name) : undefined;
+      if (r.kind === "tool") seenToolNames.add(name);
+      return {
+        ...r,
+        errorRate: Number(r.calls) > 0 ? Number(r.errors) / Number(r.calls) : 0,
+        toolTokens: ledger ? ledger.totalTokens : Number(r.toolTokens ?? 0),
+        toolCost: ledger ? ledger.cost : Number(r.toolCost ?? 0),
+      };
+    });
+
+    if (!factScoped) {
+      for (const [name, u] of toolUsageByName.entries()) {
+        if (seenToolNames.has(name) || (u.totalTokens === 0 && u.cost === 0)) continue;
+        rows.push({
+          id: name,
+          kind: "tool",
+          name,
+          calls: 0,
+          directCalls: 0,
+          codemodeCalls: 0,
+          errors: 0,
+          errorRate: 0,
+          avgDurationMs: null,
+          toolTokens: u.totalTokens,
+          toolCost: u.cost,
+        });
+      }
+    }
 
     return {
       columns: [
@@ -783,10 +830,12 @@ function queryTabTable(
         { key: "errors", label: "Errors", format: "number" },
         { key: "errorRate", label: "Error Rate", format: "percent" },
         { key: "avgDurationMs", label: "Avg Duration", format: "ms" },
+        { key: "toolTokens", label: "Tool Tokens", format: "number" },
+        { key: "toolCost", label: "Tool Cost", format: "usd" },
       ],
       rows,
       searchKeys: ["name", "kind"],
-      allowSort: new Set(["name", "kind", "calls", "directCalls", "codemodeCalls", "errors", "errorRate", "avgDurationMs"]),
+      allowSort: new Set(["name", "kind", "calls", "directCalls", "codemodeCalls", "errors", "errorRate", "avgDurationMs", "toolTokens", "toolCost"]),
       defaultSort: "calls",
     };
   }
