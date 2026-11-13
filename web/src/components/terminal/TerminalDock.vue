@@ -25,7 +25,7 @@ function tabKey(event: KeyboardEvent, index: number) {
 
 <template>
   <div class="term-pane">
-    <header class="dock-bar">
+    <header v-if="terminal.tabs.length > 0" class="dock-bar">
       <div class="dock-tabs" role="tablist" aria-label="Terminals">
         <div v-for="(t, i) in terminal.tabs" :key="t.id" class="dock-tab" :class="{ active: t.id === terminal.active, ended: t.status === 'ended' }">
           <button :id="`term-tab-${t.id}`" type="button" role="tab" :aria-selected="t.id === terminal.active" :tabindex="t.id === terminal.active ? 0 : -1" :title="t.cwd" @click="terminal.active = t.id" @keydown="tabKey($event, i)">
@@ -34,7 +34,7 @@ function tabKey(event: KeyboardEvent, index: number) {
           <button type="button" class="dock-close" :aria-label="`Close terminal ${i + 1}`" title="Close terminal" @click="closeTerminal(t.id)"><X :size="12" /></button>
         </div>
       </div>
-      <button type="button" class="icon-button" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled || !terminal.session" @click="newTerminal()"><Plus :size="14" /></button>
+      <button type="button" class="icon-button dock-new" aria-label="New terminal" title="New terminal" :disabled="!terminal.enabled || !terminal.session" @click="newTerminal()"><Plus :size="14" /></button>
     </header>
     <div v-if="!terminal.session" class="dock-empty">
       <SquareTerminal :size="22" class="empty-icon" aria-hidden="true" />
@@ -76,15 +76,15 @@ function tabKey(event: KeyboardEvent, index: number) {
 
 <style scoped>
 .term-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
-.dock-bar { display: flex; align-items: center; gap: 2px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--card); }
-.dock-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; }
+.dock-bar { display: flex; align-items: center; gap: 4px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--card); }
+.dock-tabs { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .dock-tab { display: flex; align-items: center; border-bottom: 2px solid transparent; font: 12px var(--mono); color: var(--muted-foreground); }
-.dock-tab.active { border-bottom-color: var(--primary-text); color: var(--foreground); }
+.dock-tab.active { border-bottom-color: var(--primary); color: var(--foreground); background: var(--background); }
 .dock-tab > button[role="tab"] { padding: 6px 4px 6px 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
-.dock-tab > button[role="tab"]:focus-visible, .dock-close:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.dock-tab > button[role="tab"]:focus-visible, .dock-close:focus-visible, .dock-action:focus-visible, .dock-link:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .dock-ended { opacity: .7; }
 .dock-luna { margin-right: 4px; vertical-align: -2px; }
-.dock-state { padding: 0 6px; color: var(--muted-foreground); font: 12px var(--mono); white-space: nowrap; }
+.dock-new { flex: none; }
 .dock-action { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
 .dock-action:hover { background: var(--secondary); }
 .dock-close { display: grid; place-items: center; width: 24px; height: 24px; margin-right: 2px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; }
@@ -99,8 +99,9 @@ function tabKey(event: KeyboardEvent, index: number) {
 .empty-sub { max-width: 340px; color: var(--muted-foreground); }
 .dock-link { background: none; border: 0; color: var(--primary-text); font: inherit; text-decoration: underline; cursor: pointer; padding: 4px 8px; }
 @media (max-width: 760px), (pointer: coarse) {
-  .dock-tab > button[role="tab"] { min-height: 36px; padding: 6px 6px 6px 12px; }
-  .dock-close { width: 32px; height: 32px; }
-  .dock-action { min-height: 36px; padding: 6px 12px; }
+  .dock-tab > button[role="tab"] { min-height: 44px; padding: 6px 6px 6px 12px; }
+  .dock-close { width: 36px; height: 36px; }
+  .dock-new { width: 44px; height: 44px; }
+  .dock-action { min-height: 44px; padding: 6px 12px; }
 }
 </style>

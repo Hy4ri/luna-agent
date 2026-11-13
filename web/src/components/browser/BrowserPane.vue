@@ -116,7 +116,7 @@ onBeforeUnmount(() => watchBrowser(false));
 .tab + .tab::before { content: ""; position: absolute; left: -1px; top: 8px; bottom: 8px; border-left: 1px solid var(--border); }
 .tab.active::before, .tab.active + .tab::before { display: none; }
 .tab:hover:not(.active) { background: color-mix(in srgb, var(--card) 50%, transparent); color: var(--foreground); }
-.tab.active { z-index: 1; height: 31px; border-color: var(--border); background: var(--card); color: var(--foreground); box-shadow: inset 0 2px 0 var(--primary-text); }
+.tab.active { z-index: 1; height: 31px; border-color: var(--border); background: var(--card); color: var(--foreground); box-shadow: inset 0 2px 0 var(--primary); }
 .tab-label { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 2px 0 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
 .tab-label:focus-visible, .tab-close:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .tab-icon { flex: none; color: var(--muted-foreground); }
@@ -126,14 +126,11 @@ onBeforeUnmount(() => watchBrowser(false));
 .tab-close:hover { background: var(--secondary); }
 @media (hover: none) { .tab-close { opacity: 1; } }
 .tab-new { flex: none; align-self: center; margin-bottom: 2px; }
-.tab-controls { align-self: center; margin-left: auto; padding-left: 4px; margin-bottom: 2px; }
 .address-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--card); }
 .address-input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font: 12px var(--mono); }
 .address-input:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; }
 .address-input:disabled { opacity: .7; }
-.drive-state { padding: 0 4px 0 8px; color: var(--muted-foreground); font: 12px var(--mono); white-space: nowrap; }
-.drive-action { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
-.drive-action:hover { background: var(--secondary); }
+.drive-state { flex: none; padding: 2px 7px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--muted-foreground); font: 11px var(--mono); white-space: nowrap; }
 .dock-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .dock-body[hidden] { display: none; }
 .dock-message { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 10px; background: var(--err-soft); color: var(--destructive); font: 12px var(--mono); border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); }
@@ -144,9 +141,10 @@ onBeforeUnmount(() => watchBrowser(false));
 .empty-title { color: var(--foreground); font-size: 13px; font-weight: 600; }
 .empty-sub { max-width: 360px; color: var(--muted-foreground); }
 @media (max-width: 760px), (pointer: coarse) {
-  .tab { min-height: 36px; }
-  .tab-close { width: 32px; height: 32px; }
-  .address-bar .icon-button { width: 36px; height: 36px; }
-  .address-input { min-height: 36px; }
+  .tab { min-height: 44px; }
+  .tab-close { width: 36px; height: 36px; }
+  .tab-new { width: 44px; height: 44px; }
+  .address-bar .icon-button { width: 44px; height: 44px; }
+  .address-input { min-height: 44px; }
 }
 </style>

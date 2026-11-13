@@ -149,10 +149,10 @@ defineExpose({ focus: () => canvas.value?.focus(), sendNav: (event: Record<strin
 </template>
 
 <style scoped>
-.browser-view { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; background: color-mix(in srgb, black 25%, var(--background)); }
+.browser-view { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; background: var(--background); }
 .browser-view[hidden] { display: none; }
 .browser-canvas { width: 100%; height: 100%; object-fit: contain; outline: none; cursor: default; touch-action: none; }
 .browser-canvas.driving { cursor: crosshair; }
-.browser-canvas:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
+.browser-canvas:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .browser-note { position: absolute; inset: auto 0 0; margin: 0; padding: 4px 10px; font: 12px var(--mono); color: var(--muted-foreground); background: var(--card); border-top: 1px solid var(--border); }
 </style>
