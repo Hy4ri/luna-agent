@@ -15,6 +15,11 @@ const project = ref<Project | null>(null), loading = ref(true), busy = ref(false
 const icon = ref<string | null>(null), color = ref<string | null>(null);
 const customDraft = ref("");
 const isComposing = ref(false);
+const defaultColor = computed(() =>
+  typeof document !== "undefined"
+    ? getComputedStyle(document.documentElement).getPropertyValue("--primary-text").trim() || "currentColor"
+    : "currentColor"
+);
 
 const labels: Record<IconId, string> = {
   folder: "Folder",
@@ -214,7 +219,7 @@ async function save() {
           <div class="grid gap-2 text-sm">
             <label for="project-color" class="font-medium">Icon color</label>
             <div class="flex items-center gap-3">
-              <input id="project-color" type="color" :value="color || '#818cf8'" aria-label="Project icon color" class="h-10 w-14 cursor-pointer rounded-md border border-input bg-background p-1 focus-visible:outline-2 focus-visible:outline-ring" @input="color = ($event.target as HTMLInputElement).value" />
+              <input id="project-color" type="color" :value="color || defaultColor" aria-label="Project icon color" class="h-10 w-14 cursor-pointer rounded-md border border-input bg-background p-1 focus-visible:outline-2 focus-visible:outline-ring" @input="color = ($event.target as HTMLInputElement).value" />
               <span class="text-muted-foreground">{{ color || 'Default (theme color)' }}</span>
               <Button type="button" variant="outline" class="ml-auto" :disabled="color === null" @click="color = null">Use default</Button>
             </div>

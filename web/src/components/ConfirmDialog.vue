@@ -26,7 +26,7 @@ function dismiss() { settle(pending.value?.input ? null : false); }
       <label v-if="pending?.input" class="grid gap-1.5 text-sm">
         <span class="text-muted-foreground">{{ pending.input.label }}</span>
         <input v-model="text" :placeholder="pending.input.placeholder" autocomplete="off" autofocus
-          class="h-9 w-full border border-input bg-background px-3 text-sm outline-none focus-visible:border-primary" />
+          class="h-9 w-full border border-input bg-background px-3 text-sm focus-visible:border-primary focus-visible:outline-2 focus-visible:outline-ring" />
       </label>
       <DialogFooter class="gap-2">
         <Button type="button" variant="outline" size="sm" class="min-h-11 sm:min-h-8" @click="dismiss">Cancel</Button>
