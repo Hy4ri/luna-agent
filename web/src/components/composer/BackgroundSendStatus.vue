@@ -36,11 +36,14 @@ function retry(id: string) { void retryBackgroundSend(id).catch(error => addErr(
 
 <style scoped>
 .background-sends { display: grid; gap: 8px; margin-bottom: 8px; max-height: 180px; overflow-y: auto; }
-.background-send { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; font-size: 12px; }
+.background-send { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; }
 .background-send-label { min-width: 0; overflow-wrap: anywhere; }
 .background-send-detail { display: block; color: var(--muted-foreground); white-space: pre-wrap; }
 .background-send-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.background-send-actions button { min-height: 28px; min-width: 28px; padding: 2px 4px; text-decoration: underline; text-underline-offset: 3px; }
-.background-send-actions button:focus-visible { outline: 1px solid var(--primary); outline-offset: 2px; }
+.background-send-actions button { min-height: 32px; min-width: 32px; padding: 4px 6px; text-decoration: underline; text-underline-offset: 3px; border-radius: var(--radius); }
+.background-send-actions button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .background-send-actions button:disabled { opacity: .5; }
+@media (max-width: 760px), (pointer: coarse) {
+  .background-send-actions button { min-height: 44px; min-width: 44px; padding: 6px 10px; }
+}
 </style>

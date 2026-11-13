@@ -206,26 +206,26 @@ onUnmounted(() => {
   display: none;
   flex-direction: column;
   gap: 0;
-  padding: 8px 10px;
+  padding: 10px 10px;
   background: var(--popover);
   color: var(--popover-foreground);
   border: 1px solid var(--border);
-  border-radius: 1px;
+  border-radius: var(--radius);
   box-shadow: 0 16px 48px rgb(0 0 0 / .5), 0 2px 12px rgb(0 0 0 / .35);
   overflow: hidden;
   min-height: 0;
   max-height: min(680px, calc(100dvh - 16px));
   z-index: 30;
 }
-#model-picker :deep(.model-selector) { flex: 1 1 auto; min-height: 0; margin-top: 8px; }
+#model-picker :deep(.model-selector) { flex: 1 1 auto; min-height: 0; margin-top: 12px; }
 #model-picker :deep(input),
 #model-picker :deep(.ms-row),
 #model-picker :deep(.ms-badge),
-#model-picker :deep(.ms-pin) { border-radius: 1px; }
+#model-picker :deep(.ms-pin) { border-radius: var(--radius); }
 #model-picker:popover-open { display: flex; }
-.mp-head { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 0 8px; background: transparent; }
+.mp-head { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 0 4px; background: transparent; }
 #model-picker :deep(.ms-provider),
-#model-picker :deep(.ms-entry) { border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 1px; background: var(--background); }
+#model-picker :deep(.ms-entry) { border: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: var(--radius); background: var(--background); }
 #model-picker :deep(.ms-section-head) { background: transparent; }
 #model-picker :deep(.ms-provider) { background: var(--secondary); }
 #model-picker :deep(.ms-provider:hover) { background: var(--accent); }
@@ -234,5 +234,8 @@ onUnmounted(() => {
 .mp-head h3 { font-size: 14px; font-weight: 650; letter-spacing: -.015em; }
 .mp-search-slot { flex: none; min-width: 0; }
 .mp-error { flex: none; font-size: 13px; color: var(--destructive); text-align: center; padding: 8px; }
-.mp-hint { flex: none; font-size: 11px; color: var(--muted-foreground); text-align: center; padding: 4px 8px 0; }
+.mp-hint { flex: none; font-size: 11px; color: var(--muted-foreground); text-align: center; padding: 6px 8px 0; }
+@media (max-width: 760px), (pointer: coarse) {
+  .mp-hint { display: none; }
+}
 </style>

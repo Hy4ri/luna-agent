@@ -125,22 +125,22 @@ async function save() {
 </template>
 
 <style scoped>
-.schedule-picker { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; padding: 20px; border: 1px solid var(--border); border-radius: 2px; color: var(--foreground); background: var(--card); font-size: 14px; }
-.schedule-picker::backdrop { background: #0009; }
+.schedule-picker { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--foreground); background: var(--card); font-size: 14px; }
+.schedule-picker::backdrop { background: rgb(0 0 0 / 0.6); }
 h2 { font-size: 17px; font-weight: 600; margin: 0 0 16px; }
-.schedule-now { display: flex; gap: 10px; align-items: center; padding: 12px; background: var(--secondary); border: 1px solid var(--border); border-radius: 2px; }
+.schedule-now { display: flex; gap: 10px; align-items: center; padding: 12px; background: var(--secondary); border: 1px solid var(--border); border-radius: var(--radius); }
 .schedule-now strong { font-variant-numeric: tabular-nums; margin-inline-start: 8px; }
 small { display: block; font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .schedule-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; margin: 16px 0; }
 fieldset { border: 0; padding: 0; min-width: 0; margin-top: 16px; }
 legend, .schedule-field { font-size: 12px; font-weight: 500; }
 .schedule-shortcuts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0 16px; }
-button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
+button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
 .schedule-shortcuts button { padding: 6px 2px; font-size: 12px; }
 .schedule-fields { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; }
 .schedule-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .schedule-field:has(textarea) { margin-top: 16px; }
-input, textarea { box-sizing: border-box; min-width: 0; width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--secondary); color: var(--foreground); font: inherit; }
+input, textarea { box-sizing: border-box; min-width: 0; width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--foreground); font: inherit; }
 textarea { resize: vertical; font-size: 14px; }
 .schedule-summary { margin-top: 16px; }
 .schedule-summary p:empty { display: none; }

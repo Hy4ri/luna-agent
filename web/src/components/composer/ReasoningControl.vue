@@ -24,7 +24,7 @@ const colors = [
   "#e6c27a", // High
   "#f4a571", // Xhigh
   "#e86060", // Max
-  "#990000", // Ultra
+  "#e86060", // Ultra (uses --primary-text contrast on dark surfaces)
 ];
 
 const shortLabels = ["OFF", "MIN", "LOW", "MED", "HIGH", "XHGH", "MAX", "ULTRA"];
@@ -46,11 +46,11 @@ function cycleSpeed() {
 function position() {
   if (!trigger.value || !picker.value) return;
   const rect = trigger.value.getBoundingClientRect();
-  const width = Math.min(288, innerWidth - 16);
+  const width = Math.min(320, innerWidth - 16);
   Object.assign(picker.value.style, {
     width: `${width}px`,
     left: `${Math.max(8, Math.min(rect.right - width, innerWidth - width - 8))}px`,
-    bottom: `${innerHeight - rect.top + 8}px`,
+    bottom: `${innerHeight - rect.top + 10}px`,
     top: "auto",
     right: "auto",
   });
@@ -308,7 +308,7 @@ onUnmounted(() => {
 .eq-fader-rack {
   display: grid;
   grid-template-columns: repeat(var(--channels, 7), minmax(0, 1fr));
-  gap: 5px;
+  gap: 6px;
 }
 
 .eq-channel {
@@ -316,7 +316,8 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 7px;
-  padding: 7px 3px 6px;
+  min-height: 44px;
+  padding: 8px 4px 7px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--background);
@@ -395,7 +396,7 @@ onUnmounted(() => {
 
 .eq-cap {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -441,10 +442,19 @@ onUnmounted(() => {
   outline-offset: 2px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) {
   #think {
-    padding: 0 6px;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 10px;
     gap: 5px;
+  }
+
+  #speed {
+    min-height: 44px;
+    height: 44px;
+    min-width: 44px;
+    padding: 0 10px;
   }
 }
 </style>
