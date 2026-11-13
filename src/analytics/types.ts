@@ -17,6 +17,7 @@ export interface AnalyticsSessionRecord {
   usage: AnalyticsMetrics;
   /** Complete recorded per-model/tool ledgers, including usage without response timestamps. */
   uploadIds?: string[];
+  visionFactKeys?: string[];
   modelUsage?: Record<string, AnalyticsMetrics>;
   toolUsage?: Record<string, AnalyticsMetrics>;
   /** Latest document counters only, not historical completion or duration claims. */

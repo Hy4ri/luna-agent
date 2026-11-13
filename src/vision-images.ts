@@ -1,6 +1,5 @@
-import { chmod, mkdtemp, open, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { open } from "node:fs/promises";
+import { resolve } from "node:path";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
@@ -8,7 +7,7 @@ import { isWorkerEnv } from "./worker-protocol.js";
 
 export interface VisionRegion { x: number; y: number; width: number; height: number }
 export interface LoadedVisionImage {
-  sourceKey: string; path: string; width: number; height: number; bytes: Buffer;
+  sourceKey: string; width: number; height: number; bytes: Buffer;
   mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
   cleanup(): Promise<void>;
 }
@@ -148,74 +147,73 @@ async function sourceBytes(source: string, cwd: string, signal: AbortSignal, env
     return bytes.subarray(0, total);
   } finally { await file.close(); }
 }
+const noopCleanup = async () => {};
 let photon: ReturnType<typeof createNodePhotonImages> | undefined;
 export async function loadVisionImage(source: string, region: VisionRegion | undefined,
   options: { signal: AbortSignal; cwd?: string; tempRoot?: string; env?: import("@earendil-works/pi-durable/env").ExecutionEnv }): Promise<LoadedVisionImage> {
   const { signal } = options;
   interrupted(signal);
-  const dir = await mkdtemp(join(options.tempRoot ?? tmpdir(), "luna-vision-"));
-  const cleanup = () => rm(dir, { recursive: true, force: true });
-  try {
-    await chmod(dir, 0o700);
-    let bytes = await sourceBytes(source, options.cwd ?? process.cwd(), signal, options.env);
-    interrupted(signal);
-    if (bytes.length > MAX_BYTES) throw new Error("Image exceeds 32 MiB transport limit.");
-    const sourceKey = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
-    await writeFile(join(dir, "source"), bytes, { mode: 0o600 });
-    // Reject all SVG external resources before handing XML to the renderer.
-    const xml = bytes.toString("utf8");
-    // Normalize numeric XML entities and CSS escapes before testing resource references.
-    const references = xml.replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (_all, code: string) => {
-      const n = code[0]!.toLowerCase() === "x" ? parseInt(code.slice(1), 16) : Number(code);
-      return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
-    }).replace(/\\([0-9a-f]{1,6})\s?|\\(.)/gi, (_all, hex: string | undefined, char: string | undefined) => {
-      const n = hex ? parseInt(hex, 16) : 0;
-      return hex ? n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "" : char ?? "";
+  let bytes = await sourceBytes(source, options.cwd ?? process.cwd(), signal, options.env);
+  interrupted(signal);
+  if (bytes.length > MAX_BYTES) throw new Error("Image exceeds 32 MiB transport limit.");
+  const sourceKey = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  // Reject all SVG external resources before handing XML to the renderer.
+  const xml = bytes.toString("utf8");
+  // Normalize numeric XML entities and CSS escapes before testing resource references.
+  const references = xml.replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (_all, code: string) => {
+    const n = code[0]!.toLowerCase() === "x" ? parseInt(code.slice(1), 16) : Number(code);
+    return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+  }).replace(/\\([0-9a-f]{1,6})\s?|\\(.)/gi, (_all, hex: string | undefined, char: string | undefined) => {
+    const n = hex ? parseInt(hex, 16) : 0;
+    return hex ? n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "" : char ?? "";
+  });
+  if (/<svg[\s>]/i.test(xml) && (/<!DOCTYPE|<!ENTITY|<\?xml-stylesheet/i.test(references) ||
+    /(?:href|src)\s*=\s*["']\s*(?!#)/i.test(references) || /url\s*\(\s*["']?(?!#)/i.test(references) || /@import/i.test(references)))
+    throw new Error("SVG external references and entities are not allowed.");
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) {
+    if (bytes.length < 26) throw new Error("Invalid BMP header.");
+    const core = bytes.readUInt32LE(14) === 12;
+    const width = core ? bytes.readUInt16LE(18) : Math.abs(bytes.readInt32LE(18));
+    const height = core ? bytes.readUInt16LE(20) : Math.abs(bytes.readInt32LE(22));
+    if (!width || !height || width * height > MAX_PIXELS) throw new Error("BMP exceeds decode pixel limit.");
+    const prepared = await (await (photon ??= createNodePhotonImages())).prepare(Uint8Array.from(bytes), "image/bmp", {
+      maxWidth: MAX_PIXELS, maxHeight: MAX_PIXELS, maxBytes: MAX_BYTES * 4,
     });
-    if (/<svg[\s>]/i.test(xml) && (/<!DOCTYPE|<!ENTITY|<\?xml-stylesheet/i.test(references) ||
-      /(?:href|src)\s*=\s*["']\s*(?!#)/i.test(references) || /url\s*\(\s*["']?(?!#)/i.test(references) || /@import/i.test(references)))
-      throw new Error("SVG external references and entities are not allowed.");
-    if (bytes[0] === 0x42 && bytes[1] === 0x4d) {
-      if (bytes.length < 26) throw new Error("Invalid BMP header.");
-      const core = bytes.readUInt32LE(14) === 12;
-      const width = core ? bytes.readUInt16LE(18) : Math.abs(bytes.readInt32LE(18));
-      const height = core ? bytes.readUInt16LE(20) : Math.abs(bytes.readInt32LE(22));
-      if (!width || !height || width * height > MAX_PIXELS) throw new Error("BMP exceeds decode pixel limit.");
-      const prepared = await (await (photon ??= createNodePhotonImages())).prepare(Uint8Array.from(bytes), "image/bmp", {
-        maxWidth: MAX_PIXELS, maxHeight: MAX_PIXELS, maxBytes: MAX_BYTES * 4,
-      });
-      if (!prepared) throw new Error("Invalid BMP image.");
-      bytes = Buffer.from(prepared.data, "base64");
-    }
-    const sharp = (await import("sharp")).default;
-    const input = sharp(bytes, { limitInputPixels: MAX_PIXELS, failOn: "warning" });
-    const meta = await input.metadata();
-    if (meta.format === "svg" && !/<svg[\s>]/i.test(xml)) throw new Error("SVG must use UTF-8 XML encoding.");
-    if (!meta.width || !meta.height || meta.width * meta.height > MAX_PIXELS) throw new Error("Image exceeds decode pixel limit.");
-    if (region && (!Object.values(region).every(Number.isSafeInteger) || region.x < 0 || region.y < 0 ||
-      region.width < 1 || region.height < 1 || region.x + region.width > meta.width || region.y + region.height > meta.height))
-      throw new Error("Image region is out of bounds or invalid.");
-    // Decode even unchanged files. Extraction precedes all resizing, which happens only in fitVisionImage.
+    if (!prepared) throw new Error("Invalid BMP image.");
+    bytes = Buffer.from(prepared.data, "base64");
+  }
+  const sharp = (await import("sharp")).default;
+  const input = sharp(bytes, { limitInputPixels: MAX_PIXELS, failOn: "warning" });
+  const meta = await input.metadata();
+  if (meta.format === "svg" && !/<svg[\s>]/i.test(xml)) throw new Error("SVG must use UTF-8 XML encoding.");
+  if (!meta.width || !meta.height || meta.width * meta.height > MAX_PIXELS) throw new Error("Image exceeds decode pixel limit.");
+  if (region && (!Object.values(region).every(Number.isSafeInteger) || region.x < 0 || region.y < 0 ||
+    region.width < 1 || region.height < 1 || region.x + region.width > meta.width || region.y + region.height > meta.height))
+    throw new Error("Image region is out of bounds or invalid.");
+  const mimeType = meta.format === "jpeg" ? "image/jpeg" : meta.format === "webp" ? "image/webp" : meta.format === "gif" ? "image/gif" : "image/png";
+  const passthrough = !region && ["jpeg", "png", "webp", "gif"].includes(meta.format);
+  if (passthrough) {
+    // Validate the full encoded pixel stream without paying PNG compression cost.
+    await input.stats();
+  } else {
+    // Extraction precedes all resizing, which happens only in fitVisionImage.
     const pipeline = region ? input.extract({ left: region.x, top: region.y, width: region.width, height: region.height }) : input;
-    const mimeType = meta.format === "jpeg" ? "image/jpeg" : meta.format === "webp" ? "image/webp" : meta.format === "gif" ? "image/gif" : "image/png";
-    const decoded = await pipeline.png().toBuffer();
-    // Preserve original encoded bytes at full size when no crop/conversion is necessary.
-    bytes = !region && ["jpeg", "png", "webp", "gif"].includes(meta.format) ? bytes : decoded;
-    const actualMime = region ? "image/png" : mimeType;
-    const imagePath = join(dir, "image");
-    await writeFile(imagePath, bytes, { mode: 0o600 });
-    interrupted(signal);
-    return { sourceKey, path: imagePath, width: region?.width ?? meta.width, height: region?.height ?? meta.height,
-      bytes, mimeType: actualMime, cleanup };
-  } catch (error) { await cleanup(); interrupted(signal); throw error; }
+    bytes = await pipeline.png().toBuffer();
+  }
+  const actualMime = passthrough ? mimeType : "image/png";
+  interrupted(signal);
+  return { sourceKey, width: region?.width ?? meta.width, height: region?.height ?? meta.height,
+    bytes, mimeType: actualMime, cleanup: noopCleanup };
 }
 export async function fitVisionImage(image: LoadedVisionImage,
   options: { maxBytes: number; longEdge: number; hardBytes: number; signal: AbortSignal }): Promise<{ data: string; mimeType: string; width: number; height: number }> {
   const { signal, longEdge } = options, budget = Math.min(options.maxBytes, options.hardBytes);
   if (![budget, longEdge].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error("Invalid image budget or long-edge limit.");
   interrupted(signal);
-  if (Math.max(image.width, image.height) <= longEdge && image.bytes.toString("base64").length <= budget)
-    return { data: image.bytes.toString("base64"), mimeType: image.mimeType, width: image.width, height: image.height };
+  if (Math.max(image.width, image.height) <= longEdge && Math.ceil(image.bytes.length / 3) * 4 <= budget) {
+    const data = image.bytes.toString("base64");
+    if (data.length <= budget) return { data, mimeType: image.mimeType, width: image.width, height: image.height };
+  }
   let edge = Math.min(longEdge, Math.max(image.width, image.height));
   for (;;) {
     interrupted(signal);

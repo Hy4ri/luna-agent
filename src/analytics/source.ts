@@ -245,7 +245,7 @@ export function scanAnalyticsSession(
       waitResolvedTs?: number | null;
     }
   >();
-  const toolResults = new Map<string, { ts: number | null; durationMs: number | null; isError: boolean }>();
+  const toolResults = new Map<string, { ts: number | null; durationMs: number | null; isError: boolean; usage?: Record<string, unknown> }>();
   const referencedUploadIds = new Set<string>();
   const metadataWaits = new Map<
     string,
@@ -395,12 +395,13 @@ export function scanAnalyticsSession(
       const modelArr = Array.isArray(rec.model) ? rec.model : [rec.model];
       const msg = (modelArr[0] ?? {}) as Record<string, unknown>;
       const toolCallId = typeof msg.toolCallId === "string" ? msg.toolCallId : null;
+      const msgTs = typeof msg.timestamp === "number" ? msg.timestamp : ts;
+      const toolResultUsage = msg.usage && typeof msg.usage === "object" ? (msg.usage as Record<string, unknown>) : undefined;
       if (toolCallId) {
         const isError = Boolean(msg.isError);
-        const msgTs = typeof msg.timestamp === "number" ? msg.timestamp : ts;
         const durationMs =
           typeof msg.durationMs === "number" && Number.isFinite(msg.durationMs) ? msg.durationMs : null;
-        toolResults.set(toolCallId, { ts: msgTs, durationMs, isError });
+        toolResults.set(toolCallId, { ts: msgTs, durationMs, isError, usage: toolResultUsage });
       }
     } else if (kind === "luna.execution") {
       const data = rec.data as Record<string, unknown> | undefined;
@@ -581,10 +582,11 @@ export function scanAnalyticsSession(
     } catch {}
   }
 
-  // Emit tool, skill, and wait facts for pending tool calls
+  // Emit tool, skill, vision, and wait facts for pending tool calls
   for (const [callId, info] of pendingTools) {
     const res = toolResults.get(callId);
     const durationMs = res?.durationMs ?? null;
+    const toolUsageMetrics = res?.usage ? toPartialMetrics(res.usage) : null;
     facts.push({
       key: `tool:${id}:${callId}`,
       sessionId: id,
@@ -597,8 +599,24 @@ export function scanAnalyticsSession(
       error: res?.isError ?? false,
       aborted: false,
       data: res?.isError ? { error: "tool_error" } : {},
-      usage: null,
+      usage: toolUsageMetrics,
     });
+    if (info.name === "media_analyze" || info.name === "vision_analyze" || info.name === "video_analyze") {
+      facts.push({
+        key: `vision:${id}:${callId}`,
+        sessionId: id,
+        kind: "vision",
+        ts: info.ts,
+        name: info.name,
+        model: info.model,
+        source: "direct",
+        durationMs,
+        error: res?.isError ?? false,
+        aborted: false,
+        data: {},
+        usage: toolUsageMetrics,
+      });
+    }
     if (info.skillName) {
       facts.push({
         key: `skill:${id}:${callId}`,
@@ -705,7 +723,7 @@ export function scanAnalyticsSession(
       )
       .all(JSON.stringify("pi.tool.nested-call"), ...taskIds) as { id: number; owner_id: number }[];
     for (const nd of nestedDocs) {
-      const doc = reconstructDoc(db, nd.id) as { taskId?: number; result?: { isError?: boolean; durationMs?: number } } | undefined;
+      const doc = reconstructDoc(db, nd.id) as { taskId?: number; result?: { isError?: boolean; durationMs?: number; usage?: Record<string, unknown> } } | undefined;
       if (!doc || typeof doc !== "object" || typeof doc.taskId !== "number") continue;
       const pointedTask = db
         .query("SELECT record FROM tasks WHERE id = ?")
@@ -733,6 +751,9 @@ export function scanAnalyticsSession(
             ? doc.result.durationMs
             : null;
       const isError = Boolean(doc.result?.isError);
+      const nestedUsageMetrics = doc.result?.usage && typeof doc.result.usage === "object"
+        ? toPartialMetrics(doc.result.usage)
+        : null;
       facts.push({
         key: `tool:nested:${doc.taskId}`,
         sessionId: id,
@@ -745,8 +766,24 @@ export function scanAnalyticsSession(
         error: isError,
         aborted: false,
         data: {},
-        usage: null,
+        usage: nestedUsageMetrics,
       });
+      if (callName === "media_analyze" || callName === "vision_analyze" || callName === "video_analyze") {
+        facts.push({
+          key: `vision:nested:${doc.taskId}`,
+          sessionId: id,
+          kind: "vision",
+          ts: startedAt,
+          name: callName,
+          model: null,
+          source: "codemode",
+          durationMs,
+          error: isError,
+          aborted: false,
+          data: {},
+          usage: nestedUsageMetrics,
+        });
+      }
       if (callName === "skill" && callArgs.action === "view" && typeof callArgs.name === "string") {
         facts.push({
           key: `skill:nested:${doc.taskId}`,
@@ -922,12 +959,29 @@ export function scanAnalyticsSession(
   const completedTodos = todoTasks.filter((t) => t.status === "completed").length;
 
   const visionDoc = readCurrentDoc(db, "luna.vision", "conversation", id) as { counts?: Record<string, number> } | undefined;
-  let visionCalls = 0;
+  let visionStateCalls = 0;
   if (visionDoc?.counts && typeof visionDoc.counts === "object") {
     for (const c of Object.values(visionDoc.counts)) {
-      if (typeof c === "number" && Number.isFinite(c)) visionCalls += c;
+      if (typeof c === "number" && Number.isFinite(c)) visionStateCalls += c;
     }
   }
+  const seenVisionKeys = new Set<string>(
+    rebuild ? [] : (previous?.visionFactKeys ?? []),
+  );
+  let newNonNestedVisionFacts = 0;
+  for (const f of facts) {
+    if (f.kind !== "vision") continue;
+    if (!seenVisionKeys.has(f.key) && !f.key.startsWith("vision:nested:")) {
+      newNonNestedVisionFacts++;
+    }
+    seenVisionKeys.add(f.key);
+  }
+  const visionCalls = Math.max(
+    visionStateCalls,
+    rebuild || previous?.visionFactKeys !== undefined
+      ? seenVisionKeys.size
+      : (previous?.workflow.visionCalls ?? 0) + newNonNestedVisionFacts,
+  );
 
   const seenUploadIds = new Set<string>(
     rebuild ? [] : ((previous as (AnalyticsSessionRecord & { uploadIds?: string[] }) | undefined)?.uploadIds ?? []),
@@ -996,6 +1050,7 @@ export function scanAnalyticsSession(
     },
   };
   (session as AnalyticsSessionRecord & { uploadIds?: string[] }).uploadIds = [...seenUploadIds];
+  session.visionFactKeys = [...seenVisionKeys];
 
   return {
     session,

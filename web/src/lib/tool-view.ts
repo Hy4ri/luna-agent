@@ -77,6 +77,9 @@ export function toolSummary(name: string, args: unknown): string {
     case "subagent": case "delegate_task": return clip([str(a.action), str(a.task)].filter(Boolean).join(" · "));
     case "codemode": return clip(str(a.code));
     case "web": return [str(a.action), clip(str(a.action) === "read" ? str(a.url) : str(a.query), 70)].filter(Boolean).join(" ");
+    case "media_analyze": return clip(str(a.source) || str(a.question));
+    case "vision_analyze": return clip(str(a.image_url) || str(a.source) || str(a.question));
+    case "video_analyze": return clip(str(a.source) || str(a.question));
   }
   for (const key of ["path", "command", "query", "url", "objective", "prompt", "question", "name", "subject", "action"]) if (str(a[key])) return clip(a[key]);
   return "";
@@ -183,6 +186,49 @@ export function ansiSpans(text: string): AnsiSpan[] {
   }
   push(text.slice(at));
   return spans;
+}
+
+export type MediaAnalysisView = {
+  route?: string;
+  dimensions?: string;
+  region?: string;
+  analysis?: string;
+  warning?: string;
+  note?: string;
+  rawFallback?: string;
+};
+
+/** Parse media_analyze / vision_analyze / video_analyze JSON (or truncated JSON) into displayable parts. */
+export function parseMediaAnalysis(text: string): MediaAnalysisView | undefined {
+  const j = parseJson(text);
+  if (j && typeof j === "object") {
+    const dimensions = typeof j.width === "number" && typeof j.height === "number"
+      ? typeof j.inputWidth === "number" && typeof j.inputHeight === "number" && (j.inputWidth !== j.width || j.inputHeight !== j.height)
+        ? `${j.width}×${j.height} (from ${j.inputWidth}×${j.inputHeight})`
+        : `${j.width}×${j.height}`
+      : undefined;
+    const r = j.region;
+    const region = r && typeof r === "object" && [r.x, r.y, r.width, r.height].every((n: unknown) => typeof n === "number")
+      ? `region ${r.x},${r.y} ${r.width}×${r.height}`
+      : undefined;
+    const analysis = typeof j.analysis === "string" && j.analysis ? j.analysis : undefined;
+    const warning = typeof j.warning === "string" && j.warning ? j.warning : undefined;
+    const note = typeof j.note === "string" && j.note ? j.note : undefined;
+    const route = typeof j.route === "string" && j.route ? j.route : undefined;
+    if (dimensions || region || analysis || warning || note || route) {
+      return { route, dimensions, region, analysis, warning, note };
+    }
+    return undefined;
+  }
+  if (!text) return undefined;
+  // Truncated JSON (>8KB UI projection) breaks JSON.parse; recover readable preview text instead of dropping the body.
+  const analysisMatch = /"analysis"\s*:\s*"([\s\S]*)/.exec(text);
+  if (analysisMatch) {
+    let raw = analysisMatch[1]!.replace(/"\s*,?\s*"(?:warning|usage|success)"[\s\S]*$/, "").replace(/"\s*\}\s*$/, "");
+    raw = raw.replace(/\\n/g, "\n").replace(/\\r/g, "").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    if (raw.trim()) return { analysis: raw };
+  }
+  return { rawFallback: text };
 }
 
 export type CodemodeNestedCallView = {

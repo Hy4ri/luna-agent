@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 import type { AnalyticsScan, AnalyticsSessionRecord } from "./types.js";
 
-export const ANALYTICS_PARSER_VERSION = 2;
+export const ANALYTICS_PARSER_VERSION = 3;
 
 export class AnalyticsStore {
   readonly db: Database;

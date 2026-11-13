@@ -862,3 +862,81 @@ test("summary splits response and tool failures, and context model rows open a d
     expect(analyticsDetail(store, "context", "model", String(row.id), all) !== undefined).toBeTruthy();
   }
 });
+
+test("tools tab reports toolTokens and toolCost from toolUsage ledger and filtered tool facts", () => {
+  const store = createTempStore();
+  seedStore(store);
+  store.apply({
+    rebuild: true,
+    entriesScanned: 1,
+    session: {
+      id: 4,
+      title: "Media Tool Usage",
+      parentId: null,
+      projectId: 10,
+      projectName: "Alpha",
+      worker: "main",
+      cwd: "/work/alpha",
+      createdAt: T1,
+      lastActivity: T2,
+      status: "idle",
+      statusReason: null,
+      archived: false,
+      pinned: false,
+      deletedAt: null,
+      lastEntryId: 1,
+      revision: "rev-4",
+      userTurns: 1,
+      assistantTurns: 1,
+      subagentCount: 0,
+      forkDepth: 0,
+      usage: {
+        input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150,
+        reasoning: null, cacheWrite1h: null, cacheHitRate: null,
+        cost: { input: 0.1, output: 0.1, cacheRead: 0, cacheWrite: 0, total: 0.2 },
+      },
+      toolUsage: {
+        media_analyze: {
+          input: 400, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 500,
+          reasoning: null, cacheWrite1h: null, cacheHitRate: null,
+          cost: { input: 0.02, output: 0.03, cacheRead: 0, cacheWrite: 0, total: 0.05 },
+        },
+      },
+      workflow: { goals: 0, completedGoals: 0, todos: 0, completedTodos: 0, visionCalls: 1, uploads: 0, uploadBytes: 0 },
+    },
+    facts: [
+      {
+        key: "s4:tool:1",
+        sessionId: 4,
+        kind: "tool",
+        ts: T1 + 50,
+        name: "media_analyze",
+        model: "anthropic/claude-sonnet",
+        source: "direct",
+        durationMs: 200,
+        error: false,
+        aborted: false,
+        data: {},
+        usage: {
+          input: 400, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 500,
+          reasoning: null, cacheWrite1h: null, cacheHitRate: null,
+          cost: { input: 0.02, output: 0.03, cacheRead: 0, cacheWrite: 0, total: 0.05 },
+        },
+      },
+    ],
+  });
+
+  const all = parseAnalyticsFilters(new URLSearchParams());
+  const toolsTab = queryAnalytics(store, "tools", all);
+  const mediaRow = toolsTab.table.rows.find((r) => r.name === "media_analyze");
+  expect(mediaRow).toBeTruthy();
+  expect(mediaRow!.toolTokens).toBe(500);
+  expect(mediaRow!.toolCost).toBe(0.05);
+
+  const filtered = parseAnalyticsFilters(new URLSearchParams([["from", String(T1)], ["to", String(T2 + 1)]]));
+  const filteredTools = queryAnalytics(store, "tools", filtered);
+  const filteredMedia = filteredTools.table.rows.find((r) => r.name === "media_analyze");
+  expect(filteredMedia).toBeTruthy();
+  expect(filteredMedia!.toolTokens).toBe(500);
+  expect(filteredMedia!.toolCost).toBe(0.05);
+});
