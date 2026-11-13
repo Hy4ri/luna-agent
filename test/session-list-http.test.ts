@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, expect } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { openLuna, context } from "../src/luna.js";
 import { ConversationStore } from "../src/conversations.js";
 import { createApp } from "../src/server.js";
 import { ExecTarget } from "../src/workers.js";
 import { SessionCreated } from "../src/session-activity.js";
-import { startSessionReview } from "../src/session-status.js";
+import { finishSessionReview, SessionHandoffDoc, startSessionReview } from "../src/session-status.js";
 
 async function makeTempDb() {
   const dir = await mkdtemp(join(tmpdir(), "luna-session-list-http-test-"));
@@ -336,6 +336,134 @@ test("opt-in GET /v1/sessions pagination protocol: running/reviewing filters, ba
       // Non-canonical base64url encoding
       const nonCanonicalCursor = Buffer.from(JSON.stringify([0, 100, 1]), "utf8").toString("base64url") + "==";
       expect((await app.request(`/v1/sessions?limit=50&cursor=${nonCanonicalCursor}`)).status).toBe(400);
+    } finally {
+      await harness.close(BACKGROUND_CONTEXT);
+    }
+  } finally {
+    await tmp.cleanup();
+  }
+});
+
+test("POST /v1/sessions/:id/read and POST /v1/sessions/read-all mark finished and review_finished sessions ready", async () => {
+  const tmp = await makeTempDb();
+  try {
+    const models = createModels();
+    const harness = await openLuna({
+      dbPath: tmp.dbPath,
+      models,
+      memory: false,
+      coding: false,
+    });
+    try {
+      const conversations = new ConversationStore(harness);
+      const app = createApp({ harness, conversations, models });
+
+      const createFinished = async (ts: number, archived = false) => {
+        const id = await harness.commit(async (tx) => (await tx.createConversation({ ownership: { kind: "ownerless" } })).id, context);
+        const boundary = await harness.commit(async (tx) => {
+          const u = await tx.appendEntry(id, { kind: "pi.user", model: [{ role: "user", content: "hi", timestamp: ts - 1 }] });
+          await tx.appendEntry(id, { kind: "pi.assistant", model: [fauxAssistantMessage([fauxText("done")], { timestamp: ts })] });
+          return Number(u.id);
+        }, context);
+        if (archived) await conversations.update(Number(id), { archived: true });
+        return { id, boundary };
+      };
+
+      const { id: sFinished } = await createFinished(100);
+      const { id: sReview, boundary: reviewBoundary } = await createFinished(100);
+      await harness.commit(async (tx) => {
+        await startSessionReview(tx, sReview, "rev-1", reviewBoundary);
+      }, context);
+      await harness.commit(async (tx) => {
+        await finishSessionReview(tx, sReview, "rev-1");
+      }, context);
+
+      const sFailed = await harness.commit(async (tx) => (await tx.createConversation({ ownership: { kind: "ownerless" } })).id, context);
+      await harness.commit(async (tx) => {
+        await tx.appendEntry(sFailed, { kind: "pi.user", model: [{ role: "user", content: "fail", timestamp: 100 }] });
+        await tx.appendEntry(sFailed, { kind: "pi.assistant", model: [fauxAssistantMessage("", { stopReason: "error", errorMessage: "boom", timestamp: 101 })] });
+      }, context);
+
+      const sHandoff = await harness.commit(async (tx) => (await tx.createConversation({ ownership: { kind: "ownerless" } })).id, context);
+      await harness.commit(async (tx) => {
+        const u = await tx.appendEntry(sHandoff, { kind: "pi.user", model: [{ role: "user", content: "ask", timestamp: 100 }] });
+        (await tx.doc(SessionHandoffDoc, sHandoff)).handoff = { status: "needs_approval", reason: "confirm", boundary: Number(u.id) };
+      }, context);
+
+      const { id: sBatchA } = await createFinished(100);
+      const { id: sBatchB } = await createFinished(100);
+      const { id: sArchived } = await createFinished(100, true);
+
+      const statusMap = async () => {
+        const res = await app.request("/v1/sessions?limit=50&archived=all");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { sessions: Array<{ id: number; status: string }> };
+        return new Map(body.sessions.map((s) => [s.id, s.status]));
+      };
+
+      let statuses = await statusMap();
+      expect(statuses.get(Number(sFinished))).toBe("finished");
+      expect(statuses.get(Number(sReview))).toBe("review_finished");
+      expect(statuses.get(Number(sFailed))).toBe("failed");
+      expect(statuses.get(Number(sHandoff))).toBe("needs_approval");
+
+      // 404 for unknown session
+      expect((await app.request("/v1/sessions/999999/read", { method: "POST" })).status).toBe(404);
+
+      // Single mark-read clears finished and review_finished to ready, and is idempotent
+      const r1 = await app.request(`/v1/sessions/${sFinished}/read`, { method: "POST" });
+      expect(r1.status).toBe(200);
+      expect(await r1.json()).toEqual({ ok: true, status: "ready", statusReason: null });
+      const r1Again = await app.request(`/v1/sessions/${sFinished}/read`, { method: "POST" });
+      expect(r1Again.status).toBe(200);
+      expect(await r1Again.json()).toEqual({ ok: true, status: "ready", statusReason: null });
+
+      const r2 = await app.request(`/v1/sessions/${sReview}/read`, { method: "POST" });
+      expect(r2.status).toBe(200);
+      expect(await r2.json()).toEqual({ ok: true, status: "ready", statusReason: null });
+
+      // Failed and needs_approval are preserved by mark-read
+      const rFail = await app.request(`/v1/sessions/${sFailed}/read`, { method: "POST" });
+      expect(rFail.status).toBe(200);
+      expect(await rFail.json()).toEqual({ ok: true, status: "failed", statusReason: "boom" });
+
+      const rHandoff = await app.request(`/v1/sessions/${sHandoff}/read`, { method: "POST" });
+      expect(rHandoff.status).toBe(200);
+      expect(await rHandoff.json()).toEqual({ ok: true, status: "needs_approval", statusReason: "confirm" });
+
+      statuses = await statusMap();
+      expect(statuses.get(Number(sFinished))).toBe("ready");
+      expect(statuses.get(Number(sReview))).toBe("ready");
+      expect(statuses.get(Number(sFailed))).toBe("failed");
+      expect(statuses.get(Number(sHandoff))).toBe("needs_approval");
+
+      // Validation errors on read-all
+      expect((await app.request("/v1/sessions/read-all", { method: "POST", body: "not-json" })).status).toBe(400);
+      expect((await app.request("/v1/sessions/read-all", { method: "POST", body: JSON.stringify({ extra: 1 }) })).status).toBe(400);
+      expect((await app.request("/v1/sessions/read-all", { method: "POST", body: JSON.stringify({ ids: [0] }) })).status).toBe(400);
+
+      // Targeted read-all updates only the listed finished sessions and ignores unknown/non-finished ids
+      const batchRes = await app.request("/v1/sessions/read-all", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: [Number(sBatchA), Number(sFailed), 999999] }),
+      });
+      expect(batchRes.status).toBe(200);
+      expect(await batchRes.json()).toEqual({ ok: true, count: 1, ids: [Number(sBatchA)] });
+
+      statuses = await statusMap();
+      expect(statuses.get(Number(sBatchA))).toBe("ready");
+      expect(statuses.get(Number(sBatchB))).toBe("finished");
+      expect(statuses.get(Number(sFailed))).toBe("failed");
+
+      // Empty read-all marks all remaining unarchived finished sessions read, leaving archived untouched
+      const allRes = await app.request("/v1/sessions/read-all", { method: "POST" });
+      expect(allRes.status).toBe(200);
+      expect(await allRes.json()).toEqual({ ok: true, count: 1, ids: [Number(sBatchB)] });
+
+      statuses = await statusMap();
+      expect(statuses.get(Number(sBatchB))).toBe("ready");
+      expect(statuses.get(Number(sArchived))).toBe("finished");
     } finally {
       await harness.close(BACKGROUND_CONTEXT);
     }

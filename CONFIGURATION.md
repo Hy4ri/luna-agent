@@ -2016,6 +2016,11 @@ The protocol bounds HTTP metadata pages and client allocations. It still scans c
 
 `groups` is computed over all visible sessions (excluding delegate subagents) without applying `project`, `worker`, or `q` filters. `activity` reflects the maximum activity timestamp across both archived and unarchived sessions for stable project ordering; `lastActivity`, `count`, `statuses`, and `machines` reflect the selected `archived` mode.
 
+### Session read endpoints
+
+- `POST /v1/sessions/:id/read`: marks a session read on the server (`SessionReadDoc`) when its status is `finished` or `review_finished` (turning it `ready`), and returns `{ "ok": true, "status": "<status>", "statusReason": <string|null> }`. Running, blocking (`needs_input`, `needs_approval`), and error/limit (`failed`, `limit_reached`) states are preserved. Returns `404` when the session does not exist.
+- `POST /v1/sessions/read-all`: accepts an optional `{ "ids": [<number>, ...] }` body. When `ids` is given, marks those `finished` or `review_finished` sessions read (skipping missing or non-finished sessions); when omitted, marks all unarchived visible `finished` or `review_finished` sessions read. Returns `{ "ok": true, "count": <number>, "ids": [<number>, ...] }`. Invalid JSON, unknown fields, or non-positive/non-integer `ids` return `400`.
+
 `GET /v1/sessions/:id/events?view=ui&after=<entryId>` uses the same projection.
 The atomic SSE snapshot contains only entries newer than the hydrated page's newest
 entry. This closes the fetch/subscribe gap without resending the entire transcript.

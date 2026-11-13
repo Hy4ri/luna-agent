@@ -253,9 +253,11 @@ async function trackActiveNotifications() {
   }
 }
 
-// Activity bell: sessions across all projects that finished or need the user. Read state is kept per browser.
+// Activity bell: sessions across all projects that finished or need the user. Read state is kept per browser,
+// and marking a finished session read updates SessionReadDoc on the server so the session status becomes ready.
 const ACTIVITY_STATUSES: SessionStatus[] = ["finished", "review_finished", "needs_input", "needs_approval", "failed", "limit_reached"];
 const BLOCKING = new Set<SessionStatus>(["needs_input", "needs_approval"]);
+const READABLE_STATUSES = new Set<SessionStatus>(["finished", "review_finished"]);
 const ACTIVITY_KEY = "luna.activitySeen";
 const loadSeen = (): { before: number; ids: Record<string, number>; dismissed: Record<string, number> } => {
   try { return { before: 0, ids: {}, dismissed: {}, ...JSON.parse(localStorage.getItem(ACTIVITY_KEY) || "{}") }; } catch { return { before: 0, ids: {}, dismissed: {} }; }
@@ -269,6 +271,9 @@ const saveSeen = () => {
 };
 export const activity = reactive({ items: [] as SessionMeta[] });
 let activityBusy = false;
+const markReadBusy = new Set<string>();
+const readOverlay = new Set<string>();
+let markAllBusy = false;
 
 const stamp = (s: SessionMeta) => Number(s.lastActivity ?? s.createdAt ?? 0);
 const isUnread = (s: SessionMeta) => {
@@ -277,6 +282,33 @@ const isUnread = (s: SessionMeta) => {
   if (BLOCKING.has(st)) return stamp(s) > (seen.dismissed[String(s.id)] ?? 0); // Waiting on the user until dismissed.
   return stamp(s) > Math.max(seen.before, seen.ids[String(s.id)] ?? 0);
 };
+
+function setSessionStatusLocal(id: string | number, status: SessionStatus, statusReason: string | null) {
+  const sid = String(id);
+  const listRow = history.list.find(row => String(row.id) === sid);
+  if (listRow) { listRow.status = status; listRow.statusReason = statusReason; }
+  const sidebarRow = history.rows.find(row => String(row.id) === sid);
+  if (sidebarRow) { sidebarRow.status = status; sidebarRow.statusReason = statusReason; }
+}
+
+async function reloadSessionsAfterMutation() {
+  if (inFlightSessions) await inFlightSessions.promise.catch(() => {});
+  await loadSessions();
+}
+
+function updateGroupCountsForRead(beforeRows: Array<{ id: string | number; projectId?: number; status?: SessionStatus }>, nextRows: Array<{ id: string | number; status: SessionStatus }>) {
+  const nextById = new Map(nextRows.map(r => [String(r.id), r.status]));
+  for (const row of beforeRows) {
+    const prev = row.status;
+    const next = nextById.get(String(row.id));
+    if (!prev || !next || prev === next) continue;
+    const gk = row.projectId ? String(row.projectId) : "none";
+    const group = history.groups[gk];
+    if (!group?.statuses) continue;
+    group.statuses[prev] = Math.max(0, (group.statuses[prev] ?? 0) - 1);
+    group.statuses[next] = (group.statuses[next] ?? 0) + 1;
+  }
+}
 
 export async function refreshActivity() {
   if (activityBusy) return;
@@ -296,20 +328,142 @@ export function markActivitySeen(id: string | number) {
   activity.items = activity.items.filter(s => String(s.id) !== String(id) || BLOCKING.has(sessionState(s)));
 }
 
-/** Mark one entry read without opening it. Also hides sessions that are still waiting on the user. */
-export function dismissActivity(id: string | number) {
-  seen.dismissed[String(id)] = Date.now();
-  seen.ids[String(id)] = Date.now();
+/** Mark one entry read without opening it. Marks finished sessions read on the server; also hides blocking items in the bell. */
+export async function dismissActivity(id: string | number) {
+  const sid = String(id);
+  const key = pinContextKey(id);
+  const origin = serverUrl.value, credential = token.value;
+  const current = () => origin === serverUrl.value && credential === token.value;
+
+  const target = activity.items.find(s => String(s.id) === sid)
+    ?? history.rows.find(s => String(s.id) === sid)
+    ?? history.list.find(s => String(s.id) === sid);
+  const ts = Math.max(Date.now(), target ? stamp(target) : 0);
+
+  if (target && READABLE_STATUSES.has(sessionState(target)) && markReadBusy.has(key)) return;
+
+  const prevDismissed = seen.dismissed[sid];
+  const prevSeenId = seen.ids[sid];
+  seen.dismissed[sid] = ts;
+  seen.ids[sid] = ts;
   saveSeen();
-  activity.items = activity.items.filter(s => String(s.id) !== String(id));
+  activity.items = activity.items.filter(s => String(s.id) !== sid);
+
+  if (!target || !READABLE_STATUSES.has(sessionState(target))) return;
+
+  const listRow = history.list.find(row => String(row.id) === sid);
+  const rowsRow = history.rows.find(row => String(row.id) === sid);
+  const prevListStatus = listRow?.status, prevListReason = listRow?.statusReason ?? null;
+  const prevRowsStatus = rowsRow?.status, prevRowsReason = rowsRow?.statusReason ?? null;
+  const targetStatus = sessionState(target);
+  const targetProjectId = target.projectId ?? listRow?.projectId ?? rowsRow?.projectId;
+
+  markReadBusy.add(key);
+  readOverlay.add(key);
+  history.status = "";
+  setSessionStatusLocal(id, "ready", null);
+  updateGroupCountsForRead([{ id, projectId: targetProjectId, status: targetStatus }], [{ id, status: "ready" }]);
+  try {
+    const res = await post<{ ok: boolean; status: SessionStatus; statusReason: string | null }>(`/v1/sessions/${id}/read`, {});
+    readOverlay.delete(key);
+    if (!current()) return;
+    setSessionStatusLocal(id, res.status, res.statusReason);
+    if (res.status !== "ready") {
+      updateGroupCountsForRead([{ id, projectId: targetProjectId, status: "ready" }], [{ id, status: res.status }]);
+    }
+    await reloadSessionsAfterMutation();
+  } catch (e) {
+    readOverlay.delete(key);
+    if (current()) {
+      if (prevDismissed === undefined) delete seen.dismissed[sid];
+      else seen.dismissed[sid] = prevDismissed;
+      if (prevSeenId === undefined) delete seen.ids[sid];
+      else seen.ids[sid] = prevSeenId;
+      saveSeen();
+      if (listRow && prevListStatus !== undefined) { listRow.status = prevListStatus; listRow.statusReason = prevListReason; }
+      if (rowsRow && prevRowsStatus !== undefined) { rowsRow.status = prevRowsStatus; rowsRow.statusReason = prevRowsReason; }
+      updateGroupCountsForRead([{ id, projectId: targetProjectId, status: "ready" }], [{ id, status: targetStatus }]);
+      if (!activity.items.some(s => String(s.id) === sid)) {
+        activity.items = [...activity.items, target].sort((a, b) => stamp(b) - stamp(a));
+      }
+      history.status = (e as Error).message;
+      void refreshActivity();
+    }
+  } finally {
+    markReadBusy.delete(key);
+  }
 }
 
-export function markAllActivitySeen() {
-  seen.before = Date.now();
+export async function markAllActivitySeen() {
+  if (markAllBusy) return;
+  const origin = serverUrl.value, credential = token.value;
+  const current = () => origin === serverUrl.value && credential === token.value;
+  const snapshot = [...activity.items];
+  const prevBefore = seen.before;
+  const prevIds = { ...seen.ids };
+  const prevDismissed = { ...seen.dismissed };
+  const now = Math.max(Date.now(), ...snapshot.map(stamp));
+
+  const readable = snapshot.filter(s => READABLE_STATUSES.has(sessionState(s)));
+  const numericIds = [...new Set(readable.map(s => Number(s.id)).filter(n => Number.isSafeInteger(n) && n > 0))];
+  const prevRows = readable.map(s => {
+    const sid = String(s.id);
+    const listRow = history.list.find(row => String(row.id) === sid);
+    const rowsRow = history.rows.find(row => String(row.id) === sid);
+    return {
+      id: s.id,
+      key: pinContextKey(s.id),
+      projectId: s.projectId ?? listRow?.projectId ?? rowsRow?.projectId,
+      prevStatus: sessionState(s),
+      listStatus: listRow?.status,
+      listReason: listRow?.statusReason ?? null,
+      rowsStatus: rowsRow?.status,
+      rowsReason: rowsRow?.statusReason ?? null,
+    };
+  });
+
+  seen.before = now;
   seen.ids = {};
-  for (const s of activity.items) seen.dismissed[String(s.id)] = Date.now();
+  for (const s of snapshot) seen.dismissed[String(s.id)] = now;
   saveSeen();
-  activity.items = activity.items.filter(s => BLOCKING.has(sessionState(s)));
+  activity.items = [];
+
+  if (!numericIds.length) return;
+
+  markAllBusy = true;
+  history.status = "";
+  for (const r of prevRows) {
+    readOverlay.add(r.key);
+    setSessionStatusLocal(r.id, "ready", null);
+  }
+  updateGroupCountsForRead(prevRows.map(r => ({ id: r.id, projectId: r.projectId, status: r.prevStatus })), prevRows.map(r => ({ id: r.id, status: "ready" })));
+  try {
+    await post<{ ok: boolean; count: number; ids: number[] }>("/v1/sessions/read-all", { ids: numericIds });
+    for (const r of prevRows) readOverlay.delete(r.key);
+    if (!current()) return;
+    await reloadSessionsAfterMutation();
+  } catch (e) {
+    for (const r of prevRows) readOverlay.delete(r.key);
+    if (current()) {
+      seen.before = prevBefore;
+      seen.ids = prevIds;
+      seen.dismissed = prevDismissed;
+      saveSeen();
+      for (const r of prevRows) {
+        const sid = String(r.id);
+        const listRow = history.list.find(row => String(row.id) === sid);
+        if (listRow && r.listStatus !== undefined) { listRow.status = r.listStatus; listRow.statusReason = r.listReason; }
+        const rowsRow = history.rows.find(row => String(row.id) === sid);
+        if (rowsRow && r.rowsStatus !== undefined) { rowsRow.status = r.rowsStatus; rowsRow.statusReason = r.rowsReason; }
+      }
+      updateGroupCountsForRead(prevRows.map(r => ({ id: r.id, projectId: r.projectId, status: "ready" })), prevRows.map(r => ({ id: r.id, status: r.prevStatus })));
+      activity.items = snapshot;
+      history.status = (e as Error).message;
+      void refreshActivity();
+    }
+  } finally {
+    markAllBusy = false;
+  }
 }
 
 /** Standalone query function for independent consumers and sidebar window fetching.
@@ -338,10 +492,14 @@ const pinValues = new Map<string, boolean>();
 
 function applyPinOverlay(row: SessionMeta): SessionMeta {
   const key = pinContextKey(row.id);
+  let next = row;
   if (pinValues.has(key)) {
-    return { ...row, pinned: pinValues.get(key) };
+    next = { ...next, pinned: pinValues.get(key) };
   }
-  return row;
+  if (readOverlay.has(key) && READABLE_STATUSES.has(sessionState(next))) {
+    next = { ...next, status: "ready", statusReason: null };
+  }
+  return next;
 }
 
 /** Retain history.list as a bounded cache (max ~500), preserving focused chat, loaded page IDs, and all history.rows. */

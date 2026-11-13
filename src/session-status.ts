@@ -20,7 +20,7 @@ export const SessionReadDoc = defineDoc<{ at: number | null }>({
 /** Record the current wall-clock time as the read timestamp. Call inside a commit that also reads status. */
 export async function markSessionRead(tx: Tx, id: ConversationId): Promise<void> {
   const doc = await tx.doc(SessionReadDoc, id);
-  doc.at = Date.now();
+  doc.at = Math.max(Date.now(), doc.at ?? 0);
 }
 type Handoff = { status: "needs_approval" | "needs_input"; reason: string; boundary: number };
 export const SessionHandoffDoc = defineDoc<{ handoff: Handoff | null }>({

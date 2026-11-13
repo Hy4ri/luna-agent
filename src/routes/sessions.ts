@@ -349,6 +349,69 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
       return c.json(preview ? selected : { deleted: selected.ids });
     });
 
+  app.post("/v1/sessions/read-all", async (c) => {
+    const raw = await c.req.text();
+    let body: Record<string, unknown> = {};
+    if (raw.trim()) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return err(c, 400, "invalid JSON body");
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.keys(parsed).some((k) => k !== "ids")) {
+        return err(c, 400, "only optional ids array is allowed");
+      }
+      body = parsed as Record<string, unknown>;
+    }
+    if ("ids" in body && (!Array.isArray(body.ids) || !body.ids.every((n) => Number.isSafeInteger(n) && n > 0))) {
+      return err(c, 400, "ids must be an array of positive integers");
+    }
+    let candidates: number[];
+    if (Array.isArray(body.ids)) {
+      candidates = [...new Set(body.ids as number[])];
+    } else {
+      const built = await listRows();
+      candidates = [];
+      for (const [id, row] of built) {
+        if (row.hidden) continue;
+        if (opts.conversations?.get(id)?.archived) continue;
+        if (row.status === "finished" || row.status === "review_finished") candidates.push(Number(id));
+      }
+    }
+    if (candidates.length === 0) return c.json({ ok: true, count: 0, ids: [] });
+    const updatedIds = await harness.commit(async (tx) => {
+      const marked: number[] = [];
+      for (const id of candidates) {
+        const cid = id as ConversationId;
+        if (!(await tx.conversation(cid))) continue;
+        const running = await isRunning(tx, cid);
+        const status = await readSessionStatus(tx, cid, running);
+        if (!running && (status.status === "finished" || status.status === "review_finished")) {
+          await markSessionRead(tx, cid);
+          marked.push(id);
+        }
+      }
+      return marked;
+    }, context);
+    return c.json({ ok: true, count: updatedIds.length, ids: updatedIds });
+  });
+
+  app.post("/v1/sessions/:id/read", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const next = await harness.commit(async (tx) => {
+      const running = await isRunning(tx, conv.id);
+      const status = await readSessionStatus(tx, conv.id, running);
+      if (!running && (status.status === "finished" || status.status === "review_finished")) {
+        await markSessionRead(tx, conv.id);
+        return await readSessionStatus(tx, conv.id, running);
+      }
+      return status;
+    }, context);
+    return c.json({ ok: true, status: next.status, statusReason: next.statusReason });
+  });
+
   app.patch("/v1/sessions/:id/metadata", async (c) => {
     if (!opts.conversations) return err(c, 404, "conversation management disabled");
     const b = await c.req.json().catch(() => null);
