@@ -566,13 +566,13 @@ onMounted(() => {
       </p>
 
       <div v-if="selecting && !collapsed" id="bulk-bar" class="flex flex-wrap items-center gap-1 px-3 py-1 text-xs" role="toolbar" aria-label="Bulk actions">
-        <span class="text-muted-foreground mr-auto" role="status">{{ selected.size }} selected</span>
+        <span class="text-muted-foreground mr-auto tabular-nums" role="status">{{ selected.size }} selected</span>
         <button class="icon-button" :title="selectAllLabel" :aria-label="selectAllLabel" @click="selectAllLoaded"><SquareCheck :size="16" /></button>
         <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Generate titles" aria-label="Generate titles for selected" @click="runBulk('title')"><Sparkles :size="16" /></button>
         <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Pin" aria-label="Pin selected" @click="runBulk('pin')"><Pin :size="16" /></button>
         <button class="icon-button" :disabled="!selected.size || bulkBusy" :title="history.archived ? 'Restore' : 'Archive'" :aria-label="(history.archived ? 'Restore' : 'Archive') + ' selected'" @click="runBulk(history.archived ? 'restore' : 'archive')"><Archive :size="16" /></button>
         <button class="icon-button" :disabled="!selected.size || bulkBusy" title="Delete" aria-label="Delete selected" @click="runBulk('delete')"><Trash2 :size="16" /></button>
-        <button class="icon-button" title="Done" aria-label="Exit selection" @click="exitSelect"><X :size="16" /></button>
+        <button class="px-2 h-8 text-xs font-medium text-foreground hover:bg-sidebar-accent rounded-[var(--radius)] inline-flex items-center gap-1" title="Done" aria-label="Exit selection" @click="exitSelect"><X :size="14" />Done</button>
       </div>
 
       <p id="prune-status" role="status" class="text-muted-foreground text-xs px-3 py-1" v-if="pruneResult && !collapsed">{{ pruneResult }}</p>

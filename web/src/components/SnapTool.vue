@@ -203,7 +203,7 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
     </div>
     <div v-else class="snap-review" role="dialog" aria-label="Send UI snap" @keydown="key">
       <img :src="preview" alt="Selected area" />
-      <textarea v-model="note" rows="3" placeholder="What is wrong? (optional)" class="snap-note" @keydown.ctrl.enter="submit" @keydown.meta.enter="submit" />
+      <textarea v-model="note" rows="3" placeholder="What is wrong? (optional · Ctrl+Enter to send)" class="snap-note" @keydown.ctrl.enter="submit" @keydown.meta.enter="submit" />
       <div class="snap-options">
         <select v-if="history.projects.length" v-model="project" class="snap-select snap-project" aria-label="Snap target project" title="Target project" @change="saveProject(project)">
           <option v-for="p in history.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
@@ -215,7 +215,7 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
       </div>
       <div class="snap-actions">
         <button type="button" class="snap-btn" @click="cancel">Cancel</button>
-        <button type="button" class="snap-btn snap-primary" :disabled="busy" @click="submit"><Loader2 v-if="busy" :size="14" class="spin" /><Send v-else :size="14" /> New session</button>
+        <button type="button" class="snap-btn snap-primary" :disabled="busy" title="Start a new session with this screenshot and DOM" @click="submit"><Loader2 v-if="busy" :size="14" class="spin" /><Send v-else :size="14" /> Send snap</button>
       </div>
     </div>
   </div></Teleport>
@@ -223,7 +223,7 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 
 <style scoped>
 .snap-root { pointer-events: auto; }
-.snap-tab { position: fixed; right: 0; top: 55%; z-index: 2147483000; width: 28px; height: 44px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: var(--radius) 0 0 var(--radius); background: var(--card); color: var(--muted-foreground); opacity: .35; transition: opacity .15s, width .15s; }
+.snap-tab { position: fixed; right: 0; top: 55%; z-index: 2147483000; width: 28px; height: 44px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: var(--radius) 0 0 var(--radius); background: var(--card); color: var(--muted-foreground); opacity: .6; transition: opacity .15s, width .15s, color .15s; }
 .snap-tab:hover, .snap-tab:focus-visible { opacity: 1; width: 36px; color: var(--foreground); }
 .snap-overlay { position: fixed; inset: 0; z-index: 2147483001; cursor: crosshair; background: rgb(0 0 0 / 0.3); touch-action: none; outline: none; user-select: none; }
 .snap-box { position: fixed; border: 2px solid var(--primary); background: rgb(255 255 255 / 0.1); box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.4); pointer-events: none; }
@@ -238,7 +238,7 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 .snap-project { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .snap-think { flex: none; }
 .snap-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.snap-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
+.snap-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
 .snap-primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
 .snap-primary:disabled { opacity: .6; }
 @media (hover: none), (pointer: coarse), (max-width: 760px) {

@@ -54,19 +54,19 @@ function updateOpen(open: boolean) {
 <style scoped>
 .recovery-overlay { position: fixed; inset: 0; z-index: 110; background: rgb(0 0 0 / 0.56); }
 .connection-recovery { position: fixed; z-index: 111; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(28rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 1rem; border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; background: var(--card); color: var(--foreground); box-shadow: 0 8px 32px rgb(0 0 0 / 0.31); }
-.recovery-title { display: flex; align-items: center; gap: .65rem; font-size: 1.1rem; font-weight: 600; }
+.recovery-title { display: flex; align-items: center; gap: .65rem; font-size: .95rem; font-weight: 600; }
 .recovery-description, .current-address { color: var(--muted-foreground); font-size: .875rem; line-height: 1.5; }
 .current-address span { display: block; overflow-wrap: anywhere; }
 .recovery-addresses { display: grid; gap: .75rem; }
-.address-button, .dismiss-button { min-height: 48px; border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem; font-size: 1rem; cursor: pointer; }
+.address-button, .dismiss-button { min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius); padding: .65rem .75rem; font-size: .875rem; cursor: pointer; }
 .address-button { display: flex; align-items: center; justify-content: space-between; gap: .75rem; width: 100%; text-align: start; background: var(--background); }
 .address-button span { min-width: 0; }
 .address-button strong { display: block; font-weight: 600; }
-.address-button small { display: block; margin-top: .3rem; font-size: .8rem; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.address-button small { display: block; margin-top: .25rem; font-size: .8rem; font-family: var(--mono); color: var(--muted-foreground); overflow-wrap: anywhere; }
 .address-button svg { flex-shrink: 0; }
-button:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 button:disabled { opacity: .6; cursor: wait; }
-.dismiss-button { width: 100%; }
+.dismiss-button { width: 100%; background: transparent; color: var(--foreground); }
 .recovery-error { color: var(--destructive); font-size: .875rem; line-height: 1.5; }
 .checking { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

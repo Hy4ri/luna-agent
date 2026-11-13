@@ -29,14 +29,16 @@ onUnmounted(() => { generation++; clearTimeout(timer); controller?.abort(); });
   <section v-if="status?.error && !ui.login" class="config-error" role="alert" aria-label="Configuration error">
     <strong>Luna configuration error</strong>
     <p>{{ status.recovery ? 'The server is running, but the agent has not started.' : 'Luna is using the last valid settings.' }} Fix the file below; this message clears automatically.</p>
-    <details><summary>Error details</summary><p>{{ status.path }}</p><pre>{{ status.error }}</pre></details>
+    <details><summary>Error details</summary><p class="config-path">{{ status.path }}</p><pre class="config-detail">{{ status.error }}</pre></details>
   </section>
 </template>
 
 <style scoped>
 .config-error { flex-shrink: 0; max-height: 35dvh; overflow: auto; border-bottom: 1px solid var(--destructive); background: var(--card); padding: 12px 16px; font-size: .875rem; }
 p { margin-top: 4px; }
-summary { cursor: pointer; padding: 8px 0; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
-summary:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; }
+summary { cursor: pointer; padding: 8px 0; color: var(--muted-foreground); }
+summary:hover { color: var(--foreground); }
+.config-path { font-family: var(--mono); font-size: .8rem; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.config-detail { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); font-family: var(--mono); font-size: .8rem; }
+summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 </style>
