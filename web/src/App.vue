@@ -742,8 +742,9 @@ onUnmounted(() => {
   justify-content: flex-start;
   gap: 2px;
   max-width: 100%;
-  min-height: 32px;
-  padding: 3px;
+  position: relative;
+  min-height: 36px;
+  padding: 5px 36px 5px 5px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
@@ -769,7 +770,8 @@ onUnmounted(() => {
 .rail-chip.live > svg { color: var(--primary-text); }
 .rail-chip.done > span { color: var(--muted-foreground); }
 .rail-chip.warn > svg, .rail-chip.warn > span { color: var(--destructive); }
-.rail-pill-caret { flex: none; margin: 0 4px 0 2px; color: var(--faint); }
+/* Same spot as the minimize button in .rail-bar, so expand and minimize never move under the pointer. */
+.rail-pill-caret { position: absolute; top: 5px; right: 8px; box-sizing: content-box; width: 13px; height: 13px; padding: 5.5px; color: var(--muted-foreground); }
 .rail-pill:hover { border-color: var(--input); }
 .rail-pill:hover .rail-pill-caret { color: var(--foreground); }
 .rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
