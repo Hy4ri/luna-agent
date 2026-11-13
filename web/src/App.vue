@@ -119,11 +119,6 @@ const railChips = computed<RailChip[]>(() => {
     const st = ex.goal.status;
     chips.push({ key: 'goal', icon: Target, label: 'Goal', value: n ? `${d}/${n}` : st.replaceAll('_', ' '), tone: st === 'active' ? 'live' : st === 'blocked' ? 'warn' : st === 'complete' ? 'done' : undefined });
   }
-  const todos = (ex?.todos || []).filter((t: any) => t.status !== 'deleted');
-  if (todos.length) {
-    const d = todos.filter((t: any) => t.status === 'completed').length;
-    chips.push({ key: 'tasks', icon: ListChecks, label: 'Tasks', value: `${d}/${todos.length}`, tone: d === todos.length ? 'done' : todos.some((t: any) => t.status === 'in_progress') ? 'live' : undefined });
-  }
   const procs = ex?.processes || [];
   if (procs.length) {
     const r = procs.filter(p => p.running).length;
@@ -137,6 +132,11 @@ const railChips = computed<RailChip[]>(() => {
   if (kids.length) {
     const r = kids.filter(childLive).length;
     chips.push({ key: 'agents', icon: Bot, label: 'Subagents', value: r ? `${r} on` : `${kids.length}`, tone: r ? 'live' : 'done' });
+  }
+  const todos = (ex?.todos || []).filter((t: any) => t.status !== 'deleted');
+  if (todos.length) {
+    const d = todos.filter((t: any) => t.status === 'completed').length;
+    chips.push({ key: 'tasks', icon: ListChecks, label: 'Tasks', value: `${d}/${todos.length}`, tone: d === todos.length ? 'done' : todos.some((t: any) => t.status === 'in_progress') ? 'live' : undefined });
   }
   return chips;
 });
