@@ -127,8 +127,10 @@ const hoverY = ref<number | null>(null);
 const hoverValX = ref<number | null>(null);
 const hoverValY = ref<number | null>(null);
 const hoverValid = ref(false);
+const uid = Math.random().toString(36).slice(2, 8);
+const sliderId = (name: string) => `plot-${uid}-${name}`;
 
-function handleMouseMove(e: MouseEvent) {
+function handlePointerMove(e: PointerEvent) {
   const svgEl = e.currentTarget as SVGSVGElement;
   if (!svgEl) return;
   const rect = svgEl.getBoundingClientRect();
@@ -165,7 +167,7 @@ function handleMouseMove(e: MouseEvent) {
   hoverValid.value = closest.valid;
 }
 
-function handleMouseLeave() {
+function handlePointerLeave() {
   hoverX.value = null;
   hoverY.value = null;
   hoverValX.value = null;
@@ -180,12 +182,15 @@ function handleMouseLeave() {
       expr error: {{ compiled.error }}
     </div>
     <template v-else>
-      <div class="chart-container">
+      <p v-if="pathSegments.length === 0" class="plot-empty" role="status">No finite values in this domain.</p>
+      <div v-else class="chart-container">
         <svg
           viewBox="0 0 600 260"
           class="plot-svg"
-          @mousemove="handleMouseMove"
-          @mouseleave="handleMouseLeave"
+          role="img"
+          :aria-label="widget.title ? widget.title + ' plot' : 'Function plot'"
+          @pointermove="handlePointerMove"
+          @pointerleave="handlePointerLeave"
         >
           <!-- Grid lines -->
           <g class="grid-lines">
@@ -293,11 +298,12 @@ function handleMouseLeave() {
       <!-- Param Sliders -->
       <div v-if="widget.params && Object.keys(widget.params).length > 0" class="params-grid">
         <div v-for="(p, name) in widget.params" :key="name" class="param-row">
-          <label class="param-label">
+          <label class="param-label" :for="sliderId(String(name))">
             <span class="param-name">{{ name }}</span>
             <span class="param-val">{{ paramValues[name] ?? p.value }}</span>
           </label>
           <input
+            :id="sliderId(String(name))"
             type="range"
             class="param-slider"
             :min="p.min"
@@ -335,6 +341,15 @@ function handleMouseLeave() {
   height: auto;
   display: block;
   shape-rendering: geometricPrecision;
+}
+.plot-empty {
+  margin: 0;
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
 }
 .plot-clipped {
   font-size: 12px;
@@ -384,11 +399,15 @@ function handleMouseLeave() {
 .param-slider {
   width: 100%;
   min-height: 32px;
-  accent-color: var(--chart-1);
+  accent-color: var(--primary);
   cursor: pointer;
 }
+.param-slider:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 @media (max-width: 760px), (pointer: coarse) {
-  .plot-title { padding-right: 100px; }
+  .plot-title { padding-right: 108px; }
   .param-slider { min-height: 44px; }
 }
 </style>

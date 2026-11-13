@@ -111,6 +111,23 @@ const slices = computed(() => {
   }).filter(s => s !== null);
 });
 const focusSlice = computed(() => (hovered.value === null ? null : slices.value.find(s => s.i === hovered.value) ?? null));
+const cartesianEmpty = computed(() => n.value === 0 || props.widget.series.length === 0);
+const cartesianHidden = computed(() => !cartesianEmpty.value && visible.value.length === 0);
+const pieEmpty = computed(() => pieData.value.length === 0 || (hidden.value.size < pieData.value.length && pieTotal.value <= 0));
+const pieHidden = computed(() => pieData.value.length > 0 && hidden.value.size >= pieData.value.length);
+
+function onSvgKeydown(e: KeyboardEvent) {
+  if (n.value <= 0) return;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    e.preventDefault();
+    hovered.value = hovered.value === null ? 0 : Math.min(n.value - 1, hovered.value + 1);
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    e.preventDefault();
+    hovered.value = hovered.value === null ? n.value - 1 : Math.max(0, hovered.value - 1);
+  } else if (e.key === "Escape") {
+    hovered.value = null;
+  }
+}
 
 const legend = computed(() => (isPie.value ? props.widget.x.map((name, i) => ({ name, i })) : props.widget.series.map((s: Series, i) => ({ name: s.name, i }))));
 </script>
@@ -120,7 +137,9 @@ const legend = computed(() => (isPie.value ? props.widget.x.map((name, i) => ({ 
     <div v-if="widget.title" class="chart-title">{{ widget.title }}</div>
 
     <div v-if="isPie" class="pie-wrap">
-      <svg viewBox="0 0 300 300" class="pie-svg" role="img" :aria-label="widget.title || 'Pie chart'" @pointerleave="hovered = null">
+      <p v-if="pieEmpty" class="chart-empty" role="status">No positive values to display.</p>
+      <p v-else-if="pieHidden" class="chart-empty" role="status">All slices hidden — select a legend item to show.</p>
+      <svg v-else viewBox="0 0 300 300" class="pie-svg" role="img" :aria-label="widget.title || 'Pie chart'" @pointerleave="hovered = null">
         <path
           v-for="s in slices" :key="s.i" :d="s.d" :fill="color(s.i)" stroke="var(--card)" stroke-width="2"
           class="slice" :class="{ dim: hovered !== null && hovered !== s.i }"
@@ -141,7 +160,9 @@ const legend = computed(() => (isPie.value ? props.widget.x.map((name, i) => ({ 
     </div>
 
     <template v-else>
-      <svg :viewBox="`0 0 ${W} ${H}`" class="chart-svg" role="img" :aria-label="widget.title || 'Chart'" @pointermove="onMove" @pointerleave="hovered = null">
+      <p v-if="cartesianEmpty" class="chart-empty" role="status">No data to display.</p>
+      <p v-else-if="cartesianHidden" class="chart-empty" role="status">All series hidden — select a legend item to show.</p>
+      <svg v-else :viewBox="`0 0 ${W} ${H}`" class="chart-svg" role="img" tabindex="0" :aria-label="widget.title ? widget.title + ' (use arrow keys to inspect points)' : 'Chart (use arrow keys to inspect points)'" @pointermove="onMove" @pointerleave="hovered = null" @keydown="onSvgKeydown" @blur="hovered = null">
         <g>
           <template v-for="t in yTicks" :key="t">
             <line :x1="pad.left" :x2="W - pad.right" :y1="y(t)" :y2="y(t)" :stroke="t === 0 ? 'var(--muted-foreground)' : 'var(--border)'" :stroke-opacity="t === 0 ? 0.5 : 1" stroke-dasharray="3 3" />
@@ -214,9 +235,11 @@ const legend = computed(() => (isPie.value ? props.widget.x.map((name, i) => ({ 
 }
 .legend button:hover, .pie-legend button:hover { border-color: var(--ring); }
 .legend button:focus-visible, .pie-legend button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-button[aria-pressed="false"] { color: var(--muted-foreground); opacity: .8; text-decoration: line-through; }
+.chart-empty { margin: 8px 0; padding: 24px 12px; text-align: center; font-size: 13px; color: var(--muted-foreground); border: 1px dashed var(--border); border-radius: var(--radius); }
+.chart-svg:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius); }
+button[aria-pressed="false"] { color: var(--muted-foreground); text-decoration: line-through; }
 @media (max-width: 760px), (pointer: coarse) {
-  .chart-title { padding-right: 100px; }
+  .chart-title { padding-right: 108px; }
   .legend button, .pie-legend button { min-height: 44px; padding: 8px 12px; }
 }
 .pie-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }

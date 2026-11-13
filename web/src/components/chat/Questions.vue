@@ -57,9 +57,9 @@ async function handleAnswer(q: any, cancelled = false) {
             <pre dir="auto" v-if="opt.preview" class="code">{{ opt.preview }}</pre>
           </span>
         </label>
-        <input dir="auto" v-model="customAnswers[`${q.callId}-${qi}`]" placeholder="Or type your own answer" />
+        <input dir="auto" v-model="customAnswers[`${q.callId}-${qi}`]" :aria-label="'Custom answer for ' + questionDef.question" placeholder="Or type your own answer" />
       </div>
-      <input dir="auto" v-model="notes[q.callId]" placeholder="Note for Luna (optional)" />
+      <input dir="auto" v-model="notes[q.callId]" aria-label="Note for Luna (optional)" placeholder="Note for Luna (optional)" />
       <div class="row">
         <button type="submit">Answer</button>
         <button type="button" @click="handleAnswer(q, true)">Decline</button>
@@ -67,3 +67,19 @@ async function handleAnswer(q: any, cancelled = false) {
     </form>
   </div>
 </template>
+
+<style scoped>
+.opt:has(input:focus-visible),
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 760px), (pointer: coarse) {
+  button,
+  input:not([type="radio"]):not([type="checkbox"]) {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+}
+</style>

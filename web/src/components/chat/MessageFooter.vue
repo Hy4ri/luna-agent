@@ -92,7 +92,7 @@ onUnmounted(() => {
       :disabled="forking"
       @click="handleFork"
     >
-      <AlertCircle v-if="forkFailed" :size="14" class="copy-err" aria-label="Fork failed" />
+      <AlertCircle v-if="forkFailed" :size="14" class="copy-err" aria-hidden="true" />
       <Check v-else-if="forked" :size="14" aria-hidden="true" />
       <GitFork v-else :size="14" aria-hidden="true" />
     </button>
@@ -106,7 +106,7 @@ onUnmounted(() => {
     >
       <Copy v-if="!copied && !failed" :size="14" aria-hidden="true" />
       <Check v-else-if="copied" :size="14" aria-hidden="true" />
-      <AlertCircle v-else :size="14" class="copy-err" aria-label="Copy failed" />
+      <AlertCircle v-else :size="14" class="copy-err" aria-hidden="true" />
     </button>
     <span class="sr-only" aria-live="polite">
       {{ copied ? 'Copied to clipboard' : failed ? 'Failed to copy' : forkFailed ? 'Fork failed' : '' }}
@@ -115,6 +115,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.message-footer { color: var(--muted-foreground); }
 .copy-err { color: var(--destructive); }
 @media (max-width: 760px), (pointer: coarse) {
   .message-footer { gap: 4px; }

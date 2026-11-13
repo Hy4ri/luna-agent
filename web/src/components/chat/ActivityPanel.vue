@@ -185,3 +185,20 @@ const bad = (status: string) => ["failed", "stopped", "interrupted", "limit_reac
   </component>
   <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
 </template>
+
+<style scoped>
+.activity summary:focus-visible,
+.activity-main:focus-visible,
+.activity-line .icon-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .activity summary { min-height: 44px; }
+  .activity-section-toggle { min-height: 44px; padding: 6px 4px; }
+  .activity-line .icon-button { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
+}
+@media (max-width: 420px) {
+  .activity-label { display: none; }
+}
+</style>

@@ -348,7 +348,43 @@ const hasBody = computed(() => {
 .tool-actions-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px 8px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--secondary) 35%, var(--card)); }
 .tool-child-link { color: var(--primary-text); font: 12px/1.4 var(--mono); text-decoration: underline; text-underline-offset: 3px; }
 .tool-child-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+details > summary:focus-visible,
+.tool-raw > summary:focus-visible,
+.tool-truncated-bar .code-more:focus-visible,
+.tool-hits a:focus-visible,
+.tool-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.tool-section-label,
+.tool-footer,
+.tool-task-id,
+.tool-host,
+.tool-notes,
+.tool-raw > summary {
+  color: var(--muted-foreground);
+}
 @media (max-width: 760px), (pointer: coarse) {
+  details > summary {
+    flex-wrap: wrap;
+    min-height: 44px;
+    row-gap: 4px;
+  }
+  .tool-raw > summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .tool-tasks li {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .tool-hits a,
+  .tool-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
   .tool-dock, .tool-truncated-bar .code-more { min-height: 44px; padding: 6px 12px; }
   .tool-child-link { display: inline-flex; align-items: center; min-height: 44px; }
 }

@@ -41,3 +41,11 @@ const resolvedTasks = computed(() => goal.value?.tasks?.filter((t: { status: str
     <ActivityPanel :docked="docked" />
   </div>
 </template>
+
+<style scoped>
+.goal-details summary:focus-visible,
+.goal-actions button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+</style>

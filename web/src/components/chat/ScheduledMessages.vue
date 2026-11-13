@@ -108,7 +108,7 @@ onBeforeUnmount(() => { ticket++; clearInterval(timer); });
 <style scoped>
 .scheduled-messages { display: flex; flex-direction: column; align-items: flex-end; gap: 16px; width: 100%; }
 .scheduled-messages:not(:has(.scheduled-bubble, .schedule-status)) { display: none; }
-.scheduled-bubble { width: fit-content; min-width: min(260px, 100%); max-width: 85%; border: 1px dashed var(--muted-foreground); border-radius: 2px; background: var(--secondary); padding: 12px 16px 4px; overflow-wrap: anywhere; }
+.scheduled-bubble { width: fit-content; min-width: min(260px, 100%); max-width: 85%; border: 1px dashed var(--muted-foreground); border-radius: var(--radius); background: var(--secondary); padding: 12px 16px 4px; overflow-wrap: anywhere; }
 .scheduled-header { display: flex; justify-content: space-between; gap: 24px; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 12px; font-size: 12px; color: var(--muted-foreground); }
 .scheduled-header > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
 .scheduled-countdown { font-variant-numeric: tabular-nums; white-space: nowrap; }

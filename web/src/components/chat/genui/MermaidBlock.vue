@@ -109,7 +109,7 @@ onUnmounted(() => { run++; if (imageUrl) URL.revokeObjectURL(imageUrl); });
     </template>
     <div class="diagram">
       <p v-if="!rendered" class="pending" role="status">Rendering diagram…</p>
-      <div ref="host" class="diagram-host" @click="expand" />
+      <div ref="host" class="diagram-host" role="button" tabindex="0" aria-label="Expand diagram" @click="expand" @keydown.enter.prevent="expand" @keydown.space.prevent="expand" />
     </div>
   </Block>
 </template>
@@ -117,5 +117,6 @@ onUnmounted(() => { run++; if (imageUrl) URL.revokeObjectURL(imageUrl); });
 <style scoped>
 .diagram { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
 .diagram-host { cursor: zoom-in; }
+.diagram-host:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius); }
 .pending { margin: 0; font-size: 13px; color: var(--muted-foreground); }
 </style>

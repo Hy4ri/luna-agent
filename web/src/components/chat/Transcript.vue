@@ -544,12 +544,21 @@ function backgroundReport(entry: any, message: any): boolean {
 .agent-report-peer { font-size: 12px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-report-actions { margin-bottom: 8px; }
 .agent-report-actions .peer-chip { margin-bottom: 0; }
+.chat-notice button:focus-visible,
+.load-older-btn:focus-visible,
+.peer-chip:focus-visible,
+.transcript-jumps button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 @media (max-width: 760px), (pointer: coarse) {
-  #log { padding: 24px 16px; gap: 20px; }
+  #log { padding: 24px 16px 32px; gap: 20px; }
+  .queued-dock { padding: 8px 16px 0; }
   .transcript-jumps { right: 16px; bottom: 132px; }
   .transcript-jumps button { width: 44px; height: 44px; }
   .load-older-btn { min-height: 44px; padding: 8px 14px; }
-  .peer-chip { min-height: 36px; padding: 6px 10px; }
+  .peer-chip { min-height: 44px; padding: 8px 12px; }
+  .chat-notice button { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 }
 .top-sentinel { height: 1px; flex-shrink: 0; pointer-events: none; }
 </style>
