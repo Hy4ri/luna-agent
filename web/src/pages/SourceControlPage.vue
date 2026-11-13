@@ -366,7 +366,7 @@ onUnmounted(() => {
           type="button"
           id="source-control-menu"
           @click="setDrawer(true)"
-          class="md:hidden p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
+          class="md:hidden p-2 hover:bg-accent rounded-[var(--radius)] text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
           title="Open menu"
           aria-label="Open navigation"
         >
@@ -382,7 +382,7 @@ onUnmounted(() => {
         <button
           type="button"
           @click="refresh"
-          class="p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
+          class="p-1.5 hover:bg-accent rounded-[var(--radius)] text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
           title="Refresh"
           aria-label="Refresh"
         >
@@ -393,7 +393,7 @@ onUnmounted(() => {
       <button
         type="button"
         @click="backToChat"
-        class="ml-auto p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
+        class="ml-auto p-2 hover:bg-accent rounded-[var(--radius)] text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
         title="Close"
         aria-label="Close Source Control"
       >
@@ -410,7 +410,7 @@ onUnmounted(() => {
         role="tab"
         :aria-selected="section === tab.id"
         :tabindex="section === tab.id ? 0 : -1"
-        class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0 max-[760px]:min-h-11"
+        class="px-3 py-1.5 rounded-[var(--radius)] text-xs whitespace-nowrap shrink-0 max-[760px]:min-h-11"
         :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="setSection(tab.id)"
       >{{ tab.label }}<span v-if="counts[tab.id as 'pr' | 'issue' | 'changes'] !== undefined" class="ml-1.5 text-muted-foreground tabular-nums">{{ counts[tab.id as 'pr' | 'issue' | 'changes'] }}</span></button>
@@ -450,7 +450,7 @@ onUnmounted(() => {
         <div class="text-destructive font-medium">GitHub CLI is not available or logged out.</div>
         <div class="text-sm text-muted-foreground max-w-md">{{ status.message }}</div>
         <div class="text-xs text-muted-foreground">Run `gh auth login` on the host daemon environment.</div>
-        <button type="button" class="px-3 py-1.5 text-xs bg-card hover:bg-accent rounded border border-border" @click="refresh">Check again</button>
+        <button type="button" class="px-3 py-1.5 text-xs bg-card hover:bg-accent rounded-[var(--radius)] border border-border max-[760px]:min-h-11" @click="refresh">Check again</button>
       </div>
 
       <!-- Main Layout -->
@@ -465,21 +465,21 @@ onUnmounted(() => {
             <!-- Search & State Filter -->
             <div class="flex gap-2">
               <div class="relative flex-1">
-                <Search class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
+                <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
                 <input
                   id="sc-search"
                   v-model="searchQuery"
                   type="text"
                   placeholder="Search (Enter, / to focus)"
                   @keydown.enter="handleSearchSubmit"
-                  class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
+                  class="w-full bg-muted border border-border rounded-[var(--radius)] pl-8 pr-2 py-1 text-xs text-foreground max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
                 />
               </div>
-              <button type="button" class="shrink-0 px-2 py-1 text-xs rounded border border-border bg-muted hover:bg-accent max-[760px]:min-h-11" title="Create on GitHub" @click="newOpen = true">New</button>
+              <button type="button" class="shrink-0 px-2 py-1 text-xs rounded-[var(--radius)] border border-border bg-muted hover:bg-accent max-[760px]:min-h-11" title="Create on GitHub" @click="newOpen = true">New</button>
               <select
                 v-model="stateFilter"
                 aria-label="Filter by state"
-                class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
+                class="bg-muted border border-border rounded-[var(--radius)] px-2 py-1 text-xs text-foreground max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
               >
                 <option value="open">Open</option>
                 <option value="closed">Closed</option>
@@ -488,13 +488,13 @@ onUnmounted(() => {
             </div>
             <!-- Filters -->
             <div class="flex flex-wrap items-center gap-2 text-xs" role="group" aria-label="List filters">
-              <button type="button" class="px-2 py-1 rounded border border-border max-[760px]:min-h-11" :class="mineOnly ? 'bg-secondary text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">Mine</button>
-              <input v-model="labelFilter" type="text" maxlength="50" placeholder="Label" aria-label="Filter by label" class="w-20 min-w-0 flex-1 bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" @keydown.enter="loadList()" @blur="loadList()" />
+              <button type="button" class="px-2 py-1 rounded-[var(--radius)] border border-border max-[760px]:min-h-11" :class="mineOnly ? 'bg-secondary text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">Mine</button>
+              <input v-model="labelFilter" type="text" maxlength="50" placeholder="Label" aria-label="Filter by label" class="w-20 min-w-0 flex-1 bg-muted border border-border rounded-[var(--radius)] px-2 py-1 text-foreground max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" @keydown.enter="loadList()" @blur="loadList()" />
               <template v-if="kind === 'pr'">
-                <select v-model="draftFilter" aria-label="Filter by draft" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary">
+                <select v-model="draftFilter" aria-label="Filter by draft" class="bg-muted border border-border rounded-[var(--radius)] px-2 py-1 text-foreground max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary">
                   <option value="">Any draft</option><option value="false">Ready</option><option value="true">Draft</option>
                 </select>
-                <select v-model="reviewFilter" aria-label="Filter by review" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary">
+                <select v-model="reviewFilter" aria-label="Filter by review" class="bg-muted border border-border rounded-[var(--radius)] px-2 py-1 text-foreground max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary">
                   <option value="">Any review</option><option value="approved">Approved</option><option value="changes_requested">Changes requested</option><option value="required">Review required</option>
                 </select>
               </template>
@@ -506,7 +506,7 @@ onUnmounted(() => {
           <!-- List Error -->
           <div v-if="listError" role="alert" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border flex items-center justify-between gap-2">
             <span class="min-w-0 break-words">{{ listError }}</span>
-            <button type="button" class="shrink-0 px-2 py-1 bg-card text-foreground rounded border border-border hover:bg-accent max-[760px]:min-h-11" @click="refresh">Retry</button>
+            <button type="button" class="shrink-0 px-2 py-1 bg-card text-foreground rounded-[var(--radius)] border border-border hover:bg-accent max-[760px]:min-h-11" @click="refresh">Retry</button>
           </div>
 
           <!-- List -->
@@ -526,7 +526,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Footer status -->
-          <div class="px-3 py-2 border-t border-border text-[11px] text-muted-foreground flex justify-between shrink-0">
+          <div class="px-3 py-2 border-t border-border text-[11px] text-muted-foreground flex justify-between shrink-0 tabular-nums">
             <span>{{ totalCount }} items</span>
             <span v-if="lastUpdated">Updated {{ lastUpdated }}</span>
           </div>

@@ -218,11 +218,11 @@ const legend = computed(() => (isPie.value ? props.widget.x.map((name, i) => ({ 
 </template>
 
 <style scoped>
-.chart { display: flex; flex-direction: column; gap: 8px; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--card-foreground); min-width: 0; }
-.chart-title { font-weight: 600; font-size: 14px; padding-right: 72px; }
+.chart { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--card-foreground); min-width: 0; }
+.chart-title { font-weight: 600; font-size: 14px; line-height: 1.4; padding-right: 88px; }
 .chart-svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
-.axis { font-size: 10.5px; fill: var(--muted-foreground); }
-.readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 22px; font-size: 12.5px; color: var(--muted-foreground); opacity: 0; transition: opacity .12s; }
+.axis { font-size: 10.5px; fill: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 22px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); opacity: 0; transition: opacity .12s; }
 .readout.on { opacity: 1; }
 .readout strong { color: var(--foreground); font-weight: 600; }
 .item { display: inline-flex; align-items: center; gap: 6px; }
@@ -239,14 +239,14 @@ const legend = computed(() => (isPie.value ? props.widget.x.map((name, i) => ({ 
 .chart-svg:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius); }
 button[aria-pressed="false"] { color: var(--muted-foreground); text-decoration: line-through; }
 @media (max-width: 760px), (pointer: coarse) {
-  .chart-title { padding-right: 108px; }
+  .chart-title { padding-right: 116px; }
   .legend button, .pie-legend button { min-height: 44px; padding: 8px 12px; }
 }
 .pie-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
 .pie-svg { width: min(260px, 100%); height: auto; flex: none; }
 .slice { transition: opacity .15s; cursor: pointer; }
 .slice.dim { opacity: .35; }
-.pie-center { font-size: 26px; font-weight: 650; fill: var(--foreground); }
+.pie-center { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; fill: var(--foreground); }
 .pie-sub { font-size: 12px; fill: var(--muted-foreground); }
 .pie-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; flex: 1 1 180px; min-width: 0; }
 .pie-legend button { width: 100%; justify-content: flex-start; }

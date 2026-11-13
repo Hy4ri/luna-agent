@@ -248,6 +248,7 @@ onUnmounted(() => {
       </button>
     </div>
     <p v-if="siblingBusy" class="reasoning-busy-note">Finish the active run to switch levels.</p>
+    <p v-else class="reasoning-hint">Click, drag, or scroll to adjust</p>
   </div>
 </template>
 
@@ -333,8 +334,9 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  min-width: 44px;
   min-height: 44px;
-  padding: 9px 5px 8px;
+  padding: 9px 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--background);
@@ -359,10 +361,15 @@ onUnmounted(() => {
   background: var(--background);
 }
 
-.reasoning-busy-note {
+.reasoning-busy-note,
+.reasoning-hint {
   margin: 10px 0 0;
   font-size: 11px;
   color: var(--muted-foreground);
+}
+
+.reasoning-hint {
+  text-align: center;
 }
 
 .eq-channel.active {

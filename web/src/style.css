@@ -202,16 +202,18 @@ aside#side.collapsed #history-rail {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 0 12px 0 14px;
   border-bottom: 1px solid var(--sidebar-border);
-  min-height: 52px;
+  height: 56px;
+  flex-shrink: 0;
 }
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-weight: 600;
-  font-size: 1.175rem;
+  font-size: 0.9375rem;
+  letter-spacing: -0.01em;
 }
 .icon-button {
   background: transparent;
@@ -275,14 +277,14 @@ aside#side.collapsed #history-rail {
 .history-head {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
-  gap: 4px;
+  padding: 8px 10px 6px 14px;
+  gap: 2px;
 }
 .history-head h2 {
-  font-size: 0.9rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--muted-foreground);
   flex: 1;
 }
@@ -308,7 +310,7 @@ aside#side.collapsed #history-rail {
   cursor: default;
 }
 .group-body {
-  padding-left: 12px;
+  padding-left: 14px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -354,7 +356,7 @@ aside#side.collapsed #history-rail {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: var(--sidebar-foreground);
   padding-left: 4px;
 }
@@ -408,7 +410,7 @@ aside#side.collapsed #history-rail {
   flex: 1;
   min-width: 0;
   min-height: 44px;
-  padding: 4px 2px 4px 8px;
+  padding: 6px 4px 6px 8px;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
@@ -462,7 +464,7 @@ aside#side.collapsed #history-rail {
     display: none;
   }
 }
-.folder-title-row { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; font-size: 0.9rem; line-height: 20px; }
+.folder-title-row { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; font-size: 0.875rem; line-height: 20px; }
 .folder-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-meta { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .folder-status { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
@@ -487,6 +489,8 @@ aside#side.collapsed #history-rail {
 .session-row {
   display: flex;
   align-items: center;
+  gap: 2px;
+  padding-right: 4px;
   position: relative;
   border-radius: var(--radius-sm);
   height: 48px;
@@ -506,11 +510,11 @@ aside#side.collapsed #history-rail {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 6px 4px 6px 8px;
   background: transparent;
   border: none;
   color: inherit;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   cursor: pointer;
   text-align: left;
   overflow: hidden;
@@ -555,18 +559,18 @@ aside#side.collapsed #history-rail {
   border: 1px solid var(--border);
   color: var(--foreground);
   border-radius: var(--radius-sm);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
 }
 .session-running {
   position: absolute;
-  left: -14px;
+  left: -13px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   pointer-events: none;
 }
 .session-manage {
@@ -615,7 +619,7 @@ aside#side.collapsed #history-rail {
   background: transparent;
   border: none;
   color: var(--popover-foreground);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;

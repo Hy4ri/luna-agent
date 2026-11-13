@@ -97,7 +97,7 @@
         <select
           id="analytics-tab-select"
           :value="activeTab"
-          class="w-full h-10 px-2 bg-secondary border border-border rounded-[var(--radius)] text-sm text-foreground"
+          class="w-full h-10 max-[760px]:min-h-11 px-2 bg-secondary border border-border rounded-[var(--radius)] text-sm text-foreground"
           @change="selectTab(($event.target as HTMLSelectElement).value as AnalyticsTab)"
         >
           <option v-for="tab in ANALYTICS_TABS" :key="tab" :value="tab">{{ TAB_META[tab].label }}</option>
@@ -288,7 +288,7 @@
         class="p-3 border border-destructive/40 rounded-[var(--radius)] bg-destructive/10 text-destructive flex items-center justify-between gap-3 text-xs"
       >
         <span>Could not load analytics: {{ error }}</span>
-        <Button type="button" variant="outline" size="sm" @click="fetchAnalyticsQuery()">Retry</Button>
+        <Button type="button" variant="outline" size="sm" class="max-[760px]:min-h-11" @click="fetchAnalyticsQuery()">Retry</Button>
       </div>
       <div
         v-if="exportError"
@@ -296,7 +296,7 @@
         class="p-3 border border-destructive/40 rounded-[var(--radius)] bg-destructive/10 text-destructive flex items-center justify-between gap-3 text-xs"
       >
         <span>Export failed: {{ exportError }}</span>
-        <button type="button" class="underline rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" @click="exportError = null">Dismiss</button>
+        <button type="button" class="px-2 py-1 max-[760px]:min-h-11 underline rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" @click="exportError = null">Dismiss</button>
       </div>
 
       <div v-if="!current && !error" class="space-y-4" role="status" aria-label="Loading analytics">
@@ -312,15 +312,15 @@
           <div
             v-for="k in kpis"
             :key="k.key"
-            class="border border-border rounded-[var(--radius)] px-3.5 py-3 bg-card min-w-0"
+            class="flex flex-col justify-between border border-border rounded-[var(--radius)] px-3.5 py-3 bg-card min-w-0"
           >
-            <div class="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <div class="flex items-start justify-between gap-1.5 min-h-[1.75rem] text-[11px] text-muted-foreground">
               <span class="line-clamp-2 leading-snug">{{ k.label }}</span>
               <Popover v-if="k.help">
                 <PopoverTrigger as-child>
                   <button
                     type="button"
-                    class="min-h-6 min-w-6 h-6 w-6 max-[760px]:min-h-11 max-[760px]:min-w-11 shrink-0 inline-flex items-center justify-center rounded-full hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+                    class="-mr-1 -mt-0.5 min-h-6 min-w-6 h-6 w-6 max-[760px]:min-h-11 max-[760px]:min-w-11 max-[760px]:-my-2.5 max-[760px]:-mr-2 shrink-0 inline-flex items-center justify-center rounded-full hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
                     :aria-label="`What is ${k.label}?`"
                   >
                     <Info :size="12" aria-hidden="true" />
@@ -329,12 +329,14 @@
                 <PopoverContent class="w-64 p-3 text-xs text-foreground" side="top">{{ k.help }}</PopoverContent>
               </Popover>
             </div>
-            <strong class="block mt-1 text-xl font-semibold tabular-nums tracking-tight text-foreground" :title="k.full">{{ k.value }}</strong>
-            <span v-if="k.delta" class="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums" :class="k.delta.tone">
-              <component :is="k.delta.icon" :size="12" aria-hidden="true" />
-              <span>{{ k.delta.text }}</span>
-              <span class="text-muted-foreground">vs {{ k.delta.prev }}</span>
-            </span>
+            <div class="mt-auto pt-1">
+              <strong class="block text-xl font-semibold tabular-nums tracking-tight text-foreground" :title="k.full">{{ k.value }}</strong>
+              <span v-if="k.delta" class="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums" :class="k.delta.tone">
+                <component :is="k.delta.icon" :size="12" aria-hidden="true" />
+                <span>{{ k.delta.text }}</span>
+                <span class="text-muted-foreground">vs {{ k.delta.prev }}</span>
+              </span>
+            </div>
           </div>
         </section>
 
@@ -357,9 +359,9 @@
         <section :aria-labelledby="'analytics-main-table'" class="space-y-2">
           <div class="flex items-end justify-between gap-3 flex-wrap">
             <div class="min-w-0">
-              <h2 id="analytics-main-table" class="m-0 text-sm font-semibold text-foreground">
-                {{ meta.tableTitle }}
-                <span class="ml-1 font-normal text-muted-foreground tabular-nums">{{ current.table.total.toLocaleString() }}</span>
+              <h2 id="analytics-main-table" class="m-0 text-sm font-semibold text-foreground flex items-center gap-2">
+                <span>{{ meta.tableTitle }}</span>
+                <span class="px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground bg-secondary rounded-[var(--radius)] tabular-nums">{{ current.table.total.toLocaleString() }}</span>
               </h2>
               <p class="m-0 mt-0.5 text-xs text-muted-foreground">{{ meta.tableHint }}</p>
             </div>

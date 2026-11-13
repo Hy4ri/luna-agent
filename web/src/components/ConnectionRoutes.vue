@@ -75,7 +75,7 @@ p { font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
 .muted { color: var(--muted-foreground); }
 .route-controls { display: grid; gap: .75rem; min-width: 0; }
 label { display: grid; gap: .4rem; font-size: .875rem; min-width: 0; }
-input:not([type=checkbox]), button { min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius); padding: .65rem; background: var(--background); font-size: 1rem; min-width: 0; max-width: 100%; }
+input:not([type=checkbox]), button { min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius); padding: .55rem .75rem; background: var(--background); font-size: .875rem; min-width: 0; max-width: 100%; }
 button { width: fit-content; cursor: pointer; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

@@ -51,9 +51,9 @@ onUnmounted(() => clearTimeout(timer));
 .gen-block { position: relative; margin: 10px 0; min-width: 0; max-width: 100%; }
 .gen-status { margin: 0; padding: 10px 0; font-size: 13px; color: var(--muted-foreground); }
 .gen-tools {
-  position: absolute; top: 6px; right: 6px; z-index: 2;
+  position: absolute; top: 8px; right: 8px; z-index: 2;
   display: flex; gap: 4px;
-  opacity: 0; transition: opacity .15s;
+  opacity: 0.72; transition: opacity .15s;
 }
 .gen-block:hover .gen-tools, .gen-block:focus-within .gen-tools { opacity: 1; }
 @media (hover: none) { .gen-tools { opacity: 1; } }

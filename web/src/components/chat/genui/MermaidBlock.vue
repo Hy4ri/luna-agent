@@ -115,7 +115,7 @@ onUnmounted(() => { run++; if (imageUrl) URL.revokeObjectURL(imageUrl); });
 </template>
 
 <style scoped>
-.diagram { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
+.diagram { padding: 40px 16px 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
 .diagram-host { cursor: zoom-in; }
 .diagram-host:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius); }
 .pending { margin: 0; font-size: 13px; color: var(--muted-foreground); }

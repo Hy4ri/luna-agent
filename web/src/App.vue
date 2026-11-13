@@ -463,7 +463,7 @@ onUnmounted(() => {
             <button v-if="!mobile && activeSession" id="ask-steward" class="icon-button shrink-0" aria-label="Ask Steward about this session" title="Ask Steward about this session" :disabled="askPending" @click="askStewardAboutSession"><Heart :size="18" /></button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Workspace sidebar" title="Workspace sidebar (Ctrl+`)" @click="toggleTerminal"><PanelRightClose v-if="terminal.open" :size="18" /><PanelRightOpen v-else :size="18" /></button>
-            <button v-if="!mobile && (sessionPane || tiled)" id="close-tile" class="icon-button tile-close" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="14" /></button>
+            <button v-if="!mobile && (sessionPane || tiled)" id="close-tile" class="icon-button" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="16" /></button>
             <Popover v-if="mobile" v-model:open="mobileMenuOpen">
               <PopoverTrigger as-child>
                 <button id="mobile-more" class="icon-button shrink-0" aria-label="Conversation menu" title="Conversation menu"><Ellipsis :size="18" /></button>
@@ -535,12 +535,12 @@ onUnmounted(() => {
       <CommandPalette v-if="!sessionPane && paletteUsed" :new-session="handleNewSession" :new-session-disabled="newSessionPending || (!!chat.session && !chat.connected)" />
       <ConnectionRecovery v-if="!sessionPane" />
       <div v-if="ui.login" id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle" class="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 p-5">
-        <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">
-          <div class="flex items-center gap-3"><Moon :size="22" class="text-primary-text" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>
+        <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-[var(--radius)] border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">
+          <div class="flex items-center gap-3"><Moon :size="20" class="text-primary-text" /><h2 id="loginTitle" class="text-base font-semibold">Connect to Luna</h2></div>
           <p class="text-sm text-muted-foreground">{{ isDesktop ? 'Enter the address of your Luna daemon (localhost or another machine) and its token.' : 'Enter your server token to open your workspace.' }}</p>
-          <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.10:8787" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
-          <label class="grid gap-2 text-xs">Server token<input id="token" v-model="password" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" :required="!isDesktop" class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
-          <button class="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">Connect</button>
+          <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.10:8787" required class="rounded-[var(--radius)] border border-input bg-background px-3 py-2.5 text-sm" /></label>
+          <label class="grid gap-2 text-xs">Server token<input id="token" v-model="password" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" :required="!isDesktop" class="rounded-[var(--radius)] border border-input bg-background px-3 py-2.5 text-sm" /></label>
+          <button class="rounded-[var(--radius)] bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">Connect</button>
           <span id="loginErr" role="alert" class="text-sm text-destructive">{{ ui.loginError }}</span>
         </form>
       </div>
@@ -612,7 +612,6 @@ onUnmounted(() => {
 }
 .tile-resize { cursor: col-resize; touch-action: none; }
 #main.tile-focused, .session-pane.tile-focused { outline: 1px solid var(--primary-text); outline-offset: -1px; }
-.tile-close { width: 28px; height: 28px; }
 .tile-drop-target {
   position: absolute;
   inset: 0;

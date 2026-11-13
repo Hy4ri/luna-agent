@@ -64,3 +64,10 @@ onBeforeUnmount(cleanup);
   <span ref="root" v-else-if="failed" role="img" :aria-label="`${alt}: image unavailable`" title="Image unavailable"><ImageOff :size="20" /></span>
   <span ref="root" v-else role="status" :aria-label="`Loading ${alt}`">Loading image…</span>
 </template>
+
+<style scoped>
+img.zoomable:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+</style>

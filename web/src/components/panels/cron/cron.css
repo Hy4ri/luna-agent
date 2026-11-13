@@ -13,7 +13,7 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -31,12 +31,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 13px;
+  padding: 6px 13px;
   border: none;
   border-radius: var(--radius);
   background: transparent;
   color: var(--muted-foreground);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -101,8 +101,8 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 10px;
+  height: 34px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
@@ -136,8 +136,8 @@
 
 .cron-btn.sm {
   height: 30px;
-  padding: 0 9px;
-  font-size: 12.5px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .cron-split {
@@ -172,7 +172,7 @@
   border-bottom: 1px solid var(--border);
   background: transparent;
   color: inherit;
-  padding: 12px 14px;
+  padding: 12px 16px;
   cursor: pointer;
 }
 
@@ -211,8 +211,8 @@
 .cron-item-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 8px;
   min-width: 0;
   font-size: 12px;
   color: var(--muted-foreground);
@@ -378,14 +378,14 @@
 
 .cron-detail-titles h3 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 .cron-detail-time {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
@@ -404,6 +404,7 @@
   flex-wrap: wrap;
   font-family: var(--mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
   padding-top: 2px;
 }
@@ -493,7 +494,7 @@
 }
 
 .cron-muted {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--muted-foreground);
 }
 
@@ -645,6 +646,9 @@
   .cron-back {
     min-height: 44px;
     padding: 6px 10px 6px 6px;
+  }
+  .cron-filter-field select {
+    min-height: 44px;
   }
   .cron-preset {
     min-height: 44px;

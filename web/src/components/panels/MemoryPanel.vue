@@ -83,12 +83,12 @@ onMounted(() => {
     <!-- Remember Form Card -->
     <details class="card" data-manager-form="memory-add"><summary class="row"><ChevronRight :size="16" /><b>Save a memory</b></summary><div class="grid manager-body">
       <label class="field-label">
-        <span>key (optional, e.g. user.timezone)</span>
-        <input placeholder="key (optional, e.g. user.timezone)" v-model="keyInput" />
+        <span>Key (optional, e.g. user.timezone)</span>
+        <input placeholder="Key (optional, e.g. user.timezone)" v-model="keyInput" />
       </label>
       <label class="field-label">
-        <span>fact or note</span>
-        <textarea dir="auto" rows="2" placeholder="fact or note" v-model="contentInput"></textarea>
+        <span>Fact or note</span>
+        <textarea dir="auto" rows="2" placeholder="Fact or note" v-model="contentInput"></textarea>
       </label>
       <div class="row">
         <button @click="saveMemory">Save</button>
@@ -97,8 +97,8 @@ onMounted(() => {
 
     <!-- Search Input -->
     <label class="field-label">
-      <span>search</span>
-      <input dir="auto" placeholder="search" v-model="searchQuery" @input="handleSearchInput" />
+      <span>Search memories</span>
+      <input dir="auto" placeholder="Search memories" v-model="searchQuery" @input="handleSearchInput" />
     </label>
 
     <!-- Items List -->
@@ -114,12 +114,6 @@ onMounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-@media (max-width: 760px) {
-  button, summary.row { min-height: 44px; }
-}
-</style>
 
 <style scoped>
 @media (max-width: 760px) {

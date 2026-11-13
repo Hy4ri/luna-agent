@@ -68,7 +68,7 @@ function formatTime(iso: string): string {
         role="tab"
         :aria-selected="view === 'conversation'"
         :tabindex="view === 'conversation' ? 0 : -1"
-        class="px-3 py-1 rounded max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring"
+        class="px-3 py-1 rounded-[var(--radius)] max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring"
         :class="view === 'conversation' ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="view = 'conversation'"
       >Conversation</button>
@@ -78,10 +78,10 @@ function formatTime(iso: string): string {
         role="tab"
         :aria-selected="view === 'files'"
         :tabindex="view === 'files' ? 0 : -1"
-        class="px-3 py-1 rounded max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring"
+        class="px-3 py-1 rounded-[var(--radius)] max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring"
         :class="view === 'files' ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="view = 'files'"
-      >Files changed ({{ detail.pr.files }})</button>
+      ><span class="tabular-nums">Files changed ({{ detail.pr.files }})</span></button>
     </div>
     <div v-if="detail?.pr && view === 'files'" class="flex-1 min-h-0 overflow-hidden">
       <PullFiles :repo="repo" :number="detail.number" :head-oid="detail.pr.headOid" :url="detail.url" :wide="!!filesWide" />
@@ -104,10 +104,10 @@ function formatTime(iso: string): string {
         <div class="flex items-center gap-2 text-xs text-muted-foreground">
           <StatusIcon :kind="detail.kind" :state="detail.state" :draft="detail.pr?.draft" />
           <span class="uppercase tracking-wide font-medium">{{ detail.kind === 'pr' ? 'Pull Request' : 'Issue' }}</span>
-          <span>#{{ detail.number }}</span>
-          <span v-if="detail.state === 'MERGED'" class="text-purple-400 font-medium ml-2">Merged</span>
+          <span class="tabular-nums">#{{ detail.number }}</span>
+          <span v-if="detail.state === 'MERGED'" class="text-[var(--primary-text)] font-medium ml-2">Merged</span>
           <span v-else-if="detail.state === 'CLOSED'" class="text-destructive font-medium ml-2">Closed</span>
-          <span v-else class="text-green-400 font-medium ml-2">Open</span>
+          <span v-else class="text-[var(--ok)] font-medium ml-2">Open</span>
 
           <a
             :href="detail.url"

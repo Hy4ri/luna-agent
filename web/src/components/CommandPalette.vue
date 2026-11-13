@@ -298,6 +298,11 @@ const optionId = (index: number) => 'palette-option-' + index;
         <p v-if="sessionLoading" class="palette-status" role="status">Searching conversations…</p>
         <p v-else-if="sessionError" class="palette-status" role="alert" data-error>{{ sessionError }} <button type="button" @click="searchSessions">Retry</button></p>
         <p id="palette-status" class="palette-status" role="status" :data-error="statusError || undefined">{{ status }}</p>
+        <div class="palette-footer" aria-hidden="true">
+          <span><kbd class="palette-kbd">↑↓</kbd> Navigate</span>
+          <span><kbd class="palette-kbd">↵</kbd> Select</span>
+          <span><kbd class="palette-kbd">Esc</kbd> Close</span>
+        </div>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -305,28 +310,31 @@ const optionId = (index: number) => 'palette-option-' + index;
 
 <style scoped>
 .palette {
+  --palette-indent: 30px;
   position: fixed; z-index: 91; left: 50%; top: 12dvh; transform: translateX(-50%);
   display: flex; flex-direction: column; width: min(640px, calc(100vw - 24px)); max-height: min(560px, 76dvh);
   background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 24px 90px rgb(0 0 0 / 0.56); overflow: hidden;
 }
 .palette-search { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--border); color: var(--muted-foreground); }
-.palette-search input { flex: 1; min-width: 0; height: 48px; background: transparent; border: 0; outline: none; color: var(--foreground); font-size: 15px; }
+.palette-search input { flex: 1; min-width: 0; height: 48px; background: transparent; border: 0; outline: none; color: var(--foreground); font-size: 14px; }
 .palette-kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted-foreground); }
 .palette-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
 .palette-group + .palette-group { margin-top: 6px; }
-.palette-group-name { padding: 6px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground); }
-.palette-item { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; color: var(--foreground); }
+.palette-group-name { padding: 8px 8px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted-foreground); }
+.palette-item { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; color: var(--foreground); font-size: 14px; }
 .palette-item[aria-selected="true"] { background: var(--acc-soft); }
 .palette-item[aria-disabled="true"] { color: var(--muted-foreground); opacity: 0.6; cursor: default; }
 .palette-check { display: inline-flex; width: 14px; flex: none; color: var(--primary-text); }
 .palette-label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted-foreground); }
-.palette-state { margin-left: auto; flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 1px 6px; border-radius: var(--radius); border: 1px solid var(--border); color: var(--muted-foreground); }
+.palette-state { margin-left: auto; flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 1px 6px; border-radius: var(--radius); border: 1px solid var(--border); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .palette-state[data-state="On"] { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
-.palette-note { margin: 0; padding: 6px 8px 6px 30px; font-size: 12px; color: var(--muted-foreground); }
+.palette-note { margin: 0; padding: 6px 8px 6px var(--palette-indent); font-size: 12px; color: var(--muted-foreground); }
 .palette-empty { padding: 18px 8px; text-align: center; color: var(--muted-foreground); font-size: 13px; }
 .palette-status { margin: 0; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }
 .palette-status:empty { display: none; }
 .palette-status[data-error] { color: var(--destructive); }
-@media (max-width: 760px) { .palette { top: calc(8px + env(safe-area-inset-top)); max-height: calc(var(--viewport-height, 100dvh) - 16px - env(safe-area-inset-top)); } .palette-item { min-height: 44px; } .palette-label { max-width: 75%; } }
+.palette-footer { display: flex; align-items: center; gap: 14px; padding: 6px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted-foreground); }
+.palette-footer span { display: inline-flex; align-items: center; gap: 5px; }
+@media (max-width: 760px) { .palette { top: calc(8px + env(safe-area-inset-top)); max-height: calc(var(--viewport-height, 100dvh) - 16px - env(safe-area-inset-top)); } .palette-item { min-height: 44px; } .palette-label { max-width: 75%; } .palette-footer { display: none; } }
 </style>

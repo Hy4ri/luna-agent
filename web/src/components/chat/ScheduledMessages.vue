@@ -108,11 +108,11 @@ onBeforeUnmount(() => { ticket++; clearInterval(timer); });
 <style scoped>
 .scheduled-messages { display: flex; flex-direction: column; align-items: flex-end; gap: 16px; width: 100%; }
 .scheduled-messages:not(:has(.scheduled-bubble, .schedule-status)) { display: none; }
-.scheduled-bubble { width: fit-content; min-width: min(260px, 100%); max-width: 85%; border: 1px dashed var(--muted-foreground); border-radius: var(--radius); background: var(--secondary); padding: 12px 16px 4px; overflow-wrap: anywhere; }
+.scheduled-bubble { width: fit-content; min-width: min(260px, 100%); max-width: 85%; border: 1px dashed var(--muted-foreground); border-radius: var(--radius); background: var(--secondary); padding: 12px 16px; overflow-wrap: anywhere; }
 .scheduled-header { display: flex; justify-content: space-between; gap: 24px; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 12px; font-size: 12px; color: var(--muted-foreground); }
 .scheduled-header > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
 .scheduled-countdown { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.scheduled-text { margin: 0 0 12px; white-space: pre-wrap; font-size: 16.5px; }
+.scheduled-text { margin: 0 0 10px; white-space: pre-wrap; font-size: 14.5px; line-height: 1.5; }
 time, .schedule-status { font-size: 12px; color: var(--muted-foreground); }
 .schedule-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; color: var(--muted-foreground); }
 .schedule-error svg { color: var(--destructive); flex: none; }
@@ -123,7 +123,7 @@ time, .schedule-status { font-size: 12px; color: var(--muted-foreground); }
   color: var(--foreground); font-size: 12px; font-weight: 500; cursor: pointer;
 }
 .schedule-retry-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--primary-text); text-decoration: none; }
-.scheduled-actions { display: flex; gap: 8px; margin-top: 4px; padding-bottom: 8px; }
+.scheduled-actions { display: flex; gap: 8px; margin-top: 10px; }
 .scheduled-actions button {
   font-size: 12px; color: var(--foreground); min-height: 32px; padding: 5px 12px;
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer;

@@ -150,6 +150,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+img.att.zoomable:focus-visible,
+.att-download:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 .spin {
   animation: spin 1s linear infinite;
 }

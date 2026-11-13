@@ -115,7 +115,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.message-footer { color: var(--muted-foreground); }
+.message-footer { display: flex; align-items: center; gap: 6px; color: var(--muted-foreground); }
 .copy-err { color: var(--destructive); }
 @media (max-width: 760px), (pointer: coarse) {
   .message-footer { gap: 4px; }

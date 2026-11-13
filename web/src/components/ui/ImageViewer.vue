@@ -95,6 +95,7 @@ async function download() {
 .iv-stage { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); touch-action: pinch-zoom; }
 .iv-stage.natural { overflow: auto; display: block; }
 .iv-img { max-width: 100vw; max-height: 100dvh; object-fit: contain; cursor: zoom-in; touch-action: pinch-zoom; user-select: none; }
+.iv-img:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .iv-img.natural { max-width: none; max-height: none; cursor: zoom-out; margin: auto; }
 .iv-stage.natural .iv-img { display: block; }
 </style>

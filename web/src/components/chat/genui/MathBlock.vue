@@ -27,6 +27,6 @@ const result = computed(() => {
 </template>
 
 <style scoped>
-.math { padding: 8px 4px; overflow-x: auto; overflow-y: hidden; color: var(--foreground); font-size: 1.1em; direction: ltr; max-width: 100%; }
+.math { padding: 10px 68px 10px 4px; overflow-x: auto; overflow-y: hidden; color: var(--foreground); font-size: 1em; direction: ltr; max-width: 100%; }
 .math :deep(.katex-display) { margin: 0.35em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 </style>
