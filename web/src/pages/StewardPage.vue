@@ -6,7 +6,7 @@
       </Button>
       <div class="flex-1 min-w-0">
         <h1 tabindex="-1" class="m-0 text-lg font-semibold tracking-tight leading-tight">Steward</h1>
-        <p class="m-0 text-xs text-muted-foreground truncate">Suggestions from your sessions. Nothing happens until you agree.</p>
+        <p class="m-0 text-xs text-muted-foreground truncate max-[760px]:hidden">Suggestions from your sessions. Nothing happens until you agree.</p>
       </div>
       <div class="flex items-center gap-2 ml-auto">
         <Button type="button" variant="outline" size="sm" class="max-[760px]:min-h-11" :disabled="steward.loading || steward.scanning" @click="scanSteward()">
@@ -25,7 +25,7 @@
 
     <section v-if="stats && stats.rules.length + stats.agree30.decisions > 0" class="shrink-0 px-6 py-2 max-[760px]:px-3 border-b border-border/60 text-xs text-muted-foreground">
       <details>
-        <summary class="cursor-pointer focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 rounded-[var(--radius)]">
+        <summary class="cursor-pointer py-1 max-[760px]:min-h-11 max-[760px]:flex max-[760px]:items-center focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 rounded-[var(--radius)]">
           <template v-if="stats.agree30.rate !== null">You agreed to {{ Math.round(stats.agree30.rate * 100) }}% of cards in the last 30 days ({{ stats.agree30.agrees }} of {{ stats.agree30.decisions }}).</template>
           <template v-else>No decisions in the last 30 days.</template>
         </summary>
@@ -42,13 +42,17 @@
     </section>
 
     <main class="flex-1 min-h-0 overflow-y-auto px-6 py-4 max-[760px]:px-3">
-      <div v-if="steward.error" class="mb-3 flex flex-wrap items-center gap-3 rounded-[var(--radius)] border px-3 py-3 text-sm" :class="steward.error.toLowerCase().includes('disabled') ? 'border-border bg-card' : 'border-destructive/40'" :role="steward.error.toLowerCase().includes('disabled') ? 'status' : 'alert'">
-        <PauseCircle v-if="steward.error.toLowerCase().includes('disabled')" :size="18" class="shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span class="flex-1 min-w-0">
-          {{ steward.error.toLowerCase().includes('disabled') ? 'Steward is disabled — enable it in Settings → Automation to receive session suggestions.' : steward.error }}
-        </span>
-        <Button v-if="steward.error.toLowerCase().includes('disabled')" type="button" variant="outline" size="sm" class="max-[760px]:min-h-11" @click="navigate('settings')">Open Settings</Button>
-        <Button type="button" variant="outline" size="sm" class="max-[760px]:min-h-11" @click="loadSteward()">Retry</Button>
+      <div v-if="steward.error" class="mb-3 flex flex-col sm:flex-row sm:items-center gap-3 rounded-[var(--radius)] border px-3.5 py-3 text-sm" :class="steward.error.toLowerCase().includes('disabled') ? 'border-border bg-card' : 'border-destructive/40'" :role="steward.error.toLowerCase().includes('disabled') ? 'status' : 'alert'">
+        <div class="flex items-start gap-2.5 flex-1 min-w-0">
+          <PauseCircle v-if="steward.error.toLowerCase().includes('disabled')" :size="18" class="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span class="flex-1 min-w-0 leading-snug">
+            {{ steward.error.toLowerCase().includes('disabled') ? 'Steward is disabled — enable it in Settings → Automation to receive session suggestions.' : steward.error }}
+          </span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0 max-[760px]:justify-end">
+          <Button v-if="steward.error.toLowerCase().includes('disabled')" type="button" variant="outline" size="sm" class="max-[760px]:min-h-11" @click="navigate('settings')">Open Settings</Button>
+          <Button type="button" :variant="steward.error.toLowerCase().includes('disabled') ? 'ghost' : 'outline'" size="sm" class="max-[760px]:min-h-11" @click="loadSteward()">Retry</Button>
+        </div>
       </div>
       <p v-if="steward.notice && !steward.error" class="mb-3 text-sm text-muted-foreground" role="status">{{ steward.notice }}</p>
       <p v-if="steward.loading && !steward.loaded" class="text-sm text-muted-foreground">Loading…</p>
@@ -75,7 +79,7 @@
                 </label>
               </fieldset>
               <p v-if="c.status === 'done' || c.status === 'failed'" class="mt-2 mb-0 text-xs" :class="c.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'">{{ c.result }}</p>
-              <p v-else-if="c.status === 'snoozed' && c.snoozeUntil" class="mt-2 mb-0 text-xs text-muted-foreground">Back on {{ new Date(c.snoozeUntil).toLocaleDateString() }}</p>
+              <p v-else-if="c.status === 'snoozed' && c.snoozeUntil" class="mt-2 mb-0 text-xs text-muted-foreground tabular-nums">Back on {{ new Date(c.snoozeUntil).toLocaleDateString() }}</p>
               <p v-if="errors[c.id]" class="mt-2 mb-0 text-xs text-destructive" role="alert">{{ errors[c.id] }}</p>
             </div>
           </div>
@@ -85,7 +89,7 @@
           </div>
           <div v-if="c.status === 'done' && c.undoUntil && c.undoUntil > Date.now()" class="mt-3 flex items-center gap-2">
             <Button type="button" variant="outline" size="sm" class="max-[760px]:min-h-11" :disabled="steward.busy.has(c.id)" @click="run(c, 'undo')"><Undo2 :size="14" aria-hidden="true" />Undo</Button>
-            <span class="text-xs text-muted-foreground">until {{ new Date(c.undoUntil).toLocaleDateString() }}</span>
+            <span class="text-xs text-muted-foreground tabular-nums">until {{ new Date(c.undoUntil).toLocaleDateString() }}</span>
           </div>
           <div v-if="c.status === 'open' || c.status === 'snoozed'" class="mt-3 flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" class="max-[760px]:min-h-11" :disabled="steward.busy.has(c.id)" @click="agree(c)">{{ items(c).length ? `Agree (${picked(c).length})` : c.kind === 'delete_session' ? 'Delete…' : c.kind === 'worktree_orphan' ? 'Remove…' : 'Agree' }}</Button>

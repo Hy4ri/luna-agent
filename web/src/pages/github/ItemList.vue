@@ -61,7 +61,7 @@ function formatTime(iso: string): string {
     </div>
     <div v-else-if="items.length === 0" class="p-8 text-center text-muted-foreground text-sm">
       <p>No items found.</p>
-      <button v-if="emptyHint" type="button" class="mt-2 px-3 py-1.5 text-xs bg-card hover:bg-accent rounded border border-border" @click="$emit('emptyAction')">{{ emptyHint }}</button>
+      <button v-if="emptyHint" type="button" class="mt-2 px-3 py-1.5 text-xs bg-card hover:bg-accent rounded-[var(--radius)] border border-border max-[760px]:min-h-11" @click="$emit('emptyAction')">{{ emptyHint }}</button>
     </div>
     <div v-bind="wrapperProps"><button
       v-for="{ data: item } in vItems"
@@ -81,14 +81,14 @@ function formatTime(iso: string): string {
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <span class="font-medium text-sm truncate">{{ item.title }}</span>
-          <span class="text-xs text-muted-foreground shrink-0">#{{ item.number }}</span>
+          <span class="text-xs text-muted-foreground shrink-0 tabular-nums">#{{ item.number }}</span>
         </div>
         <div class="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-          <span v-if="item.state === 'MERGED'" class="text-purple-400 font-medium">Merged</span>
+          <span v-if="item.state === 'MERGED'" class="text-[var(--primary-text)] font-medium">Merged</span>
           <span v-else-if="item.state === 'CLOSED'" class="text-destructive font-medium">Closed</span>
-          <span v-else class="text-green-400 font-medium">Open</span>
+          <span v-else class="text-[var(--ok)] font-medium">Open</span>
 
-          <span v-if="item.draft" class="px-1.5 py-0.5 bg-card text-muted-foreground rounded text-[10px]">Draft</span>
+          <span v-if="item.draft" class="px-1.5 py-0.5 bg-card text-muted-foreground rounded-[var(--radius)] text-[10px]">Draft</span>
 
           <span v-for="l in item.labels" :key="l.name" class="inline-flex items-center gap-1">
             <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: `#${l.color}` }" />
@@ -99,15 +99,15 @@ function formatTime(iso: string): string {
           <span>{{ formatTime(item.updatedAt) }}</span>
 
           <div v-if="item.kind === 'pr'" class="flex items-center gap-1 ml-auto">
-            <span v-if="item.review === 'APPROVED'" class="text-[10px] text-green-400">Approved</span>
+            <span v-if="item.review === 'APPROVED'" class="text-[10px] text-[var(--ok)]">Approved</span>
             <span v-else-if="item.review === 'CHANGES_REQUESTED'" class="text-[10px] text-destructive">Changes requested</span>
-            <CircleCheck v-if="item.checks === 'SUCCESS'" class="w-3.5 h-3.5 text-green-400" title="Checks passed" />
+            <CircleCheck v-if="item.checks === 'SUCCESS'" class="w-3.5 h-3.5 text-[var(--ok)]" title="Checks passed" />
             <CircleX v-else-if="item.checks === 'FAILURE' || item.checks === 'ERROR'" class="w-3.5 h-3.5 text-destructive" title="Checks failed" />
-            <AlertCircle v-else-if="item.checks === 'PENDING'" class="w-3.5 h-3.5 text-yellow-400" title="Checks pending" />
+            <AlertCircle v-else-if="item.checks === 'PENDING'" class="w-3.5 h-3.5 text-[var(--warn)]" title="Checks pending" />
           </div>
         </div>
       </div>
-      <div v-if="item.comments > 0" class="flex items-center gap-1 text-xs text-muted-foreground shrink-0 self-center">
+      <div v-if="item.comments > 0" class="flex items-center gap-1 text-xs text-muted-foreground shrink-0 self-center tabular-nums">
         <MessageSquare class="w-3.5 h-3.5" />
         <span>{{ item.comments }}</span>
       </div>
@@ -118,7 +118,7 @@ function formatTime(iso: string): string {
         type="button"
         @click="$emit('loadMore')"
         :disabled="loadingMore"
-        class="px-3 py-1.5 text-xs bg-card hover:bg-accent rounded border border-border disabled:opacity-50"
+        class="px-3 py-1.5 text-xs bg-card hover:bg-accent rounded-[var(--radius)] border border-border disabled:opacity-50 max-[760px]:min-h-11"
       >
         {{ loadingMore ? 'Loading…' : 'Load more' }}
       </button>

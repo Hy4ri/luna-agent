@@ -21,12 +21,12 @@ function act(action: 'stage' | 'unstage', files: ChangeFile[]) { const paths = f
     <p v-if="loaded && !groups.length" class="p-4 text-muted-foreground">No changes. The working tree is clean.</p>
     <section v-for="group in groups" :key="group.name" class="p-2 border-b border-border">
       <header class="flex items-center justify-between gap-2 pb-1 text-muted-foreground">
-        <h2 class="font-medium">{{ group.name }} ({{ group.files.length }})</h2>
+        <h2 class="font-medium tabular-nums">{{ group.name }} ({{ group.files.length }})</h2>
         <button v-if="group.action" type="button" :disabled="disabled" class="underline disabled:opacity-50 max-[760px]:min-h-11" @click="act(group.action, group.files)">{{ group.action === 'stage' ? 'Stage all' : 'Unstage all' }}</button>
         <button v-if="group.action === 'stage'" type="button" :disabled="disabled" class="underline text-destructive disabled:opacity-50 max-[760px]:min-h-11" @click="emit('discard', group.files.map(f => f.path))">Discard all</button>
       </header>
       <p v-if="group.name === 'Untracked' && untrackedCollapsed" class="px-2 pb-1 text-muted-foreground">Too many untracked files: folders are shown as one entry. Ignore build output in .gitignore.</p>
-      <div v-for="file in group.files.slice(0, limit(group.name))" :key="file.path" class="flex items-center rounded vl vl-sm" :class="selectedPath === file.path && selectedStaged === group.staged ? 'bg-accent' : ''">
+      <div v-for="file in group.files.slice(0, limit(group.name))" :key="file.path" class="flex items-center rounded-[var(--radius)] vl vl-sm overflow-x-hidden" :class="selectedPath === file.path && selectedStaged === group.staged ? 'bg-accent' : ''">
         <button type="button" class="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 text-left hover:bg-muted" :aria-label="`View ${group.staged ? 'staged' : 'working'} diff ${file.path}`" @click="emit('select', file.path, group.staged)">
           <component :is="file.conflict ? AlertTriangle : file.untracked ? (file.path.endsWith('/') ? Folder : FilePlus) : FileText" :size="14" class="shrink-0" aria-hidden="true" />
           <span class="truncate" :title="file.original ? `${file.original} → ${file.path}` : file.path">{{ file.path }}</span>

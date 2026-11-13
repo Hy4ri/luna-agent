@@ -346,27 +346,28 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 
 <style scoped>
 .settings-screen { width: 100%; min-width: 0; height: 100%; flex: 1; display: flex; flex-direction: column; background: var(--background); }
-.settings-header { display: flex; align-items: center; gap: 16px; padding: 20px 32px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.settings-header { display: flex; align-items: center; gap: 12px; padding: 12px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .settings-heading { flex: 1; min-width: 0; }
-.settings-heading h1 { font-size: 24px; font-weight: 650; letter-spacing: -.025em; }
-.settings-heading p, .section-heading p { color: var(--muted-foreground); font-size: 15px; margin-top: 4px; }
+.settings-heading h1 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; line-height: 1.25; }
+.settings-heading p, .section-heading p { color: var(--muted-foreground); font-size: 12px; margin-top: 2px; }
 .settings-layout { display: flex; min-height: 0; flex: 1; overflow: hidden; }
-.settings-nav { flex: 0 0 208px; padding: 20px 12px; border-right: 1px solid var(--border); overflow-y: auto; }
+.settings-nav { flex: 0 0 208px; padding: 16px 12px; border-right: 1px solid var(--border); overflow-y: auto; }
 .settings-tabs { display: flex; flex-direction: column; gap: 4px; }
 .settings-tabs button strong { font-weight: inherit; }
 .settings-tabs button small { display: block; font-size: 13px; margin-top: 4px; color: var(--muted-foreground); line-height: 1.5; }
 .index-back { margin-bottom: 20px; }
 .settings-management { padding-block: 20px; border-top: 1px solid var(--border); }
-.settings-management h3 { font-size: 18px; margin-bottom: 16px; }
+.settings-management h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
 .settings-tabs button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border-radius: var(--radius); text-align: left; color: var(--sidebar-foreground); cursor: pointer; flex-shrink: 0; }
 .settings-tabs button:hover { background: var(--accent); color: var(--foreground); }
 .settings-tabs button[aria-current="page"] { background: var(--acc-soft); color: var(--primary-text); font-weight: 600; }
 .settings-tabs button:focus-visible, .manager-link:focus-visible, .settings-button:focus-visible, .icon-button:focus-visible, .advanced-fields summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .settings-tabs svg { flex-shrink: 0; }
 .settings-scroll { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
-.settings-content { padding: 28px 32px 48px; min-width: 0; max-width: 1040px; margin-inline: auto; }
-.section-heading { margin-bottom: 24px; }
-.section-heading h2 { font-size: 21.5px; font-weight: 600; letter-spacing: -.02em; }
+.settings-content { padding: 20px 24px 48px; min-width: 0; max-width: 1040px; margin-inline: auto; }
+.section-heading { margin-bottom: 20px; }
+.section-heading h2 { font-size: 16px; font-weight: 600; letter-spacing: -.015em; }
+.section-heading p { font-size: 13px; margin-top: 4px; }
 .settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; min-width: 0; padding: 0; margin: 0; border: 0; }
 .section-description, .help { color: var(--muted-foreground); line-height: 1.6; font-size: 14px; max-width: 76ch; }
 .settings-management { min-width: 0; }
@@ -394,7 +395,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .advanced-fields summary { cursor: pointer; color: var(--muted-foreground); font-size: 14px; padding-block: 8px; }
 .advanced-fields[open] summary { margin-bottom: 12px; }
 .advanced-fields :deep(.field) { margin-bottom: 16px; }
-.settings-footer { flex-shrink: 0; display: flex; align-items: center; gap: 16px; justify-content: space-between; padding: 16px 32px; border-top: 1px solid var(--border); background: var(--background); }
+.settings-footer { flex-shrink: 0; display: flex; align-items: center; gap: 16px; justify-content: space-between; padding: 12px 24px; border-top: 1px solid var(--border); background: var(--background); }
 .save-state { min-width: 0; }
 .save-state strong { font-size: 14px; font-weight: 550; }
 .save-state p { font-size: 13px; line-height: 1.5; color: var(--muted-foreground); margin-top: 4px; overflow-wrap: anywhere; }
@@ -414,7 +415,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 1000px) and (min-width: 761px) { .settings-nav { flex-basis: 180px; padding-inline: 8px; } .settings-content { padding: 24px; } .settings-tabs button { font-size: 14px; padding-inline: 8px; gap: 8px; } }
 @media (max-width: 760px) {
   .settings-header { padding: 12px 16px; gap: 12px; }
-  .settings-heading h1 { font-size: 19.5px; }
+  .settings-heading h1 { font-size: 18px; }
   .settings-heading p { display: none; }
   .mobile-only { display: inline-flex; width: 44px; height: 44px; }
   [data-settings-close] { min-width: 44px; min-height: 44px; }
@@ -435,7 +436,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .manager-link { padding: 16px; }
   .model-level-row { grid-template-columns: minmax(0, 1fr) auto; }
   .model-level-name { grid-column: 1 / -1; }
-  .input { font-size: 16.5px; min-height: 44px; }
+  .input { font-size: 16px; min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { .refresh-spin { animation: none; } }
 </style>
