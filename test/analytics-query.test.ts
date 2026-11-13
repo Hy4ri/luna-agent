@@ -844,3 +844,21 @@ describe("tab-specific temporal series and detail drawers", () => {
     expect(detail!.sections.length >= 2).toBeTruthy();
   });
 });
+
+test("summary splits response and tool failures, and context model rows open a detail", () => {
+  const store = createTempStore(); seedStore(store);
+  const all = parseAnalyticsFilters(new URLSearchParams());
+  const s = queryAnalytics(store, "reliability", all).summary;
+  expect(Number(s.responseErrors) + Number(s.toolErrors)).toBe(Number(s.errors));
+  expect(s.responseErrorRate).toBe(Number(s.responses) > 0 ? Number(s.responseErrors) / Number(s.responses) : null);
+  expect(s.toolErrorRate).toBe(Number(s.toolCalls) > 0 ? Number(s.toolErrors) / Number(s.toolCalls) : null);
+  expect(typeof s.aborts).toBe("number");
+
+  const context = queryAnalytics(store, "context", all);
+  const rows = context.sections?.flatMap((sec) => sec.table.rows.filter((r) => r.kind === "model")) ?? [];
+  expect(rows.length > 0).toBeTruthy();
+  for (const row of rows) {
+    expect(typeof row.id).toBe("string");
+    expect(analyticsDetail(store, "context", "model", String(row.id), all) !== undefined).toBeTruthy();
+  }
+});
