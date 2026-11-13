@@ -3,7 +3,7 @@ import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
 import ConfigError from "@/components/ConfigError.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { ArrowLeft, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal, Activity, ChevronDown, ChevronUp, GitBranch } from '@lucide/vue';
+import { ArrowLeft, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal, ChevronDown, ChevronUp, GitBranch, Target, ListChecks, SquareTerminal, Bot } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
@@ -97,41 +97,43 @@ const railLive = computed(() => {
     || !!(ex?.processes || []).some(p => p.running)
     || !!(ex?.children || []).some(childLive);
 });
-const railSummary = computed(() => {
-  const parts: string[] = [];
+type RailChip = { key: string; icon: any; label: string; value: string; tone?: 'live' | 'warn' | 'done' };
+const railChips = computed<RailChip[]>(() => {
+  const chips: RailChip[] = [];
   const ex = chat.extras;
   const gs = gitStatusData.value;
-  if (gs?.state === 'ok') {
-    if (gs.conflicts) parts.push(`${gs.conflicts} conflict`);
-    if (gs.files.length) parts.push(`${gs.files.length} changed`);
-    if (gs.ahead || gs.behind) parts.push([gs.ahead && `↑${gs.ahead}`, gs.behind && `↓${gs.behind}`].filter(Boolean).join(' '));
+  if (gs?.state === 'ok' && (gs.conflicts || gs.files.length || gs.ahead || gs.behind)) {
+    const v = [gs.conflicts ? `${gs.conflicts}!` : '', gs.files.length ? `${gs.files.length}` : '', gs.ahead ? `↑${gs.ahead}` : '', gs.behind ? `↓${gs.behind}` : ''].filter(Boolean).join(' ');
+    chips.push({ key: 'git', icon: GitBranch, label: 'Git', value: v, tone: gs.conflicts ? 'warn' : undefined });
   }
   if (ex?.goal) {
-    const gTasks = ex.goal.tasks?.length || 0;
-    const gDone = gTasks ? ex.goal.tasks.filter((t: any) => t.status !== 'pending').length : 0;
-    const gStatus = ex.goal.status.replaceAll('_', ' ');
-    parts.push(gTasks ? `Goal ${gDone}/${gTasks} ${gStatus}` : `Goal ${gStatus}`);
+    const n = ex.goal.tasks?.length || 0;
+    const d = n ? ex.goal.tasks.filter((t: any) => t.status !== 'pending').length : 0;
+    const st = ex.goal.status;
+    chips.push({ key: 'goal', icon: Target, label: 'Goal', value: n ? `${d}/${n}` : st.replaceAll('_', ' '), tone: st === 'active' ? 'live' : st === 'blocked' ? 'warn' : st === 'complete' ? 'done' : undefined });
   }
   const todos = (ex?.todos || []).filter((t: any) => t.status !== 'deleted');
   if (todos.length) {
-    const done = todos.filter((t: any) => t.status === 'completed').length;
-    parts.push(`${done}/${todos.length} tasks`);
+    const d = todos.filter((t: any) => t.status === 'completed').length;
+    chips.push({ key: 'tasks', icon: ListChecks, label: 'Tasks', value: `${d}/${todos.length}`, tone: d === todos.length ? 'done' : todos.some((t: any) => t.status === 'in_progress') ? 'live' : undefined });
   }
   const procs = ex?.processes || [];
   if (procs.length) {
-    const running = procs.filter(p => p.running).length;
-    parts.push(running ? `${running} proc running` : `${procs.length} proc`);
+    const r = procs.filter(p => p.running).length;
+    chips.push({ key: 'proc', icon: SquareTerminal, label: 'Processes', value: r ? `${r} on` : `${procs.length}`, tone: r ? 'live' : 'done' });
   }
   if (reviewJobs.value.length) {
-    parts.push(runningReviews.value ? `${runningReviews.value} review running` : `${reviewJobs.value.length} review`);
+    const r = runningReviews.value;
+    chips.push({ key: 'review', icon: ScanEye, label: 'Reviews', value: r ? `${r} on` : `${reviewJobs.value.length}`, tone: r ? 'live' : 'done' });
   }
-  const children = ex?.children || [];
-  if (children.length) {
-    const running = children.filter(childLive).length;
-    parts.push(running ? `${running} subagent running` : `${children.length} subagent`);
+  const kids = ex?.children || [];
+  if (kids.length) {
+    const r = kids.filter(childLive).length;
+    chips.push({ key: 'agents', icon: Bot, label: 'Subagents', value: r ? `${r} on` : `${kids.length}`, tone: r ? 'live' : 'done' });
   }
-  return parts.join(' · ') || 'Session';
+  return chips;
 });
+const railSummary = computed(() => railChips.value.map(c => `${c.label} ${c.value}`).join(', ') || 'Session');
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
 const tileIds = ref<string[]>(readTiles());
@@ -561,13 +563,16 @@ onUnmounted(() => {
                   class="rail-pill"
                   :class="{ live: railLive }"
                   aria-expanded="false"
-                  aria-label="Expand session widgets"
+                  :aria-label="'Expand session widgets: ' + railSummary"
+                  :title="railSummary"
                   @click="railMinimized = false"
                 >
-                  <Activity v-if="railLive || activityVisible || chat.extras?.goal || reviewJobs.length" :size="13" aria-hidden="true" />
-                  <GitBranch v-else :size="13" aria-hidden="true" />
-                  <span class="rail-pill-text">{{ railSummary }}</span>
-                  <ChevronDown :size="13" aria-hidden="true" />
+                  <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
+                    <component :is="c.icon" :size="13" aria-hidden="true" />
+                    <span>{{ c.value }}</span>
+                  </span>
+                  <span v-if="!railChips.length" class="rail-chip">Session</span>
+                  <ChevronDown class="rail-pill-caret" :size="13" aria-hidden="true" />
                 </button>
                 <template v-else>
                   <div class="rail-bar">
@@ -680,7 +685,7 @@ onUnmounted(() => {
   right: 36px;
   z-index: 4;
   width: 252px;
-  max-height: calc(100% - 108px);
+  bottom: 12px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -692,7 +697,7 @@ onUnmounted(() => {
 #session-rail.collapsed {
   width: auto;
   max-width: 252px;
-  max-height: none;
+  bottom: auto;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -725,26 +730,42 @@ onUnmounted(() => {
 .rail-toggle { width: 24px; height: 24px; color: var(--muted-foreground); }
 .rail-pill {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 2px;
   max-width: 100%;
-  min-height: 30px;
-  padding: 5px 10px;
+  min-height: 32px;
+  padding: 3px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
   box-shadow: var(--shadow);
   font-size: 12px;
-  line-height: 1.35;
-  text-align: left;
+  font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
   cursor: pointer;
+  transition: border-color 120ms, color 120ms;
 }
-.rail-pill > svg { flex: none; }
-.rail-pill-text { min-width: 0; overflow-wrap: anywhere; }
-.rail-pill:hover { color: var(--foreground); border-color: var(--input); }
+.rail-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+.rail-chip + .rail-chip { box-shadow: inset 1px 0 0 var(--border); }
+.rail-chip > svg { flex: none; color: var(--faint); }
+.rail-chip > span { color: var(--foreground); font-weight: 500; }
+.rail-chip.live > svg { color: var(--primary-text); }
+.rail-chip.done > span { color: var(--muted-foreground); }
+.rail-chip.warn > svg, .rail-chip.warn > span { color: var(--destructive); }
+.rail-pill-caret { flex: none; margin: 0 4px 0 2px; color: var(--faint); }
+.rail-pill:hover { border-color: var(--input); }
+.rail-pill:hover .rail-pill-caret { color: var(--foreground); }
 .rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.rail-pill.live svg:first-child { color: var(--primary-text); }
 .session-pane {
   flex: 1 1 0;
   width: 0;

@@ -158,7 +158,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 - **Session Rail (`#session-rail`):**
   - Floats as an absolute framed panel (`252px` wide, `top: 12px; right: 36px; max-height: calc(100% - 108px);`, clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 760) / 2 + gutterShift`) is at least `316px` (undocks below `300px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
   - Shows only when there is active or rich content (goal, activity, review jobs, or dirty/unpushed `GitStatus`) and no right-side `WorkDock` is open. Empty sessions and clean-repo sessions render zero side chrome (`GitStatus` stays inline in `Transcript`).
-  - Can be minimized into a compact live summary pill in the top-right corner (`luna.rail.collapsed`) summarizing all visible rail items (git changes/sync, goal status, tasks, processes, review agents, and subagents) without truncation.
+  - Expanded panel spans from `top: 12px` to `bottom: 12px`, aligned with the bottom of the composer box; content scrolls inside. Minimizes into a segmented pill (`luna.rail.collapsed`): one icon + value chip per item (git, goal, tasks, processes, reviews, subagents); accent icon = live, red = conflict/blocked, muted = done.
   - Order: Git (`GitStatus`), Goal, Processes, Review agents, Subagents, then Tasks (the long list goes last).
   - Each item renders in exactly one place. When floating, `#extras` and the inline `GitStatus` are not mounted. When unfloated, they return inline.
 
