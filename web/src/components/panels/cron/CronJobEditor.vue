@@ -49,6 +49,13 @@ const emit = defineEmits<{
     <p class="cron-help">
       A failure always creates a report. "Output changes" compares the exact text after trimming outer spaces.
     </p>
+    <label v-if="!editor.script" class="cron-check">
+      <input type="checkbox" aria-label="Hide run sessions" v-model="editor.hidden" />
+      <span>Hide run sessions</span>
+    </label>
+    <p v-if="!editor.script" class="cron-help">
+      Runs do not appear in the session list. Results stay in Cron reports and history.
+    </p>
     <div class="cron-form-actions">
       <button type="submit" class="cron-btn primary" :disabled="busy">Save job</button>
       <button type="button" class="cron-btn" @click="emit('cancel')">Cancel</button>

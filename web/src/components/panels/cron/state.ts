@@ -30,6 +30,8 @@ export interface CronJob {
   enabled: boolean;
   nextRun: number | null;
   reportPolicy: ReportPolicy;
+  /** Run sessions stay out of the session list. */
+  hidden: boolean;
   intervalMs?: number;
   execution?: { command: string[]; cwd?: string };
   lastRun: CronRun | null;
@@ -43,6 +45,7 @@ export interface CronEditor {
   expr: string;
   prompt: string;
   reportPolicy: ReportPolicy;
+  hidden: boolean;
   /** Imported interval jobs keep their interval; the schedule field is not editable. */
   intervalMs?: number;
   /** Imported script jobs run a command instead of a prompt. */

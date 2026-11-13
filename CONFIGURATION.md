@@ -285,12 +285,18 @@ Older, superseded reports remain in History, even when marked unread. History is
 The sidebar badge counts unread inbox entries and is hidden at zero. Job health stays separate in Jobs.
 Closing the panel preserves unfinished job edits. A successful run is not labeled as proof that an earlier problem was resolved.
 
+Each agent job runs in its own session, and by default that session is listed in the sidebar. To keep a job's runs out of the session
+list, select **Hide run sessions** in the job editor, or set `hidden: true` with the `cron` tool (`create`/`update`). The
+results stay in Reports and History. When a hidden job creates a run conversation, it adds a `luna.hidden-session` entry at once,
+so the session stays out of the list after the run row is pruned. A later change to the setting affects new runs only.
+
 The run log is cleaned in the background. A finished run without a report leaves after `cron.retention.emptyRunDays`, an old report after
 `cron.retention.reportDays`, and the runs of a deleted job after `cron.retention.deletedJobDays`. The newest `cron.retention.reportsPerJob`
 reports of every job stay, and so does the report waiting in the inbox.
 
 #### Cron endpoints
 
+- `POST /v1/cron`, `PATCH /v1/cron/:id`: create or edit a job. Fields: `name`, `expr`, `prompt`, `reportPolicy`, `graceMs`, `timeoutMs`, `retries`, `hidden` (boolean, default `false`; run sessions stay out of the session list), and `enabled` (PATCH only).
 - `GET /v1/cron/reports`: list reports. Supports `history=1` (or `history=true`) to query historical superseded or read reports, or default inbox (newest unread report per job). Optional filters: `jobId` (positive integer), `limit` (integer 1..100, default 50).
   Pagination modes:
   - Default ID-descending order: uses `before=<id>` cursor.

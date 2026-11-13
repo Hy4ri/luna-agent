@@ -232,7 +232,7 @@ function selectJob(job: CronJob) {
   void guard(loadJobRuns);
 }
 function newJob() {
-  panel.editor = { jobId: null, name: "", expr: "@daily", prompt: "", reportPolicy: "always" };
+  panel.editor = { jobId: null, name: "", expr: "@daily", prompt: "", reportPolicy: "always", hidden: false };
   message("");
 }
 function editJob(job: CronJob) {
@@ -242,6 +242,7 @@ function editJob(job: CronJob) {
     expr: job.expr,
     prompt: job.prompt,
     reportPolicy: job.reportPolicy,
+    hidden: !!job.hidden,
     intervalMs: job.intervalMs,
     script: !!job.execution,
   };
@@ -258,7 +259,7 @@ function saveJob() {
   if (!name) { message("Job name is required.", true); return; }
   if (!prompt.trim() && !ed.script) { message("Prompt is required.", true); return; }
   void guard(async () => {
-    const body: Record<string, unknown> = { name, prompt, reportPolicy: ed.reportPolicy };
+    const body: Record<string, unknown> = { name, prompt, reportPolicy: ed.reportPolicy, hidden: ed.hidden };
     if (!ed.intervalMs) body.expr = ed.expr.trim();
     const saved = await post(ed.jobId ? `/v1/cron/${ed.jobId}` : "/v1/cron", body, ed.jobId ? "PATCH" : "POST");
     panel.editor = null;

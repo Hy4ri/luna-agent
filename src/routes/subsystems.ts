@@ -55,7 +55,7 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
     if (no) return no;
     const b = (await c.req.json().catch(() => ({}))) as any;
     if (!b || typeof b !== "object" || Array.isArray(b)) return err(c, 400, "invalid body");
-    const allowed = ["name", "expr", "prompt", "reportPolicy", "graceMs", "timeoutMs", "retries"];
+    const allowed = ["name", "expr", "prompt", "reportPolicy", "graceMs", "timeoutMs", "retries", "hidden"];
     const keys = Object.keys(b);
     if (!keys.length || keys.some((k) => !allowed.includes(k))) return err(c, 400, "invalid or unknown fields");
     if (
@@ -77,6 +77,7 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
         graceMs: b.graceMs,
         timeoutMs: b.timeoutMs,
         retries: b.retries,
+        hidden: b.hidden,
       });
       opts.scheduler?.rearm();
       return c.json(job, 201);
@@ -94,7 +95,7 @@ export function registerSubsystems(app: Hono, ctx: RouteCtx): void {
     if (!existing) return err(c, 404, "no such job");
     const b = (await c.req.json().catch(() => ({}))) as any;
     if (!b || typeof b !== "object" || Array.isArray(b)) return err(c, 400, "invalid body");
-    const allowed = ["name", "expr", "prompt", "enabled", "reportPolicy", "graceMs", "timeoutMs", "retries"];
+    const allowed = ["name", "expr", "prompt", "enabled", "reportPolicy", "graceMs", "timeoutMs", "retries", "hidden"];
     const keys = Object.keys(b);
     if (!keys.length || keys.some((k) => !allowed.includes(k))) return err(c, 400, "invalid or unknown fields");
     if ("name" in b && (typeof b.name !== "string" || !b.name.trim())) return err(c, 400, "invalid name");

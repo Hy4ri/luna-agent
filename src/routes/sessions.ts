@@ -159,7 +159,7 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     const cursor = cursorStr === null ? null : decodeCursor(cursorStr);
     if (cursorStr !== null && !cursor) return err(c, 400, "malformed cursor");
 
-    // Title = first user message. Subagent children (delegate.child marker) are hidden from the list.
+    // Title = first user message. Subagent children (delegate.child) and hidden cron runs (luna.hidden-session) are left out.
     const built = await listRows();
     const links = opts.conversations?.projects.links();
     const sessions: SessionItem[] = [];
