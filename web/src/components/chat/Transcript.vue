@@ -100,6 +100,7 @@ onMounted(() => {
   mutationObserver.observe(log, { childList: true, subtree: true, characterData: true });
   log.addEventListener("load", follow, true);
   log.addEventListener("toggle", follow, true);
+  log.addEventListener("contentvisibilityautostatechange", follow, true);
   window.addEventListener("keydown", handleKey, true);
   window.addEventListener("pointerup", handlePointerUp, true);
 });
@@ -126,6 +127,45 @@ watch(() => chat.extras?.questions, (questions, previous) => {
 });
 // Sending or opening a conversation is explicit intent to follow. The frame runs after Vue renders.
 watch(() => chat.followTick, () => scroll(true), { flush: "sync" });
+// Preserve scroll position when streaming ends and .live-message is replaced by a durable entry.
+watch(() => Boolean(chat.liveText || chat.liveThinking), (live, wasLive) => {
+  if (!wasLive || live || pinned) return;
+  const log = logRef.value;
+  if (!log) return;
+  const epoch = chat.epoch;
+  const logRect = log.getBoundingClientRect();
+  const rows = log.querySelectorAll<HTMLElement>("#log > .msg, #log > details, #log > .side-job-card");
+  let anchorEl: HTMLElement | null = null;
+  let anchorOffset = 0;
+  let anchoredToLive = false;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    const r = row.getBoundingClientRect();
+    if (r.bottom > logRect.top) {
+      anchorEl = row;
+      anchorOffset = r.top - logRect.top;
+      anchoredToLive = row.classList.contains("live-message");
+      break;
+    }
+  }
+  if (!anchorEl) return;
+  const assistantEls = anchoredToLive ? log.querySelectorAll<HTMLElement>("#log > .msg.assistant[data-entry]") : null;
+  const prevEntryId = assistantEls?.length ? assistantEls[assistantEls.length - 1]!.dataset.entry : undefined;
+  void nextTick(() => {
+    if (chat.epoch !== epoch || pinned || logRef.value !== log) return;
+    const nextLogRect = log.getBoundingClientRect();
+    if (anchoredToLive) {
+      const nextAssistants = log.querySelectorAll<HTMLElement>("#log > .msg.assistant[data-entry]");
+      const newEl = nextAssistants.length ? nextAssistants[nextAssistants.length - 1]! : null;
+      if (!newEl || newEl.dataset.entry === prevEntryId) return;
+      const diff = (newEl.getBoundingClientRect().top - nextLogRect.top) - anchorOffset;
+      if (diff !== 0) log.scrollTop += diff;
+    } else if (anchorEl.isConnected) {
+      const diff = (anchorEl.getBoundingClientRect().top - nextLogRect.top) - anchorOffset;
+      if (diff !== 0) log.scrollTop += diff;
+    }
+  });
+}, { flush: "pre" });
 // Merge side reports at their start time, rather than pinning them after every later turn.
 // Keep durable entry order, including entries that do not contribute model messages.
 const timeline = computed((): { key: string; entry?: any; job?: any }[] => {
