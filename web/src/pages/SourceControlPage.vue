@@ -382,8 +382,9 @@ onUnmounted(() => {
         <button
           type="button"
           @click="refresh"
-          class="p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
+          class="p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
           title="Refresh"
+          aria-label="Refresh"
         >
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': refreshingItems }" />
         </button>
@@ -392,7 +393,7 @@ onUnmounted(() => {
       <button
         type="button"
         @click="backToChat"
-        class="ml-auto p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+        class="ml-auto p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
         title="Close"
         aria-label="Close Source Control"
       >
@@ -400,7 +401,7 @@ onUnmounted(() => {
       </button>
     </header>
 
-    <div role="tablist" aria-label="Source Control sections" @keydown="handleTablistKeydown" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border overflow-x-auto">
+    <div role="tablist" aria-label="Source Control sections" @keydown="handleTablistKeydown" class="flex shrink-0 gap-1 px-3 py-2 border-b border-border overflow-x-auto no-scrollbar">
       <button
         v-for="tab in SECTIONS"
         :id="`sc-tab-${tab.id}`"
@@ -409,7 +410,7 @@ onUnmounted(() => {
         role="tab"
         :aria-selected="section === tab.id"
         :tabindex="section === tab.id ? 0 : -1"
-        class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0"
+        class="px-3 py-1.5 rounded text-xs whitespace-nowrap shrink-0 max-[760px]:min-h-11"
         :class="section === tab.id ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="setSection(tab.id)"
       >{{ tab.label }}<span v-if="counts[tab.id as 'pr' | 'issue' | 'changes'] !== undefined" class="ml-1.5 text-muted-foreground tabular-nums">{{ counts[tab.id as 'pr' | 'issue' | 'changes'] }}</span></button>
@@ -471,13 +472,14 @@ onUnmounted(() => {
                   type="text"
                   placeholder="Search (Enter, / to focus)"
                   @keydown.enter="handleSearchSubmit"
-                  class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
+                  class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
                 />
               </div>
               <button type="button" class="shrink-0 px-2 py-1 text-xs rounded border border-border bg-muted hover:bg-accent" title="Create on GitHub" @click="newOpen = true">New</button>
               <select
                 v-model="stateFilter"
-                class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
+                aria-label="Filter by state"
+                class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
               >
                 <option value="open">Open</option>
                 <option value="closed">Closed</option>
@@ -487,12 +489,12 @@ onUnmounted(() => {
             <!-- Filters -->
             <div class="flex flex-wrap items-center gap-2 text-xs" role="group" aria-label="List filters">
               <button type="button" class="px-2 py-1 rounded border border-border" :class="mineOnly ? 'bg-secondary text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">Mine</button>
-              <input v-model="labelFilter" type="text" maxlength="50" placeholder="Label" aria-label="Filter by label" class="w-20 min-w-0 flex-1 bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary" @keydown.enter="loadList()" @blur="loadList()" />
+              <input v-model="labelFilter" type="text" maxlength="50" placeholder="Label" aria-label="Filter by label" class="w-20 min-w-0 flex-1 bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" @keydown.enter="loadList()" @blur="loadList()" />
               <template v-if="kind === 'pr'">
-                <select v-model="draftFilter" aria-label="Filter by draft" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary">
+                <select v-model="draftFilter" aria-label="Filter by draft" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary">
                   <option value="">Any draft</option><option value="false">Ready</option><option value="true">Draft</option>
                 </select>
-                <select v-model="reviewFilter" aria-label="Filter by review" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:border-primary">
+                <select v-model="reviewFilter" aria-label="Filter by review" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary">
                   <option value="">Any review</option><option value="approved">Approved</option><option value="changes_requested">Changes requested</option><option value="required">Review required</option>
                 </select>
               </template>

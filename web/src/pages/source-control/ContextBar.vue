@@ -28,7 +28,7 @@ const emit = defineEmits<{
   confirmCustom: [];
 }>();
 const known = computed(() => props.repos.some(r => r.repo === props.repo));
-const select = "bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary max-w-[200px]";
+const select = "bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary max-w-[200px]";
 </script>
 
 <template>
@@ -64,7 +64,7 @@ const select = "bg-muted border border-border rounded px-2 py-1 text-xs text-for
     </label>
     <span v-else-if="localRepo" class="flex items-center gap-1.5 text-muted-foreground" title="Origin of this checkout"><Github class="w-3.5 h-3.5" aria-hidden="true" />{{ localRepo }}</span>
     <form v-if="showRepo && showCustom" class="flex items-center gap-1" @submit.prevent="emit('confirmCustom')">
-      <input :value="customInput" type="text" placeholder="owner/repo" aria-label="Repository owner/name" class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground w-36 focus:outline-none focus:border-primary" @input="emit('update:customInput', ($event.target as HTMLInputElement).value)" />
+      <input :value="customInput" type="text" placeholder="owner/repo" aria-label="Repository owner/name" class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground w-36 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" @input="emit('update:customInput', ($event.target as HTMLInputElement).value)" />
       <button type="submit" class="px-2 py-1 text-xs bg-primary text-primary-foreground rounded">Go</button>
       <span v-if="customError" role="alert" class="text-destructive">{{ customError }}</span>
     </form>

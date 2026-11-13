@@ -150,12 +150,12 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
   <div class="flex flex-col flex-1 min-h-0 bg-background text-foreground overflow-hidden text-xs">
     <form class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0" @submit.prevent="compare()">
       <GitCompare class="w-3.5 h-3.5 text-primary shrink-0" aria-hidden="true" />
-      <input v-model="base" list="sc-branch-names" aria-label="Base revision" placeholder="base" class="bg-muted border border-border rounded px-2 py-1 w-36 focus:outline-none focus:border-primary" />
+      <input v-model="base" list="sc-branch-names" aria-label="Base revision" placeholder="base" class="bg-muted border border-border rounded px-2 py-1 w-36 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" />
       <span class="text-muted-foreground" aria-hidden="true">…</span>
-      <input v-model="head" list="sc-branch-names" aria-label="Compare revision" placeholder="compare" class="bg-muted border border-border rounded px-2 py-1 w-36 focus:outline-none focus:border-primary" />
+      <input v-model="head" list="sc-branch-names" aria-label="Compare revision" placeholder="compare" class="bg-muted border border-border rounded px-2 py-1 w-36 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" />
       <datalist id="sc-branch-names"><option v-for="n in names" :key="n" :value="n" /></datalist>
       <button type="submit" class="px-2.5 py-1 bg-primary text-primary-foreground rounded disabled:opacity-50" :disabled="comparing || !base.trim() || !head.trim()">Compare</button>
-      <button type="button" class="ml-auto p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground disabled:opacity-50" aria-label="Refresh branches" title="Refresh branches" :disabled="loading" @click="load">
+      <button type="button" class="ml-auto p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground disabled:opacity-50 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring" aria-label="Refresh branches" title="Refresh branches" :disabled="loading" @click="load">
         <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
       </button>
     </form>
@@ -168,7 +168,7 @@ const when = (iso: string) => iso ? ago(Date.parse(iso)) : "";
     <div v-if="shownCompare" class="flex-1 min-h-0 flex flex-col overflow-hidden">
       <div class="px-3 py-2 border-b border-border space-y-1 shrink-0 max-h-[40%] overflow-auto">
         <div class="flex items-center gap-2">
-          <button type="button" class="p-1 -ml-1 hover:bg-accent rounded" aria-label="Back to branches" @click="closeCompare"><ChevronLeft class="w-4 h-4" /></button>
+          <button type="button" class="p-1 -ml-1 hover:bg-accent rounded max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring" aria-label="Back to branches" @click="closeCompare"><ChevronLeft class="w-4 h-4" /></button>
           <span class="font-mono truncate">{{ shownCompare.base }} … {{ shownCompare.head }}</span>
         </div>
         <p v-if="comparing" class="text-muted-foreground">Comparing…</p>

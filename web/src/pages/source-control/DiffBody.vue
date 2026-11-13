@@ -43,7 +43,7 @@ function sign(kind: DiffLine["kind"]) { return kind === "add" ? "+" : kind === "
         <tbody v-if="!split">
           <tr v-for="(line, idx) in (rows as DiffLine[]).slice(0, limit)" :key="idx" class="vl-row" :class="tone(line.kind)">
             <template v-if="line.kind === 'hunk' || line.kind === 'meta'">
-              <td colspan="3" class="px-2 whitespace-pre" :class="line.kind === 'hunk' ? 'bg-sky-500/10 text-sky-400' : 'text-muted-foreground'">{{ line.text }}</td>
+              <td colspan="3" class="px-2 whitespace-pre" :class="line.kind === 'hunk' ? 'bg-secondary text-muted-foreground' : 'text-muted-foreground'">{{ line.text }}</td>
             </template>
             <template v-else>
               <td class="w-px px-1.5 text-right select-none text-muted-foreground/70 align-top">{{ line.old ?? '' }}</td>
@@ -55,7 +55,7 @@ function sign(kind: DiffLine["kind"]) { return kind === "add" ? "+" : kind === "
         <tbody v-else>
           <tr v-for="(row, idx) in (rows as ReturnType<typeof splitRows>).slice(0, limit)" :key="idx" class="vl-row">
             <template v-if="row.kind !== 'pair'">
-              <td colspan="4" class="px-2 whitespace-pre" :class="row.kind === 'hunk' ? 'bg-sky-500/10 text-sky-400' : 'text-muted-foreground'">{{ row.text }}</td>
+              <td colspan="4" class="px-2 whitespace-pre" :class="row.kind === 'hunk' ? 'bg-secondary text-muted-foreground' : 'text-muted-foreground'">{{ row.text }}</td>
             </template>
             <template v-else>
               <td class="w-px px-1.5 text-right select-none text-muted-foreground/70 align-top" :class="tone(row.left?.kind === 'ctx' ? undefined : row.left?.kind)">{{ row.left?.old ?? '' }}</td>

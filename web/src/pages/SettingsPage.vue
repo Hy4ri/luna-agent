@@ -416,6 +416,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .settings-heading h1 { font-size: 19.5px; }
   .settings-heading p { display: none; }
   .mobile-only { display: inline-flex; width: 44px; height: 44px; }
+  [data-settings-close] { min-width: 44px; min-height: 44px; }
   .back-button { padding-inline: 12px; }
   .settings-layout { flex-direction: column; }
   .settings-nav { flex: 1; width: 100%; padding: 16px; border: 0; overflow-y: auto; }

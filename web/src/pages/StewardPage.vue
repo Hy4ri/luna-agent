@@ -13,11 +13,11 @@
           <RefreshCw :size="14" :class="{ 'animate-spin': steward.scanning }" aria-hidden="true" />
           {{ steward.scanning ? 'Scanning…' : 'Scan now' }}
         </Button>
-        <button type="button" class="icon-button p-1.5 rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary" aria-label="Close steward" @click="navigate('chat')"><X :size="18" /></button>
+        <button type="button" class="icon-button p-1.5 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring" aria-label="Close steward" @click="navigate('chat')"><X :size="18" /></button>
       </div>
     </header>
 
-    <div class="shrink-0 flex flex-wrap gap-2 px-6 py-2 max-[760px]:px-3 border-b border-border/60" role="group" aria-label="Filter suggestions">
+    <div class="shrink-0 flex flex-wrap max-[760px]:flex-nowrap max-[760px]:overflow-x-auto max-[760px]:no-scrollbar gap-2 px-6 py-2 max-[760px]:px-3 border-b border-border/60" role="group" aria-label="Filter suggestions">
       <button v-for="f in statusChips" :key="f.id" type="button" class="chip" :class="{ on: status === f.id }" :aria-pressed="status === f.id" @click="status = f.id">{{ f.label }} <span class="tabular-nums opacity-70">{{ f.count }}</span></button>
       <span class="w-px bg-border mx-1" aria-hidden="true" />
       <button v-for="k in kindChips" :key="k.id" type="button" class="chip" :class="{ on: kind === k.id }" :aria-pressed="kind === k.id" @click="kind = kind === k.id ? '' : k.id">{{ k.label }} <span class="tabular-nums opacity-70">{{ k.count }}</span></button>
@@ -43,12 +43,19 @@
 
     <main class="flex-1 min-h-0 overflow-y-auto px-6 py-4 max-[760px]:px-3">
       <div v-if="steward.error" class="mb-3 flex items-center gap-3 rounded-[var(--radius)] border border-destructive/40 px-3 py-2 text-sm" role="alert">
-        <span class="flex-1 min-w-0">{{ steward.error }}</span>
+        <PauseCircle v-if="steward.error.toLowerCase().includes('disabled')" :size="18" class="shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span class="flex-1 min-w-0">
+          {{ steward.error.toLowerCase().includes('disabled') ? 'Steward is disabled — enable it in Settings → Automation to receive session suggestions.' : steward.error }}
+        </span>
         <Button type="button" variant="outline" size="sm" @click="loadSteward()">Retry</Button>
       </div>
       <p v-if="steward.notice && !steward.error" class="mb-3 text-sm text-muted-foreground" role="status">{{ steward.notice }}</p>
       <p v-if="steward.loading && !steward.loaded" class="text-sm text-muted-foreground">Loading…</p>
-      <p v-else-if="!shown.length && !steward.error" class="text-sm text-muted-foreground">Nothing to suggest.</p>
+      <div v-else-if="!shown.length && !steward.error" class="flex flex-col items-center justify-center gap-1.5 py-12 text-center">
+        <Sparkles :size="20" class="text-muted-foreground/60" aria-hidden="true" />
+        <p class="m-0 text-sm font-medium text-muted-foreground">Nothing to suggest.</p>
+        <p class="m-0 text-xs text-muted-foreground/80">Run Scan now to check recent sessions for patterns.</p>
+      </div>
       <ul class="grid gap-3 list-none p-0 m-0 max-w-3xl">
         <li v-for="c in shown" :key="c.id" class="rounded-[var(--radius)] border border-border bg-card p-4">
           <div class="flex items-start gap-3">
@@ -57,12 +64,12 @@
               <h2 class="m-0 text-sm font-semibold break-words">{{ c.title }}</h2>
               <p class="mt-1 mb-0 text-sm text-muted-foreground break-words">{{ c.body }}</p>
               <ul v-if="c.evidence.length" class="mt-2 mb-0 p-0 list-none flex flex-wrap gap-2">
-                <li v-for="e in c.evidence" :key="e.sessionId + e.note"><button type="button" class="text-xs underline text-primary-text" @click="openSession(e.sessionId)">Session {{ e.sessionId }}: {{ e.note }}</button></li>
+                <li v-for="e in c.evidence" :key="e.sessionId + e.note"><button type="button" class="inline-flex items-center min-h-6 px-2 py-0.5 rounded-[var(--radius)] border border-border bg-secondary/60 hover:bg-accent max-[760px]:min-h-11 max-[760px]:px-3 text-xs text-primary-text focus-visible:outline-2 focus-visible:outline-ring" @click="openSession(e.sessionId)">Session {{ e.sessionId }}: {{ e.note }}</button></li>
               </ul>
               <fieldset v-if="items(c).length && (c.status === 'open' || c.status === 'snoozed')" class="mt-2 mb-0 p-0 border-0 grid gap-1 max-h-56 overflow-y-auto">
                 <legend class="sr-only">Sessions to include</legend>
-                <label v-for="it in items(c)" :key="it.id" class="flex items-center gap-2 text-sm min-w-0">
-                  <input type="checkbox" :checked="isPicked(c, it.id)" @change="pick(c, it.id)" />
+                <label v-for="it in items(c)" :key="it.id" class="flex items-center gap-2 min-h-6 max-[760px]:min-h-11 text-sm min-w-0 cursor-pointer">
+                  <input type="checkbox" class="w-4 h-4 shrink-0 accent-[var(--primary)]" :checked="isPicked(c, it.id)" @change="pick(c, it.id)" />
                   <span class="truncate">{{ it.title }}</span>
                 </label>
               </fieldset>
@@ -104,7 +111,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { AlarmClock, Gauge, KanbanSquare, Target, Archive, BellOff, SlidersHorizontal, Clock, FolderPlus, FolderInput, Lightbulb, Menu, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen, MessageSquare, GitBranch, Terminal, Wrench, Repeat } from "@lucide/vue";
+import { AlarmClock, Gauge, KanbanSquare, Target, Archive, BellOff, SlidersHorizontal, Clock, FolderPlus, FolderInput, Lightbulb, Menu, PauseCircle, RefreshCw, Sparkles, Trash2, Undo2, X, BookOpen, MessageSquare, GitBranch, Terminal, Wrench, Repeat } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { confirmAction, promptText } from "@/lib/confirm";
@@ -158,7 +165,11 @@ onMounted(loadSteward);
 </script>
 
 <style scoped>
-.chip { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.25rem 0.625rem; font-size: 0.75rem; color: var(--muted-foreground); background: transparent; }
+.chip { display: inline-flex; align-items: center; gap: 0.375rem; border: 1px solid var(--input); border-radius: var(--radius); padding: 0.25rem 0.625rem; font-size: 0.75rem; color: var(--muted-foreground); background: transparent; }
 .chip:hover { color: var(--foreground); background: var(--secondary); }
+.chip:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .chip.on { color: var(--foreground); background: var(--secondary); border-color: var(--primary); }
+@media (max-width: 760px) {
+  .chip { min-height: 44px; display: inline-flex; align-items: center; white-space: nowrap; }
+}
 </style>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
+import { BarChart3 } from "@lucide/vue"
 import { compact, durationFormat, usd } from "./formatters"
 
 export interface TrendPoint {
@@ -273,9 +274,11 @@ const unitCaption = computed(() => {
 
     <div
       v-if="bucketed.buckets.length === 0"
-      class="mt-3 flex h-[160px] items-center justify-center text-xs text-muted-foreground"
+      class="mt-3 flex h-[160px] flex-col items-center justify-center gap-1.5 text-center"
     >
-      No activity in this range.
+      <BarChart3 :size="20" class="text-muted-foreground/60" aria-hidden="true" />
+      <p class="m-0 text-xs font-medium text-muted-foreground">No activity in this range.</p>
+      <p class="m-0 text-[11px] text-muted-foreground/80">Try expanding the time range or clearing active filters.</p>
     </div>
 
     <div v-else class="mt-3 flex gap-2">
@@ -324,7 +327,7 @@ const unitCaption = computed(() => {
               :ref="(el) => { buttonRefs[idx] = el as HTMLButtonElement | null }"
               type="button"
               :tabindex="idx === tabStop ? 0 : -1"
-              class="h-full flex-1 bg-transparent cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-[-2px]"
+              class="h-full flex-1 min-w-[4px] bg-transparent cursor-pointer focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1"
               :aria-label="`${b.label}: ${formatValue(b.value)}`"
               @mouseenter="activeIndex = idx"
               @mouseleave="activeIndex = null"

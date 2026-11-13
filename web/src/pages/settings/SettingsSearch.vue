@@ -31,7 +31,7 @@ function keydown(event: KeyboardEvent) {
 .settings-search { position: relative; padding: 12px 32px; border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 2; }
 .search-label { display: flex; align-items: center; gap: 10px; max-width: 720px; margin-inline: auto; color: var(--muted-foreground); }
 input { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--input); border-radius: var(--radius); color: var(--foreground); background: var(--background); font-size: 16px; }
-.search-results { position: absolute; top: calc(100% - 8px); left: 16px; right: 16px; max-width: 760px; margin: auto; max-height: min(50dvh, 480px); overflow-y: auto; border: 1px solid var(--border); background: var(--background); box-shadow: 0 12px 30px #0006; }
+.search-results { position: absolute; top: calc(100% - 8px); left: 16px; right: 16px; max-width: 760px; margin: auto; max-height: min(50dvh, 480px); overflow-y: auto; border: 1px solid var(--border); background: var(--background); box-shadow: 0 12px 30px rgb(0 0 0 / 0.4); }
 .search-result { display: flex; flex-direction: column; gap: 3px; width: 100%; min-height: 64px; padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); cursor: pointer; }
 .search-result[aria-selected=true] { background: var(--accent); }
 .search-result strong { font-size: 14px; font-weight: 600; }

@@ -50,7 +50,7 @@
           type="button"
           variant="outline"
           size="icon"
-          class="h-8 w-8"
+          class="h-8 w-8 max-[760px]:min-h-11 max-[760px]:min-w-11"
           :disabled="loading"
           aria-label="Refresh now"
           title="Refresh now"
@@ -60,7 +60,7 @@
         </Button>
         <button
           type="button"
-          class="icon-button h-8 w-8 inline-flex items-center justify-center rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary"
+          class="icon-button h-8 w-8 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center rounded-[var(--radius)] text-muted-foreground hover:text-foreground hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
           aria-label="Close analytics"
           title="Close analytics"
           @click="navigate('chat')"
@@ -75,14 +75,14 @@
       <!-- Desktop tabs -->
       <nav
         aria-label="Analytics sections"
-        class="max-[760px]:hidden flex items-end gap-0.5 px-6 overflow-x-auto overflow-y-hidden no-scrollbar border-b border-border/60"
+        class="max-[760px]:hidden flex items-end gap-0.5 px-6 overflow-x-auto overflow-y-hidden no-scrollbar scroll-smooth border-b border-border/60"
       >
         <button
           v-for="tab in ANALYTICS_TABS"
           :key="tab"
           type="button"
-          class="h-9 px-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ring)]"
-          :class="activeTab === tab ? 'border-[var(--primary-text)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+          class="h-9 px-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+          :class="activeTab === tab ? 'border-[var(--primary-text)] text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'"
           :aria-current="activeTab === tab ? 'page' : undefined"
           :title="TAB_META[tab].question"
           @click="selectTab(tab)"
@@ -111,7 +111,7 @@
         <select
           :value="rangePreset"
           aria-label="Time range"
-          class="h-8 px-2 bg-secondary border rounded-[var(--radius)] text-foreground"
+          class="h-8 max-[760px]:min-h-11 px-2 bg-secondary border rounded-[var(--radius)] text-foreground"
           :class="rangePreset === 'all' ? 'border-border' : 'border-[var(--primary-text)]/60'"
           @change="onPresetChange(($event.target as HTMLSelectElement).value as RangePreset)"
         >
@@ -143,7 +143,7 @@
 
         <button
           type="button"
-          class="hidden max-[760px]:inline-flex h-8 px-2.5 items-center gap-1.5 border rounded-[var(--radius)] bg-secondary text-foreground"
+          class="hidden max-[760px]:inline-flex h-8 max-[760px]:min-h-11 px-2.5 items-center gap-1.5 border rounded-[var(--radius)] bg-secondary text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
           :class="extraFilterCount ? 'border-[var(--primary-text)]/60' : 'border-border'"
           :aria-expanded="mobileFiltersOpen ? 'true' : 'false'"
           aria-controls="analytics-more-filters"
@@ -162,14 +162,14 @@
             :aria-label="`Search ${meta.tableTitle.toLowerCase()}`"
             :title="`Search ${meta.tableTitle.toLowerCase()}`"
             placeholder="Search…"
-            class="h-8 pl-7 pr-7 w-52 max-[760px]:w-full bg-secondary border border-border rounded-[var(--radius)] text-foreground placeholder:text-muted-foreground"
+            class="h-8 max-[760px]:min-h-11 pl-7 pr-7 w-52 max-[760px]:w-full bg-secondary border border-border rounded-[var(--radius)] text-foreground placeholder:text-muted-foreground"
             @keydown.enter="applySearch"
             @keydown.esc="clearSearch"
           />
           <button
             v-if="searchDraft"
             type="button"
-            class="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 inline-flex items-center justify-center text-muted-foreground hover:text-foreground"
+            class="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
             aria-label="Clear search"
             @click="clearSearch"
           >
@@ -192,7 +192,7 @@
           :value="filters.source || ''"
           aria-label="Who called the tool"
           title="Direct: the model called the tool. Codemode: a codemode script called it."
-          class="h-8 px-2 bg-secondary border rounded-[var(--radius)] text-foreground"
+          class="h-8 max-[760px]:min-h-11 px-2 bg-secondary border rounded-[var(--radius)] text-foreground"
           :class="filters.source ? 'border-[var(--primary-text)]/60' : 'border-border'"
           @change="onSourceChange(($event.target as HTMLSelectElement).value)"
         >
@@ -205,7 +205,7 @@
           <PopoverTrigger as-child>
             <button
               type="button"
-              class="h-8 px-2.5 inline-flex items-center gap-1.5 border rounded-[var(--radius)] bg-secondary text-foreground hover:bg-accent"
+              class="h-8 max-[760px]:min-h-11 px-2.5 inline-flex items-center gap-1.5 border rounded-[var(--radius)] bg-secondary text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
               :class="(!filters.includeDeleted || filters.compare) ? 'border-[var(--primary-text)]/60' : 'border-border'"
             >
               <SlidersHorizontal :size="13" aria-hidden="true" />
@@ -261,21 +261,21 @@
           <span class="truncate" :title="chip.label">{{ chip.label }}</span>
           <button
             type="button"
-            class="h-6 w-6 shrink-0 inline-flex items-center justify-center text-muted-foreground hover:text-foreground"
+            class="h-6 w-6 max-[760px]:min-h-11 max-[760px]:min-w-11 shrink-0 inline-flex items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
             :aria-label="`Remove filter ${chip.label}`"
             @click="chip.remove()"
           >
             <X :size="12" />
           </button>
         </span>
-        <button type="button" class="h-7 px-2 text-muted-foreground hover:text-foreground underline underline-offset-2" @click="resetFilters">
+        <button type="button" class="h-7 max-[760px]:min-h-11 px-2 text-muted-foreground hover:text-foreground underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" @click="resetFilters">
           Clear all
         </button>
       </div>
     </div>
 
     <!-- Body -->
-    <main ref="body" class="flex-1 min-h-0 overflow-y-auto px-6 py-5 max-[760px]:px-3 max-[760px]:py-3 space-y-5">
+    <main ref="body" class="flex-1 min-h-0 overflow-y-auto px-6 py-5 pb-8 max-[760px]:px-3 max-[760px]:py-3 max-[760px]:pb-8 space-y-5">
       <div
         v-if="error"
         role="alert"
@@ -314,7 +314,7 @@
                 <PopoverTrigger as-child>
                   <button
                     type="button"
-                    class="h-5 w-5 shrink-0 inline-flex items-center justify-center rounded-full hover:text-foreground"
+                    class="min-h-6 min-w-6 h-6 w-6 max-[760px]:min-h-11 max-[760px]:min-w-11 shrink-0 inline-flex items-center justify-center rounded-full hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
                     :aria-label="`What is ${k.label}?`"
                   >
                     <Info :size="12" aria-hidden="true" />
@@ -360,7 +360,7 @@
             <button
               v-if="activeTab === 'overview'"
               type="button"
-              class="text-xs text-[var(--primary-text)] hover:underline"
+              class="text-xs text-[var(--primary-text)] hover:underline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
               @click="selectTab('sessions')"
             >
               All sessions
