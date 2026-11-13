@@ -24,7 +24,7 @@
           <template v-if="loading">Updating…</template>
           <template v-else-if="queryResult">
             <span :title="new Date(queryResult.generatedAt).toLocaleString()">Updated {{ ago(queryResult.generatedAt) }}</span>
-            <span class="max-[760px]:hidden"> · updates live while open</span>
+            <span class="max-[760px]:hidden"> · press refresh for new data</span>
           </template>
           <template v-else>Usage, cost, and reliability of your sessions</template>
         </p>
@@ -438,8 +438,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { api } from "@/lib/api";
-import { watchFeed, type Feed } from "@/lib/sync";
 import { navigate, setDrawer } from "@/stores/app";
 import { openSession } from "@/stores/chat";
 import type { AnalyticsRow, AnalyticsTab, AnalyticsValue } from "../../../src/analytics/types";
@@ -455,9 +453,9 @@ import {
 } from "./analytics/meta";
 import { ANALYTICS_TABS, buildAnalyticsHash, defaultAnalyticsFilters, parseAnalyticsHash } from "./analytics/url-state";
 import {
-  activeTab, cancelScheduledAnalyticsRefresh, clearAnalyticsDetail, detailError, detailLoading, detailResult, error,
+  activeTab, clearAnalyticsDetail, detailError, detailLoading, detailResult, error,
   exportAnalytics, exporting, fetchAnalyticsDetail, fetchAnalyticsFilterOptions, fetchAnalyticsQuery, filterOptions,
-  filters, loading, openTarget, queryResult, scheduleAnalyticsRefresh,
+  filters, loading, openTarget, queryResult,
 } from "@/stores/analytics";
 
 const rangePreset = ref<RangePreset>("all");
@@ -468,7 +466,6 @@ const body = ref<HTMLElement | null>(null);
 const now = ref(Date.now());
 let clock: ReturnType<typeof setInterval> | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
-let feed: Feed | null = null;
 let syncingFromHash = false;
 
 const meta = computed(() => TAB_META[activeTab.value]);
@@ -792,23 +789,14 @@ onMounted(() => {
   window.addEventListener("hashchange", applyHashState);
   window.addEventListener("popstate", applyHashState);
   clock = setInterval(() => { now.value = Date.now(); }, 15_000);
-  feed = watchFeed({
-    path: "/v1/events",
-    api,
-    onEvent(type: string) {
-      if (type === "analytics_changed" && document.visibilityState === "visible") scheduleAnalyticsRefresh();
-    },
-  });
+  // No live refresh: numbers must not move while someone reads them. Refresh is manual.
 });
 
 onUnmounted(() => {
   window.removeEventListener("hashchange", applyHashState);
   window.removeEventListener("popstate", applyHashState);
-  cancelScheduledAnalyticsRefresh();
   if (clock) clearInterval(clock);
   if (searchTimer) clearTimeout(searchTimer);
-  feed?.stop();
-  feed = null;
 });
 
 watch(() => queryResult.value, () => { now.value = Date.now(); });

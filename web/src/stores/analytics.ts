@@ -38,7 +38,6 @@ let generation = 0;
 let queryAbort: AbortController | null = null;
 let optionsAbort: AbortController | null = null;
 let detailAbort: AbortController | null = null;
-let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -54,10 +53,6 @@ watch(
     queryAbort = null;
     optionsAbort = null;
     detailAbort = null;
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
     queryResult.value = null;
     filterOptions.value = null;
     detailResult.value = null;
@@ -186,22 +181,3 @@ export async function exportAnalytics(format: "csv" | "json"): Promise<void> {
   }
 }
 
-export function scheduleAnalyticsRefresh(delayMs = 400): void {
-  if (refreshTimer) clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => {
-    refreshTimer = null;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    void fetchAnalyticsQuery();
-    void fetchAnalyticsFilterOptions();
-    if (openTarget.value) {
-      void fetchAnalyticsDetail(activeTab.value, openTarget.value.kind, openTarget.value.id);
-    }
-  }, delayMs);
-}
-
-export function cancelScheduledAnalyticsRefresh(): void {
-  if (refreshTimer) {
-    clearTimeout(refreshTimer);
-    refreshTimer = null;
-  }
-}
