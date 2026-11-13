@@ -56,7 +56,7 @@ function mobileAction(action: () => unknown) {
 // Floating session widgets: float goal, activity, and dirty git in the right gutter when wide enough,
 // and keep the 760px chat column centered in the viewport (compensating for the left sidebar when room allows).
 // Two gutter thresholds prevent flicker near the boundary.
-const RAIL_GUTTER_AT = 316, RAIL_GUTTER_BELOW = 300;
+const RAIL_GUTTER_AT = 344, RAIL_GUTTER_BELOW = 328;
 const mainRef = ref<HTMLElement | null>(null);
 const railRoom = ref(false);
 const gutterShift = ref(0);
@@ -582,12 +582,10 @@ onUnmounted(() => {
                   <ChevronDown class="rail-pill-caret" :size="13" aria-hidden="true" />
                 </button>
                 <template v-else>
-                  <div class="rail-bar">
+                  <button type="button" class="rail-bar" aria-expanded="true" aria-label="Minimize session widgets" title="Minimize" @click="railMinimized = true">
                     <span>Session</span>
-                    <button type="button" class="icon-button rail-toggle" aria-expanded="true" aria-label="Minimize session widgets" title="Minimize" @click="railMinimized = true">
-                      <ChevronUp :size="13" />
-                    </button>
-                  </div>
+                    <span class="rail-toggle" aria-hidden="true"><ChevronUp :size="13" /></span>
+                  </button>
                   <div class="rail-scroll">
                     <GitStatus v-if="chat.session" docked />
                     <Extras docked />
@@ -691,7 +689,7 @@ onUnmounted(() => {
   top: 12px;
   right: 36px;
   z-index: 4;
-  width: 252px;
+  width: 280px;
   bottom: 12px;
   display: flex;
   flex-direction: column;
@@ -703,7 +701,7 @@ onUnmounted(() => {
 }
 #session-rail.collapsed {
   width: auto;
-  max-width: 252px;
+  max-width: 280px;
   bottom: auto;
   border: 0;
   background: transparent;
@@ -712,6 +710,11 @@ onUnmounted(() => {
 }
 .rail-bar {
   flex: none;
+  width: 100%;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -734,7 +737,10 @@ onUnmounted(() => {
   gap: 10px;
   scrollbar-width: thin;
 }
-.rail-toggle { width: 24px; height: 24px; color: var(--muted-foreground); }
+.rail-toggle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--muted-foreground); }
+.rail-bar:hover { color: var(--muted-foreground); background: var(--accent); }
+.rail-bar:hover .rail-toggle { color: var(--foreground); }
+.rail-bar:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .rail-pill {
   display: inline-flex;
   flex-wrap: wrap;
