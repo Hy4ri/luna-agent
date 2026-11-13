@@ -3,9 +3,10 @@
 // after that, recovery re-submits with the deterministic requestId, which dedupes.
 import { Database } from "bun:sqlite";
 import { context } from "./luna.js";
+import { HIDDEN_SESSION } from "./session-row-head.js";
 import { nextRun, parseCron } from "./cron-expr.js";
 import type { StoredThinkingLevel } from "./thinking.js";
-import type { Conversation, ConversationId, EntryId, Extension, Harness, Submission, SubmissionId } from "@earendil-works/pi-durable";
+import type { Conversation, ConversationId, EntryId, Extension, Harness, Submission, SubmissionId, Tx } from "@earendil-works/pi-durable";
 
 export interface ModelRef { provider: string; modelId: string }
 export interface ScriptExecution { command: string[]; cwd?: string }
@@ -29,6 +30,7 @@ type JobDbRow = {
   grace_ms?: number | null;
   timeout_ms?: number | null;
   retries?: number;
+  hidden?: number;
 };
 type RunDbRow = {
   id: number;
@@ -69,10 +71,12 @@ export interface Job {
   timeoutMs: number | null;
   /** Extra attempts after a failed run (not after stop or timeout). 0: none. */
   retries: number;
+  /** Run conversations stay out of the session list; the result is visible in Cron only. */
+  hidden: boolean;
 }
 
 /** Optional per-job policy. */
-export interface JobOptions { graceMs?: number | null; timeoutMs?: number | null; retries?: number }
+export interface JobOptions { graceMs?: number | null; timeoutMs?: number | null; retries?: number; hidden?: boolean }
 
 export const MAX_RETRIES = 5;
 
@@ -80,6 +84,7 @@ function checkOptions(o: JobOptions) {
   const pos = (v: unknown, n: string) => { if (v !== undefined && v !== null && !(Number.isSafeInteger(v) && (v as number) > 0)) throw new Error(`${n} must be a positive integer or null`); };
   pos(o.graceMs, "graceMs"); pos(o.timeoutMs, "timeoutMs");
   if (o.retries !== undefined && !(Number.isSafeInteger(o.retries) && o.retries >= 0 && o.retries <= MAX_RETRIES)) throw new Error(`retries must be an integer from 0 to ${MAX_RETRIES}`);
+  if (o.hidden !== undefined && typeof o.hidden !== "boolean") throw new Error("hidden must be boolean");
 }
 
 export interface Run {
@@ -209,6 +214,7 @@ export class CronStore {
       if (!jobColumns.has("grace_ms")) this.db.exec("ALTER TABLE jobs ADD COLUMN grace_ms INTEGER");
       if (!jobColumns.has("timeout_ms")) this.db.exec("ALTER TABLE jobs ADD COLUMN timeout_ms INTEGER");
       if (!jobColumns.has("retries")) this.db.exec("ALTER TABLE jobs ADD COLUMN retries INTEGER NOT NULL DEFAULT 0");
+      if (!jobColumns.has("hidden")) this.db.exec("ALTER TABLE jobs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
 
       this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_active_name ON jobs(name) WHERE deleted_at IS NULL;");
 
@@ -260,7 +266,8 @@ export class CronStore {
       deletedAt: r.deleted_at ?? null,
       graceMs: r.grace_ms ?? null,
       timeoutMs: r.timeout_ms ?? null,
-      retries: r.retries ?? 0
+      retries: r.retries ?? 0,
+      hidden: !!r.hidden
     };
   }
 
@@ -294,8 +301,8 @@ export class CronStore {
     parseCron(expr); // validate
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const info = this.db.prepare(
-      "INSERT INTO jobs(name,expr,prompt,next_run,model,created_at,report_policy,timezone,grace_ms,timeout_ms,retries) VALUES(?,?,?,?,?,?,?,?,?,?,?)"
-    ).run(name, expr, prompt, nextRun(expr, now), model ? JSON.stringify(model) : null, now, reportPolicy, tz, options.graceMs ?? null, options.timeoutMs ?? null, options.retries ?? 0);
+      "INSERT INTO jobs(name,expr,prompt,next_run,model,created_at,report_policy,timezone,grace_ms,timeout_ms,retries,hidden) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"
+    ).run(name, expr, prompt, nextRun(expr, now), model ? JSON.stringify(model) : null, now, reportPolicy, tz, options.graceMs ?? null, options.timeoutMs ?? null, options.retries ?? 0, options.hidden ? 1 : 0);
     return this.getJob(Number(info.lastInsertRowid))!;
   }
 
@@ -352,9 +359,10 @@ export class CronStore {
     }
 
     this.db.prepare(
-      "UPDATE jobs SET name=?, expr=?, prompt=?, enabled=?, next_run=?, report_policy=?, grace_ms=?, timeout_ms=?, retries=? WHERE id=?"
+      "UPDATE jobs SET name=?, expr=?, prompt=?, enabled=?, next_run=?, report_policy=?, grace_ms=?, timeout_ms=?, retries=?, hidden=? WHERE id=?"
     ).run(newName, newExpr, newPrompt, newEnabled ? 1 : 0, newNextRun, newPolicy,
-      patch.graceMs !== undefined ? patch.graceMs : j.graceMs, patch.timeoutMs !== undefined ? patch.timeoutMs : j.timeoutMs, patch.retries ?? j.retries, id);
+      patch.graceMs !== undefined ? patch.graceMs : j.graceMs, patch.timeoutMs !== undefined ? patch.timeoutMs : j.timeoutMs, patch.retries ?? j.retries,
+      (patch.hidden ?? j.hidden) ? 1 : 0, id);
 
     return this.getJob(id)!;
   }
@@ -962,7 +970,9 @@ export class Scheduler {
     this.guard(a);
     const d = this.o.defaultModel;
     const model = job.model ?? (typeof d === "function" ? d() : d);
-    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.thinkingLevel ? { thinkingLevel: this.o.thinkingLevel(model) } : {}), ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) } }, context);
+    const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model, ...(this.o.thinkingLevel ? { thinkingLevel: this.o.thinkingLevel(model) } : {}), ...(this.o.exclude.length ? { extensions: { remove: this.o.exclude } } : {}) },
+      // Hidden jobs mark the conversation at creation, so the session list never shows it, also after the run row is pruned.
+      ...(job.hidden ? { init: async (tx: Tx, id: ConversationId) => { await tx.appendEntry(id, { kind: HIDDEN_SESSION, data: { cronJob: job.id, run: run.id } }); } } : {}) }, context);
     store.attachConversation(run.id, String(conv.id));
     this.guard(a);
     const sub = await conv.submit({ type: "input", content: job.prompt, requestId: this.requestId(run, n) }, context);

@@ -10,7 +10,13 @@ import { textOf } from "./routes/context.js";
 const HEAD = 30;
 const USER_KINDS = new Set(["pi.user", "luna.scheduled-message"]);
 
-export type RowHead = { firstUser: string; delegateChild: boolean; lastActivity: number | null };
+/** Entry kind that keeps a top-level conversation out of the session list, e.g. runs of a hidden cron job. */
+export const HIDDEN_SESSION = "luna.hidden-session";
+
+/** True for head entries that keep a row out of the session list: subagent markers and the hidden-session marker. */
+export const hidesRow = (kind: string | null | undefined) => kind === "delegate.child" || kind === HIDDEN_SESSION;
+
+export type RowHead = { firstUser: string; hidden: boolean; lastActivity: number | null };
 
 export function readRowHead(db: Database, conversationId: number, parentAt?: number): RowHead {
   const index = db.query<{ id: number; kind: string | null }, [number]>(
@@ -31,8 +37,8 @@ export function readRowHead(db: Database, conversationId: number, parentAt?: num
   const first = head.find(row => row.kind !== null && USER_KINDS.has(row.kind));
   const firstUser = first ? textOf({ model: readModel(first.id) }).replace(/\s+/g, " ").slice(0, 60) : "";
   const own = parentAt === undefined ? head : all.filter(row => row.id > parentAt).slice(0, HEAD);
-  const delegateChild = own.some(row => row.kind === "delegate.child");
-  return { firstUser, delegateChild, lastActivity: delegateChild ? null : newest(all, readModel) };
+  const hidden = own.some(row => hidesRow(row.kind));
+  return { firstUser, hidden, lastActivity: hidden ? null : newest(all, readModel) };
 }
 
 /** Same result as newestMessageTime: the newest user or assistant message timestamp. */

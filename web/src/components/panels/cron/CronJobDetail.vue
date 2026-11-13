@@ -48,6 +48,7 @@ const emit = defineEmits<{
       <span>Next run: {{ date(detailJob.nextRun) }}</span>
       <span>Last result: {{ detailJob.lastRun ? statusLabel(detailJob.lastRun) : "No runs yet" }}</span>
       <span>Reporting: {{ policies[detailJob.reportPolicy] }}</span>
+      <span v-if="detailJob.hidden">Sessions: hidden</span>
     </div>
   </header>
   <div class="cron-job-body">

@@ -7,7 +7,7 @@ import { ExecTarget } from "../workers.js";
 import { context } from "../luna.js";
 import type { Database } from "bun:sqlite";
 import { conversationStorage } from "../conversation-storage.js";
-import { readRowHead, type RowHead } from "../session-row-head.js";
+import { hidesRow, readRowHead, type RowHead } from "../session-row-head.js";
 import { type RouteCtx, textOf } from "./context.js";
 
 export type SessionRow = SessionState & {
@@ -120,15 +120,15 @@ export function createSessionRows(ctx: RouteCtx) {
           )
         ).items
       : head;
-    const delegateChild = ownHead.some((e) => e.kind === "delegate.child");
-    return { firstUser, delegateChild, lastActivity: delegateChild ? null : await newestMessageTime(tx, r.id) };
+    const hidden = ownHead.some((e) => hidesRow(e.kind));
+    return { firstUser, hidden, lastActivity: hidden ? null : await newestMessageTime(tx, r.id) };
   };
 
   const buildRow = async (tx: Tx, r: Pick<ConversationRecord, "id" | "parent">): Promise<SessionRow> => {
-    const { firstUser, delegateChild, lastActivity } = db
+    const { firstUser, hidden, lastActivity } = db
       ? readRowHead(db, Number(r.id), r.parent ? Number(r.parent.at) : undefined)
       : await scanHead(tx, r);
-    if (delegateChild)
+    if (hidden)
       return {
         hidden: true,
         parent: null,

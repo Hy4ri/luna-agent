@@ -40,6 +40,7 @@ function jobDetail(store: CronStore, j: Job, active: number[]) {
     `type: ${j.execution ? `script ${JSON.stringify(j.execution.command)}${j.execution.cwd ? ` in ${j.execution.cwd}` : ""}` : "agent"}`,
     `model: ${j.model ? `${j.model.provider}/${j.model.modelId}` : "default"}; report policy: ${j.reportPolicy}`,
     `grace: ${j.graceMs ? `${j.graceMs / 1000}s` : "none (late slots run)"}; timeout: ${j.timeoutMs ? `${j.timeoutMs / 1000}s` : "default"}; retries: ${j.retries}`,
+    `run sessions: ${j.hidden ? "hidden (results in Cron only)" : "shown in the session list"}`,
     `active run: ${running.length ? running.map((r) => `#${r.id} since ${when(r.startedAt)}${active.includes(r.id) ? "" : " (no live executor)"}`).join(", ") : "none"}`,
     `last run: ${last ? `#${last.id} ${last.status} at ${when(last.startedAt)}` : "none"}`,
     `prompt (${j.prompt.length} chars):`,
@@ -59,12 +60,12 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
   type Args = {
     action: Action;
     id?: number; runId?: number; name?: string; expr?: string; prompt?: string; enabled?: boolean;
-    reportPolicy?: ReportPolicy; graceMs?: number | null; timeoutMs?: number | null; retries?: number;
+    reportPolicy?: ReportPolicy; graceMs?: number | null; timeoutMs?: number | null; retries?: number; hidden?: boolean;
     status?: "running" | "ok" | "error" | "skipped"; limit?: number; offset?: number;
   };
   const JOB_ACTIONS = new Set<Action>(["create", "list", "get", "update", "remove", "run", "stop"]);
   const actions: Record<Action, (a: Args) => Promise<ReturnType<typeof text>> | ReturnType<typeof text>> = {
-    create({ name, expr, prompt }) {
+    create({ name, expr, prompt, hidden }) {
       if (!name || !expr || prompt === undefined) return text("create needs name, expr and prompt", true);
       try { parseCron(expr); } catch (e) { return text(`invalid cron expression: ${(e as Error).message}`, true); }
       // Re-running after a crash with the same name reports the existing job instead of creating a second one.
@@ -73,20 +74,21 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
         const same = existing.expr === expr && existing.prompt === prompt;
         return text(same ? `job ${existing.id} "${name}" already exists; next run ${when(existing.nextRun)}` : `a job named "${name}" already exists (id ${existing.id}); remove it first or pick another name`, !same);
       }
-      const job = store.addJob(name, expr, prompt);
+      let job: Job;
+      try { job = store.addJob(name, expr, prompt, undefined, Date.now(), "always", { hidden }); } catch (e) { return text((e as Error).message, true); }
       changed();
-      return text(`created job ${job.id} "${name}"; next run ${when(job.nextRun)}`);
+      return text(`created job ${job.id} "${name}"${job.hidden ? " (hidden runs)" : ""}; next run ${when(job.nextRun)}`);
     },
     list() {
       const jobs = store.listJobs();
-      return text(jobs.length ? jobs.map((j) => `${j.id} ${j.name} [${j.expr}] ${j.enabled ? "on" : "off"} next=${when(j.nextRun)}\n   ${preview(j.prompt, 160, `cron get id=${j.id} for the full prompt`)}`).join("\n") : "no jobs");
+      return text(jobs.length ? jobs.map((j) => `${j.id} ${j.name} [${j.expr}] ${j.enabled ? "on" : "off"}${j.hidden ? " hidden" : ""} next=${when(j.nextRun)}\n   ${preview(j.prompt, 160, `cron get id=${j.id} for the full prompt`)}`).join("\n") : "no jobs");
     },
     get({ id }) {
       if (id === undefined) return text("get needs id", true);
       const j = store.getJob(id);
       return j ? text(jobDetail(store, j, scheduler()?.activeRuns() ?? [])) : text(`no job ${id}`, true);
     },
-    update({ id, name, expr, prompt, enabled, reportPolicy, graceMs, timeoutMs, retries }) {
+    update({ id, name, expr, prompt, enabled, reportPolicy, graceMs, timeoutMs, retries, hidden }) {
       if (id === undefined) return text("update needs id", true);
       const j = store.getJob(id);
       if (!j) return text(`no job ${id}`, true);
@@ -99,7 +101,8 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
       if (graceMs !== undefined) patch.graceMs = graceMs;
       if (timeoutMs !== undefined) patch.timeoutMs = timeoutMs;
       if (retries !== undefined) patch.retries = retries;
-      if (!Object.keys(patch).length) return text("nothing to change: pass at least one of name, expr, prompt, enabled, reportPolicy, graceMs, timeoutMs, retries", true);
+      if (hidden !== undefined) patch.hidden = hidden;
+      if (!Object.keys(patch).length) return text("nothing to change: pass at least one of name, expr, prompt, enabled, reportPolicy, graceMs, timeoutMs, retries, hidden", true);
       if (name !== undefined && name !== j.name && store.listJobs().some((o) => o.name === name)) return text(`a job named "${name}" already exists`, true);
       let u: Job;
       try { u = store.updateJob(id, patch); } catch (e) { return text((e as Error).message, true); }
@@ -180,6 +183,7 @@ export function createCronExtension(store: CronStore, changed: () => void = () =
       graceMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "update: skip a slot that is later than this when it comes due (after downtime). null: always run late." })),
       timeoutMs: Type.Optional(Type.Union([Type.Number(), Type.Null()], { description: "update: time limit for one run. null: the global limit." })),
       retries: Type.Optional(Type.Number({ description: "update: extra attempts after a failed run, 0 to 5, with backoff." })),
+      hidden: Type.Optional(Type.Boolean({ description: "create/update: true keeps each run's session out of the session list; results stay in Cron. Default false." })),
       status: Type.Optional(StringEnum(["running", "ok", "error", "skipped"], { description: "runs: keep only this status." })),
       limit: Type.Optional(Type.Number({ description: "runs: default 10, max 100." })),
       offset: Type.Optional(Type.Number({ description: "get_run: char offset into the result, default 0." })),

@@ -528,6 +528,19 @@
   font-size: 14px;
 }
 
+.cron-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.cron-check input {
+  accent-color: var(--primary);
+}
+
 .cron-field textarea {
   font-size: 14.5px;
   line-height: 1.5;
