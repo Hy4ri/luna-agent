@@ -17,7 +17,7 @@ import { expect } from "bun:test";
 const { chromium } = createRequire(import.meta.url)(process.env.LUNA_PLAYWRIGHT_PATH || "playwright");
 
 const dir = mkdtempSync(join(tmpdir(), "luna-487-ui-"));
-const projDirA = join(dir, "luna-pi");
+const projDirA = join(dir, "luna-agent");
 const projDirB = join(dir, "hermes-mobile");
 mkdirSync(projDirA);
 mkdirSync(projDirB);
@@ -43,7 +43,7 @@ try {
     remoteEnv: (worker, cwd) => workers.env(worker, cwd),
   });
   const conversations = new ConversationStore(harness);
-  const projA = conversations.projects.create("luna-pi", projDirA);
+  const projA = conversations.projects.create("luna-agent", projDirA);
   const projB = conversations.projects.create("hermes-mobile", projDirB);
   const offlineWorker = workerStore.create("arm-worker").worker;
   const projOffline = conversations.projects.create("worker-only", "", {
@@ -80,7 +80,7 @@ try {
     return res.json();
   }
 
-  // Seed a session in luna-pi and an unscoped session in Chats
+  // Seed a session in luna-agent and an unscoped session in Chats
   await request("/v1/sessions", { model, project: projA.id, cwd: projDirA });
   await request("/v1/sessions", { model });
 

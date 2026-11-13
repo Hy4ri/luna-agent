@@ -54,8 +54,8 @@ test("project_setup_repeat groups by project and ignores General", () => {
   const f = [1, 2, 3].map(i => ({ conv: i, project: 4, text: setup + i }));
   expect(projectSetupRepeat(f).length).toBe(1);
   expect(projectSetupRepeat(f.map(x => ({ ...x, project: 0 }))).length).toBe(0);
-  // Crew and peer messages are written by sessions, not typed by m57.
-  const peer = (n: number) => `[message from session #${n} "Lead": a peer session, not m57. It is your crew lead: it created this session and gives you tasks.`;
+  // Crew and peer messages are written by sessions, not typed by the user.
+  const peer = (n: number) => `[message from session #${n} "Lead": a peer session, not the user. It is your crew lead: it created this session and gives you tasks.`;
   expect(projectSetupRepeat([1, 2, 3].map(i => ({ conv: i, project: 4, text: peer(100 + i) }))).length).toBe(0);
   expect(promptRepeat([1, 2, 3].map(i => ({ conv: i, ts: i * DAY, text: peer(100 + i) }))).length).toBe(0);
 });

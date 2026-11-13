@@ -235,7 +235,7 @@ test("two-way typing works between browser socket and agent without control lock
   } finally { await t.cleanup(); }
 });
 
-test("with only terminal.agent on, m57 can watch Luna's terminals but cannot open shells", async () => {
+test("with only terminal.agent on, the user can watch Luna's terminals but cannot open shells", async () => {
   const t = await setup();
   try {
     const sid = await t.session();

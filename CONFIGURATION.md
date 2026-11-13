@@ -1643,7 +1643,7 @@ Friendly errors distinguish interruption (`Interrupted`), timeout, authenticatio
 Provider error bodies and credentials are not returned.
 
 Sources can be local regular files (relative to the conversation working directory) or public HTTP(S) URLs.
-Luna-pi has no remote terminal backend or media resolver; remote paths and data URLs are unsupported.
+Luna-agent has no remote terminal backend or media resolver; remote paths and data URLs are unsupported.
 Local files remain in place and are never removed. Video-specific read guards resolve symlinks and block known credential paths,
 including the runtime config, auth/MCP credential files, `.env*`, `.ssh`, `.aws`, and `.gnupg`.
 `video.blocked_paths` adds blocked files/directories, relative to the conversation working directory.
@@ -2100,7 +2100,7 @@ Verification:
 ```sh
 bun test test/worker-exec.test.ts test/workers-cli.test.ts
 # Opt-in real desktop test. Copies a temporary bundled worker; installs no desktop service.
-LUNA_TEST_DESKTOP=m57@192.168.1.11 LUNA_TEST_MAIN_URL=http://192.168.1.57 bun run verify:workers:desktop
+LUNA_TEST_DESKTOP=user@192.168.1.20 LUNA_TEST_MAIN_URL=http://192.168.1.10 bun run verify:workers:desktop
 ```
 
 ## Manual session pruning

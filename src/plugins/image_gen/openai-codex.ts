@@ -36,7 +36,7 @@ export function createOpenAICodexImageProvider(options: {
         const auth = await options.auth.resolve(signal);
         signal.throwIfAborted();
         const headers = new Headers({ authorization: `Bearer ${auth.accessToken}`, "content-type": "application/json",
-          "User-Agent": "LunaPi/1.0.0", originator: "luna-pi", "x-codex-image-turn-id": crypto.randomUUID() });
+          "User-Agent": "LunaAgent/1.0.0", originator: "luna-agent", "x-codex-image-turn-id": crypto.randomUUID() });
         if (auth.accountId) headers.set("ChatGPT-Account-ID", auth.accountId);
         if (auth.residency) headers.set("x-openai-internal-codex-residency", auth.residency);
         const response = await (options.fetch ?? fetch)(`https://chatgpt.com/backend-api/codex/images/${sources.length ? "edits" : "generations"}`, {

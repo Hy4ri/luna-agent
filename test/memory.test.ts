@@ -9,13 +9,13 @@ after(() => { for (const s of stores) s.close(); });
 
 test("facts upsert by key; notes append", () => {
   const m = open();
-  m.remember({ key: "printer.ip", content: "192.168.1.36" });
-  m.remember({ key: "printer.ip", content: "192.168.1.37" });
+  m.remember({ key: "printer.ip", content: "192.168.1.50" });
+  m.remember({ key: "printer.ip", content: "192.168.1.51" });
   m.remember({ content: "first note" });
   m.remember({ content: "first note" });
   const text = m.render()!;
   expect(text.match(/printer\.ip/g)?.length).toBe(1);
-  expect(text).toMatch(/printer\.ip: 192\.168\.1\.37/);
+  expect(text).toMatch(/printer\.ip: 192\.168\.1\.51/);
   expect(text.match(/first note/g)?.length).toBe(2);
   expect(() => m.remember({ kind: "fact", content: "x" })).toThrow(/needs a key/);
   expect(() => m.remember({ content: "   " })).toThrow(/empty/);

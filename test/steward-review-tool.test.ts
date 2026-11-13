@@ -1,4 +1,4 @@
-// Contract: a session can go through Steward cards with m57 and clean up other sessions through the steward tool,
+// Contract: a session can go through Steward cards with the user and clean up other sessions through the steward tool,
 // acting only on the ids it is given, with a reason for dismiss and confirm for destructive cards.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -97,7 +97,7 @@ test("session housekeeping: view, finish todos, cancel questions, clear status, 
     expect((await f.run({ action: "todos_done", session: id })).error).toBe(true);   // needs ids or all
     expect((await f.run({ action: "todos_done", session: id, todo_ids: [2, 3] })).text).toMatch(/Completed 2\. Not open: 3\./);
     expect((await f.run({ action: "todos_done", session: id, all: true })).text).toMatch(/Completed 1\./);
-    expect((await f.run({ action: "cancel_questions", session: id, note: "m57 said no" })).text).toMatch(/Cancelled 1 question\./);
+    expect((await f.run({ action: "cancel_questions", session: id, note: "user said no" })).text).toMatch(/Cancelled 1 question\./);
     expect((await f.run({ action: "clear_status", session: id })).text).toMatch(/Cleared the handoff/);
     expect((await f.run({ action: "goal", session: id, goal: "pause" })).text).toMatch(/Goal paused\./);
     expect((await f.run({ action: "goal", session: id, goal: "clear" })).text).toMatch(/Goal cleared\./);
@@ -107,7 +107,7 @@ test("session housekeeping: view, finish todos, cancel questions, clear status, 
       expect((await tx.doc(TodoDoc, conv.id)).tasks.map(t => t.status)).toEqual(["completed", "completed", "completed"]);
       const ask = await tx.doc(AskDoc, conv.id);
       expect(ask.answers.q1?.cancelled).toBe(true);
-      expect(ask.answers.q1?.globalNote).toBe("m57 said no");
+      expect(ask.answers.q1?.globalNote).toBe("user said no");
       expect((await tx.doc(SessionHandoffDoc, conv.id)).handoff).toBe(null);
       expect((await tx.doc(SessionReadDoc, conv.id)).at).toBeTruthy();
       expect((await tx.doc(GoalDoc, conv.id)).goal).toBe(null);

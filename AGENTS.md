@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Operational and architectural instructions for AI coding agents working on `luna-pi`.
+Operational and architectural instructions for AI coding agents working on `luna-agent`.
 
 This document complements [`CONFIGURATION.md`](CONFIGURATION.md) (user settings, tools, and HTTP API reference) and [`luna.config.example.json`](luna.config.example.json) (example runtime configuration). Read the relevant implementation files and the contracts below before changing runtime wiring, configuration schemas, tool interfaces, or UI state. Flag contradictions between requirements and code instead of guessing.
 
@@ -8,7 +8,7 @@ This document complements [`CONFIGURATION.md`](CONFIGURATION.md) (user settings,
 
 ## Project Overview & Tech Stack
 
-`luna-pi` is a durable AI agent daemon, CLI, and web UI built on `@earendil-works/pi-durable`, `@earendil-works/pi-ai`, and `@earendil-works/chord`.
+`luna-agent` is a durable AI agent daemon, CLI, and web UI built on `@earendil-works/pi-durable`, `@earendil-works/pi-ai`, and `@earendil-works/chord`.
 
 - **Runtime & Backend:** Bun 1.4+ (uses built-in `bun:sqlite`, `Bun.serve`, and `Bun.Terminal`), TypeScript 7 (`tsc -p .`), Hono for REST and SSE streaming.
 - **Schemas & Validation:** Zod v4 (`src/config.ts`) for strict configuration validation; TypeBox (`typebox`) for agent tool parameter schemas.
@@ -103,7 +103,7 @@ A bug fix in these areas must add a regression test that **fails on the code bef
 ## Repository Layout
 
 ```text
-luna-pi/
+luna-agent/
 ├── CONFIGURATION.md            # Canonical documentation for config, tools, and HTTP routes
 ├── luna.config.example.json    # Example runtime configuration
 ├── flake.nix                   # Nix devShell (bun, sqlite)

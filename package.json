@@ -1,5 +1,5 @@
 {
-  "name": "luna-pi",
+  "name": "luna-agent",
   "version": "1.0.0",
   "scripts": {
     "start": "bun src/daemon.ts",
@@ -16,7 +16,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "devEngines": {
     "packageManager": {
       "name": "bun",

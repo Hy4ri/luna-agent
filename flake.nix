@@ -1,5 +1,5 @@
 {
-  description = "luna-pi dev shell";
+  description = "luna-agent dev shell";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.rust-overlay = {

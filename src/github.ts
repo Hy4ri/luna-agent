@@ -81,7 +81,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     for (let attempt = 0; attempt < 2; attempt++) {
       const res = await fetch(url, {
         method: init.method ?? 'GET', redirect: 'error', signal,
-        headers: { Authorization: `Bearer ${await token()}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'luna-pi', ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+        headers: { Authorization: `Bearer ${await token()}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'luna-agent', ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
       });
       const text = await responseText(res);

@@ -49,7 +49,7 @@ function save() {
     <fieldset v-else :disabled="disabled" class="route-controls">
       <div v-for="(address, index) in addresses" :key="index" class="saved-address">
         <label>Label<input v-model="address.label" :aria-label="`Address ${index + 1} label`" placeholder="LAN or Tailscale" autocomplete="off" /></label>
-        <label>IP address or URL<input v-model="address.url" :aria-label="`Address ${index + 1} URL`" placeholder="192.168.1.57:8787 or https://luna.example.com" inputmode="url" autocapitalize="none" :spellcheck="false" autocomplete="off" /></label>
+        <label>IP address or URL<input v-model="address.url" :aria-label="`Address ${index + 1} URL`" placeholder="192.168.1.10:8787 or https://luna.example.com" inputmode="url" autocapitalize="none" :spellcheck="false" autocomplete="off" /></label>
         <div class="route-order">
           <button type="button" :disabled="index === 0" :aria-label="`Move address ${index + 1} up`" @click="[addresses[index - 1], addresses[index]] = [addresses[index], addresses[index - 1]]">Move up</button>
           <button type="button" :disabled="index === addresses.length - 1" :aria-label="`Move address ${index + 1} down`" @click="[addresses[index], addresses[index + 1]] = [addresses[index + 1], addresses[index]]">Move down</button>

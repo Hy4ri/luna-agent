@@ -363,7 +363,7 @@ export class StewardService {
         if (!this.o.startSession) throw new StewardError(409, "sessions are not available");
         const first = card.evidence[0]?.sessionId;
         const sidR = await this.o.startSession(first === undefined ? null : conv.projects.projectOf(first) ?? null, `Steward rule idea: ${card.title}`.slice(0, 100),
-          `Steward has a rule idea that needs data she does not collect yet.\n\n${card.body}\n\nIdea: ${String(card.payload.idea ?? "")}\n\nIn the luna-pi repo, start your own worktree (session_worktree) and implement it as a detector under src/steward with a test. Commit on that branch. Do not merge, and do not restart the daemon. Tell me when it is ready to review.`, `steward-${id}`);
+          `Steward has a rule idea that needs data she does not collect yet.\n\n${card.body}\n\nIdea: ${String(card.payload.idea ?? "")}\n\nIn the luna-agent repo, start your own worktree (session_worktree) and implement it as a detector under src/steward with a test. Commit on that branch. Do not merge, and do not restart the daemon. Tell me when it is ready to review.`, `steward-${id}`);
         this.o.store.setStatus(id, "working", { sessionId: sidR, result: "Implementing the idea on a branch in a work session. Nothing merges without you." });
         this.o.store.record(card, "agree", null, "work session");
         return this.o.store.get(id)!;

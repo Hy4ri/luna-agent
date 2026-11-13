@@ -99,7 +99,7 @@ export async function refreshCodexImageAuth(home: string, command: string, signa
     })();
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    else send({ id: 1, method: "initialize", params: { clientInfo: { name: "luna-pi", version: "1.0.0" } } });
+    else send({ id: 1, method: "initialize", params: { clientInfo: { name: "luna-agent", version: "1.0.0" } } });
   });
 }
 const refreshing = new Map<string, Promise<void>>();

@@ -54,10 +54,10 @@ test("matches, render and formatRequest", () => {
   expect(matches(["push"], null)).toBe(false);
 
   const out = render("{{event}}/{{action}}: {{body.pull_request.title}} by {{ body.user.login }} {{headers.x-github-event}} {{body.missing}}|{{body.n}}", {
-    body: { pull_request: { title: "Fix" }, user: { login: "m57" }, n: 0 }, headers: { "x-github-event": "pull_request" },
+    body: { pull_request: { title: "Fix" }, user: { login: "alex" }, n: 0 }, headers: { "x-github-event": "pull_request" },
     event: "pull_request", action: "opened", delivery: "d1", hook: "gh", payload: "{}",
   });
-  expect(out).toBe("pull_request/opened: Fix by m57 pull_request |0");
+  expect(out).toBe("pull_request/opened: Fix by alex pull_request |0");
 
   const env = { id: "evt_1", event: "session.failed", createdAt: "2026-01-01T00:00:00.000Z", data: { title: "Sessión 3", text: "boom" } };
   expect(JSON.parse(formatRequest("json", env).body)).toEqual(env);

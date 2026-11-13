@@ -538,7 +538,7 @@ onUnmounted(() => {
         <form id="loginForm" class="grid w-full max-w-sm gap-5 rounded-xl border border-border bg-card p-7" @submit.prevent="login(password, isDesktop ? serverInput : undefined)">
           <div class="flex items-center gap-3"><Moon :size="22" class="text-primary-text" /><h2 id="loginTitle" class="text-lg font-semibold">Connect to Luna</h2></div>
           <p class="text-sm text-muted-foreground">{{ isDesktop ? 'Enter the address of your Luna daemon (localhost or another machine) and its token.' : 'Enter your server token to open your workspace.' }}</p>
-          <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.57:8787" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
+          <label v-if="isDesktop" class="grid gap-2 text-xs">Server URL<input id="server" v-model="serverInput" type="text" placeholder="localhost:8787 or 192.168.1.10:8787" required class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
           <label class="grid gap-2 text-xs">Server token<input id="token" v-model="password" type="password" autocomplete="current-password" placeholder="LUNA_TOKEN" :required="!isDesktop" class="rounded-md border border-input bg-background px-3 py-2.5 text-sm" /></label>
           <button class="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground">Connect</button>
           <span id="loginErr" role="alert" class="text-sm text-destructive">{{ ui.loginError }}</span>

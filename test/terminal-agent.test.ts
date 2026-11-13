@@ -204,7 +204,7 @@ test("an agent terminal runs one program, reads its screen, and ends with it", a
   throwsWith(() => r.agentWrite(info.id, 1, "x"), (e: unknown) => e instanceof TerminalError && e.status === 409);
 });
 
-test("terminals are two-way always: both m57 and Luna can type and read without locking", async () => {
+test("terminals are two-way always: both the user and Luna can type and read without locking", async () => {
   const r = registry();
   const info = await r.create({ session: 1, owner: "agent", worker: null, cwd: "/tmp", command: "cat", cols: 40, rows: 5 });
   r.write(info.id, "user-typed\r");
