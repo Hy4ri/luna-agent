@@ -117,7 +117,12 @@ const railChips = computed<RailChip[]>(() => {
     const n = ex.goal.tasks?.length || 0;
     const d = n ? ex.goal.tasks.filter((t: any) => t.status !== 'pending').length : 0;
     const st = ex.goal.status;
-    chips.push({ key: 'goal', icon: Target, label: 'Goal', value: n ? `${d}/${n}` : st.replaceAll('_', ' '), tone: st === 'active' ? 'live' : st === 'blocked' ? 'warn' : st === 'complete' ? 'done' : undefined });
+    chips.push({ key: 'goal', icon: Target, label: 'Goal', value: n ? `${d}/${n}` : '', tone: st === 'active' ? 'live' : st === 'blocked' ? 'warn' : st === 'complete' ? 'done' : undefined });
+  }
+  const todos = (ex?.todos || []).filter((t: any) => t.status !== 'deleted');
+  if (todos.length) {
+    const d = todos.filter((t: any) => t.status === 'completed').length;
+    chips.push({ key: 'tasks', icon: ListChecks, label: 'Tasks', value: `${d}/${todos.length}`, tone: d === todos.length ? 'done' : todos.some((t: any) => t.status === 'in_progress') ? 'live' : undefined });
   }
   const procs = ex?.processes || [];
   if (procs.length) {
@@ -133,14 +138,9 @@ const railChips = computed<RailChip[]>(() => {
     const r = kids.filter(childLive).length;
     chips.push({ key: 'agents', icon: Bot, label: 'Subagents', value: r ? `${r} on` : `${kids.length}`, tone: r ? 'live' : 'done' });
   }
-  const todos = (ex?.todos || []).filter((t: any) => t.status !== 'deleted');
-  if (todos.length) {
-    const d = todos.filter((t: any) => t.status === 'completed').length;
-    chips.push({ key: 'tasks', icon: ListChecks, label: 'Tasks', value: `${d}/${todos.length}`, tone: d === todos.length ? 'done' : todos.some((t: any) => t.status === 'in_progress') ? 'live' : undefined });
-  }
   return chips;
 });
-const railSummary = computed(() => railChips.value.map(c => `${c.label} ${c.value}`).join(', ') || 'Session');
+const railSummary = computed(() => railChips.value.map(c => `${c.label} ${c.value || (c.key === 'goal' ? chat.extras?.goal?.status.replaceAll('_', ' ') : '')}`.trim()).join(', ') || 'Session');
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
 const tileIds = ref<string[]>(readTiles());
@@ -576,7 +576,7 @@ onUnmounted(() => {
                 >
                   <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
                     <component :is="c.icon" :size="13" aria-hidden="true" />
-                    <span>{{ c.value }}</span>
+                    <span v-if="c.value">{{ c.value }}</span>
                   </span>
                   <span v-if="!railChips.length" class="rail-chip">Session</span>
                   <ChevronDown class="rail-pill-caret" :size="13" aria-hidden="true" />
@@ -690,7 +690,7 @@ onUnmounted(() => {
   right: 36px;
   z-index: 4;
   width: 280px;
-  bottom: 12px;
+  max-height: calc(100% - 24px);
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -702,7 +702,7 @@ onUnmounted(() => {
 #session-rail.collapsed {
   width: auto;
   max-width: 280px;
-  bottom: auto;
+  max-height: none;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -728,7 +728,7 @@ onUnmounted(() => {
   color: var(--faint);
 }
 .rail-scroll {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
