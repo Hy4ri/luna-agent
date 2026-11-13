@@ -140,7 +140,7 @@ defineExpose({ focus: () => canvas.value?.focus(), sendNav: (event: Record<strin
 
 <template>
   <div class="browser-view" :hidden="!active">
-    <canvas ref="canvas" class="browser-canvas" :class="{ driving: driving() }" tabindex="0" role="application" :aria-label="`Browser tab ${info()?.url ?? ''}`"
+    <canvas ref="canvas" class="browser-canvas" :class="{ driving: driving() }" tabindex="0" role="application" :aria-label="`Browser tab ${info()?.url || 'new tab'}`"
       @pointerdown="onPointerDown" @pointerup="onPointerUp" @pointermove="onPointerMove" @contextmenu.prevent
       @keydown="onKey($event, 'down')" @keyup="onKey($event, 'up')" />
     <p v-if="!hasFrame && !note" class="browser-note">Waiting for the page...</p>

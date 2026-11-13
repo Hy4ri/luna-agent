@@ -407,8 +407,8 @@ onUnmounted(() => {
 
 <template>
   <div class="mail-pane">
-    <!-- Top action bar -->
-    <header class="mail-bar">
+    <!-- Top action bar (shown when at least one account is connected) -->
+    <header v-if="hasAccounts" class="mail-bar">
       <div class="mail-bar-left">
         <button
           v-if="mailState.detail"
@@ -480,7 +480,7 @@ onUnmounted(() => {
 
     <!-- Disabled state -->
     <div v-if="!hasAccounts && mailDisabled" class="mail-empty">
-      <Inbox :size="28" class="empty-icon" aria-hidden="true" />
+      <Inbox :size="20" class="empty-icon" aria-hidden="true" />
       <p class="empty-title">Mail is disabled</p>
       <p class="empty-sub">Enable Mail in Settings &gt; Tools to connect a Gmail account.</p>
       <button type="button" class="mail-btn" @click="navigate('settings', 'tools')">
@@ -491,9 +491,9 @@ onUnmounted(() => {
 
     <!-- Empty / not connected state -->
     <div v-else-if="!hasAccounts" class="mail-empty">
-      <Inbox :size="28" class="empty-icon" aria-hidden="true" />
+      <Inbox :size="20" class="empty-icon" aria-hidden="true" />
       <p class="empty-title">No Gmail account connected</p>
-      <p class="empty-sub">Open Settings to add OAuth credentials and connect your Gmail account.</p>
+      <p class="empty-sub">Add Google OAuth credentials and connect your Gmail account to read and send mail here.</p>
       <button type="button" class="mail-btn primary" @click="showSettings = true">
         <Settings2 :size="14" aria-hidden="true" />
         <span>Open Mail Settings</span>
@@ -669,18 +669,19 @@ onUnmounted(() => {
               <Plus :size="14" />
               <span>Connect Gmail Account</span>
             </button>
+            <p v-if="!oauthConfigured" class="muted-note">Save Google OAuth credentials below first to enable connecting.</p>
           </section>
 
           <section class="settings-sec">
             <h4>Google OAuth Credentials</h4>
-            <p class="muted-note">
-              Authorized redirect URI:
+            <div class="uri-row">
+              <span class="muted-note">Authorized redirect URI:</span>
               <code class="uri-code">{{ redirectUri }}</code>
               <button type="button" class="mail-icon-btn inline" aria-label="Copy redirect URI" title="Copy redirect URI" @click="copyRedirectUri">
                 <Check v-if="copiedUri" :size="12" />
                 <Copy v-else :size="12" />
               </button>
-            </p>
+            </div>
             <textarea
               v-model="credentialsJson"
               rows="3"
@@ -739,10 +740,10 @@ onUnmounted(() => {
 
 <style scoped>
 .mail-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; background: var(--background); color: var(--foreground); }
-.mail-bar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--card); flex-wrap: wrap; }
-.mail-bar-left, .mail-bar-right { display: flex; align-items: center; gap: 4px; }
-.mail-select { padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 12px; max-width: 150px; }
-.mail-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.mail-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--card); flex-wrap: wrap; }
+.mail-bar-left, .mail-bar-right { display: flex; align-items: center; gap: 6px; }
+.mail-select { min-height: 28px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 12px; max-width: 160px; }
+.mail-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 12px; cursor: pointer; white-space: nowrap; }
 .mail-btn:hover:not(:disabled) { background: var(--secondary); }
 .mail-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .mail-btn.primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
@@ -758,28 +759,28 @@ onUnmounted(() => {
 .search-icon { color: var(--muted-foreground); flex: none; }
 .search-input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--foreground); font-size: 12px; outline: none; }
 .mail-error { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; font-size: 12px; background: var(--err-soft); color: var(--destructive); border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); }
-.mail-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--muted-foreground); font-size: 13px; }
-.empty-icon { opacity: 0.6; }
-.empty-title { margin: 0; color: var(--foreground); font-weight: 600; }
-.empty-sub { margin: 0; max-width: 280px; font-size: 12px; }
+.mail-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px 16px; text-align: center; color: var(--muted-foreground); font-size: 12px; }
+.empty-icon { opacity: 0.65; }
+.empty-title { margin: 0; color: var(--foreground); font-size: 13px; font-weight: 600; }
+.empty-sub { margin: 0; max-width: 340px; font-size: 12px; line-height: 1.45; }
 .mail-list { flex: 1; overflow-y: auto; min-height: 0; }
-.thread-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 10px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
+.thread-row { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
 .thread-row:hover { background: var(--secondary); }
 .thread-row.unread { background: color-mix(in srgb, var(--primary) 7%, transparent); }
-.thread-row.unread .thread-from, .thread-row.unread .thread-subject { font-weight: 600; }
+.thread-row.unread .thread-from, .thread-row.unread .thread-subject { font-weight: 600; color: var(--foreground); }
 .thread-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
-.thread-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-time { flex: none; font-size: 11px; color: var(--muted-foreground); }
-.thread-subject { display: flex; align-items: center; gap: 4px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-snippet { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-from { color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-time { flex: none; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.thread-subject { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-snippet { font-size: 12px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mail-btn:focus-visible, .mail-select:focus-visible, .mail-icon-btn:focus-visible, .thread-row:focus-visible, .msg-header-btn:focus-visible, .att-chip:focus-visible, .modal-input:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .starred { color: var(--warning); fill: var(--warning); }
 .inline-star { flex: none; }
 .mail-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
-.detail-head { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; gap: 8px; flex: none; }
+.detail-head { padding: 12px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; gap: 10px; flex: none; }
 .detail-subject { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.35; }
 .detail-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.detail-actions-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.detail-actions-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .detail-messages { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; }
 .msg-card { display: flex; flex-direction: column; flex: none; min-width: 0; background: var(--card); border-bottom: 1px solid var(--border); }
 .msg-card:last-child { border-bottom: 0; }
@@ -789,7 +790,7 @@ onUnmounted(() => {
 .msg-header-btn:hover { background: var(--secondary); }
 .msg-card.collapsed .msg-header-btn { border-bottom: 0; }
 .msg-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
-.msg-time { font-weight: 400; font-size: 11px; color: var(--muted-foreground); flex: none; }
+.msg-time { font-weight: 400; font-size: 11px; color: var(--muted-foreground); flex: none; font-variant-numeric: tabular-nums; }
 .msg-to { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-collapsed-snippet { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-iframe { width: 100%; flex: 1; min-height: 360px; height: 100%; border: 0; background: #fff; display: block; }
@@ -800,18 +801,19 @@ onUnmounted(() => {
 .att-chip:hover { background: var(--secondary); }
 .modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgb(0 0 0 / 0.65); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .modal-card { width: 100%; max-width: 480px; max-height: 90dvh; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .modal-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
-.modal-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
-.modal-foot { display: flex; justify-content: flex-end; gap: 8px; }
-.settings-sec { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.modal-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.settings-sec { display: flex; flex-direction: column; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .settings-sec:last-child { border-bottom: 0; padding-bottom: 0; }
-.settings-sec h4 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--muted-foreground); }
-.account-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); }
+.settings-sec h4 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground); }
+.account-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); }
 .acc-email { font-size: 13px; font-weight: 500; }
-.acc-meta { font-size: 11px; color: var(--muted-foreground); }
-.muted-note { margin: 0; font-size: 12px; color: var(--muted-foreground); }
-.uri-code { font-family: var(--mono); font-size: 11px; word-break: break-all; }
+.acc-meta { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.muted-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted-foreground); }
+.uri-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.uri-code { font-family: var(--mono); font-size: 11px; word-break: break-all; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); }
 .modal-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font-size: 12px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .compose-row { display: flex; gap: 6px; }
@@ -823,10 +825,11 @@ onUnmounted(() => {
   .grid-2 { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px), (pointer: coarse) {
+  .mail-bar { padding: 6px 8px; gap: 6px; }
   .mail-btn, .mail-select { min-height: 44px; }
   .mail-icon-btn { width: 44px; height: 44px; }
-  .mail-icon-btn.inline { width: 32px; height: 32px; }
+  .mail-icon-btn.inline { width: 44px; height: 44px; }
   .thread-row { padding: 12px; }
-  .att-chip { min-height: 36px; padding: 4px 10px; }
+  .att-chip { min-height: 44px; padding: 6px 12px; }
 }
 </style>

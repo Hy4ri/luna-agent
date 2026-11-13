@@ -124,9 +124,9 @@ function resizeKey(event: KeyboardEvent) {
 .is-side > .dock-resize::after { width: 2px; height: 32px; }
 .dock-resize:hover::after { opacity: 1; background: var(--muted-foreground); }
 .dock-resize:focus-visible { background: color-mix(in srgb, var(--ring) 25%, transparent); outline: 2px solid var(--ring); outline-offset: -1px; }
-.global-dock-bar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 6px; min-height: 36px; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
+.global-dock-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; min-height: 36px; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
 .global-dock-tabs { display: flex; align-items: stretch; gap: 2px; min-height: 36px; overflow-x: auto; }
-.global-dock-tab { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted-foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
+.global-dock-tab { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted-foreground); font: 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
 .global-dock-tab:hover { color: var(--foreground); }
 .global-dock-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .global-dock-tab.active { color: var(--foreground); font-weight: 600; border-bottom-color: var(--primary); background: var(--card); }

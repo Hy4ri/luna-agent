@@ -77,28 +77,28 @@ onBeforeUnmount(() => watchBrowser(false));
       <button type="button" class="icon-button tab-new" aria-label="New tab" title="New tab" :disabled="!browser.session" @click="newTab"><Plus :size="14" /></button>
     </header>
     <form class="address-bar" @submit.prevent="submitAddress">
-      <button type="button" class="icon-button" aria-label="Back" title="Back" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'back' })"><ArrowLeft :size="14" /></button>
-      <button type="button" class="icon-button" aria-label="Forward" title="Forward" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'forward' })"><ArrowRight :size="14" /></button>
-      <button type="button" class="icon-button" aria-label="Reload" title="Reload" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'reload' })"><RotateCw :size="14" /></button>
+      <button type="button" class="icon-button" aria-label="Back" :title="current && !current.input ? 'View only — Luna is driving this tab' : 'Back'" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'back' })"><ArrowLeft :size="14" /></button>
+      <button type="button" class="icon-button" aria-label="Forward" :title="current && !current.input ? 'View only — Luna is driving this tab' : 'Forward'" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'forward' })"><ArrowRight :size="14" /></button>
+      <button type="button" class="icon-button" aria-label="Reload" :title="current && !current.input ? 'View only — Luna is driving this tab' : 'Reload'" :disabled="!current?.input" @click="navInput({ kind: 'nav', action: 'reload' })"><RotateCw :size="14" /></button>
       <input ref="addressInput" v-model="address" class="address-input" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Address" :placeholder="!browser.session ? 'Open a conversation to use Browser' : current ? '' : 'Enter an address to open a tab'" :disabled="!browser.session || (!!current && !current.input)" @focus="editing = true" @blur="editing = false" @keydown="addressKey" />
-      <span v-if="current && !current.input" class="drive-state" title="You can watch this tab but not click or type in it.">View only</span>
+      <span v-if="current && !current.input" class="drive-state" title="You can watch this tab. Ask Luna to hand over control if you want to interact.">View only</span>
     </form>
     <p v-if="browser.error && browser.tabs.length" class="dock-message" role="alert">
       <AlertCircle :size="14" aria-hidden="true" />
       <span>{{ browser.error }}</span>
     </p>
     <div v-if="!browser.session" class="dock-empty">
-      <Globe :size="22" class="empty-icon" aria-hidden="true" />
+      <Globe :size="20" class="empty-icon" aria-hidden="true" />
       <p class="empty-title">No active conversation</p>
       <p class="empty-sub">Open or start a conversation to use Browser.</p>
     </div>
     <div v-else-if="browser.error && !browser.tabs.length && !browser.draft" class="dock-empty" role="alert">
-      <AlertCircle :size="22" class="empty-icon is-error" aria-hidden="true" />
+      <AlertCircle :size="20" class="empty-icon is-error" aria-hidden="true" />
       <p class="empty-title">Browser unavailable</p>
       <p class="empty-sub">{{ browser.error }}</p>
     </div>
     <div v-else-if="!browser.tabs.length || browser.draft" class="dock-empty">
-      <Globe :size="22" class="empty-icon" aria-hidden="true" />
+      <Globe :size="20" class="empty-icon" aria-hidden="true" />
       <p class="empty-sub">{{ browser.loading && !browser.tabs.length ? "Loading..." : browser.draft || browser.tabs.length ? "Enter an address above to open it in this tab." : "No browser tabs in this session. Ask Luna to open a page, or enter an address above." }}</p>
     </div>
     <div v-if="browser.session && browser.tabs.length" class="dock-body" :hidden="browser.draft">
@@ -110,7 +110,7 @@ onBeforeUnmount(() => watchBrowser(false));
 <style scoped>
 .browser-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
 /* Tab strip: the active tab joins the address bar below it, like a desktop browser. */
-.tab-strip { display: flex; align-items: flex-end; gap: 2px; min-height: 34px; padding: 4px 4px 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
+.tab-strip { display: flex; align-items: flex-end; gap: 4px; min-height: 36px; padding: 4px 8px 0; border-bottom: 1px solid var(--border); background: var(--sidebar); }
 .tabs { display: flex; flex: 0 1 auto; align-items: flex-end; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .tab { position: relative; display: flex; flex: 0 1 auto; align-items: center; width: 180px; min-width: 96px; height: 30px; margin-bottom: -1px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; color: var(--muted-foreground); font: 12px var(--mono); }
 .tab + .tab::before { content: ""; position: absolute; left: -1px; top: 8px; bottom: 8px; border-left: 1px solid var(--border); }
@@ -126,25 +126,27 @@ onBeforeUnmount(() => watchBrowser(false));
 .tab-close:hover { background: var(--secondary); }
 @media (hover: none) { .tab-close { opacity: 1; } }
 .tab-new { flex: none; align-self: center; margin-bottom: 2px; }
-.address-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--card); }
-.address-input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font: 12px var(--mono); }
+.address-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--card); }
+.address-input { flex: 1; min-width: 0; min-height: 28px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font: 12px var(--mono); }
 .address-input:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; }
 .address-input:disabled { opacity: .7; }
-.drive-state { flex: none; padding: 2px 7px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--muted-foreground); font: 11px var(--mono); white-space: nowrap; }
+.drive-state { display: inline-flex; align-items: center; flex: none; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); color: var(--muted-foreground); font: 11px var(--mono); white-space: nowrap; }
 .dock-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .dock-body[hidden] { display: none; }
 .dock-message { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 10px; background: var(--err-soft); color: var(--destructive); font: 12px var(--mono); border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); }
-.dock-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; text-align: center; color: var(--muted-foreground); font: 12px var(--mono); }
+.dock-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px 16px; text-align: center; color: var(--muted-foreground); font: 12px var(--mono); }
 .dock-empty p { margin: 0; }
 .empty-icon { opacity: 0.65; }
 .empty-icon.is-error { color: var(--destructive); opacity: 0.9; }
 .empty-title { color: var(--foreground); font-size: 13px; font-weight: 600; }
-.empty-sub { max-width: 360px; color: var(--muted-foreground); }
+.empty-sub { max-width: 360px; line-height: 1.45; color: var(--muted-foreground); }
 @media (max-width: 760px), (pointer: coarse) {
   .tab { min-height: 44px; }
-  .tab-close { width: 36px; height: 36px; }
+  .tab-label { min-height: 44px; }
+  .tab-close { width: 44px; height: 44px; }
   .tab-new { width: 44px; height: 44px; }
   .address-bar .icon-button { width: 44px; height: 44px; }
   .address-input { min-height: 44px; }
+  .drive-state { height: 36px; }
 }
 </style>
