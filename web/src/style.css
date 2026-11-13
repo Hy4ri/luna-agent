@@ -716,7 +716,10 @@ body.kbd-nav .session-row:has(:focus-visible) .session-manage,
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 28px max(24px, calc((100% - 760px) / 2));
+  padding-top: 28px;
+  padding-bottom: 28px;
+  padding-left: max(24px, calc((100% - 760px) / 2 - var(--gutter-shift, 0px)));
+  padding-right: max(24px, calc((100% - 760px) / 2 + var(--gutter-shift, 0px)));
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -922,9 +925,10 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .att-missing { border-color: color-mix(in srgb, #f87171 40%, var(--border)); }
 .att-missing svg { color: #f87171; flex: none; }
 .transcript-jumps { position: absolute; right: 24px; bottom: 140px; display: flex; flex-direction: column; gap: 6px; }
+.chat-column.rail-docked .transcript-jumps { bottom: 16px; }
 .transcript-jumps button { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border-radius: var(--radius); background: var(--secondary); box-shadow: var(--shadow); border: 1px solid var(--border); }
 .transcript-jumps button[hidden] { display: none; }
-#extras { padding: 0 max(24px, calc((100% - 760px) / 2)); display: flex; flex-direction: column; gap: 8px; max-height: 28dvh; overflow: auto; flex-shrink: 0; font-size: 14.5px; font-weight: 440; }
+#extras { padding: 0 max(24px, calc((100% - 760px) / 2 + var(--gutter-shift, 0px))) 0 max(24px, calc((100% - 760px) / 2 - var(--gutter-shift, 0px))); display: flex; flex-direction: column; gap: 8px; max-height: 28dvh; overflow: auto; flex-shrink: 0; font-size: 14.5px; font-weight: 440; }
 #extras:empty { display: none; }
 .chat-extras .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: var(--card); min-width: 0; }
 .chat-extras .grid { gap: 10px; }
@@ -995,13 +999,19 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .activity .spin { animation: activity-spin 1s linear infinite; color: var(--primary-text); }
 @keyframes activity-spin { to { transform: rotate(360deg); } }
 @media (max-width: 420px) { .activity-label { visibility: hidden; } }
-/* Session rail (#88): the same cards, expanded, in a right column. */
-#rail-extras { display: flex; flex-direction: column; gap: 12px; font-size: 14.5px; font-weight: 440; }
+/* Floating session gutter (#88): the same cards, floating in the right margin when active. */
+#rail-extras { display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; font-weight: 440; }
+#rail-extras:empty { display: none; }
 .chat-extras .activity.docked { padding: 0; border: 0; background: transparent; }
 /* Docked: each section is its own card; live work first, the long task list last. */
-.activity.docked .activity-body { max-height: none; overflow: visible; border-top: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.activity.docked .activity-body { max-height: none; overflow: visible; border-top: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .activity.docked .activity-section { margin: 0; padding: 2px 10px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
-.activity.docked .activity-section[aria-label='Tasks'] { order: 1; }
+.activity.docked .activity-section > div { max-height: 220px; overflow-y: auto; scrollbar-width: thin; }
+.chat-extras.docked .goal-card { padding: 10px 12px; }
+.chat-extras.docked .goal-objective { margin: 8px 0 6px; font-size: 13px; }
+.chat-extras.docked .goal-details summary { min-height: 30px; }
+.chat-extras.docked .goal-actions { margin-top: 8px; }
+.chat-extras.docked .goal-actions button { min-height: 30px; padding: 4px 10px; font-size: 12.5px; }
 .rail-session { display: grid; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); font-size: 12px; color: var(--muted-foreground); }
 .rail-session h4 { display: flex; justify-content: space-between; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .todo-item { display: flex; gap: 8px; padding: 6px 0; align-items: flex-start; }
@@ -1009,7 +1019,7 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .todo-item small { display: block; color: var(--muted-foreground); font-size: 11px; }
 .todo-item.done { color: var(--faint); }
 .todo-item.done span { text-decoration: line-through; }
-#compose { width: 100%; max-width: 824px; margin: 0 auto; padding: 10px 32px max(12px, env(safe-area-inset-bottom)); background: var(--background); flex: none; }
+#compose { width: 100%; padding: 10px max(24px, calc((100% - 760px) / 2 + var(--gutter-shift, 0px))) max(12px, env(safe-area-inset-bottom)) max(24px, calc((100% - 760px) / 2 - var(--gutter-shift, 0px))); background: var(--background); flex: none; }
 #composer { position: relative; border: 1px solid var(--input); background: var(--card); border-radius: var(--radius); }
 #composer:focus-within { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); }
 #mention-menu,

@@ -3,7 +3,7 @@ import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
 import ConfigError from "@/components/ConfigError.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { ArrowLeft, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal } from '@lucide/vue';
+import { ArrowLeft, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal, ChevronDown, ChevronUp, GitBranch, Target, ListChecks, SquareTerminal, Bot } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
@@ -37,7 +37,9 @@ import { ui, boot, login, setDrawer, closePanel, setPalette, navigate } from '@/
 import { askSteward } from '@/stores/steward';
 import { terminal, loadTerminals, toggleTerminal } from '@/stores/terminal';
 import { dock, effectivePosition } from '@/stores/dock';
-import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible } from '@/stores/chat';
+import { chat, newSession, openSession, clearConversation, addErr, reviewJobs, runningReviews, activityVisible, childLive } from '@/stores/chat';
+import { gitStatus as gitStatusData, registerGitStatusInstance } from '@/stores/git-status';
+import { railCollapsed } from '@/lib/rail-collapse';
 import { history, cancelLimitWait, resumeLabel, sessionTitle, togglePinned } from '@/stores/sessions';
 import { sessionPane, sessionDragType, draggedSession, endSessionDrag, setSessionRouter, closeSessionPane } from '@/lib/pane';
 import { sessionState, sessionStatusLabel } from '@/lib/session-status';
@@ -51,21 +53,90 @@ function mobileAction(action: () => unknown) {
   mobileMenuOpen.value = false;
   action();
 }
-// Session rail (#88): dock goal, activity, and context to the right when this tile has room.
-// Measure the tile, not the window: split view gives each tile its own width.
-// Two thresholds prevent flicker near the boundary.
-const RAIL_DOCK_AT = 1120, RAIL_UNDOCK_BELOW = 1080;
+// Floating session widgets: float goal, activity, and dirty git in the right gutter when wide enough,
+// and keep the 760px chat column centered in the viewport (compensating for the left sidebar when room allows).
+// Two gutter thresholds prevent flicker near the boundary.
+const RAIL_GUTTER_AT = 344, RAIL_GUTTER_BELOW = 328;
 const mainRef = ref<HTMLElement | null>(null);
 const railRoom = ref(false);
+const gutterShift = ref(0);
 let railObserver: ResizeObserver | undefined;
+function updateLayoutMetrics(width?: number) {
+  const el = mainRef.value;
+  const w = width ?? el?.clientWidth ?? 0;
+  if (!el || !w) return;
+  const leftOffset = (!mobile.value && !sessionPane && !tiled.value && !dockSide.value)
+    ? el.getBoundingClientRect().left
+    : 0;
+  const shift = Math.max(0, Math.min(leftOffset / 2, (w - 760) / 2 - 24));
+  gutterShift.value = Math.round(shift);
+  const rightGutter = (w - 760) / 2 + gutterShift.value;
+  if (rightGutter >= RAIL_GUTTER_AT) railRoom.value = true;
+  else if (rightGutter < RAIL_GUTTER_BELOW) railRoom.value = false;
+}
 const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
 watch(() => chat.session, () => { selectedReview.value = null; });
 // The dock follows the loaded session; the server keeps each session's shells alive.
 watch(() => chat.session, id => { void loadTerminals(id || ''); void loadBrowser(id || ''); }, { immediate: true });
-const railContent = computed(() => !!chat.session || reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value);
-// A side dock takes the rail's place, so the rail folds into the header while the dock is on the right.
+const railContent = computed(() => reviewJobs.value.length > 0 || !!chat.extras?.goal || activityVisible.value || gitStatusData.value?.state === 'ok');
+// A side dock takes the gutter's place, so widgets fold inline while the dock is on the right.
 const docked = computed(() => railRoom.value && railContent.value && !dockSide.value);
+const railMinimized = computed({
+  get: () => !!railCollapsed.value.rail,
+  set: (v: boolean) => { railCollapsed.value.rail = v; },
+});
+const railLive = computed(() => {
+  const ex = chat.extras;
+  return runningReviews.value > 0
+    || !!(ex?.todos || []).some((t: any) => t.status === 'in_progress')
+    || !!(ex?.processes || []).some(p => p.running)
+    || !!(ex?.children || []).some(childLive);
+});
+// The minimized pill shows Git counts, so it keeps Git status polling alive while GitStatus is unmounted.
+let pillGit: ReturnType<typeof registerGitStatusInstance> | undefined;
+watch(() => docked.value && railMinimized.value, on => {
+  if (on && !pillGit) { pillGit = registerGitStatusInstance('rail-pill'); pillGit.setVisible(true); }
+  else if (!on && pillGit) { pillGit.unregister(); pillGit = undefined; }
+}, { immediate: true });
+onUnmounted(() => { pillGit?.unregister(); pillGit = undefined; });
+type RailChip = { key: string; icon: any; label: string; value: string; tone?: 'live' | 'warn' | 'done' };
+const railChips = computed<RailChip[]>(() => {
+  const chips: RailChip[] = [];
+  const ex = chat.extras;
+  const gs = gitStatusData.value;
+  if (gs?.state === 'ok') {
+    const v = [gs.conflicts ? `${gs.conflicts}!` : '', gs.files.length ? `${gs.files.length}` : '', gs.ahead ? `↑${gs.ahead}` : '', gs.behind ? `↓${gs.behind}` : ''].filter(Boolean).join(' ');
+    chips.push({ key: 'git', icon: GitBranch, label: v ? 'Git' : 'Git clean', value: v, tone: gs.conflicts ? 'warn' : v ? undefined : 'done' });
+  }
+  if (ex?.goal) {
+    const n = ex.goal.tasks?.length || 0;
+    const d = n ? ex.goal.tasks.filter((t: any) => t.status !== 'pending').length : 0;
+    const st = ex.goal.status;
+    chips.push({ key: 'goal', icon: Target, label: 'Goal', value: n ? `${d}/${n}` : '', tone: st === 'active' ? 'live' : st === 'blocked' ? 'warn' : st === 'complete' ? 'done' : undefined });
+  }
+  const todos = (ex?.todos || []).filter((t: any) => t.status !== 'deleted');
+  if (todos.length) {
+    const d = todos.filter((t: any) => t.status === 'completed').length;
+    chips.push({ key: 'tasks', icon: ListChecks, label: 'Tasks', value: `${d}/${todos.length}`, tone: d === todos.length ? 'done' : todos.some((t: any) => t.status === 'in_progress') ? 'live' : undefined });
+  }
+  const procs = ex?.processes || [];
+  if (procs.length) {
+    const r = procs.filter(p => p.running).length;
+    chips.push({ key: 'proc', icon: SquareTerminal, label: 'Processes', value: r ? `${r} on` : `${procs.length}`, tone: r ? 'live' : 'done' });
+  }
+  if (reviewJobs.value.length) {
+    const r = runningReviews.value;
+    chips.push({ key: 'review', icon: ScanEye, label: 'Reviews', value: r ? `${r} on` : `${reviewJobs.value.length}`, tone: r ? 'live' : 'done' });
+  }
+  const kids = ex?.children || [];
+  if (kids.length) {
+    const r = kids.filter(childLive).length;
+    chips.push({ key: 'agents', icon: Bot, label: 'Subagents', value: r ? `${r} on` : `${kids.length}`, tone: r ? 'live' : 'done' });
+  }
+  return chips;
+});
+const railSummary = computed(() => railChips.value.map(c => `${c.label} ${c.value || (c.key === 'goal' ? chat.extras?.goal?.status.replaceAll('_', ' ') : '')}`.trim()).join(', ') || 'Session');
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
 const tileIds = ref<string[]>(readTiles());
@@ -92,6 +163,7 @@ onUnmounted(() => areaObserver?.disconnect());
 const showPrimary = computed(() => sessionPane || !!chat.session || chat.draftOpen || tileIds.value.length === 0);
 const tileCount = computed(() => (chat.session || chat.draftOpen ? 1 : 0) + tileIds.value.length);
 const tiled = computed(() => !sessionPane && tileCount.value > 1);
+watch([dockSide, tiled, mobile], () => updateLayoutMetrics());
 // A lone surviving iframe tile becomes the normal single view.
 watch([() => chat.session, () => chat.draftOpen, () => tileIds.value.length], () => {
   if (sessionPane || chat.session || chat.draftOpen || tileIds.value.length !== 1) return;
@@ -413,11 +485,10 @@ let stopViewport: (() => void) | undefined;
 onMounted(() => {
   if (mainRef.value && typeof ResizeObserver !== 'undefined') {
     railObserver = new ResizeObserver(([entry]) => {
-      const width = entry.contentRect.width;
-      if (width >= RAIL_DOCK_AT) railRoom.value = true;
-      else if (width < RAIL_UNDOCK_BELOW) railRoom.value = false;
+      updateLayoutMetrics(entry.contentRect.width);
     });
     railObserver.observe(mainRef.value);
+    updateLayoutMetrics();
   }
   stopViewport = trackViewport(document.getElementById('app')!);
   document.addEventListener('keydown', keyboard);
@@ -480,19 +551,44 @@ onUnmounted(() => {
           <ReviewInspector :job="reviewJob" @select="selectedReview = $event" @close="selectedReview = null" />
           <div class="work-area" ref="workAreaRef" :class="dockSide ? 'dock-side' : 'dock-bottom'">
           <div class="chat-body">
-            <div class="chat-column">
+            <div class="chat-column" :class="{ 'rail-docked': docked && !railMinimized }" :style="{ '--gutter-shift': gutterShift + 'px' }">
               <Transcript>
                 <GitStatus v-if="!docked && chat.session" />
               </Transcript>
               <Extras v-if="!docked" />
-              <div id="compose" class="mx-auto w-full max-w-4xl shrink-0 px-4 pb-3 pt-2 md:px-8">
+              <div id="compose" class="w-full shrink-0">
                 <Composer />
               </div>
+              <aside v-if="docked" id="session-rail" :class="{ collapsed: railMinimized }" aria-label="Session details">
+                <button
+                  v-if="railMinimized"
+                  type="button"
+                  class="rail-pill"
+                  :class="{ live: railLive }"
+                  aria-expanded="false"
+                  :aria-label="'Expand session widgets: ' + railSummary"
+                  :title="railSummary"
+                  @click="railMinimized = false"
+                >
+                  <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
+                    <component :is="c.icon" :size="13" aria-hidden="true" />
+                    <span v-if="c.value">{{ c.value }}</span>
+                  </span>
+                  <span v-if="!railChips.length" class="rail-chip">Session</span>
+                  <ChevronDown class="rail-pill-caret" :size="13" aria-hidden="true" />
+                </button>
+                <template v-else>
+                  <button type="button" class="rail-bar" aria-expanded="true" aria-label="Minimize session widgets" title="Minimize" @click="railMinimized = true">
+                    <span>Session</span>
+                    <span class="rail-toggle" aria-hidden="true"><ChevronUp :size="13" /></span>
+                  </button>
+                  <div class="rail-scroll">
+                    <GitStatus v-if="chat.session" docked />
+                    <Extras docked />
+                  </div>
+                </template>
+              </aside>
             </div>
-            <aside v-if="docked" id="session-rail" aria-label="Session details">
-              <GitStatus v-if="chat.session" docked />
-              <Extras docked />
-            </aside>
           </div>
           <WorkDock v-if="terminal.open && !sessionPane" :label="dock.pane === 'browser' ? 'Browser' : dock.pane === 'mail' ? 'Mail' : 'Terminal'">
             <BrowserPane v-if="browser.enabled && dock.pane === 'browser'" />
@@ -585,10 +681,102 @@ onUnmounted(() => {
 .chat-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .chat-column { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 #session-rail {
-  flex: 0 0 300px; min-height: 0; overflow: auto;
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 16px; border-left: 1px solid var(--border);
+  position: absolute;
+  top: 12px;
+  right: 36px;
+  z-index: 4;
+  width: 280px;
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
+#session-rail.collapsed {
+  width: auto;
+  max-width: 280px;
+  max-height: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.rail-bar {
+  flex: none;
+  width: 100%;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.rail-scroll {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+}
+.rail-toggle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--muted-foreground); }
+.rail-bar:hover { color: var(--muted-foreground); background: var(--accent); }
+.rail-bar:hover .rail-toggle { color: var(--foreground); }
+.rail-bar:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.rail-pill {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  position: relative;
+  min-height: 36px;
+  padding: 5px 36px 5px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms;
+}
+.rail-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+.rail-chip + .rail-chip { box-shadow: inset 1px 0 0 var(--border); }
+.rail-chip > svg { flex: none; color: var(--faint); }
+.rail-chip > span { color: var(--foreground); font-weight: 500; }
+.rail-chip.live > svg { color: var(--primary-text); }
+.rail-chip.done > span { color: var(--muted-foreground); }
+.rail-chip.warn > svg, .rail-chip.warn > span { color: var(--destructive); }
+/* Same spot as the minimize button in .rail-bar, so expand and minimize never move under the pointer. */
+.rail-pill-caret { position: absolute; top: 5px; right: 8px; box-sizing: content-box; width: 13px; height: 13px; padding: 5.5px; color: var(--muted-foreground); }
+.rail-pill:hover { border-color: var(--input); }
+.rail-pill:hover .rail-pill-caret { color: var(--foreground); }
+.rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .session-pane {
   flex: 1 1 0;
   width: 0;

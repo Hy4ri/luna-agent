@@ -114,7 +114,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 ### 2. Chat Transcript, Media, & Tool Renderers (`web/src/components/chat/`)
 
 - **Single Centered Column (`#log`):**
-  - Horizontal padding centers a `760px` reading column (`padding: 28px max(24px, calc((100% - 760px) / 2))`; `20px 16px` on mobile) with `24px` vertical message gap.
+  - Horizontal padding centers a `760px` reading column (`padding-left: max(24px, calc((100% - 760px) / 2 - var(--gutter-shift, 0px)))`, `padding-right: max(24px, calc((100% - 760px) / 2 + var(--gutter-shift, 0px)))`; `20px 16px` on mobile) with `24px` vertical message gap. `--gutter-shift` compensates for up to half the left sidebar offset when room allows so the reading column stays centered in the viewport rather than drifting right, while freeing extra right-gutter space for `#session-rail`.
   - Empty conversations display `#welcome` centered in the transcript.
   - Conversation context that is not a control is the last row **inside** the scroller, through the `Transcript` default slot (the undocked `GitStatus` footer). A wheel or touch drag that starts on it scrolls the transcript instead of dead-ending on fixed chrome, and it stays visible whenever the log is at the bottom. Only the extras dock, queued dock, and composer sit outside `#log`.
   - Floating scroll jump buttons (`.transcript-jumps`) anchor at `right: 24px; bottom: 140px` when scrolled away from the bottom.
@@ -156,10 +156,11 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - `<summary>` shows a compact context gauge (`#context-meter` with `#context-fill` colored `--ok`, `--warn` at `data-level="amber"`, or `--destructive` at `data-level="red"`), tabular percentage (`.usage-percent`), and session cost (`.usage-cost`, hidden on mobile).
   - Opening `<details>` reveals `.usage-details` popover (`width: min(320px, calc(100vw - 32px))`) with per-model token breakdowns and manual compaction controls.
 - **Session Rail (`#session-rail`):**
-  - Docks when the chat tile (`#main`, measured with `ResizeObserver`, not the window) is at least `1120px` wide. It undocks below `1080px`. The dead zone prevents flicker. Split-view tiles measure their own width.
-  - Shows only when there is content (goal, activity, or context/usage). Width `300px`, `border-left: 1px solid var(--border)`, scrolls on its own.
-  - Order: Session (`#statusbar` as an open `.rail-session` card), Git (`GitStatus`), Goal, Processes, Subagents, then Tasks (the long list goes last).
-  - Each item renders in exactly one place. When docked, `#extras` and the header `#statusbar` popover are not mounted. When undocked, they return collapsed.
+  - Floats as an absolute framed panel (`280px` wide, `top: 12px; right: 36px; max-height: calc(100% - 24px);` (shrinks to content; at most reaches the composer box bottom), clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 760) / 2 + gutterShift`) is at least `344px` (undocks below `328px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
+  - Shows only when there is active or rich content (goal, activity, review jobs, or dirty/unpushed `GitStatus`) and no right-side `WorkDock` is open. Any Git repository counts, clean or dirty, so wide screens never show `GitStatus` inline above the composer; it is inline only on narrow screens. Sessions with no repo and no widgets render zero side chrome.
+  - Expanded panel shrinks to fit its content and grows at most to the bottom of the composer box; longer content scrolls inside. Minimizes into a segmented pill (`luna.rail.collapsed`): one icon + value chip per item, in panel order (git, goal, tasks, processes, reviews, subagents); accent icon = live, red = conflict/blocked, muted = done.
+  - Order: Git (`GitStatus`), Goal, Processes, Review agents, Subagents, then Tasks (the long list goes last).
+  - Each item renders in exactly one place. When floating, `#extras` and the inline `GitStatus` are not mounted. When unfloated, they return inline.
 
 ### 4. Full Pages & Workspace Panels (`web/src/pages/`, `web/src/components/panels/`)
 
