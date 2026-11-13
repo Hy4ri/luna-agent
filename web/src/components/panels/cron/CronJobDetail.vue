@@ -33,14 +33,14 @@ const emit = defineEmits<{
     </div>
     <div class="cron-detail-actions">
       <button type="button" class="cron-btn" @click="emit('edit', detailJob)"><Pencil :size="15" /> Edit</button>
-      <button type="button" class="cron-btn" :disabled="busy || detailJob.lastRun?.status === 'running'" @click="emit('runNow', detailJob)">
+      <button type="button" class="cron-btn" :disabled="busy || detailJob.lastRun?.status === 'running'" :title="detailJob.lastRun?.status === 'running' ? 'Job is already running' : busy ? 'Action in progress…' : 'Run this job now'" @click="emit('runNow', detailJob)">
         <Play :size="15" /> Run now
       </button>
-      <button type="button" class="cron-btn" :disabled="busy" @click="emit('toggle', detailJob)">
+      <button type="button" class="cron-btn" :disabled="busy" :title="busy ? 'Action in progress…' : undefined" @click="emit('toggle', detailJob)">
         <Pause :size="15" /> {{ detailJob.enabled ? "Pause" : "Resume" }}
       </button>
       <button type="button" class="cron-btn" @click="emit('showHistory', detailJob)">Report history</button>
-      <button type="button" class="cron-btn danger" :disabled="busy || detailJob.lastRun?.status === 'running'" @click="emit('delete', detailJob)">
+      <button type="button" class="cron-btn danger" :disabled="busy || detailJob.lastRun?.status === 'running'" :title="detailJob.lastRun?.status === 'running' ? 'Cannot delete while running' : busy ? 'Action in progress…' : 'Delete job'" @click="emit('delete', detailJob)">
         <Trash2 :size="15" /> Delete
       </button>
     </div>

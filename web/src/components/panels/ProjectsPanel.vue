@@ -316,7 +316,7 @@ onMounted(async () => {
             <label class="pw-field">Worker directory<input v-model="newWorkerCwd" class="pw-mono" aria-label="Directory on worker" placeholder="/absolute/path/on/worker" autocomplete="off" spellcheck="false" /></label>
           </template>
           <div class="pw-row">
-            <button type="submit" class="pw-btn pw-primary" :disabled="!dirty || busy">{{ selected === 'new' ? 'Add project' : 'Save' }}</button>
+            <button type="submit" class="pw-btn pw-primary" :disabled="!dirty || busy" :title="busy ? 'Saving…' : !dirty ? 'No unsaved changes' : undefined">{{ selected === 'new' ? 'Add project' : 'Save project' }}</button>
             <span v-if="notice" class="pw-muted" role="status">{{ notice }}</span>
           </div>
           <p v-if="selected !== 'new'" class="pw-muted pw-small">Changes apply to new conversations only.</p>
@@ -333,7 +333,7 @@ onMounted(async () => {
           <form v-for="w in workers.list" :key="w.id" class="pw-machine" :data-machine="w.id" @submit.prevent="linkMachine(w.id)">
             <span class="pw-machine-name" :class="{ 'pw-muted': !w.online }">{{ w.name }}<template v-if="!w.online"> · Offline</template></span>
             <input v-model="machineDirs[w.id]" class="pw-mono" :aria-label="'Directory on ' + w.name" placeholder="/absolute/path on this machine" autocomplete="off" spellcheck="false" />
-            <button type="submit" class="pw-btn" :disabled="busy || !(machineDirs[w.id] ?? '').trim() || (machineDirs[w.id] ?? '').trim() === linkedDir(w.id)">{{ linkedDir(w.id) ? 'Save' : 'Link' }}</button>
+            <button type="submit" class="pw-btn" :disabled="busy || !(machineDirs[w.id] ?? '').trim() || (machineDirs[w.id] ?? '').trim() === linkedDir(w.id)" :title="busy ? 'Saving…' : !(machineDirs[w.id] ?? '').trim() ? 'Enter an absolute path' : (machineDirs[w.id] ?? '').trim() === linkedDir(w.id) ? 'No changes to save' : undefined">{{ linkedDir(w.id) ? 'Save path' : 'Link' }}</button>
             <button v-if="linkedDir(w.id)" type="button" class="pw-btn" :disabled="busy || machineCount < 2" :title="machineCount < 2 ? 'Last machine. Delete the project instead.' : 'Remove from this machine. Other machines keep the board.'" @click="unlinkMachine(w.id)">Remove</button>
           </form>
         </div>
@@ -349,7 +349,7 @@ onMounted(async () => {
           </div>
           <form class="pw-row" @submit.prevent="saveWorktreeSetup">
             <input v-model="worktreeSetup" class="pw-mono" aria-label="Worktree setup command" placeholder="Setup command, e.g. bun install --frozen-lockfile" autocomplete="off" spellcheck="false" />
-            <button type="submit" class="pw-btn" :disabled="busy || worktreeSetup.trim() === (current.worktreeSetup ?? '')">Save</button>
+            <button type="submit" class="pw-btn" :disabled="busy || worktreeSetup.trim() === (current.worktreeSetup ?? '')" :title="busy ? 'Saving…' : worktreeSetup.trim() === (current.worktreeSetup ?? '') ? 'No changes to save' : undefined">Save setup</button>
           </form>
         </div>
 
@@ -413,7 +413,8 @@ onMounted(async () => {
 .pw-items { flex: 1; overflow: auto; padding: 0 6px; display: grid; align-content: start; gap: 2px; }
 .pw-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: var(--radius); text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; min-width: 0; }
 .pw-item:hover { background: var(--sidebar-accent); }
-.pw-item[aria-current] { background: var(--acc-soft); color: var(--primary-text); }
+.pw-item[aria-current] { background: var(--acc-soft); color: var(--foreground); box-shadow: inset 2px 0 0 var(--primary-text); font-weight: 550; }
+.pw-item:focus-visible, .pw-btn:focus-visible, .pw-icon:focus-visible, .pw-switch:focus-visible, .pw-conv:focus-visible, .pw-back:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .pw-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-count { font-size: 12.5px; color: var(--muted-foreground); background: var(--muted); border-radius: var(--radius); padding: 1px 8px; }
 .pw-foot { padding: 10px; border-top: 1px solid var(--border); }
@@ -421,14 +422,15 @@ onMounted(async () => {
 .pw-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .pw-star { flex-shrink: 0; padding: 6px 8px; }
 .pw-title { margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
-.pw-sec { display: grid; gap: 10px; }
+.pw-sec { display: grid; gap: 12px; padding-top: 6px; }
+.pw-sec + .pw-sec { border-top: 1px solid var(--border); padding-top: 18px; }
 .pw-sec h4 { margin: 0; font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); font-weight: 600; }
 .pw-machine { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
 .pw-host { grid-template-columns: 120px minmax(0, 1fr) auto; }
 .pw-machine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .pw-field { display: grid; gap: 6px; font-size: 13px; color: var(--muted-foreground); }
 input, select.pw-input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: var(--radius); padding: 8px 10px; font-size: 14px; outline: none; }
-input:focus, select.pw-input:focus { border-color: var(--ring); }
+input:focus-visible, select.pw-input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring); }
 .pw-mono { font-family: var(--mono); font-size: 13.5px; }
 .pw-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); border-radius: var(--radius); font-size: 14px; cursor: pointer; }
@@ -449,14 +451,14 @@ input:focus, select.pw-input:focus { border-color: var(--ring); }
 .pw-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); border-radius: var(--radius); cursor: pointer; }
 .pw-icon:hover:not(:disabled) { color: var(--foreground); border-color: var(--muted-foreground); }
 .pw-icon:disabled, .pw-switch:disabled { opacity: .45; cursor: default; }
-.pw-switch { position: relative; flex-shrink: 0; width: 34px; height: 20px; border-radius: 999px; border: 1px solid var(--border); background: var(--muted); cursor: pointer; padding: 0; }
+.pw-switch { position: relative; flex-shrink: 0; width: 40px; height: 24px; border-radius: 999px; border: 1px solid var(--border); background: var(--muted); cursor: pointer; padding: 0; }
 .pw-switch[aria-checked="true"] { background: var(--primary); border-color: var(--primary); }
-.pw-thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--foreground); transition: transform .12s; }
-.pw-switch[aria-checked="true"] .pw-thumb { transform: translateX(14px); background: var(--primary-foreground); }
+.pw-thumb { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--foreground); transition: transform .12s; }
+.pw-switch[aria-checked="true"] .pw-thumb { transform: translateX(16px); background: var(--primary-foreground); }
 .pw-conv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: inherit; font-size: 14px; text-align: left; cursor: pointer; min-width: 0; }
 .pw-conv:hover { background: var(--secondary); }
 .pw-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pw-danger { border: 1px solid rgb(248 113 113 / .25); border-radius: var(--radius); padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+.pw-danger { border: 1px solid color-mix(in srgb, var(--destructive) 25%, transparent); border-radius: var(--radius); padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
 .pw-danger p { margin: 0; flex: 1; font-size: 13.5px; color: var(--muted-foreground); }
 .pw-muted { margin: 0; color: var(--muted-foreground); font-size: 13.5px; }
 .pw-small { font-size: 12.5px; }
@@ -465,6 +467,9 @@ input:focus, select.pw-input:focus { border-color: var(--ring); }
 .pw-back { display: inline-flex; align-items: center; gap: 4px; justify-self: start; background: transparent; border: 0; color: var(--muted-foreground); font-size: 14px; padding: 0; cursor: pointer; }
 @media (max-width: 760px) {
   .pw-list { width: 100%; border-right: 0; }
+  .pw-item { min-height: 44px; padding: 10px 12px; }
+  .pw-btn, .pw-back { min-height: 44px; }
+  .pw-icon { width: 36px; height: 36px; }
   .pw-machine { grid-template-columns: 1fr auto auto; }
   .pw-machine-name, .pw-machine > .pw-mono { grid-column: 1 / -1; }
   .pw-main { display: none; padding: 16px; }

@@ -575,9 +575,9 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
         <select v-model="priority" aria-label="Filter priority"><option value="">All priorities</option><option v-for="p in priorities" :key="p" :value="p">{{ p }}</option></select>
       </div>
       <div class="kb-toolbar-end">
-        <button class="kb-button" :disabled="locked || loading || !selectedPid" @click="toggleArchived"><ArrowLeft v-if="archived" :size="15" /><Archive v-else :size="15" />{{ archived ? 'Back to board' : 'Archived' }}</button>
+        <button class="kb-button" :disabled="locked || loading || !selectedPid" :title="!selectedPid ? 'Select a project first' : archived ? 'Return to active board' : 'View archived cards'" @click="toggleArchived"><ArrowLeft v-if="archived" :size="15" /><Archive v-else :size="15" />{{ archived ? 'Back to board' : 'Archived' }}</button>
         <button class="kb-icon" aria-label="Refresh board" title="Refresh board" :disabled="locked || loading" @click="loadProjects({ force: true }).then(() => loadBoard(false)).catch(e => error = message(e))"><RefreshCw :size="16" /></button>
-        <button v-if="!archived" class="kb-button kb-primary" :disabled="locked || loading || !selectedPid" title="New card (N)" @click="openEditor()"><Plus :size="15" />New card</button>
+        <button v-if="!archived" class="kb-button kb-primary" :disabled="locked || loading || !selectedPid" :title="!selectedPid ? 'Select a project first' : 'New card (N)'" @click="openEditor()"><Plus :size="15" />New card</button>
       </div>
     </div>
     <div v-if="!loading && !history.projects.length && !error" class="kb-empty"><p>Create a project to use its board.</p><button class="kb-button" @click="openPanel('projects')">Open projects</button></div>
@@ -599,8 +599,8 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
                     <span class="kb-grip" aria-hidden="true" title="Drag between columns; use the status selector with a keyboard"><GripVertical :size="16" /></span>
                   </div>
                   <div class="kb-card-heading">
-                    <button dir="auto" class="kb-card-title" :disabled="busy || loading" @click="openEditor(c)">{{ c.subject }}</button>
-                    <button type="button" class="kb-icon kb-card-attach" :aria-label="`Attach files to card #${c.id}`" :title="c.attachments.length ? `${c.attachments.length} attachments · Add files` : 'Attach files'" :disabled="busy || loading" @click="chooseFiles(c)"><Paperclip :size="14" /><span v-if="c.attachments.length">{{ c.attachments.length }}</span></button>
+                    <button dir="auto" class="kb-card-title" :disabled="busy || loading" :title="busy || loading ? 'Board is updating…' : undefined" @click="openEditor(c)">{{ c.subject }}</button>
+                    <button type="button" class="kb-icon kb-card-attach" :aria-label="`Attach files to card #${c.id}`" :title="busy || loading ? 'Board is updating…' : c.attachments.length ? `${c.attachments.length} attachments · Add files` : 'Attach files'" :disabled="busy || loading" @click="chooseFiles(c)"><Paperclip :size="14" /><span v-if="c.attachments.length">{{ c.attachments.length }}</span></button>
                   </div>
                   <p dir="auto" v-if="c.description" class="kb-description">{{ c.description }}</p>
                   <div v-if="c.labels.length" class="kb-labels"><span dir="auto" v-for="label in c.labels" :key="label" class="kb-tag">{{ label }}</span></div>
@@ -611,12 +611,12 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
                 </div>
                 <div class="kb-card-footer">
                   <span class="kb-state-dot" aria-hidden="true"><Check v-if="c.status === 'done'" :size="12" /></span>
-                  <select class="kb-move" :aria-label="`Move card #${c.id}`" :value="c.status" :disabled="busy || loading" @change="moveCard(c, ($event.target as HTMLSelectElement).value as Status)"><option dir="auto" v-for="[st, label] in columns" :key="st" :value="st">{{ label }}</option></select>
+                  <select class="kb-move" :aria-label="`Move card #${c.id}`" :value="c.status" :disabled="busy || loading" :title="busy || loading ? 'Board is updating…' : 'Change card column'" @change="moveCard(c, ($event.target as HTMLSelectElement).value as Status)"><option dir="auto" v-for="[st, label] in columns" :key="st" :value="st">{{ label }}</option></select>
                 </div>
               </article>
               <p v-if="!cardLists[status].length && !loading" class="kb-column-empty">{{ cards.some(c => c.status === status) ? 'No matches' : 'No cards' }}</p>
             </div>
-            <button class="kb-add" :aria-label="`Add card to ${title}`" :disabled="busy || loading" @click="openEditor(undefined, status)"><Plus :size="13" />Add card</button>
+            <button class="kb-add" :aria-label="`Add card to ${title}`" :disabled="busy || loading" :title="busy || loading ? 'Board is updating…' : `Add card to ${title}`" @click="openEditor(undefined, status)"><Plus :size="13" />Add card</button>
           </section>
         </div>
       </div>
@@ -778,6 +778,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb select { text-overflow:ellipsis; }
 .kb-button, .kb-icon { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid var(--border); background:var(--card); color:inherit; border-radius: var(--radius); padding:7px 11px; min-height:34px; line-height:1.3; }
 .kb-button:hover:not(:disabled), .kb-icon:hover:not(:disabled) { border-color:var(--muted-foreground); background:var(--secondary); }
+.kb-button:focus-visible, .kb-icon:focus-visible, .kb-add:focus-visible, .kb-card-title:focus-visible, .kb-move:focus-visible, .kb-link:focus-visible, .kb-chip button:focus-visible, .kb-archive-card:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
 .kb .kb-primary { background:var(--primary); color:var(--primary-foreground); border-color:var(--primary); }
 .kb .kb-primary:hover:not(:disabled) { background:var(--acc-strong); }
 .kb-icon { width:34px; flex:none; padding:7px; }
@@ -839,7 +840,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-priority.low { color:var(--sidebar-foreground); background:var(--secondary); }
 .kb-priority svg { flex:none; }
 .kb-labels { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin:0 0 12px; }
-.kb-tag { border:1px solid var(--input); background:var(--secondary); padding:2px 6px; border-radius: var(--radius); color:var(--sidebar-foreground); font-size:11px; line-height:1.4; max-width:100%; overflow-wrap:anywhere; }
+.kb-tag { border:1px solid var(--border); background:color-mix(in srgb,var(--secondary) 85%,var(--foreground) 5%); padding:2px 7px; border-radius: var(--radius); color:var(--foreground); font-size:11px; line-height:1.4; max-width:100%; overflow-wrap:anywhere; }
 .kb-owner { display:flex; align-items:flex-start; gap:6px; font-size:12px; color:var(--sidebar-foreground); overflow-wrap:anywhere; }
 .kb-owner svg { flex:none; margin-top:2px; }
 .kb-owner span { min-width:0; }
@@ -848,14 +849,14 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-blocked strong { font-weight:600; }
 .kb-blocked svg { flex:none; margin-top:1px; }
 .kb-card-footer { display:flex; align-items:center; gap:7px; border-top:1px solid var(--border); background:color-mix(in srgb,var(--status-color) 5%,var(--background)); padding:4px 9px; margin-top:auto; }
-.kb-card-attach { width:auto; min-width:30px; min-height:30px; padding:4px; font-size:11px!important; border-color:transparent; background:transparent; }
+.kb-card-attach { width:auto; min-width:32px; min-height:32px; padding:4px 6px; font-size:11px!important; border-color:transparent; background:transparent; }
 .kb-state-dot { width:12px; height:12px; flex:none; display:grid; place-items:center; color:var(--status-color); }
 .kb-state-dot:empty::after { content:''; width:6px; height:6px; background:currentColor; border-radius:50%; }
 .kb .kb-move { width:100%; min-width:0; font-size:12px; color:var(--status-color); border:1px solid transparent; padding:5px 0; background:transparent; border-radius: var(--radius); }
 .kb .kb-move:hover:not(:disabled) { background:var(--secondary); }
-.kb-add { display:flex; gap:6px; align-items:center; border:1px dashed var(--border); border-radius: var(--radius); padding:8px 10px; margin:10px 3px 0; color:var(--muted-foreground); text-align:left; background:transparent; font-size:12px!important; flex:none; }
-.kb-add:hover { color:var(--primary-text); border-color:var(--primary); }
-.kb-column-empty { color:var(--faint); font-size:12px; padding:10px 2px; }
+.kb-add { display:flex; gap:6px; align-items:center; border:1px dashed var(--input); border-radius: var(--radius); padding:8px 10px; margin:10px 3px 0; color:var(--muted-foreground); text-align:left; background:transparent; font-size:12px!important; flex:none; }
+.kb-add:hover { color:var(--primary-text); border-color:var(--primary-text); }
+.kb-column-empty { color:var(--muted-foreground); font-size:12px; padding:10px 2px; }
 .kb-drop { background:var(--acc-soft); outline:2px solid var(--primary); outline-offset:-2px; }
 .kb-drag-source { opacity:.3; }
 .kb-ghost { position:fixed; z-index:60; width:200px; padding:12px; border:1px solid var(--primary); border-radius: var(--radius); background:var(--card); color:var(--foreground); pointer-events:none; box-shadow:var(--shadow); overflow-wrap:anywhere; }.kb-ghost small { color:var(--muted-foreground); font:11px var(--mono); display:block; margin-bottom:8px; }.kb-ghost strong { font:550 13.5px/1.5 system-ui,sans-serif; }
@@ -890,7 +891,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-chips:focus-within { outline:2px solid var(--ring); outline-offset:1px; }
 .kb-editor .kb-chips input { flex:1; min-width:120px; width:auto; border:0; padding:3px 4px; background:transparent; outline:none; }
 .kb-chip { display:inline-flex; align-items:center; gap:4px; max-width:100%; padding:2px 2px 2px 7px; border:1px solid var(--input); border-radius: var(--radius); background:var(--secondary); font-size:12px; line-height:1.4; overflow-wrap:anywhere; animation:kb-pop 120ms ease-out; }
-.kb-chip button { display:grid; place-items:center; width:20px; height:20px; padding:0; border:0; background:transparent; color:var(--muted-foreground); border-radius: var(--radius); }
+.kb-chip button { display:grid; place-items:center; width:24px; height:24px; padding:0; border:0; background:transparent; color:var(--muted-foreground); border-radius: var(--radius); }
 .kb-chip button:hover:not(:disabled) { color:var(--foreground); background:var(--card); }
 .kb-dep-chip .kb-card-id { margin:0; font-size:11px; }
 .kb-dep-chip bdi { max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -948,7 +949,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-editor .kb-auto-opt { display:grid; gap:4px; font-size:12px; }
 .kb-auto-opt-label { font-size:11px; color:var(--muted-foreground); }
 .kb-activity { list-style:none; margin:0; padding:10px 0 0; border-top:1px solid var(--border); display:grid; gap:6px; font-size:12px; color:var(--muted-foreground); max-height:180px; overflow:auto; }
-.kb-activity time { display:block; font-size:11px; color:var(--faint); }
+.kb-activity time { display:block; font-size:11px; color:var(--muted-foreground); }
 .kb-activity strong { color:var(--foreground); font-weight:550; }
 .kb-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 @container kb (max-width:1023px) {
@@ -976,15 +977,18 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
   .kb-editing { padding-top:8px; padding-bottom:8px; gap:6px; }
   .kb-toolbar { gap:8px; }
   .kb-project { flex:1 0 100%; max-width:none; }
-  .kb-filters { flex:1 0 100%; min-width:0; }
-  .kb-search { max-width:none; min-width:100px; }
-  .kb-filters > select { flex:0 1 140px; }
+  .kb-filters { flex:1 0 100%; min-width:0; flex-wrap:wrap; }
+  .kb-search { flex:1 1 100%; max-width:none; min-width:0; min-height:44px; }
+  .kb-filters > select { flex:1 1 100%; min-height:44px; }
   .kb-toolbar-end { width:100%; margin-left:0; }
   .kb-toolbar-end .kb-primary { margin-left:auto; }
-  .kb-column { flex-basis:245px; min-width:245px; }
+  .kb-board { scroll-snap-type:x proximity; }
+  .kb-column { flex:0 0 min(300px, calc(100vw - 56px)); min-width:min(300px, calc(100vw - 56px)); scroll-snap-align:start; }
   .kb-archive-card { flex-wrap:wrap; gap:8px; }
   .kb-grip { height:36px; width:28px; }
-  .kb-button,.kb-icon,.kb-add { min-height:38px; }
+  .kb-button,.kb-icon,.kb-add,.kb-move { min-height:44px; }
+  .kb-icon { min-width:44px; }
+  .kb-chip button { width:32px; height:32px; }
   .kb-statusbar { height:30px; min-height:30px; gap:8px; font-size:11px; padding-top:4px; }
   .kb-status-count { display:none; }
 }

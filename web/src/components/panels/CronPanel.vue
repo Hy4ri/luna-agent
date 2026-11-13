@@ -368,13 +368,13 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="cron-tab-actions">
-        <button v-if="panel.tab === 'reports' && inbox.length" type="button" class="cron-btn" :disabled="busy" @click="markAllRead">
+        <button v-if="panel.tab === 'reports' && inbox.length" type="button" class="cron-btn" :disabled="busy" :title="busy ? 'Action in progress…' : 'Mark all reports read'" @click="markAllRead">
           <CheckCheck :size="15" /> Mark all read
         </button>
         <button v-if="panel.tab === 'jobs'" type="button" class="cron-btn primary" @click="newJob">
           <Plus :size="15" /> New job
         </button>
-        <button v-if="panel.tab === 'history'" type="button" class="cron-btn" :disabled="busy" @click="guard(() => loadHistory(true))">
+        <button v-if="panel.tab === 'history'" type="button" class="cron-btn" :disabled="busy" :title="busy ? 'Refreshing…' : 'Refresh history'" @click="guard(() => loadHistory(true))">
           <RefreshCw :size="15" /> Refresh
         </button>
       </div>

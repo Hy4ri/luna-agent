@@ -30,10 +30,10 @@ const emit = defineEmits<{
       <span class="cron-detail-time">{{ date(detail.endedAt || detail.startedAt) }}</span>
     </div>
     <div class="cron-detail-actions">
-      <button v-if="detail.readAt !== null" type="button" class="cron-btn" :disabled="busy" @click="emit('markUnread', detail)">
+      <button v-if="detail.readAt !== null" type="button" class="cron-btn" :disabled="busy" :title="busy ? 'Action in progress…' : 'Move back to Reports inbox'" @click="emit('markUnread', detail)">
         Mark unread
       </button>
-      <button v-if="reportJob" type="button" class="cron-btn" :disabled="busy" @click="emit('runNow', reportJob)">
+      <button v-if="reportJob" type="button" class="cron-btn" :disabled="busy" :title="busy ? 'Action in progress…' : 'Run this job now'" @click="emit('runNow', reportJob)">
         <Play :size="15" /> Run now
       </button>
       <button type="button" class="cron-btn primary" @click="emit('continueRun', detail)">Continue in chat</button>
