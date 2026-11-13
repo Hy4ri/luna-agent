@@ -156,10 +156,11 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - `<summary>` shows a compact context gauge (`#context-meter` with `#context-fill` colored `--ok`, `--warn` at `data-level="amber"`, or `--destructive` at `data-level="red"`), tabular percentage (`.usage-percent`), and session cost (`.usage-cost`, hidden on mobile).
   - Opening `<details>` reveals `.usage-details` popover (`width: min(320px, calc(100vw - 32px))`) with per-model token breakdowns and manual compaction controls.
 - **Session Rail (`#session-rail`):**
-  - Docks when the chat tile (`#main`, measured with `ResizeObserver`, not the window) is at least `1120px` wide. It undocks below `1080px`. The dead zone prevents flicker. Split-view tiles measure their own width.
-  - Shows only when there is content (goal, activity, or context/usage). Width `300px`, `border-left: 1px solid var(--border)`, scrolls on its own.
-  - Order: Session (`#statusbar` as an open `.rail-session` card), Git (`GitStatus`), Goal, Processes, Subagents, then Tasks (the long list goes last).
-  - Each item renders in exactly one place. When docked, `#extras` and the header `#statusbar` popover are not mounted. When undocked, they return collapsed.
+  - Floats as an absolute card stack (`252px` wide, `top: 12px; right: 36px;`, clearing `.user-rail` and `#jump`) in the unused right gutter when the chat tile (`#main`, measured with `ResizeObserver`, not the window) is at least `1360px` wide (undocks below `1320px`; the dead zone prevents flicker). Split-view tiles measure their own width.
+  - Shows only when there is active or rich content (goal, activity, review jobs, or dirty/unpushed `GitStatus`) and no right-side `WorkDock` is open. Empty sessions and clean-repo sessions render zero side chrome (`GitStatus` stays inline in `Transcript`).
+  - Can be minimized into a compact live summary pill in the top-right corner (`luna.rail.collapsed`).
+  - Order: Git (`GitStatus`), Goal, Processes, Review agents, Subagents, then Tasks (the long list goes last).
+  - Each item renders in exactly one place. When floating, `#extras` and the inline `GitStatus` are not mounted. When unfloated, they return inline.
 
 ### 4. Full Pages & Workspace Panels (`web/src/pages/`, `web/src/components/panels/`)
 

@@ -995,13 +995,19 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .activity .spin { animation: activity-spin 1s linear infinite; color: var(--primary-text); }
 @keyframes activity-spin { to { transform: rotate(360deg); } }
 @media (max-width: 420px) { .activity-label { visibility: hidden; } }
-/* Session rail (#88): the same cards, expanded, in a right column. */
-#rail-extras { display: flex; flex-direction: column; gap: 12px; font-size: 14.5px; font-weight: 440; }
+/* Floating session gutter (#88): the same cards, floating in the right margin when active. */
+#rail-extras { display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; font-weight: 440; }
+#rail-extras:empty { display: none; }
 .chat-extras .activity.docked { padding: 0; border: 0; background: transparent; }
 /* Docked: each section is its own card; live work first, the long task list last. */
-.activity.docked .activity-body { max-height: none; overflow: visible; border-top: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.activity.docked .activity-section { margin: 0; padding: 2px 10px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.activity.docked .activity-body { max-height: none; overflow: visible; border-top: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.activity.docked .activity-section { margin: 0; padding: 2px 10px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
 .activity.docked .activity-section[aria-label='Tasks'] { order: 1; }
+.chat-extras.docked .goal-card { padding: 10px 12px; box-shadow: var(--shadow); }
+.chat-extras.docked .goal-objective { margin: 8px 0 6px; font-size: 13px; }
+.chat-extras.docked .goal-details summary { min-height: 30px; }
+.chat-extras.docked .goal-actions { margin-top: 8px; }
+.chat-extras.docked .goal-actions button { min-height: 30px; padding: 4px 10px; font-size: 12.5px; }
 .rail-session { display: grid; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); font-size: 12px; color: var(--muted-foreground); }
 .rail-session h4 { display: flex; justify-content: space-between; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .todo-item { display: flex; gap: 8px; padding: 6px 0; align-items: flex-start; }
