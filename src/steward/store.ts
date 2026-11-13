@@ -1,4 +1,4 @@
-// Steward: suggestion cards in steward.db. A card is filed by a detector (or the model pass) and decided by m57.
+// Steward: suggestion cards in steward.db. A card is filed by a detector (or the model pass) and decided by the user.
 // Dedupe is by fingerprint: a dismissed, done, or failed card is never filed again.
 import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";

@@ -58,7 +58,7 @@ export function skillsUnused(skills: { name: string; managed: boolean; modified:
     evidence: [], payload: { name: s.name } }));
 }
 
-/** Messages a peer session or the runtime wrote. They are not prompts m57 typed. */
+/** Messages a peer session or the runtime wrote. They are not prompts the user typed. */
 export const isMachineMessage = (t: string) => /^\[message from session #\d+/.test(t) || t.startsWith("Steward suggests:");
 const norm = (t: string) => t.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
 export interface UserMsg { conv: number; ts: number; text: string }

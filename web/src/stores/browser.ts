@@ -9,7 +9,7 @@ export interface BrowserTabInfo {
   tabId: string;
   url: string;
   owner: "user" | "agent";
-  /** m57 can click and type. False: view only. */
+  /** You can click and type. False: view only. */
   input: boolean;
   /** Frames are pushed. False: a screenshot about once a second. */
   live: boolean;
@@ -21,7 +21,7 @@ export const browser = reactive({
   session: "",
   tabs: [] as BrowserTabInfo[],
   active: "",
-  /** m57 pressed New tab: a blank tab shows until he enters an address. It does not start from the active tab's page. */
+  /** You pressed New tab: a blank tab shows until you enter an address. It does not start from the active tab's page. */
   draft: false,
   loading: false,
   error: "",
@@ -78,7 +78,7 @@ export function selectBrowserTab(tabId: string) {
   browser.draft = false;
 }
 
-/** m57 asked to see a tab from the transcript: open the dock on the Browser pane and select the tab when it still exists. */
+/** You asked to see a tab from the transcript: open the dock on the Browser pane and select the tab when it still exists. */
 export async function showBrowserTab(session: string, tabId?: string) {
   if (!session || browser.session !== session) return;
   dock.pane = "browser";
@@ -109,7 +109,7 @@ export function applyMeta(tabId: string, meta: Partial<BrowserTabInfo>) {
   if (t) Object.assign(t, meta);
 }
 
-/** Luna used a browser tool. A new tab opens the dock on the Browser pane, so m57 watches it live. */
+/** Luna used a browser tool. A new tab opens the dock on the Browser pane, so you watch it live. */
 export async function agentBrowserActivity(session: string, opened: boolean) {
   if (!session || browser.session !== session) return;
   const known = new Set(browser.tabs.map(t => t.tabId));

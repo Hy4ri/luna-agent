@@ -266,3 +266,4 @@ test("deprecated wife config key and extension name migrate to steward", () => {
   expect(c.steward.staleDays).toBe(7);
   expect("wife" in c).toBe(false);
 });
+

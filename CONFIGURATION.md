@@ -1304,8 +1304,8 @@ Routes (Bearer token; a terminal that belongs to another session returns 404):
 - `start` waits until the program draws its first screen (up to 8 s). `send` returns when the program has answered the input and gone quiet; with `pattern` it waits (up to `timeoutSec`) until a new match shows, so slow programs such as AI chat TUIs return their reply. A match is new when its line shows more often than before the input; scrolling an old match does not count.
 - Keys accept names (Enter, Up, F5, PgDn), modifiers in common spellings (Ctrl-C, C-c, ^C, M-x, Shift-Tab, Shift-Up, Ctrl-Left), single characters (j, /), and repeats (Down*3). Multi-line `text` is sent as one bracketed paste when the program enabled it, else as Enter per line.
 - Each screen ends with a `Highlighted:` line that names the spans drawn on a distinct background, such as the selected menu item, list row, or button; spans of only border or shading glyphs are skipped. Runs of four or more blank rows show as `[rows N-M blank]`.
-- Luna's terminals appear in the dock, with only `terminal.agent` on too, and m57 watches them live. One side types at a time: **Take over** moves the keyboard to m57 and Luna's input is refused until he presses **Give to Luna**. While Luna types, m57's keys and sizes are dropped.
-- m57 can **Share with Luna** one of his own shells. She can read it; she can type only after he gives it to her. **Stop sharing** hides it again.
+- Luna's terminals appear in the dock, with only `terminal.agent` on too, and you watch them live. One side types at a time: **Take over** moves the keyboard to you and Luna's input is refused until you press **Give to Luna**. While Luna types, your keys and sizes are dropped.
+- You can **Share with Luna** one of your own shells. She can read it; she can type only after you give it to her. **Stop sharing** hides it again.
 - Terminals do not survive a daemon restart.
 
 ## Web frontend development
@@ -1777,7 +1777,7 @@ the board prompt section is omitted. The `board` tool remains available for expl
 
 ## Board events
 
-A card whose owner is `session <id>` sends that session short events. Free-text owners such as `m57` get none.
+A card whose owner is `session <id>` sends that session short events. Free-text owners such as `Alex` get none.
 An idle session starts a new turn. A busy session queues the event. A session that no longer exists loses the owner.
 
 - A user change through `PATCH /v1/projects/:id/cards/:cardId` (status, archive, owner) sends one line to the owner.

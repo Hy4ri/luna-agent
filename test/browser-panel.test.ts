@@ -119,7 +119,7 @@ test("tabs the tools open belong to the session and drop on close", async () => 
   expect(panel.list(7)).toStrictEqual([]);
 });
 
-test("browser tabs are two-way always: Luna and m57 can both act without locking", async () => {
+test("browser tabs are two-way always: Luna and the user can both act without locking", async () => {
   const panel = new BrowserPanel({ enabled: () => true, resolve: async () => fakeProvider().provider });
   const { provider, calls } = fakeProvider({ input: async () => undefined });
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
@@ -149,7 +149,7 @@ test("list route is scoped to the session and reports when the panel is off", as
   } finally { await s.cleanup(); }
 });
 
-test("m57 opens and closes a tab from the panel", async () => {
+test("the user opens and closes a tab from the panel", async () => {
   const s = await setup({ input: async () => undefined });
   try {
     const sid = await s.session();
@@ -261,7 +261,7 @@ test("a closed tab tells the socket and ends the feed", async () => {
   } finally { await s.cleanup(); }
 });
 
-test("browser list shows the session's tabs, including the ones m57 opens and closes", async () => {
+test("browser list shows the session's tabs, including the ones the user opens and closes", async () => {
   const { provider } = fakeProvider();
   const panel = new BrowserPanel({ enabled: () => true, resolve: async () => provider });
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
@@ -269,9 +269,9 @@ test("browser list shows the session's tabs, including the ones m57 opens and cl
   const run = async (args: Record<string, unknown>, conversationId = "7") =>
     JSON.parse(((await (tools.get("browser")!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text: string }[] }>)(args, { conversationId }, {})).output[0]!.text));
   await run({ action: "open", url: "https://x.test/" });
-  const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
+  const mine = await panel.open(7, null, "https://example.test/", new AbortController().signal);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
-  expect((await run({ action: "list" })).tabs.map((t: { tabId: string; url: string; openedBy: string }) => [t.tabId, t.url, t.openedBy])).toStrictEqual([["t1", "https://x.test/", "Luna"], [mine.tabId, "https://m57.test/", "m57"]]);
+  expect((await run({ action: "list" })).tabs.map((t: { tabId: string; url: string; openedBy: string }) => [t.tabId, t.url, t.openedBy])).toStrictEqual([["t1", "https://x.test/", "Luna"], [mine.tabId, "https://example.test/", "the user"]]);
   await panel.close(7, mine.tabId);
   expect((await run({ action: "list" })).tabs.map((t: { tabId: string }) => t.tabId)).toStrictEqual(["t1"]);
 });
@@ -303,7 +303,7 @@ test("browser list without the panel says how to turn it on", async () => {
   await rejectsWith((tab.execute as (a: unknown, api: unknown, c: unknown) => Promise<unknown>)({ action: "list" }, { conversationId: "7" }, {}), /browser\.panel/);
 });
 
-test("what m57 does in the panel reaches Luna once, on her next browser call", async () => {
+test("what the user does in the panel reaches Luna once, on her next browser call", async () => {
   const { provider } = fakeProvider({ input: async () => undefined });
   const panel = new BrowserPanel({ enabled: () => true, resolve: async () => provider });
   const ext = createBrowserToolsExtension(() => ({ provider: "fake" }), new Map([["fake", provider]]), { panel });
@@ -311,11 +311,11 @@ test("what m57 does in the panel reaches Luna once, on her next browser call", a
   const run = async (name: string, args: Record<string, unknown>) =>
     (await (tools.get(name)!.execute as (a: unknown, api: unknown, c: unknown) => Promise<{ output: { text?: string }[] }>)(args, { conversationId: "7" }, {})).output.map(o => o.text ?? "").join("\n");
   await run("browser", { action: "open", url: "https://x.test/" });
-  const mine = await panel.open(7, null, "https://m57.test/", new AbortController().signal);
+  const mine = await panel.open(7, null, "https://example.test/", new AbortController().signal);
   await panel.close(7, mine.tabId);
   await panel.open(8, null, "https://other.test/", new AbortController().signal);
   const first = await run("browser", { action: "snapshot", tabId: "t1" });
-  expect(first).toMatch(new RegExp(`m57 opened ${mine.tabId} at https://m57.test/; m57 closed ${mine.tabId}`));
+  expect(first).toMatch(new RegExp(`the user opened ${mine.tabId} at https://example.test/; the user closed ${mine.tabId}`));
   expect(first).not.toMatch(/other\.test/);
   expect(await run("browser", { action: "snapshot", tabId: "t1" })).not.toMatch(/in the panel/);
 });

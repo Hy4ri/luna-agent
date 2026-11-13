@@ -46,7 +46,7 @@ export class TerminalService {
 
   enabled() { return this.options.enabled(); }
   agentEnabled() { return this.options.agentEnabled?.() ?? false; }
-  /** m57 may open and watch this terminal: any terminal with `terminal.user`, Luna's own with `terminal.agent`. */
+  /** The user may open and watch this terminal: any terminal with `terminal.user`, Luna's own with `terminal.agent`. */
   viewable(info: TerminalInfo | undefined) { return !!info && (this.enabled() || (info.owner === "agent" && this.agentEnabled())); }
   /** Replace the browser Origin policy. The daemon sets it once it knows which origins it serves. */
   setOriginPolicy(policy: OriginPolicy) { this.options.allowOrigin = policy; }

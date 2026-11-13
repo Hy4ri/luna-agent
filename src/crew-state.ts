@@ -58,7 +58,7 @@ export function crewNoticeId(r: CrewReport): string | undefined {
     ? `crew-block:${r.id}:${r.boundary ?? 0}` : `crew-term:${r.id}:${r.requestId ?? "none"}:${r.state}`;
 }
 
-/** State of the lead's latest task in member `id`. Turns m57 starts directly in the member do not count as done. */
+/** State of the lead's latest task in member `id`. Turns the user starts directly in the member do not count as done. */
 export async function readCrewReport(tx: Tx, lead: ConversationId, id: number): Promise<CrewReport> {
   const cid = id as ConversationId;
   const row = (await tx.doc(Crew, lead)).members.find(m => m.id === id);

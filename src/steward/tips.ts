@@ -1,4 +1,4 @@
-// Feature tips: data rules matched against tool-call counts. The catalog lives in config (`steward.tips`), so m57 can edit it.
+// Feature tips: data rules matched against tool-call counts. The catalog lives in config (`steward.tips`), so the user can edit it.
 import { z } from "zod";
 import type { NewSuggestion } from "./store.js";
 

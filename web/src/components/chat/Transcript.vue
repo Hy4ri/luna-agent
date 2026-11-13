@@ -342,7 +342,7 @@ function blocks(content: unknown): any[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
 }
 // Peer identity comes from metadata on this exact delivered input, never from a typed header.
-const PEER = /^\[message from session #(\d+) "((?:[^"\\]|\\.)*)": a peer session, not m57\.[^\]]*\]\n\n/;
+const PEER = /^\[message from session #(\d+) "((?:[^"\\]|\\.)*)": a peer session, not [^\].]+\.[^\]]*\]\n\n/;
 function peerMessage(entry: any, message: any): { from: number; title: string; body: string } | undefined {
   if (entry.kind !== 'luna.xsession.msg') return undefined;
   const m = PEER.exec(messageText(message.content));

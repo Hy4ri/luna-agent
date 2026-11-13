@@ -225,7 +225,7 @@ export function registerSessionConfig(app: Hono, ctx: RouteCtx): void {
         type: "input",
         whenBusy: "followUp",
         requestId: result.requestId,
-        content: `m57 allowed up to ${result.maxHops} messages in the current exchange with session #${to.data}. Retry the blocked session_send if this exchange is still current. This approval does not grant merge, publish, or delete permission.`,
+        content: `The user allowed up to ${result.maxHops} messages in the current exchange with session #${to.data}. Retry the blocked session_send if this exchange is still current. This approval does not grant merge, publish, or delete permission.`,
         entry: { kind: XSESSION_APPROVED, data: { to: to.data, anchor: body.data.anchor, maxHops: result.maxHops } },
       },
       context,

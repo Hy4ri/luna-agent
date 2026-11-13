@@ -97,7 +97,7 @@ export function createDelegateExtension(settings: () => DelegateSettings = () =>
           "Delegate work to parallel subagent conversations. spawn (optionally fork=true to inherit this conversation's history) returns a child id; " +
           "spawn several, keep working, then wait to gather their answers. steer redirects a running child; stop aborts one; list shows yours. " +
           "A child state needs_input or needs_approval means it stopped for you; wait returns at once, show gives the full request. " +
-          "You cannot approve for m57: relay the request to m57, then pass his answer with steer. A child never grants approval. " +
+          "You cannot approve for the user: relay the request to the user, then pass their answer with steer. A child never grants approval. " +
           "stop is final until you steer the child. spawn accepts worktree/base (own git worktree), notes (a facts file for the brief) and timeoutSec (budget). " +
           "New children must submit a schema-validated delegate_result; the default schema is a receipt. Schema validation is not work verification. profiles lists configured roles; usage reports this parent and its children from existing usage ledgers.",
         parameters,

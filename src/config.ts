@@ -179,7 +179,7 @@ export const ConfigSchema = z
     }).prefault({}),
     browser: z.strictObject({
       provider: z.enum(["disabled", "camofox", "moli", "chromium"]).default("disabled"),
-      /** m57's live view of the browser Luna drives, in the web UI. Off by default: the browser may hold logins. */
+      /** The user's live view of the browser Luna drives, in the web UI. Off by default: the browser may hold logins. */
       panel: z.boolean().default(false),
       /** browser_act evaluate: Luna runs JavaScript in pages. Off by default: pages may hold logins. */
       evaluate: z.boolean().default(false),
@@ -196,9 +196,9 @@ export const ConfigSchema = z
     }).prefault({}),
     /** Interactive terminals. Off by default: a terminal has the same host access as bash. */
     terminal: z.strictObject({
-      /** m57's shells in the web UI. */
+      /** The user's shells in the web UI. */
       user: z.boolean().default(false),
-      /** Luna's `terminal` tool for interactive programs, and terminals m57 shares with her. */
+      /** Luna's `terminal` tool for interactive programs, and terminals the user shares with her. */
       agent: z.boolean().default(false),
     }).prefault({}),
     codemode: z.strictObject({
@@ -385,3 +385,4 @@ export function loadConfig(path = process.env.LUNA_CONFIG): LunaConfig {
   try { raw = JSON.parse(readFileSync(file, "utf8")); } catch (e) { throw new Error(`${file}: ${configDiagnostic(e)}`); }
   return { ...parseConfig(raw, dirname(file)), configPath: file };
 }
+

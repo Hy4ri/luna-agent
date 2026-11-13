@@ -11,7 +11,7 @@ import type { VtScreen } from "./vt-model.js";
 import { StringEnum } from "../string-enum.js";
 
 export const TERMINAL_TOOL = "terminal";
-const OFF = "Luna's terminal tool is off. m57 can turn on Settings > Tools > Terminal (terminal.agent). Use bash for commands that do not need a TTY.";
+const OFF = "Luna's terminal tool is off. The user can turn on Settings > Tools > Terminal (terminal.agent). Use bash for commands that do not need a TTY.";
 const MAX_WAIT_MS = 60_000;
 /** After input, wait this long without output before the screen counts as settled. */
 const SETTLE_MS = 300;
@@ -210,7 +210,7 @@ const DESCRIPTION =
   "NEVER use it for commands that run and exit, builds, tests, scripts, file reads, searches, or long jobs: use bash, or process for background work. Those return clean output and exit codes; a terminal returns a screen picture. " +
   "start: run `command` (one program, not a bare shell) in a new terminal and return its screen. send: press `keys`, type `text`, optionally press Enter, then return the settled screen (with `pattern`: the screen once it matches). read: the current screen, optionally with scrollback lines. " +
   "Screens list the highlighted spans (the selected menu item, list row, or button) after the rows. " +
-  "wait: until `pattern` (regex) shows on screen, the program exits, or output stops for idleMs; at most 60 s. resize, list, stop. m57 sees the terminal live and can take control; while he has it, send is refused. " +
+  "wait: until `pattern` (regex) shows on screen, the program exits, or output stops for idleMs; at most 60 s. resize, list, stop. The user sees the terminal live and can take control; while they have it, send is refused. " +
   "Terminals end when the daemon restarts.";
 
 export function createAgentTerminalExtension(o: AgentTerminalOptions) {
@@ -332,14 +332,14 @@ export function createAgentTerminalExtension(o: AgentTerminalOptions) {
           }
           case "list": {
             const rows = registry.agentList(session).map(t => ({
-              id: t.id, command: t.command ?? `${t.shell} (shared by m57)`, status: t.status, exitCode: t.exitCode, cwd: t.cwd,
+              id: t.id, command: t.command ?? `${t.shell} (shared by the user)`, status: t.status, exitCode: t.exitCode, cwd: t.cwd,
             }));
             return out(rows.length ? JSON.stringify(rows) : "No terminals in this session.");
           }
           case "stop": {
             const id = need("id");
             const info = registry.agentScreen(id, session).info;
-            if (info.owner !== "agent") throw new Error("This is m57's terminal. Only he can close it.");
+            if (info.owner !== "agent") throw new Error("This is the user's terminal. Only they can close it.");
             const last = screen(id, session);
             registry.close(id);
             return out(`Closed.\n${last}`);

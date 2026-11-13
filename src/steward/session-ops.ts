@@ -1,5 +1,5 @@
 // Housekeeping on other sessions, for the steward tool: finish todos, cancel open questions, clear a stale status, and pause or clear a goal.
-// Each function runs inside one transaction and changes only the session it is given. The tool decides which sessions m57 named.
+// Each function runs inside one transaction and changes only the session it is given. The tool decides which sessions the user named.
 import type { ConversationId, Tx } from "@earendil-works/pi-durable";
 import { AskDoc } from "../ask.js";
 import { closeWait } from "../analytics/waits.js";
@@ -67,6 +67,6 @@ export async function changeGoal(tx: Tx, id: number, change: GoalChange, reason?
   if (change === "clear") { doc.goal = null; return ""; }
   if (doc.goal.status === "complete") return "the goal is already complete";
   doc.goal.status = change === "pause" ? "paused" : "complete";
-  doc.goal.statusReason = (reason?.trim() || (change === "pause" ? "paused by Steward for m57" : "completed by Steward for m57")).slice(0, 300);
+  doc.goal.statusReason = (reason?.trim() || (change === "pause" ? "paused by Steward for the user" : "completed by Steward for the user")).slice(0, 300);
   return "";
 }

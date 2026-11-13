@@ -108,7 +108,7 @@ export function dropTab(id: string) {
   if (terminal.active === id) terminal.active = (terminal.tabs[index] ?? terminal.tabs[index - 1])?.id ?? "";
 }
 
-/** Luna used her terminal tool. A new terminal opens the dock on it, so m57 watches it live. */
+/** Luna used her terminal tool. A new terminal opens the dock on it, so you watch it live. */
 export async function agentTerminalActivity(session: string, started: boolean) {
   if (!session || terminal.session !== session) return;
   const known = new Set(terminal.tabs.map(t => t.id));
@@ -118,7 +118,7 @@ export async function agentTerminalActivity(session: string, started: boolean) {
   if (fresh) { terminal.active = fresh.id; terminal.open = true; }
 }
 
-/** m57 asked to see a terminal from the transcript: open the dock on the Terminal pane and select it when it still exists. */
+/** You asked to see a terminal from the transcript: open the dock on the Terminal pane and select it when it still exists. */
 export async function showTerminal(session: string, id?: string) {
   if (!session || terminal.session !== session) return;
   dock.pane = "terminal";

@@ -54,7 +54,7 @@ export class StewardService {
 
   /** Run every detector once. File new cards, refresh open ones, and withdraw open cards that no longer apply. */
   /**
-   * `manual`: m57 pressed Scan now, so held cards fill the page up to the daily cap even when today's cap is used.
+   * `manual`: the user pressed Scan now, so held cards fill the page up to the daily cap even when today's cap is used.
    * `session`: Ask Steward about one session. Every card about it shows now, held or new. `matched` counts them.
    */
   scan(opts: { session?: number; manual?: boolean } = {}): { filed: number; withdrawn: number; held: number; shown: number; matched: number } {

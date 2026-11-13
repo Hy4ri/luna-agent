@@ -18,13 +18,13 @@ const SESSION_ACTIONS = ["session", "todos_done", "cancel_questions", "clear_sta
 const Params = Type.Object({
   action: StringEnum(["list", "suggest", "scan", ...CARD_ACTIONS, ...SESSION_ACTIONS], { description: "list: cards with id, evidence and payload. suggest: file one new card. scan: run the detectors now. agree, dismiss, snooze: act on the cards in ids. session: show a session's open todos, questions, goal and status. todos_done, cancel_questions, clear_status, goal, edit_session: clean up that session." }),
   status: Type.Optional(StringEnum(STEWARD_STATUSES, { description: "list: only cards with this status." })),
-  ids: Type.Optional(Type.Array(Type.Number(), { description: "agree, dismiss, snooze: card ids m57 named." })),
-  confirm: Type.Optional(Type.Boolean({ description: "agree: true only after m57 confirmed a delete or remove card by id." })),
+  ids: Type.Optional(Type.Array(Type.Number(), { description: "agree, dismiss, snooze: card ids the user named." })),
+  confirm: Type.Optional(Type.Boolean({ description: "agree: true only after the user confirmed a delete or remove card by id." })),
   targets: Type.Optional(Type.Array(Type.Number(), { description: "agree on a batch card: only these session ids." })),
   reason: Type.Optional(StringEnum(DISMISS_REASONS, { description: "dismiss (required): wrong, not_now (snooze 30 days), already_done, dont_care_kind, too_aggressive." })),
-  note: Type.Optional(Type.String({ description: "dismiss: m57's words. cancel_questions: note to the waiting session. goal: reason." })),
+  note: Type.Optional(Type.String({ description: "dismiss: the user's words. cancel_questions: note to the waiting session. goal: reason." })),
   days: Type.Optional(Type.Number({ description: "snooze: 1 to 365." })),
-  session: Type.Optional(Type.Number({ description: "scan: one session. session actions: the target session id m57 named." })),
+  session: Type.Optional(Type.Number({ description: "scan: one session. session actions: the target session id the user named." })),
   todo_ids: Type.Optional(Type.Array(Type.Number(), { description: "todos_done: todo ids to mark completed." })),
   all: Type.Optional(Type.Boolean({ description: "todos_done: true marks every open todo completed." })),
   goal: Type.Optional(StringEnum(["pause", "complete", "clear"], { description: "goal: what to do with the session's goal." })),
@@ -76,7 +76,7 @@ export function buildCard(a: Args, sessionExists: (id: number) => boolean): NewS
     payload: a.kind === "new_project" ? { worker: "main", ...p } : p, source: "model", ruleId: `model:${a.kind}` };
 }
 
-/** One card in full: what list shows, so a session can go through the cards with m57. */
+/** One card in full: what list shows, so a session can go through the cards with the user. */
 export function cardText(c: Suggestion): string {
   const lines = [`#${c.id} ${c.fingerprint} [${c.status}] ${c.title}`];
   if (c.status === "open" || c.status === "snoozed") {
@@ -98,8 +98,8 @@ export interface StewardToolDeps {
 const DESCRIPTION = [
   "Steward suggestion cards and session housekeeping.",
   "list shows cards with id, body, evidence and payload; it also stops you from filing a card again. suggest files one card (kind skill, memory, feature_tip, new_project, new_rule, reminder_unscheduled) with evidence sessions. scan runs the detectors now.",
-  "agree, dismiss and snooze act on card ids. Act only on the ids m57 named, never on all cards. dismiss needs a reason. A delete_session or worktree_orphan card needs confirm:true, and only after m57 confirmed that card.",
-  "session shows a session's open todos, unanswered questions, goal and status. todos_done, cancel_questions, clear_status, goal (pause, complete, clear) and edit_session (title, archived, pinned, project) change that session without a message to it. Use them only on sessions m57 named.",
+  "agree, dismiss and snooze act on card ids. Act only on the ids the user named, never on all cards. dismiss needs a reason. A delete_session or worktree_orphan card needs confirm:true, and only after the user confirmed that card.",
+  "session shows a session's open todos, unanswered questions, goal and status. todos_done, cancel_questions, clear_status, goal (pause, complete, clear) and edit_session (title, archived, pinned, project) change that session without a message to it. Use them only on sessions the user named.",
 ].join(" ");
 
 export function createStewardExtension(depsOrSteward: StewardToolDeps | (() => StewardService | undefined), exists?: (id: number) => boolean) {
