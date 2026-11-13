@@ -133,8 +133,8 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
 <template>
   <div class="grid" id="webhooks-panel">
     <div class="row" role="tablist" aria-label="Webhook direction">
-      <button type="button" role="tab" :aria-selected="tab === 'inbound'" :class="{ active: tab === 'inbound' }" @click="tab = 'inbound'">Inbound ({{ inbound.length }})</button>
-      <button type="button" role="tab" :aria-selected="tab === 'outbound'" :class="{ active: tab === 'outbound' }" @click="tab = 'outbound'">Outbound ({{ subs.length }})</button>
+      <button type="button" role="tab" class="tabular-nums" :aria-selected="tab === 'inbound'" :class="{ active: tab === 'inbound' }" @click="tab = 'inbound'">Inbound ({{ inbound.length }})</button>
+      <button type="button" role="tab" class="tabular-nums" :aria-selected="tab === 'outbound'" :class="{ active: tab === 'outbound' }" @click="tab = 'outbound'">Outbound ({{ subs.length }})</button>
     </div>
     <PanelStatus :loading="loading" :error="errorMsg" />
 
@@ -163,7 +163,7 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
               <b>{{ h.name }}</b>
               <div class="muted text-xs">{{ targetLabel(h.target) }} · {{ h.verify === 'hmac' ? 'HMAC signature' : 'Token' }} · {{ h.events.length ? h.events.join(', ') : 'all events' }}</div>
               <div class="muted text-xs truncate">{{ hookUrl(h) }}</div>
-              <div class="muted text-xs">Received {{ h.received }} · last {{ when(h.lastAt) }}</div>
+              <div class="muted text-xs tabular-nums">Received {{ h.received }} · last {{ when(h.lastAt) }}</div>
             </div>
             <label class="row text-xs"><input type="checkbox" :checked="h.enabled" :disabled="busy" @change="toggle('in', h.id, ($event.target as HTMLInputElement).checked)" /> Enabled</label>
           </div>

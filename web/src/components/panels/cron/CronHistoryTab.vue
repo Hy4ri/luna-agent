@@ -42,7 +42,10 @@ const emit = defineEmits<{
         <CronRunRow v-for="{ data: run } in vHistory" :key="run.id" :run="run" :active="detailId === run.id" :busy="busy" show-unread @open="emit('openReport', $event)" />
       </div>
     </div>
-    <p v-else class="cron-empty-line">No reports in history.</p>
+    <div v-else class="cron-empty">
+      <h3>No reports in history.</h3>
+      <p>Read and superseded reports appear here.</p>
+    </div>
     <button v-if="historyMore" type="button" class="cron-btn cron-load-more" :disabled="busy" @click="emit('loadMore')">Load more</button>
   </div>
 </template>

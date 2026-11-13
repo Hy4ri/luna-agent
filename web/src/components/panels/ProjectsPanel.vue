@@ -386,7 +386,7 @@ onMounted(async () => {
         <div v-if="current" class="pw-sec">
           <h4>Recent conversations</h4>
           <p v-if="recentLoading && !recent.length" class="pw-muted" role="status">Loading conversations…</p>
-          <p v-else-if="recentError" class="pw-err" role="alert">{{ recentError }} <button type="button" @click="loadRecent()">Retry</button></p>
+          <p v-else-if="recentError" class="pw-err" role="alert">{{ recentError }} <button type="button" class="pw-btn" @click="loadRecent()">Retry</button></p>
           <p v-else-if="!recent.length" class="pw-muted">No conversations yet.</p>
           <button v-for="s in recent" :key="s.id" class="pw-conv" @click="openChat(s)">
             <span dir="auto" class="pw-conv-title">{{ sessionTitle(s) }}</span>
@@ -416,24 +416,24 @@ onMounted(async () => {
 .pw-item[aria-current] { background: var(--acc-soft); color: var(--foreground); box-shadow: inset 2px 0 0 var(--primary-text); font-weight: 550; }
 .pw-item:focus-visible, .pw-btn:focus-visible, .pw-icon:focus-visible, .pw-switch:focus-visible, .pw-conv:focus-visible, .pw-back:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .pw-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pw-count { font-size: 12.5px; color: var(--muted-foreground); background: var(--muted); border-radius: var(--radius); padding: 1px 8px; }
+.pw-count { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); background: var(--muted); border-radius: var(--radius); padding: 2px 8px; }
 .pw-foot { padding: 10px; border-top: 1px solid var(--border); }
-.pw-main { flex: 1; min-width: 0; overflow: auto; padding: 22px 26px; display: grid; gap: 22px; align-content: start; }
+.pw-main { flex: 1; min-width: 0; overflow: auto; padding: 20px 24px; display: grid; gap: 20px; align-content: start; }
 .pw-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.pw-star { flex-shrink: 0; padding: 6px 8px; }
-.pw-title { margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
-.pw-sec { display: grid; gap: 12px; padding-top: 6px; }
+.pw-star { flex-shrink: 0; width: 32px; height: 32px; padding: 0; }
+.pw-title { margin: 0; font-size: 16px; line-height: 1.35; font-weight: 600; overflow-wrap: anywhere; }
+.pw-sec { display: grid; gap: 14px; padding-top: 6px; }
 .pw-sec + .pw-sec { border-top: 1px solid var(--border); padding-top: 18px; }
-.pw-sec h4 { margin: 0; font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); font-weight: 600; }
+.pw-sec h4 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); font-weight: 600; }
 .pw-machine { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
 .pw-host { grid-template-columns: 120px minmax(0, 1fr) auto; }
 .pw-machine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .pw-field { display: grid; gap: 6px; font-size: 13px; color: var(--muted-foreground); }
-input, select.pw-input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: var(--radius); padding: 8px 10px; font-size: 14px; outline: none; }
+input, select.pw-input { width: 100%; min-width: 0; border: 1px solid var(--input); background: var(--background); color: var(--foreground); border-radius: var(--radius); padding: 8px 10px; font-size: 14px; text-overflow: ellipsis; outline: none; }
 input:focus-visible, select.pw-input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--ring); }
-.pw-mono { font-family: var(--mono); font-size: 13.5px; }
+.pw-mono { font-family: var(--mono); font-size: 13px; }
 .pw-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); border-radius: var(--radius); font-size: 14px; cursor: pointer; }
+.pw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 12px; border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); border-radius: var(--radius); font-size: 13.5px; cursor: pointer; }
 .pw-btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
 .pw-btn:disabled { opacity: .45; cursor: default; }
 .pw-wide { width: 100%; }
@@ -459,17 +459,17 @@ input:focus-visible, select.pw-input:focus-visible { outline: 2px solid var(--ri
 .pw-conv:hover { background: var(--secondary); }
 .pw-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pw-danger { border: 1px solid color-mix(in srgb, var(--destructive) 25%, transparent); border-radius: var(--radius); padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
-.pw-danger p { margin: 0; flex: 1; font-size: 13.5px; color: var(--muted-foreground); }
-.pw-muted { margin: 0; color: var(--muted-foreground); font-size: 13.5px; }
-.pw-small { font-size: 12.5px; }
+.pw-danger p { margin: 0; flex: 1; font-size: 13px; color: var(--muted-foreground); }
+.pw-muted { margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.pw-small { font-size: 12px; }
 .pw-items > .pw-muted, .pw-items > .pw-err { padding: 8px 10px; }
-.pw-err { margin: 0; color: var(--destructive); font-size: 13.5px; }
+.pw-err { margin: 0; color: var(--destructive); font-size: 13px; }
 .pw-back { display: inline-flex; align-items: center; gap: 4px; justify-self: start; background: transparent; border: 0; color: var(--muted-foreground); font-size: 14px; padding: 0; cursor: pointer; }
 @media (max-width: 760px) {
   .pw-list { width: 100%; border-right: 0; }
   .pw-item { min-height: 44px; padding: 10px 12px; }
   .pw-btn, .pw-back, .pw-conv { min-height: 44px; }
-  .pw-icon { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .pw-icon, .pw-star { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
   .pw-switch::after { content: ""; position: absolute; inset: -10px -2px; }
   .pw-machine { grid-template-columns: 1fr auto auto; }
   .pw-machine-name, .pw-machine > .pw-mono { grid-column: 1 / -1; }
