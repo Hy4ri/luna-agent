@@ -354,7 +354,7 @@ onUnmounted(() => window.removeEventListener("resize", position));
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted-foreground);
 }
 
 .usage-pop-nums {
@@ -431,7 +431,7 @@ onUnmounted(() => window.removeEventListener("resize", position));
 }
 
 .split-cache {
-  background: var(--info);
+  background: var(--success);
 }
 
 .split-write {
@@ -460,7 +460,7 @@ onUnmounted(() => window.removeEventListener("resize", position));
 }
 
 .ldot-cache {
-  background: var(--info);
+  background: var(--success);
 }
 
 .ldot-write {
@@ -509,8 +509,8 @@ onUnmounted(() => window.removeEventListener("resize", position));
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 10px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--secondary);
@@ -535,10 +535,17 @@ onUnmounted(() => window.removeEventListener("resize", position));
   cursor: not-allowed;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) {
   #composer-usage-trigger {
-    padding: 0 6px;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 10px;
     gap: 5px;
+  }
+
+  .usage-compact-btn {
+    min-height: 44px;
+    padding: 0 14px;
   }
 }
 

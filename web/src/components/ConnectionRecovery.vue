@@ -52,13 +52,13 @@ function updateOpen(open: boolean) {
 </template>
 
 <style scoped>
-.recovery-overlay { position: fixed; inset: 0; z-index: 110; background: #0009; }
-.connection-recovery { position: fixed; z-index: 111; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(28rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 1rem; border: 1px solid var(--border); border-radius: .9rem; padding: 1.25rem; background: var(--card); color: var(--foreground); box-shadow: 0 8px 32px #0005; }
+.recovery-overlay { position: fixed; inset: 0; z-index: 110; background: rgb(0 0 0 / 0.56); }
+.connection-recovery { position: fixed; z-index: 111; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(28rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 1rem; border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; background: var(--card); color: var(--foreground); box-shadow: 0 8px 32px rgb(0 0 0 / 0.31); }
 .recovery-title { display: flex; align-items: center; gap: .65rem; font-size: 1.1rem; font-weight: 600; }
 .recovery-description, .current-address { color: var(--muted-foreground); font-size: .875rem; line-height: 1.5; }
 .current-address span { display: block; overflow-wrap: anywhere; }
 .recovery-addresses { display: grid; gap: .75rem; }
-.address-button, .dismiss-button { min-height: 48px; border: 1px solid var(--border); border-radius: .6rem; padding: .75rem; font-size: 1rem; cursor: pointer; }
+.address-button, .dismiss-button { min-height: 48px; border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem; font-size: 1rem; cursor: pointer; }
 .address-button { display: flex; align-items: center; justify-content: space-between; gap: .75rem; width: 100%; text-align: start; background: var(--background); }
 .address-button span { min-width: 0; }
 .address-button strong { display: block; font-weight: 600; }
@@ -72,6 +72,6 @@ button:disabled { opacity: .6; cursor: wait; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .checking { animation: none; } }
 @media (max-width: 639px) {
-  .connection-recovery { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100dvh - 1rem); border-radius: 1rem 1rem 0 0; padding: 1.25rem 1rem max(1rem, env(safe-area-inset-bottom)); }
+  .connection-recovery { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100dvh - 1rem); border-radius: var(--radius) var(--radius) 0 0; padding: 1.25rem 1rem max(1rem, env(safe-area-inset-bottom)); }
 }
 </style>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The Browser pane of the dock: tabs, address bar, drive controls and the live view.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ArrowLeft, ArrowRight, Bot, Globe, Plus, RotateCw, X } from "@lucide/vue";
+import { AlertCircle, ArrowLeft, ArrowRight, Bot, Globe, Plus, RotateCw, X } from "@lucide/vue";
 import BrowserView from "./BrowserView.vue";
 import { browser, closeBrowserTab, openBrowserTab, selectBrowserTab, watchBrowser } from "@/stores/browser";
 import { normalizeUrl } from "@/lib/browser-view";
@@ -83,12 +83,23 @@ onBeforeUnmount(() => watchBrowser(false));
       <input ref="addressInput" v-model="address" class="address-input" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Address" :placeholder="!browser.session ? 'Open a conversation to use Browser' : current ? '' : 'Enter an address to open a tab'" :disabled="!browser.session || (!!current && !current.input)" @focus="editing = true" @blur="editing = false" @keydown="addressKey" />
       <span v-if="current && !current.input" class="drive-state" title="You can watch this tab but not click or type in it.">View only</span>
     </form>
-    <p v-if="browser.error" class="dock-message" role="alert">{{ browser.error }}</p>
+    <p v-if="browser.error && browser.tabs.length" class="dock-message" role="alert">
+      <AlertCircle :size="14" aria-hidden="true" />
+      <span>{{ browser.error }}</span>
+    </p>
     <div v-if="!browser.session" class="dock-empty">
-      <p>Open or start a conversation to use Browser.</p>
+      <Globe :size="22" class="empty-icon" aria-hidden="true" />
+      <p class="empty-title">No active conversation</p>
+      <p class="empty-sub">Open or start a conversation to use Browser.</p>
+    </div>
+    <div v-else-if="browser.error && !browser.tabs.length && !browser.draft" class="dock-empty" role="alert">
+      <AlertCircle :size="22" class="empty-icon is-error" aria-hidden="true" />
+      <p class="empty-title">Browser unavailable</p>
+      <p class="empty-sub">{{ browser.error }}</p>
     </div>
     <div v-else-if="!browser.tabs.length || browser.draft" class="dock-empty">
-      <p>{{ browser.loading && !browser.tabs.length ? "Loading..." : browser.draft || browser.tabs.length ? "Enter an address above to open it in this tab." : "No browser tabs in this session. Ask Luna to open a page, or enter an address above." }}</p>
+      <Globe :size="22" class="empty-icon" aria-hidden="true" />
+      <p class="empty-sub">{{ browser.loading && !browser.tabs.length ? "Loading..." : browser.draft || browser.tabs.length ? "Enter an address above to open it in this tab." : "No browser tabs in this session. Ask Luna to open a page, or enter an address above." }}</p>
     </div>
     <div v-if="browser.session && browser.tabs.length" class="dock-body" :hidden="browser.draft">
       <BrowserView v-for="t in browser.tabs" :key="t.tabId" :ref="el => (views[t.tabId] = el as InstanceType<typeof BrowserView> | null)" :session="browser.session" :tab-id="t.tabId" :active="!browser.draft && t.tabId === browser.active" />
@@ -107,25 +118,35 @@ onBeforeUnmount(() => watchBrowser(false));
 .tab:hover:not(.active) { background: color-mix(in srgb, var(--card) 50%, transparent); color: var(--foreground); }
 .tab.active { z-index: 1; height: 31px; border-color: var(--border); background: var(--card); color: var(--foreground); box-shadow: inset 0 2px 0 var(--primary-text); }
 .tab-label { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 2px 0 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
-.tab-label:focus-visible, .tab-close:focus-visible { outline: 1px solid var(--ring); outline-offset: -2px; }
+.tab-label:focus-visible, .tab-close:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .tab-icon { flex: none; color: var(--muted-foreground); }
 .tab-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-close { display: grid; flex: none; place-items: center; width: 20px; height: 20px; margin-right: 4px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; opacity: 0; }
+.tab-close { display: grid; flex: none; place-items: center; width: 24px; height: 24px; margin-right: 4px; background: none; border: 0; color: inherit; border-radius: var(--radius); cursor: pointer; opacity: 0; }
 .tab:hover .tab-close, .tab.active .tab-close, .tab-close:focus-visible { opacity: 1; }
 .tab-close:hover { background: var(--secondary); }
 @media (hover: none) { .tab-close { opacity: 1; } }
 .tab-new { flex: none; align-self: center; margin-bottom: 2px; }
 .tab-controls { align-self: center; margin-left: auto; padding-left: 4px; margin-bottom: 2px; }
-.address-bar { display: flex; align-items: center; gap: 2px; padding: 3px 4px; border-bottom: 1px solid var(--border); background: var(--card); }
-.address-input { flex: 1; min-width: 0; padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font: 12px var(--mono); }
-.address-input:focus-visible { outline: 1px solid var(--ring); }
+.address-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--card); }
+.address-input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font: 12px var(--mono); }
+.address-input:focus-visible { outline: 2px solid var(--ring); outline-offset: -1px; }
 .address-input:disabled { opacity: .7; }
 .drive-state { padding: 0 4px 0 8px; color: var(--muted-foreground); font: 12px var(--mono); white-space: nowrap; }
 .drive-action { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: none; color: var(--foreground); font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
 .drive-action:hover { background: var(--secondary); }
 .dock-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .dock-body[hidden] { display: none; }
-.dock-message { margin: 0; padding: 4px 10px; color: var(--destructive); font: 12px var(--mono); border-bottom: 1px solid var(--border); }
-.dock-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 0 16px; text-align: center; color: var(--muted-foreground); font: 13px var(--mono); }
+.dock-message { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 10px; background: var(--err-soft); color: var(--destructive); font: 12px var(--mono); border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); }
+.dock-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; text-align: center; color: var(--muted-foreground); font: 12px var(--mono); }
 .dock-empty p { margin: 0; }
+.empty-icon { opacity: 0.65; }
+.empty-icon.is-error { color: var(--destructive); opacity: 0.9; }
+.empty-title { color: var(--foreground); font-size: 13px; font-weight: 600; }
+.empty-sub { max-width: 360px; color: var(--muted-foreground); }
+@media (max-width: 760px), (pointer: coarse) {
+  .tab { min-height: 36px; }
+  .tab-close { width: 32px; height: 32px; }
+  .address-bar .icon-button { width: 36px; height: 36px; }
+  .address-input { min-height: 36px; }
+}
 </style>

@@ -64,6 +64,12 @@ onUnmounted(() => clearTimeout(timer));
   border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer;
 }
 .gen-tools :deep(button:hover), .gen-tools :deep(button[aria-pressed="true"]) { color: var(--foreground); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.gen-tools :deep(button:focus-visible) { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (hover: none), (max-width: 760px), (pointer: coarse) {
+  .gen-tools { opacity: 1; gap: 6px; }
+  .gen-tools :deep(button) { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
+  .gen-source { padding-top: 56px; }
+}
 .gen-source {
   margin: 0; padding: 12px; padding-top: 40px; overflow: auto; max-height: 480px;
   font: 13px/1.5 var(--mono); background: var(--sidebar); border: 1px solid var(--border); border-radius: var(--radius);

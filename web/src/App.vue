@@ -451,10 +451,10 @@ onUnmounted(() => {
             <div class="heading min-w-0 flex-1">
               <div class="flex min-w-0 items-center gap-2">
                 <span v-if="headerProject" class="shrink-0" :title="headerProject.name"><ProjectIcon :icon="headerProject.icon" :color="headerProject.color" :size="20" :align-label="chat.title" /></span>
-                <span dir="auto" id="title" class="block min-w-0 truncate text-sm font-medium">{{ chat.title }}</span>
+                <span dir="auto" id="title" class="block min-w-0 truncate text-sm font-medium" :title="chat.title">{{ chat.title }}</span>
               </div>
               <span v-if="activeSession && sessionState(activeSession) !== 'ready'" id="session-status" class="session-status session-state block truncate" :data-status="sessionState(activeSession)" :title="activeSession.statusReason || (sessionState(activeSession) === 'finished' ? 'Response finished. This does not verify task completion.' : sessionStatusLabel(activeSession))" role="status">{{ sessionStatusLabel(activeSession) }}<template v-if="activeSession.statusReason"> · {{ activeSession.statusReason }}</template></span>
-              <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt, undefined, activeSession.recovery?.exact ?? true) }}</span><button id="cancel-limit-wait" class="underline hover:text-foreground" @click="cancelLimitWait(activeSession)">Cancel</button></span>
+              <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt, undefined, activeSession.recovery?.exact ?? true) }}</span><button id="cancel-limit-wait" class="min-h-11 px-1.5 underline hover:text-foreground sm:min-h-6" @click="cancelLimitWait(activeSession)">Cancel</button></span>
               <span v-else-if="activeSession?.recovery?.pausedReason" id="limit-paused" class="session-status block truncate text-muted-foreground" :title="activeSession.recovery.pausedReason" role="status">Recovery stopped · {{ activeSession.recovery.pausedReason }}</span>
             </div>
             <button v-if="!docked && reviewJobs.length" type="button" class="icon-button shrink-0" :aria-label="`Inspect review agents${runningReviews ? ' · ' + runningReviews + ' running' : ''}`" title="Review agents" @click="selectedReview = reviewJobs[0]!.id"><ScanEye :size="18" :class="{ 'text-primary-text': runningReviews > 0 }" /></button>
@@ -551,8 +551,13 @@ onUnmounted(() => {
 
 <style scoped>
 .settings-backdrop { padding: 24px; }
-.settings-window { width: 100%; max-width: min(1475px, 100%); height: 94%; display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px #0009; background: var(--background); }
-@media (max-width: 760px) { .settings-backdrop { padding: 8px; } .settings-window { height: 100%; } }
+.settings-window { width: 100%; max-width: min(1475px, 100%); height: 94%; display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px rgb(0 0 0 / 0.56); background: var(--background); }
+@media (max-width: 760px) {
+  .settings-backdrop { padding: 8px; }
+  .settings-window { height: 100%; }
+  #top { padding-inline: 8px; gap: 4px; }
+  #top .icon-button { width: 44px; height: 44px; }
+}
 .mobile-menu-action {
   display: flex;
   align-items: center;
@@ -601,6 +606,10 @@ onUnmounted(() => {
 }
 .tile-split-actions.split-actions-visible, .tile-split-actions:focus-within { opacity: 1; pointer-events: auto; }
 .tile-split-actions .icon-button { width: 28px; height: 28px; }
+@media (hover: none), (pointer: coarse) {
+  .tile-split-actions { opacity: 1; pointer-events: auto; }
+  .tile-split-actions .icon-button { width: 36px; height: 36px; }
+}
 .tile-resize { cursor: col-resize; touch-action: none; }
 #main.tile-focused, .session-pane.tile-focused { border: 1px solid var(--primary); }
 .tile-close { width: 28px; height: 28px; }

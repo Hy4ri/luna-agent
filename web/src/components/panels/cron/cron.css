@@ -45,6 +45,16 @@
   color: var(--foreground);
 }
 
+.cron-tab:focus-visible,
+.cron-btn:focus-visible,
+.cron-item:focus-visible,
+.cron-back:focus-visible,
+.cron-preset:focus-visible,
+.cron-run > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 .cron-tab[aria-selected="true"] {
   background: var(--secondary);
   color: var(--foreground);
@@ -116,12 +126,12 @@
 
 .cron-btn.danger {
   color: var(--destructive);
-  border-color: rgba(248, 113, 113, 0.3);
+  border-color: color-mix(in srgb, var(--destructive) 30%, transparent);
 }
 
 .cron-btn.sm {
-  height: 27px;
-  padding: 0 8px;
+  height: 30px;
+  padding: 0 9px;
   font-size: 12.5px;
 }
 
@@ -214,14 +224,14 @@
   margin-left: auto;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  color: var(--faint);
+  color: var(--muted-foreground);
 }
 
 .cron-pill {
   flex-shrink: 0;
   font-size: 10.5px;
   font-weight: 600;
-  padding: 1px 6px;
+  padding: 2px 6px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--secondary);
@@ -233,20 +243,20 @@
 
 .cron-pill.ok {
   color: var(--ok);
-  background: rgba(143, 211, 165, 0.12);
-  border-color: rgba(143, 211, 165, 0.28);
+  background: color-mix(in srgb, var(--ok) 12%, var(--card));
+  border-color: color-mix(in srgb, var(--ok) 28%, transparent);
 }
 
 .cron-pill.error {
   color: var(--destructive);
-  background: rgba(248, 113, 113, 0.12);
-  border-color: rgba(248, 113, 113, 0.3);
+  background: color-mix(in srgb, var(--destructive) 12%, var(--card));
+  border-color: color-mix(in srgb, var(--destructive) 30%, transparent);
 }
 
 .cron-pill.running {
   color: var(--primary-text);
   background: var(--acc-soft);
-  border-color: rgba(169, 184, 255, 0.3);
+  border-color: color-mix(in srgb, var(--primary-text) 35%, transparent);
 }
 
 .cron-pill.unread {
@@ -327,8 +337,8 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 18px;
+  gap: 10px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
@@ -338,16 +348,19 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 0;
-  border: none;
+  padding: 4px 8px 4px 4px;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted-foreground);
-  font-size: 12.5px;
+  font-size: 13px;
   cursor: pointer;
 }
 
 .cron-back:hover {
   color: var(--foreground);
+  background: var(--secondary);
 }
 
 .cron-detail-titles {
@@ -386,7 +399,8 @@
   flex-wrap: wrap;
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--faint);
+  color: var(--muted-foreground);
+  padding-top: 2px;
 }
 
 .cron-report-body {
@@ -456,7 +470,7 @@
 .cron-run-time {
   flex-shrink: 0;
   font-size: 11.5px;
-  color: var(--faint);
+  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -555,7 +569,8 @@
 }
 
 .cron-preset {
-  padding: 1px 7px;
+  padding: 3px 9px;
+  min-height: 26px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--secondary);
@@ -567,14 +582,14 @@
 
 .cron-preset:hover {
   color: var(--foreground);
-  border-color: var(--primary);
+  border-color: var(--primary-text);
 }
 
 .cron-help {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--faint);
+  color: var(--muted-foreground);
 }
 
 .cron-form-actions {
@@ -602,11 +617,27 @@
     padding: 8px 10px;
   }
   .cron-tab {
-    padding: 5px 10px;
+    padding: 8px 12px;
+    min-height: 44px;
     font-size: 13px;
   }
+  .cron-btn {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+  .cron-btn.sm {
+    min-height: 38px;
+  }
+  .cron-back {
+    min-height: 44px;
+    padding: 6px 10px 6px 6px;
+  }
+  .cron-preset {
+    min-height: 36px;
+    padding: 6px 10px;
+  }
   .cron-detail-head {
-    padding: 10px 12px;
+    padding: 12px;
   }
   .cron-report-body,
   .cron-job-body,

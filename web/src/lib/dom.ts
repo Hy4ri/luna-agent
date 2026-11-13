@@ -4,7 +4,7 @@ const MOBILE = "(max-width: 760px)";
 const mobile = ref(typeof matchMedia === "function" && matchMedia(MOBILE).matches);
 if (typeof matchMedia === "function") matchMedia(MOBILE).addEventListener("change", e => { mobile.value = e.matches; });
 export function useMobile(): Ref<boolean> { return mobile; }
-export const isMobile = () => matchMedia(MOBILE).matches;
+export const isMobile = () => typeof matchMedia === "function" && matchMedia(MOBILE).matches;
 
 type Kid = Node | string | null | undefined | false | Kid[];
 // Small DOM builder for markdown output. Never sets innerHTML.

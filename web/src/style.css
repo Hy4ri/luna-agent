@@ -78,6 +78,11 @@
   --info: #8faee0;
   --violet: #c6a6f7;
   --acc-soft: rgb(153 0 0 / 0.2);
+  --status-running: #60a5fa;
+  --status-finished: #4ade80;
+  --status-approval: #fbbf24;
+  --status-input: #c084fc;
+  --status-limit: #fb923c;
 }
 
 *, ::before, ::after {
@@ -263,8 +268,8 @@ aside#side.collapsed #history-rail {
 .history-head {
   display: flex;
   align-items: center;
-  padding: 10px 14px;
-  gap: 8px;
+  padding: 10px 12px;
+  gap: 4px;
 }
 .history-head h2 {
   font-size: 0.9rem;
@@ -325,15 +330,15 @@ aside#side.collapsed #history-rail {
 /* History folders: level 1 lists projects, level 2 shows one project's sessions. */
 .folder-head {
   flex-shrink: 0;
-  padding: 0 8px 6px;
+  padding: 2px 8px 6px;
   border-bottom: 1px solid var(--sidebar-border);
   margin-bottom: 4px;
 }
 .folder-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 32px;
+  gap: 6px;
+  min-height: 36px;
 }
 .folder-name {
   flex: 1;
@@ -371,7 +376,7 @@ aside#side.collapsed #history-rail {
 .device-chip:disabled { opacity: 0.45; cursor: default; }
 .device-chip.offline .device-name { color: var(--faint); }
 .device-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.device-count, .folder-time { color: var(--faint); font-variant-numeric: tabular-nums; }
+.device-count, .folder-time { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .folder-note {
   margin: 4px 0 0;
   padding: 6px 8px;
@@ -468,7 +473,7 @@ aside#side.collapsed #history-rail {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--faint);
+  color: var(--muted-foreground);
 }
 .session-meta.offline { font-style: italic; }
 
@@ -481,6 +486,10 @@ aside#side.collapsed #history-rail {
   box-sizing: border-box;
 }
 .session-open:focus-visible { outline: none; }
+.session-row:has(.session-open:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
 .session-row:hover {
   background: var(--sidebar-accent);
 }
@@ -513,11 +522,11 @@ aside#side.collapsed #history-rail {
   font-weight: 400;
 }
 .session-state { color: var(--muted-foreground); }
-.session-state[data-status="running"], .session-state[data-status="reviewing"] { color: #60a5fa; }
-.session-state[data-status="finished"], .session-state[data-status="review_finished"] { color: #4ade80; }
-.session-state[data-status="needs_approval"] { color: #fbbf24; }
-.session-state[data-status="needs_input"] { color: #c084fc; }
-.session-state[data-status="limit_reached"] { color: #fb923c; }
+.session-state[data-status="running"], .session-state[data-status="reviewing"] { color: var(--status-running); }
+.session-state[data-status="finished"], .session-state[data-status="review_finished"] { color: var(--status-finished); }
+.session-state[data-status="needs_approval"] { color: var(--status-approval); }
+.session-state[data-status="needs_input"] { color: var(--status-input); }
+.session-state[data-status="limit_reached"] { color: var(--status-limit); }
 .session-state[data-status="failed"] { color: var(--destructive); }
 .session-state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .session-title {
@@ -527,7 +536,8 @@ aside#side.collapsed #history-rail {
 }
 /* Tint the whole row, including its menu, without changing title/status colors. */
 .session-row:has(.session-open[aria-current="page"]) {
-  background: color-mix(in srgb, var(--primary) 12%, var(--sidebar-accent));
+  background: color-mix(in srgb, var(--primary) 16%, var(--sidebar-accent));
+  box-shadow: inset 2px 0 0 var(--primary-text);
 }
 .session-rename {
   flex: 1;
@@ -562,6 +572,17 @@ aside#side.collapsed #history-rail {
 .session-row:focus-within .session-manage,
 .session-manage[aria-expanded="true"] {
   opacity: 1;
+}
+@media (hover: none), (pointer: coarse) {
+  .session-manage {
+    opacity: 1;
+    width: 40px;
+    height: 40px;
+  }
+  .device-chip {
+    min-height: 36px;
+    padding: 4px 10px;
+  }
 }
 
 #session-menu {
@@ -641,6 +662,18 @@ aside#side.collapsed #history-rail {
   }
   #side-close {
     display: inline-flex;
+    width: 44px;
+    height: 44px;
+  }
+  .side-item {
+    min-height: 44px;
+  }
+  .history-head .icon-button,
+  #bulk-bar .icon-button,
+  .folder-bar .icon-button,
+  .folder-bar .group-new {
+    width: 40px;
+    height: 40px;
   }
 }
 

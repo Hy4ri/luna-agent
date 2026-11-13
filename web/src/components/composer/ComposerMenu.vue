@@ -59,3 +59,31 @@ defineExpose({ menuRef, scrollActiveIntoView });
     </div>
   </div>
 </template>
+
+<style scoped>
+.mention-item:hover,
+.mention-item.active {
+  background: color-mix(in srgb, var(--primary) 14%, var(--secondary));
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+}
+
+.mention-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.mention-group :deep(.command-category-dot[data-category="side"]) {
+  background: var(--primary-text);
+}
+
+.mention-group :deep(.at-meta) {
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  .mention-item {
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+}
+</style>

@@ -335,7 +335,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
           <select
             v-model="branchSelectValue"
             aria-label="Branch"
-            class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary max-w-[200px]"
+            class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary max-w-[200px]"
             :disabled="loadingState || !changes"
             @change="handleBranchChange"
           >
@@ -360,7 +360,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
             type="text"
             aria-label="New branch name"
             placeholder="branch-name"
-            class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground w-32 focus:outline-none focus:border-primary"
+            class="bg-muted border border-border rounded px-2 py-1 text-xs text-foreground w-32 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
             @keydown.escape.prevent="cancelNewBranch"
           />
           <button type="submit" class="px-2 py-1 text-xs bg-primary text-primary-foreground rounded disabled:opacity-50" :disabled="loadingState || !newBranchInput.trim()">Create</button>
@@ -372,7 +372,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
         <span v-if="busyMessage" role="status" class="text-muted-foreground">{{ busyMessage }}</span>
         <button
           type="button"
-          class="p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          class="p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring"
           aria-label="Refresh Git status"
           title="Refresh Git status"
           :disabled="loadingState"
@@ -454,7 +454,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
             aria-label="Commit message"
             placeholder="Commit message (Ctrl+Enter to commit)"
             rows="2"
-            class="w-full bg-muted border border-border rounded p-2 text-xs text-foreground focus:outline-none focus:border-primary resize-none"
+            class="w-full bg-muted border border-border rounded p-2 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary resize-none"
             :disabled="loadingState"
             @keydown="handleKeyDownCommit"
           ></textarea>
@@ -480,7 +480,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
 
       <div class="flex-1 min-h-0 flex-col bg-background overflow-hidden" :class="selectedPath ? 'flex' : 'hidden md:flex'">
         <div class="px-3 py-1.5 border-b border-border bg-card text-xs font-medium text-muted-foreground flex items-center gap-2 shrink-0">
-          <button v-if="selectedPath" type="button" class="md:hidden p-1 -ml-1 hover:bg-accent rounded" aria-label="Back to changes" @click="closeDiff"><ChevronLeft class="w-4 h-4" /></button>
+          <button v-if="selectedPath" type="button" class="md:hidden p-1 -ml-1 hover:bg-accent rounded max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring" aria-label="Back to changes" @click="closeDiff"><ChevronLeft class="w-4 h-4" /></button>
           <span class="truncate">{{ selectedPath ? `${selectedPath} (${selectedStaged ? 'staged' : 'unstaged'})` : 'No file selected' }}</span>
         </div>
         <div class="flex-1 min-h-0 overflow-hidden">

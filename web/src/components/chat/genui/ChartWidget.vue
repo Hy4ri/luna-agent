@@ -209,11 +209,16 @@ const legend = computed(() => (isPie.value ? props.widget.x.map((name, i) => ({ 
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px; }
 .legend button, .pie-legend button {
-  display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 10px; font-size: 12px;
   color: var(--card-foreground); background: var(--secondary); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer;
 }
 .legend button:hover, .pie-legend button:hover { border-color: var(--ring); }
-button[aria-pressed="false"] { opacity: .5; text-decoration: line-through; }
+.legend button:focus-visible, .pie-legend button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+button[aria-pressed="false"] { color: var(--muted-foreground); opacity: .8; text-decoration: line-through; }
+@media (max-width: 760px), (pointer: coarse) {
+  .chart-title { padding-right: 100px; }
+  .legend button, .pie-legend button { min-height: 44px; padding: 8px 12px; }
+}
 .pie-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
 .pie-svg { width: min(260px, 100%); height: auto; flex: none; }
 .slice { transition: opacity .15s; cursor: pointer; }

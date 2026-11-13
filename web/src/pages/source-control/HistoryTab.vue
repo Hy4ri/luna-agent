@@ -135,7 +135,7 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
         </select>
       </label>
       <span class="text-muted-foreground">{{ commits.length }}{{ more ? '+' : '' }} commits</span>
-      <button type="button" class="ml-auto p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground disabled:opacity-50" aria-label="Refresh history" title="Refresh history" :disabled="loading" @click="load(true)">
+      <button type="button" class="ml-auto p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground disabled:opacity-50 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring" aria-label="Refresh history" title="Refresh history" :disabled="loading" @click="load(true)">
         <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
       </button>
     </div>
@@ -155,7 +155,7 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
             <path v-for="([a, b], k) in graph[i]!.through" :key="'t' + k" :d="edge(a, b, 0, ROW)" :stroke="laneColor(a)" stroke-width="1.5" fill="none" />
             <path v-for="([a, b], k) in graph[i]!.top" :key="'u' + k" :d="edge(a, b, 0, ROW / 2)" :stroke="laneColor(a)" stroke-width="1.5" fill="none" />
             <path v-for="([a, b], k) in graph[i]!.bottom" :key="'d' + k" :d="edge(a, b, ROW / 2, ROW)" :stroke="laneColor(b)" stroke-width="1.5" fill="none" />
-            <circle :cx="x(graph[i]!.column)" :cy="ROW / 2" r="3.5" :fill="commit.parents.length > 1 ? 'var(--color-card, #121212)' : laneColor(graph[i]!.column)" :stroke="laneColor(graph[i]!.column)" stroke-width="1.5" />
+            <circle :cx="x(graph[i]!.column)" :cy="ROW / 2" r="3.5" :fill="commit.parents.length > 1 ? 'var(--card)' : laneColor(graph[i]!.column)" :stroke="laneColor(graph[i]!.column)" stroke-width="1.5" />
           </svg>
           <span class="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
             <RefChips :refs="commit.refs" :limit="2" />
@@ -173,7 +173,7 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
         <template v-else>
           <div class="px-3 py-2 border-b border-border bg-card text-xs space-y-1 shrink-0 max-h-[40%] overflow-auto">
             <div class="flex items-start gap-2">
-              <button v-if="!wide" type="button" class="p-1 -ml-1 hover:bg-accent rounded" aria-label="Back to history" @click="closeDetail"><ChevronLeft class="w-4 h-4" /></button>
+              <button v-if="!wide" type="button" class="p-1 -ml-1 hover:bg-accent rounded max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring" aria-label="Back to history" @click="closeDetail"><ChevronLeft class="w-4 h-4" /></button>
               <p v-if="loadingDetail" class="text-muted-foreground py-1">Loading commit…</p>
               <p v-else-if="detailError" role="alert" class="text-destructive py-1">{{ detailError }}</p>
               <div v-else-if="detail" class="min-w-0 flex-1 space-y-1">

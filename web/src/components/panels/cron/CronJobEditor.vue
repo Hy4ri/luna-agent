@@ -57,7 +57,7 @@ const emit = defineEmits<{
       Runs do not appear in the session list. Results stay in Cron reports and history.
     </p>
     <div class="cron-form-actions">
-      <button type="submit" class="cron-btn primary" :disabled="busy">Save job</button>
+      <button type="submit" class="cron-btn primary" :disabled="busy" :title="busy ? 'Saving…' : undefined">Save job</button>
       <button type="button" class="cron-btn" @click="emit('cancel')">Cancel</button>
     </div>
   </form>

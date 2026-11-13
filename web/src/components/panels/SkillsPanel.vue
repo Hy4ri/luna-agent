@@ -44,7 +44,7 @@ onMounted(() => {
     <!-- Loading / Error -->
     <PanelStatus :loading="loading" :error="errorMsg" />
 
-    <p v-if="!loading && !skillsList.length" class="muted">
+    <p v-if="!loading && !errorMsg && !skillsList.length" class="muted">
       No skills yet. Luna creates them with the skill tool, or drop SKILL.md files into the skills directory.
     </p>
 

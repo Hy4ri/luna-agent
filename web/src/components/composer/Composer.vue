@@ -2,6 +2,7 @@
 import { ref, computed } from "vue";
 import { ArrowUp, Square, Camera, ChevronDown } from "@lucide/vue";
 import { json, post } from "@/lib/api";
+import { isMobile } from "@/lib/dom";
 import { composer, removeAttachment, saveDraft, submitDraft, retrySend } from "@/stores/composer";
 import { chat, busy, sendDisabled, stopDisabled, stopRun, addErr } from "@/stores/chat";
 import { history } from "@/stores/sessions";
@@ -271,7 +272,7 @@ function handleKeydown(e: KeyboardEvent) {
       return;
     }
   }
-  if (e.key === "Enter" && !e.shiftKey && !matchMedia("(max-width: 760px)").matches) {
+  if (e.key === "Enter" && !e.shiftKey && !isMobile()) {
     e.preventDefault();
     if (!sendDisabled.value) submit();
   }
@@ -389,6 +390,8 @@ async function handleSubmit(e?: Event) {
             id="model"
             type="button"
             popovertarget="model-picker"
+            aria-controls="model-picker"
+            aria-haspopup="dialog"
             :aria-expanded="pickerOpen ? 'true' : 'false'"
             :aria-label="`Model: ${modelLabel}`"
             :title="modelTitle"
@@ -434,3 +437,77 @@ async function handleSubmit(e?: Event) {
     <SchedulePicker :open="schedulePickerOpen" :content="scheduleMessageText" @close="schedulePickerOpen = false" @saved="scheduleSaved" />
   </div>
 </template>
+
+<style scoped>
+#composer:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent);
+}
+
+#model {
+  min-height: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+#model:hover,
+#model[aria-expanded="true"] {
+  background: var(--secondary);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+#model:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  .compose-bar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    column-gap: 6px;
+  }
+
+  #attach,
+  #camera,
+  #send,
+  #stop {
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+  }
+
+  #controls {
+    flex: 1 1 180px;
+    min-width: 0;
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+
+  #model {
+    min-height: 44px;
+    height: 44px;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(190px, 100%);
+    padding: 0 8px;
+  }
+
+  #composer :deep(#atts button) {
+    min-width: 28px;
+    min-height: 28px;
+    width: 28px;
+    height: 28px;
+  }
+
+  #composer :deep(#atts button)::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+</style>

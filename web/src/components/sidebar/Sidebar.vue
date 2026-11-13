@@ -450,7 +450,7 @@ onMounted(() => {
       <button class="side-item" data-panel="cron" title="Cron" @click="openPanel('cron')">
         <Clock :size="16" />
         <span class="side-label">Cron</span>
-        <span id="cron-unread" class="pill" :hidden="!ui.cronUnread">{{ ui.cronUnread }}</span>
+        <span id="cron-unread" class="pill ml-auto text-xs font-medium tabular-nums text-primary-text" :hidden="!ui.cronUnread">{{ ui.cronUnread }}</span>
       </button>
       <button class="side-item" data-panel="projects" title="Projects" @click="openPanel('projects')">
         <FolderKanban :size="16" />
@@ -572,7 +572,7 @@ onMounted(() => {
           <button v-if="!single" id="history-back" class="icon-button" aria-label="All projects" title="All projects" @click="drill(null)"><ChevronLeft :size="16" /></button>
           <ProjectIcon :icon="openFolder.icon" :color="openFolder.color" :size="20" class="folder-icon" />
           <span class="flex min-w-0 flex-1 items-center gap-1.5">
-            <span dir="auto" class="folder-name" style="flex: 0 1 auto">{{ openFolder.name }}</span>
+            <span dir="auto" class="folder-name" style="flex: 0 1 auto" :title="openFolder.name">{{ openFolder.name }}</span>
             <Star v-if="openFolder.favorite" :size="12" fill="currentColor" class="group-star" aria-label="Favourite" />
           </span>
           <DropdownMenu>

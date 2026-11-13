@@ -23,7 +23,7 @@ const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
 
 <style scoped>
 .panel-backdrop.wide { align-items: center; justify-content: center; padding: 24px; }
-.float-window { width: 100%; max-width: none; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px #0009; }
+.float-window { width: 100%; max-width: none; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 90px rgb(0 0 0 / 0.56); }
 .float-window > header { padding: 16px 20px; }
 /* Sized from the backdrop (which fills #app), not the screen: #app starts below the status bar. */
 .board-window { max-width: min(1475px, 100%); height: 94%; max-height: 100%; }
@@ -34,6 +34,7 @@ const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
   .panel-backdrop.wide { padding: 8px; }
   .float-window { height: 100%; max-height: 100%; border-radius: var(--radius); }
   .float-window > header { padding: 12px; }
+  #pclose { min-width: 44px; min-height: 44px; }
   .board-window:has(.kb-editing) #pdesc { display: none; }
 }
 </style>

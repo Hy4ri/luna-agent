@@ -29,8 +29,8 @@ function dismiss() { settle(pending.value?.input ? null : false); }
           class="h-9 w-full border border-input bg-background px-3 text-sm outline-none focus-visible:border-primary" />
       </label>
       <DialogFooter class="gap-2">
-        <Button type="button" variant="outline" size="sm" @click="dismiss">Cancel</Button>
-        <Button type="button" :variant="pending?.danger ? 'destructive' : 'default'" size="sm" :disabled="blocked" @click="accept">
+        <Button type="button" variant="outline" size="sm" class="min-h-11 sm:min-h-8" @click="dismiss">Cancel</Button>
+        <Button type="button" :variant="pending?.danger ? 'destructive' : 'default'" size="sm" class="min-h-11 sm:min-h-8" :disabled="blocked" @click="accept">
           {{ pending?.confirmLabel ?? "Confirm" }}
         </Button>
       </DialogFooter>

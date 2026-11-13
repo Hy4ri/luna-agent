@@ -68,7 +68,7 @@ function formatTime(iso: string): string {
         role="tab"
         :aria-selected="view === 'conversation'"
         :tabindex="view === 'conversation' ? 0 : -1"
-        class="px-3 py-1 rounded"
+        class="px-3 py-1 rounded max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring"
         :class="view === 'conversation' ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="view = 'conversation'"
       >Conversation</button>
@@ -78,7 +78,7 @@ function formatTime(iso: string): string {
         role="tab"
         :aria-selected="view === 'files'"
         :tabindex="view === 'files' ? 0 : -1"
-        class="px-3 py-1 rounded"
+        class="px-3 py-1 rounded max-[760px]:min-h-11 focus-visible:outline-2 focus-visible:outline-ring"
         :class="view === 'files' ? 'bg-secondary text-foreground' : 'text-muted-foreground'"
         @click="view = 'files'"
       >Files changed ({{ detail.pr.files }})</button>

@@ -125,7 +125,7 @@
             <span>Rows</span>
             <select
               :value="limit"
-              class="h-8 px-1.5 bg-background border border-border rounded-[var(--radius)] text-foreground"
+              class="h-8 max-[760px]:min-h-11 px-1.5 bg-background border border-border rounded-[var(--radius)] text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
               aria-label="Rows per page"
               @change="$emit('limit', Number(($event.target as HTMLSelectElement).value))"
             >
@@ -135,7 +135,7 @@
           <span class="tabular-nums px-1">Page {{ page + 1 }} of {{ pageCount }}</span>
           <button
             type="button"
-            class="h-8 w-8 inline-flex items-center justify-center border border-border rounded-[var(--radius)] bg-background text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary"
+            class="h-8 w-8 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center border border-border rounded-[var(--radius)] bg-background text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
             :disabled="page <= 0 || loading"
             aria-label="Previous page"
             @click="$emit('page', page - 1)"
@@ -144,7 +144,7 @@
           </button>
           <button
             type="button"
-            class="h-8 w-8 inline-flex items-center justify-center border border-border rounded-[var(--radius)] bg-background text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary"
+            class="h-8 w-8 max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center border border-border rounded-[var(--radius)] bg-background text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
             :disabled="page + 1 >= pageCount || loading"
             aria-label="Next page"
             @click="$emit('page', page + 1)"

@@ -88,9 +88,10 @@ async function download() {
 <style>
 .iv-overlay { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--background) 92%, black); }
 .iv-content { position: fixed; inset: 0; z-index: 61; outline: none; }
-.iv-bar { position: absolute; z-index: 1; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 4px; }
-.iv-btn { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--border); color: var(--foreground); }
-.iv-btn:hover { background: var(--secondary); }
+.iv-bar { position: absolute; z-index: 1; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 6px; }
+.iv-btn { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--border); color: var(--foreground); cursor: pointer; }
+.iv-btn:hover { background: var(--secondary); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.iv-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .iv-stage { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); touch-action: pinch-zoom; }
 .iv-stage.natural { overflow: auto; display: block; }
 .iv-img { max-width: 100vw; max-height: 100dvh; object-fit: contain; cursor: zoom-in; touch-action: pinch-zoom; user-select: none; }

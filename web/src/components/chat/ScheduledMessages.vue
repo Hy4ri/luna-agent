@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { Clock } from "@lucide/vue";
+import { AlertCircle, Clock, RotateCw } from "@lucide/vue";
 import { json, serverUrl, token } from "@/lib/api";
 import { chat, sessionSignal } from "@/stores/chat";
 import { history } from "@/stores/sessions";
@@ -80,7 +80,13 @@ onBeforeUnmount(() => { ticket++; clearInterval(timer); });
 <template>
   <div v-if="chat.session" ref="anchor" class="scheduled-messages" aria-label="Scheduled messages">
     <p v-if="!loaded && loading" class="schedule-status" role="status">Loading scheduled messages…</p>
-    <p v-if="error" class="schedule-status" role="alert">Scheduled messages unavailable: {{ error }} <button type="button" :disabled="loading" @click="refresh">Retry</button></p>
+    <p v-if="error" class="schedule-status schedule-error" role="alert">
+      <AlertCircle :size="14" aria-hidden="true" />
+      <span>Scheduled messages unavailable: {{ error }}</span>
+      <button type="button" class="schedule-retry-btn" :disabled="loading" @click="refresh">
+        <RotateCw :size="12" aria-hidden="true" />Retry
+      </button>
+    </p>
     <p v-if="notice" class="schedule-status" role="status">{{ notice }}</p>
     <article v-for="row in pending" :key="row.id" class="scheduled-bubble" :data-schedule="row.id">
       <header class="scheduled-header">
@@ -108,10 +114,25 @@ onBeforeUnmount(() => { ticket++; clearInterval(timer); });
 .scheduled-countdown { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .scheduled-text { margin: 0 0 12px; white-space: pre-wrap; font-size: 16.5px; }
 time, .schedule-status { font-size: 12px; color: var(--muted-foreground); }
-.scheduled-actions { display: flex; gap: 8px; margin-top: 4px; }
-button { font-size: 12px; color: var(--foreground); min-height: 44px; padding: 6px 10px; cursor: pointer; }
-button:hover:not(:disabled) { text-decoration: underline; }
+.schedule-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; color: var(--muted-foreground); }
+.schedule-error svg { color: var(--destructive); flex: none; }
+.schedule-retry-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 28px; padding: 4px 10px;
+  background: var(--secondary); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--foreground); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.schedule-retry-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--primary-text); text-decoration: none; }
+.scheduled-actions { display: flex; gap: 8px; margin-top: 4px; padding-bottom: 8px; }
+.scheduled-actions button {
+  font-size: 12px; color: var(--foreground); min-height: 32px; padding: 5px 12px;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer;
+}
+.scheduled-actions button:hover:not(:disabled) { background: var(--accent); border-color: var(--primary-text); }
 button:disabled { color: var(--muted-foreground); opacity: .5; cursor: default; }
 button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .schedule-retry-btn, .scheduled-actions button { min-height: 44px; padding: 8px 14px; }
+}
 @media (max-width: 640px) { .scheduled-bubble { max-width: 92%; padding-inline: 12px; } .scheduled-header { gap: 12px; } }
 </style>

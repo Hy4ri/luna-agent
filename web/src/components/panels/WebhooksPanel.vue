@@ -182,7 +182,7 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
       <form class="card grid" @submit.prevent="addInbound">
         <b>Add an inbound webhook</b>
         <input v-model="inForm.name" placeholder="Name, e.g. GitHub PRs" aria-label="Webhook name" maxlength="60" required />
-        <div class="row">
+        <div class="row hook-form-row">
           <select v-model="inForm.kind" aria-label="Target">
             <option value="project">New session in a project</option>
             <option value="session">Existing session</option>
@@ -203,7 +203,7 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
         </div>
         <input v-model="inForm.events" placeholder="Events (optional), e.g. pull_request.opened, issues" aria-label="Event filter" />
         <textarea v-model="inForm.template" rows="3" placeholder="Template (optional), e.g. PR {{body.number}}: {{body.pull_request.title}}" aria-label="Template" />
-        <div class="row"><button type="submit" :disabled="busy || !inForm.name.trim()">Create webhook</button></div>
+        <div class="row"><button type="submit" :disabled="busy || !inForm.name.trim()" :title="!inForm.name.trim() ? 'Enter a webhook name' : busy ? 'Saving…' : undefined">Create webhook</button></div>
       </form>
     </template>
 
@@ -254,16 +254,18 @@ onMounted(() => { void refresh(); void loadProjects().catch(() => {}); });
           <span class="muted">Events (none selected = all):</span>
           <label v-for="e in OUT_EVENTS" :key="e" class="row"><input v-model="outForm.events" type="checkbox" :value="e" /> {{ e }}</label>
         </fieldset>
-        <div class="row"><button type="submit" :disabled="busy || !outForm.name.trim() || !outForm.url.trim()">Create subscription</button></div>
+        <div class="row"><button type="submit" :disabled="busy || !outForm.name.trim() || !outForm.url.trim()" :title="(!outForm.name.trim() || !outForm.url.trim()) ? 'Enter a name and URL' : busy ? 'Saving…' : undefined">Create subscription</button></div>
       </form>
     </template>
   </div>
 </template>
 
 <style scoped>
-[role="tab"].active { border-color: var(--primary); }
+[role="tab"].active { border-color: var(--primary-text); background: var(--acc-soft); color: var(--foreground); }
+.hook-form-row { flex-wrap: wrap; }
+.hook-form-row > * { min-width: 0; flex: 1 1 140px; }
 .hook-outcome { font-weight: 600; }
-.hook-outcome.delivered, .hook-outcome.ok { color: var(--success); }
+.hook-outcome.delivered, .hook-outcome.ok { color: var(--ok); }
 .hook-outcome.rejected, .hook-outcome.failed { color: var(--destructive); }
 .hook-outcome.pending, .hook-outcome.ignored, .hook-outcome.duplicate { color: var(--muted-foreground); }
 </style>

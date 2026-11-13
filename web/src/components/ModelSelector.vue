@@ -183,7 +183,7 @@ const listItems = computed<ListItem[]>(() => {
 const { list: vListItems, containerProps: msContainerProps, wrapperProps: msWrapperProps } = useVirtualList(listItems, {
   itemHeight: (i: number) => {
     const k = listItems.value[i]?.kind;
-    return k === "provider" ? 40 : k === "section" ? 28 : k === "divider" ? 9 : k === "empty" ? 36 : 38;
+    return k === "provider" ? 44 : k === "section" ? 28 : k === "divider" ? 9 : 44;
   },
   overscan: 12,
 });
@@ -459,7 +459,7 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-search input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .ms-search input::placeholder { color: var(--muted-foreground); }
 .ms-count { position: absolute; right: 10px; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
- .ms-provider { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; box-sizing: border-box; padding: 8px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
+ .ms-provider { display: flex; align-items: center; gap: 8px; width: 100%; height: 44px; box-sizing: border-box; padding: 8px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
 .ms-provider:not(.ms-provider-label):hover { background: var(--accent); }
 .ms-provider-label { cursor: default; }
 .ms-provider:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
@@ -487,23 +487,24 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-list > * { flex-shrink: 0; }
 .ms-compact-picker .ms-list { max-height: none; }
 .ms-compact-picker .ms-divider { margin: 4px 0; }
- .ms-row { display: flex; align-items: center; gap: 6px; width: 100%; height: 38px; box-sizing: border-box; padding: 3px 8px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
+ .ms-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 44px; box-sizing: border-box; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; }
 .ms-row:not(:disabled):hover, .ms-row[data-active="true"] { background: var(--accent); border-color: var(--border); }
-.ms-row[data-selected="true"] { background: var(--acc-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
-.ms-row-main { flex: 1; min-width: 0; display: grid; gap: 0; line-height: 1.15; }
+.ms-row[data-selected="true"] { background: color-mix(in srgb, var(--primary) 14%, var(--card)); border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); }
+.ms-row-main { flex: 1; min-width: 0; display: grid; gap: 2px; line-height: 1.2; }
 .ms-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-name.ms-muted { color: var(--muted-foreground); font-weight: 450; }
 .ms-sub { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .ms-badges { display: inline-flex; gap: 4px; flex: none; }
-.ms-badge { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 999px; background: var(--secondary); border: 1px solid var(--border); color: var(--muted-foreground); }
-.ms-entry-pinned > .ms-row { min-height: 36px; padding: 3px 8px; }
-.ms-entry-pinned .ms-name { font-size: 12.5px; }
-.ms-entry-pinned .ms-badge { width: 16px; height: 16px; border: 0; background: transparent; }
-.ms-entry-pinned .ms-pin { height: 36px; }
-.ms-current { flex: none; font-size: 10px; font-weight: 600; color: var(--primary-text); background: var(--acc-soft); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 999px; padding: 1px 6px; }
+.ms-badge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: var(--radius); background: var(--secondary); border: 1px solid var(--border); color: var(--foreground); }
+.ms-row[data-selected="true"] .ms-badge { background: color-mix(in srgb, var(--primary) 24%, var(--secondary)); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); color: var(--foreground); }
+.ms-entry-pinned > .ms-row { min-height: 44px; padding: 6px 10px; }
+.ms-entry-pinned .ms-name { font-size: 13px; }
+.ms-entry-pinned .ms-badge { width: 20px; height: 20px; border: 1px solid var(--border); background: var(--secondary); }
+.ms-entry-pinned .ms-pin { height: 44px; }
+.ms-current { flex: none; font-size: 10px; font-weight: 600; color: var(--primary-foreground); background: var(--primary); border: 1px solid var(--primary); border-radius: var(--radius); padding: 2px 6px; letter-spacing: 0.02em; }
 .ms-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ms-selected { flex: none; color: var(--primary-text); }
-.ms-pin { flex: none; display: grid; place-items: center; width: 32px; height: 36px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
+.ms-pin { flex: none; display: grid; place-items: center; width: 40px; height: 44px; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius); color: var(--muted-foreground); }
 .ms-pin:hover { background: var(--secondary); color: var(--foreground); }
 .ms-pin[data-pinned="true"] { color: var(--primary-text); }
 .ms-empty { padding: 16px 8px; text-align: center; font-size: 13px; color: var(--muted-foreground); }
@@ -517,10 +518,11 @@ defineExpose({ focusSearch, revealSelected, prepareOpen });
 .ms-retry:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .ms-row:disabled { opacity: .6; cursor: default; }
 .ms-hint { font-size: 11px; color: var(--muted-foreground); }
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) {
   .ms-search input { min-height: 44px; font-size: 16px; }
-  .ms-row { min-height: 36px; }
+  .ms-row { min-height: 44px; }
   .ms-provider { min-height: 44px; }
-  .ms-entry-pinned > .ms-row, .ms-entry-pinned .ms-pin { min-height: 36px; }
+  .ms-pin { width: 44px; height: 44px; }
+  .ms-entry-pinned > .ms-row, .ms-entry-pinned .ms-pin { min-height: 44px; }
 }
 </style>

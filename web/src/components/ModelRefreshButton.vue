@@ -42,12 +42,12 @@ const stamp = computed(() => {
 <style scoped>
 .mr-wrap { flex: none; display: flex; align-items: center; gap: 8px; }
 .mr-stamp { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }
-.mr-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 1px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.mr-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: var(--muted-foreground); cursor: pointer; }
 .mr-btn:hover:not(:disabled) { color: var(--foreground); background: var(--accent); }
 .mr-btn:disabled { cursor: default; color: var(--foreground); border-color: var(--primary); }
 .mr-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .mr-spin { animation: mr-spin 1s linear infinite; }
 @keyframes mr-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .mr-spin { animation: none; } }
-@media (pointer: coarse) { .mr-btn { width: 36px; height: 36px; } }
+@media (max-width: 760px), (pointer: coarse) { .mr-btn { width: 44px; height: 44px; } }
 </style>

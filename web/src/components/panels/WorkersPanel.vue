@@ -71,8 +71,8 @@ onMounted(refresh);
       <b>Add a machine</b>
       <p class="muted text-xs">File, shell, and background-process tools of sessions on that machine run there. Other tools stay on this host.</p>
       <div class="row">
-        <input v-model="name" placeholder="Name, e.g. desktop" aria-label="Machine name" maxlength="40" required class="flex-1" />
-        <button type="submit" :disabled="adding || !name.trim()">Create token</button>
+        <input v-model="name" placeholder="Name, e.g. desktop" aria-label="Machine name" maxlength="40" required class="flex-1 min-w-0" />
+        <button type="submit" :disabled="adding || !name.trim()" :title="!name.trim() ? 'Enter a machine name' : adding ? 'Creating token…' : undefined">Create token</button>
       </div>
     </form>
   </div>
@@ -80,5 +80,5 @@ onMounted(refresh);
 
 <style scoped>
 .worker-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--muted-foreground); vertical-align: middle; }
-.worker-dot.on { background: var(--success); }
+.worker-dot.on { background: var(--ok); }
 </style>
