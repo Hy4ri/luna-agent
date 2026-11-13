@@ -148,7 +148,7 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
       <div class="min-h-0 overflow-auto bg-card text-xs" v-bind="commitContainerProps" :class="[wide ? 'w-[460px] shrink-0 border-r border-border' : 'flex-1', !wide && selected ? 'hidden' : 'block']">
         <p v-if="!loading && !commits.length && !error" class="p-4 text-muted-foreground">No commits yet.</p>
         <div v-bind="commitWrapperProps"><button v-for="{ data: commit, index: i } in vCommits" :key="commit.oid" type="button"
-          class="flex items-center w-full text-left hover:bg-muted pr-2" :style="{ height: ROW + 'px' }"
+          class="flex items-center w-full text-left hover:bg-muted pr-2 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[-2px]" :style="{ height: ROW + 'px' }"
           :class="selected === commit.oid ? 'bg-accent' : ''" :aria-label="`Commit ${commit.oid.slice(0, 7)}: ${commit.subject}`"
           @click="select(commit.oid)">
           <svg :width="graphWidth" :height="ROW" class="shrink-0" aria-hidden="true">
@@ -164,7 +164,7 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
           <span class="shrink-0 pl-2 text-muted-foreground hidden sm:inline">{{ commit.author }}</span>
           <span class="shrink-0 w-8 text-right text-muted-foreground" :title="new Date(commit.date).toLocaleString()">{{ when(commit.date) }}</span>
         </button></div>
-        <button v-if="more" type="button" class="m-2 px-2 py-1 underline text-muted-foreground disabled:opacity-50" :disabled="loading" @click="load(false)">{{ loading ? 'Loading…' : 'Load more commits' }}</button>
+        <button v-if="more" type="button" class="m-2 px-2 py-1 underline text-muted-foreground disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-ring max-[760px]:min-h-11" :disabled="loading" @click="load(false)">{{ loading ? 'Loading…' : 'Load more commits' }}</button>
       </div>
 
       <!-- Commit detail -->
@@ -185,7 +185,7 @@ const body = (message: string) => message.split("\n").slice(1).join("\n").trim()
                   <span v-if="detail.committer !== detail.author">committed by {{ detail.committer }}</span>
                   <span class="font-mono select-all" :title="detail.oid">{{ detail.oid.slice(0, 10) }}</span>
                   <span v-if="detail.parents.length" class="flex items-center gap-1">{{ detail.parents.length > 1 ? 'parents' : 'parent' }}
-                    <button v-for="p in detail.parents" :key="p" type="button" class="font-mono underline hover:text-foreground" :title="`Open ${p}`" @click="select(p)">{{ p.slice(0, 7) }}</button>
+                    <button v-for="p in detail.parents" :key="p" type="button" class="font-mono underline hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring max-[760px]:min-h-11" :title="`Open ${p}`" @click="select(p)">{{ p.slice(0, 7) }}</button>
                   </span>
                   <span v-else>root commit</span>
                   <RefChips :refs="detail.refs" />

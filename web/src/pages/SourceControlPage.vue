@@ -366,7 +366,7 @@ onUnmounted(() => {
           type="button"
           id="source-control-menu"
           @click="setDrawer(true)"
-          class="md:hidden p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+          class="md:hidden p-2 hover:bg-accent rounded-lg text-muted-foreground hover:text-foreground transition-colors max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center"
           title="Open menu"
           aria-label="Open navigation"
         >
@@ -475,7 +475,7 @@ onUnmounted(() => {
                   class="w-full bg-muted border border-border rounded pl-8 pr-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary"
                 />
               </div>
-              <button type="button" class="shrink-0 px-2 py-1 text-xs rounded border border-border bg-muted hover:bg-accent" title="Create on GitHub" @click="newOpen = true">New</button>
+              <button type="button" class="shrink-0 px-2 py-1 text-xs rounded border border-border bg-muted hover:bg-accent max-[760px]:min-h-11" title="Create on GitHub" @click="newOpen = true">New</button>
               <select
                 v-model="stateFilter"
                 aria-label="Filter by state"
@@ -488,7 +488,7 @@ onUnmounted(() => {
             </div>
             <!-- Filters -->
             <div class="flex flex-wrap items-center gap-2 text-xs" role="group" aria-label="List filters">
-              <button type="button" class="px-2 py-1 rounded border border-border" :class="mineOnly ? 'bg-secondary text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">Mine</button>
+              <button type="button" class="px-2 py-1 rounded border border-border max-[760px]:min-h-11" :class="mineOnly ? 'bg-secondary text-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'" :aria-pressed="mineOnly" @click="mineOnly = !mineOnly">Mine</button>
               <input v-model="labelFilter" type="text" maxlength="50" placeholder="Label" aria-label="Filter by label" class="w-20 min-w-0 flex-1 bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary" @keydown.enter="loadList()" @blur="loadList()" />
               <template v-if="kind === 'pr'">
                 <select v-model="draftFilter" aria-label="Filter by draft" class="bg-muted border border-border rounded px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1 focus:border-primary">
@@ -498,7 +498,7 @@ onUnmounted(() => {
                   <option value="">Any review</option><option value="approved">Approved</option><option value="changes_requested">Changes requested</option><option value="required">Review required</option>
                 </select>
               </template>
-              <button v-if="hasFilters" type="button" class="px-2 py-1 text-muted-foreground hover:text-foreground underline" @click="clearFilters(); loadList()">Clear</button>
+              <button v-if="hasFilters" type="button" class="px-2 py-1 text-muted-foreground hover:text-foreground underline max-[760px]:min-h-11" @click="clearFilters(); loadList()">Clear</button>
             </div>
           </div>
 
@@ -506,7 +506,7 @@ onUnmounted(() => {
           <!-- List Error -->
           <div v-if="listError" role="alert" class="p-3 bg-destructive/10 text-destructive text-xs border-b border-border flex items-center justify-between gap-2">
             <span class="min-w-0 break-words">{{ listError }}</span>
-            <button type="button" class="shrink-0 px-2 py-1 bg-card text-foreground rounded border border-border hover:bg-accent" @click="refresh">Retry</button>
+            <button type="button" class="shrink-0 px-2 py-1 bg-card text-foreground rounded border border-border hover:bg-accent max-[760px]:min-h-11" @click="refresh">Retry</button>
           </div>
 
           <!-- List -->
@@ -542,7 +542,7 @@ onUnmounted(() => {
             <button
               type="button"
               @click="backToList"
-              class="flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+              class="flex items-center gap-2 text-xs font-medium text-primary hover:underline max-[760px]:min-h-11"
             >
               <ArrowLeft class="w-4 h-4" />
               <span>Back to list</span>

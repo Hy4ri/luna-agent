@@ -46,8 +46,8 @@ function sign(kind: DiffLine["kind"]) { return kind === "add" ? "+" : kind === "
               <td colspan="3" class="px-2 whitespace-pre" :class="line.kind === 'hunk' ? 'bg-secondary text-muted-foreground' : 'text-muted-foreground'">{{ line.text }}</td>
             </template>
             <template v-else>
-              <td class="w-px px-1.5 text-right select-none text-muted-foreground/70 align-top">{{ line.old ?? '' }}</td>
-              <td class="w-px px-1.5 text-right select-none text-muted-foreground/70 align-top border-r border-border">{{ line.new ?? '' }}</td>
+              <td class="w-px px-1.5 text-right select-none text-muted-foreground align-top">{{ line.old ?? '' }}</td>
+              <td class="w-px px-1.5 text-right select-none text-muted-foreground align-top border-r border-border">{{ line.new ?? '' }}</td>
               <td class="px-2 whitespace-pre"><span class="select-none" :class="line.kind === 'add' ? 'text-emerald-400' : line.kind === 'del' ? 'text-rose-400' : 'text-muted-foreground'">{{ sign(line.kind) }}</span>{{ line.text }}</td>
             </template>
           </tr>
@@ -58,9 +58,9 @@ function sign(kind: DiffLine["kind"]) { return kind === "add" ? "+" : kind === "
               <td colspan="4" class="px-2 whitespace-pre" :class="row.kind === 'hunk' ? 'bg-secondary text-muted-foreground' : 'text-muted-foreground'">{{ row.text }}</td>
             </template>
             <template v-else>
-              <td class="w-px px-1.5 text-right select-none text-muted-foreground/70 align-top" :class="tone(row.left?.kind === 'ctx' ? undefined : row.left?.kind)">{{ row.left?.old ?? '' }}</td>
+              <td class="w-px px-1.5 text-right select-none text-muted-foreground align-top" :class="tone(row.left?.kind === 'ctx' ? undefined : row.left?.kind)">{{ row.left?.old ?? '' }}</td>
               <td class="w-1/2 px-2 whitespace-pre-wrap break-all align-top border-r border-border" :class="row.left ? tone(row.left.kind === 'ctx' ? undefined : row.left.kind) : 'bg-muted/30'">{{ row.left?.text ?? '' }}</td>
-              <td class="w-px px-1.5 text-right select-none text-muted-foreground/70 align-top" :class="tone(row.right?.kind === 'ctx' ? undefined : row.right?.kind)">{{ row.right?.new ?? '' }}</td>
+              <td class="w-px px-1.5 text-right select-none text-muted-foreground align-top" :class="tone(row.right?.kind === 'ctx' ? undefined : row.right?.kind)">{{ row.right?.new ?? '' }}</td>
               <td class="w-1/2 px-2 whitespace-pre-wrap break-all align-top" :class="row.right ? tone(row.right.kind === 'ctx' ? undefined : row.right.kind) : 'bg-muted/30'">{{ row.right?.text ?? '' }}</td>
             </template>
           </tr>

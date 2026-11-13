@@ -340,7 +340,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
         </div>
       </div>
     </div>
-    <footer class="settings-footer"><div class="save-state"><strong>{{ dirty ? 'Unsaved changes' : saved?.restartRequired ? 'Restart required' : 'Settings' }}</strong><p role="status" aria-live="polite" :class="{ 'save-error': saveError }">{{ statusText || 'Settings apply as shown beside each group.' }}</p></div><div class="save-actions"><button class="settings-button" type="button" :disabled="!saved || loading || disabled" @click="reloadSettings">{{ isReloading ? 'Reloading…' : dirty ? 'Discard changes' : 'Reload' }}</button><button class="settings-button primary" type="button" data-settings-save :disabled="!saved || loading || disabled || !dirty" @click="saveSettings">{{ isSaving ? 'Saving...' : 'Save settings' }}</button></div></footer>
+    <footer class="settings-footer"><div class="save-state" :class="{ 'has-alert': dirty || saved?.restartRequired }"><strong>{{ dirty ? 'Unsaved changes' : saved?.restartRequired ? 'Restart required' : 'Settings' }}</strong><p role="status" aria-live="polite" :class="{ 'save-error': saveError }">{{ statusText || 'Settings apply as shown beside each group.' }}</p></div><div class="save-actions"><button class="settings-button" type="button" :disabled="!saved || loading || disabled" @click="reloadSettings">{{ isReloading ? 'Reloading…' : dirty ? 'Discard changes' : 'Reload' }}</button><button class="settings-button primary" type="button" data-settings-save :disabled="!saved || loading || disabled || !dirty" @click="saveSettings">{{ isSaving ? 'Saving...' : 'Save settings' }}</button></div></footer>
   </div>
 </template>
 
@@ -350,7 +350,7 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .settings-heading { flex: 1; min-width: 0; }
 .settings-heading h1 { font-size: 24px; font-weight: 650; letter-spacing: -.025em; }
 .settings-heading p, .section-heading p { color: var(--muted-foreground); font-size: 15px; margin-top: 4px; }
-.settings-layout { display: flex; min-height: 0; flex: 1; }
+.settings-layout { display: flex; min-height: 0; flex: 1; overflow: hidden; }
 .settings-nav { flex: 0 0 208px; padding: 20px 12px; border-right: 1px solid var(--border); overflow-y: auto; }
 .settings-tabs { display: flex; flex-direction: column; gap: 4px; }
 .settings-tabs button strong { font-weight: inherit; }
@@ -358,12 +358,13 @@ watch(settingsChanged, () => { if (!dirty.value && !disabled.value) void loadSet
 .index-back { margin-bottom: 20px; }
 .settings-management { padding-block: 20px; border-top: 1px solid var(--border); }
 .settings-management h3 { font-size: 18px; margin-bottom: 16px; }
-.settings-tabs button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border-radius: var(--radius); text-align: left; color: var(--muted-foreground); cursor: pointer; flex-shrink: 0; }
+.settings-tabs button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 12px; border-radius: var(--radius); text-align: left; color: var(--sidebar-foreground); cursor: pointer; flex-shrink: 0; }
 .settings-tabs button:hover { background: var(--accent); color: var(--foreground); }
 .settings-tabs button[aria-current="page"] { background: var(--acc-soft); color: var(--primary-text); font-weight: 600; }
+.settings-tabs button:focus-visible, .manager-link:focus-visible, .settings-button:focus-visible, .icon-button:focus-visible, .advanced-fields summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .settings-tabs svg { flex-shrink: 0; }
 .settings-scroll { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
-.settings-content { padding: 28px 32px 40px; min-width: 0; max-width: 1040px; margin-inline: auto; }
+.settings-content { padding: 28px 32px 48px; min-width: 0; max-width: 1040px; margin-inline: auto; }
 .section-heading { margin-bottom: 24px; }
 .section-heading h2 { font-size: 21.5px; font-weight: 600; letter-spacing: -.02em; }
 .settings-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; min-width: 0; padding: 0; margin: 0; border: 0; }
@@ -418,15 +419,17 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .mobile-only { display: inline-flex; width: 44px; height: 44px; }
   [data-settings-close] { min-width: 44px; min-height: 44px; }
   .back-button { padding-inline: 12px; }
-  .settings-layout { flex-direction: column; }
-  .settings-nav { flex: 1; width: 100%; padding: 16px; border: 0; overflow-y: auto; }
+  .settings-layout { flex-direction: column; min-height: 0; }
+  .settings-nav { flex: 1; min-height: 0; width: 100%; padding: 16px 16px 32px; border: 0; overflow-y: auto; }
+  .settings-scroll { min-height: 0; }
   .settings-tabs { flex-direction: column; gap: 8px; }
   .settings-tabs button { white-space: normal; font-size: 15px; border: 1px solid var(--border); align-items: flex-start; padding: 16px; }
-  .settings-content { padding: 24px 16px 32px; }
+  .settings-content { padding: 24px 16px 48px; }
   .settings-body { gap: 16px; }
+  .advanced-fields summary { min-height: 44px; display: flex; align-items: center; }
   .settings-footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); flex-wrap: wrap; gap: 8px; }
   .save-state { width: 100%; }
-  .save-state strong { display: none; }
+  .save-state:not(.has-alert) strong { display: none; }
   .save-state p { margin: 0; max-height: 4.5em; overflow-y: auto; }
   .save-actions { width: 100%; justify-content: flex-end; }
   .manager-link { padding: 16px; }

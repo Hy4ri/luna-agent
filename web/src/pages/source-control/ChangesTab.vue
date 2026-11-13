@@ -382,7 +382,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
         </button>
         <button
           type="button"
-          class="px-2.5 py-1 bg-card hover:bg-accent border border-border rounded transition-colors disabled:opacity-50"
+          class="px-2.5 py-1 bg-card hover:bg-accent border border-border rounded transition-colors disabled:opacity-50 max-[760px]:min-h-11"
           :disabled="loadingState || !changes"
           title="Fetch origin"
           @click="handleFetch"
@@ -391,7 +391,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
         </button>
         <button
           type="button"
-          class="px-2.5 py-1 bg-card hover:bg-accent border border-border rounded transition-colors flex items-center gap-1 disabled:opacity-50"
+          class="px-2.5 py-1 bg-card hover:bg-accent border border-border rounded transition-colors flex items-center gap-1 disabled:opacity-50 max-[760px]:min-h-11"
           :disabled="loadingState || !changes?.upstream"
           :title="changes?.upstream ? `Pull from ${changes.upstream}` : 'Publish branch before pulling'"
           @click="handlePull"
@@ -402,7 +402,7 @@ watch(() => [props.session, props.project, props.machine, serverUrl.value, token
         </button>
         <button
           type="button"
-          class="px-2.5 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded transition-colors flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-primary"
+          class="px-2.5 py-1 bg-primary text-primary-foreground hover:bg-primary/90 rounded transition-colors flex items-center gap-1 disabled:opacity-50 disabled:hover:bg-primary max-[760px]:min-h-11"
           :disabled="loadingState || !changes || changes.detached || changes.unborn || nothingToPush"
           :title="pushTitle"
           ref="pushButton"

@@ -30,16 +30,16 @@
                   :title="headerTitle(col)"
                   @click="$emit('sort', nextSort(col.key))"
                 >
-                  <span :class="{ 'underline decoration-dotted decoration-muted-foreground/60 underline-offset-4': !!METRIC_HELP[col.key] }">{{ columnLabel(col) }}</span>
+                  <span :class="{ 'underline decoration-dotted decoration-muted-foreground underline-offset-4': !!METRIC_HELP[col.key] }">{{ columnLabel(col) }}</span>
                   <ArrowUp v-if="sortKey === col.key && sortDir === 'asc'" :size="12" aria-hidden="true" />
                   <ArrowDown v-else-if="sortKey === col.key && sortDir === 'desc'" :size="12" aria-hidden="true" />
-                  <ArrowUpDown v-else :size="12" class="opacity-40" aria-hidden="true" />
+                  <ArrowUpDown v-else :size="12" class="opacity-60" aria-hidden="true" />
                 </button>
                 <span
                   v-else
                   class="block px-3 py-2.5"
                   :title="METRIC_HELP[col.key]"
-                  :class="{ 'underline decoration-dotted decoration-muted-foreground/60 underline-offset-4': !!METRIC_HELP[col.key] }"
+                  :class="{ 'underline decoration-dotted decoration-muted-foreground underline-offset-4': !!METRIC_HELP[col.key] }"
                 >{{ columnLabel(col) }}</span>
               </th>
               <th v-if="anySelectable" scope="col" class="w-8"><span class="sr-only">Open details</span></th>

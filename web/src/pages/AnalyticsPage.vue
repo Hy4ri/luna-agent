@@ -11,7 +11,7 @@
         type="button"
         variant="ghost"
         size="icon"
-        class="hidden max-[760px]:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground"
+        class="hidden max-[760px]:inline-flex h-11 w-11 text-muted-foreground hover:text-foreground"
         aria-label="Open navigation"
         aria-controls="side"
         @click="setDrawer(true)"
@@ -32,7 +32,7 @@
       <div class="flex items-center gap-1.5 ml-auto">
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
-            <Button type="button" variant="outline" size="sm" :disabled="exporting || !queryResult" aria-label="Export table">
+            <Button type="button" variant="outline" size="sm" class="max-[760px]:min-h-11 max-[760px]:min-w-11" :disabled="exporting || !queryResult" aria-label="Export table">
               <Download :size="14" aria-hidden="true" />
               <span class="max-[760px]:hidden">{{ exporting ? "Exporting…" : "Export" }}</span>
               <ChevronDown :size="14" aria-hidden="true" class="max-[760px]:hidden" />
@@ -120,26 +120,29 @@
           <option value="custom">Custom range…</option>
         </select>
 
-        <template v-if="rangePreset === 'custom'">
-          <label class="inline-flex items-center gap-1 text-muted-foreground">
+        <div
+          v-if="rangePreset === 'custom'"
+          class="min-[761px]:contents max-[760px]:w-full max-[760px]:flex max-[760px]:flex-col max-[760px]:gap-2"
+        >
+          <label class="inline-flex items-center gap-1 text-muted-foreground max-[760px]:w-full max-[760px]:justify-between">
             From
             <input
               type="datetime-local"
               :value="toLocalInput(filters.from)"
-              class="h-8 px-2 bg-secondary border border-border rounded-[var(--radius)] text-foreground"
+              class="h-8 max-[760px]:min-h-11 max-[760px]:w-full px-2 bg-secondary border border-border rounded-[var(--radius)] text-foreground"
               @change="onCustomDate('from', ($event.target as HTMLInputElement).value)"
             />
           </label>
-          <label class="inline-flex items-center gap-1 text-muted-foreground">
+          <label class="inline-flex items-center gap-1 text-muted-foreground max-[760px]:w-full max-[760px]:justify-between">
             to
             <input
               type="datetime-local"
               :value="toLocalInput(filters.to)"
-              class="h-8 px-2 bg-secondary border border-border rounded-[var(--radius)] text-foreground"
+              class="h-8 max-[760px]:min-h-11 max-[760px]:w-full px-2 bg-secondary border border-border rounded-[var(--radius)] text-foreground"
               @change="onCustomDate('to', ($event.target as HTMLInputElement).value)"
             />
           </label>
-        </template>
+        </div>
 
         <button
           type="button"
@@ -153,7 +156,10 @@
           Filters<span v-if="extraFilterCount" class="tabular-nums">· {{ extraFilterCount }}</span>
           <ChevronDown :size="13" class="text-muted-foreground transition-transform" :class="{ 'rotate-180': mobileFiltersOpen }" aria-hidden="true" />
         </button>
-        <div id="analytics-more-filters" class="contents" :class="mobileFiltersOpen ? '' : 'max-[760px]:hidden'">
+        <div
+          id="analytics-more-filters"
+          :class="mobileFiltersOpen ? 'min-[761px]:contents max-[760px]:w-full max-[760px]:flex max-[760px]:flex-wrap max-[760px]:gap-2' : 'contents max-[760px]:hidden'"
+        >
         <div class="relative max-[760px]:w-full">
           <Search :size="13" class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" aria-hidden="true" />
           <input
@@ -290,7 +296,7 @@
         class="p-3 border border-destructive/40 rounded-[var(--radius)] bg-destructive/10 text-destructive flex items-center justify-between gap-3 text-xs"
       >
         <span>Export failed: {{ exportError }}</span>
-        <button type="button" class="underline" @click="exportError = null">Dismiss</button>
+        <button type="button" class="underline rounded-[var(--radius)] focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2" @click="exportError = null">Dismiss</button>
       </div>
 
       <div v-if="!current && !error" class="space-y-4" role="status" aria-label="Loading analytics">
@@ -309,7 +315,7 @@
             class="border border-border rounded-[var(--radius)] px-3.5 py-3 bg-card min-w-0"
           >
             <div class="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <span class="truncate">{{ k.label }}</span>
+              <span class="line-clamp-2 leading-snug">{{ k.label }}</span>
               <Popover v-if="k.help">
                 <PopoverTrigger as-child>
                   <button

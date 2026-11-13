@@ -88,5 +88,8 @@ fieldset { border: 0; padding: 0; min-width: 0; display: grid; gap: 16px; }
 .actions { display: flex; gap: 8px; }
 button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; width: fit-content; }
 button:hover { background: var(--accent); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.muted { color: var(--muted-foreground); font-size: 13px; }
 .error { color: var(--destructive); }
 </style>

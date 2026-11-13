@@ -75,7 +75,7 @@ watch(() => props.files, files => {
       <p class="px-2 py-1.5 text-muted-foreground border-b border-border">{{ files.length }} file{{ files.length === 1 ? '' : 's' }} changed</p>
       <p v-if="!files.length" class="p-3 text-muted-foreground">No file changes.</p>
       <button v-for="file in files" :key="(file.original ?? '') + '\0' + file.path" type="button"
-        class="flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-muted min-w-0 vl vl-sm"
+        class="flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-muted min-w-0 vl vl-sm focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-[-2px]"
         :class="selected === file ? 'bg-accent' : ''"
         :title="file.original ? `${file.original} → ${file.path}` : file.path"
         @click="select(file)">
@@ -88,7 +88,7 @@ watch(() => props.files, files => {
     </div>
     <div class="flex-1 min-h-0 min-w-0 flex-col" :class="!wide && !selected ? 'hidden' : 'flex'">
       <div class="px-2 py-1.5 border-b border-border bg-card text-xs text-muted-foreground flex items-center gap-2 shrink-0 min-w-0">
-        <button v-if="!wide" type="button" class="p-1 -ml-1 hover:bg-accent rounded" aria-label="Back to files" @click="close"><ChevronLeft class="w-4 h-4" /></button>
+        <button v-if="!wide" type="button" class="p-1 -ml-1 hover:bg-accent rounded focus-visible:outline-2 focus-visible:outline-ring max-[760px]:min-h-11 max-[760px]:min-w-11 inline-flex items-center justify-center" aria-label="Back to files" @click="close"><ChevronLeft class="w-4 h-4" /></button>
         <span class="truncate">{{ selected ? (selected.original && selected.original !== selected.path ? `${selected.original} → ${selected.path}` : selected.path) : 'No file selected' }}</span>
       </div>
       <div v-if="selected && !load && selected.patch == null" class="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-center text-xs text-muted-foreground">
