@@ -309,6 +309,9 @@ function computeSummary(store: AnalyticsStore, filters: AnalyticsFilters): Analy
          SUM(CASE WHEN f.kind = 'response' THEN 1 ELSE 0 END) AS responses,
          SUM(CASE WHEN f.kind = 'tool' THEN 1 ELSE 0 END) AS toolCalls,
          SUM(CASE WHEN f.kind IN ('response', 'tool') AND f.error = 1 THEN 1 ELSE 0 END) AS errors,
+         SUM(CASE WHEN f.kind = 'response' AND f.error = 1 THEN 1 ELSE 0 END) AS responseErrors,
+         SUM(CASE WHEN f.kind = 'response' AND f.aborted = 1 THEN 1 ELSE 0 END) AS aborts,
+         SUM(CASE WHEN f.kind = 'tool' AND f.error = 1 THEN 1 ELSE 0 END) AS toolErrors,
          AVG(CASE WHEN f.kind = 'response' AND f.duration_ms IS NOT NULL THEN f.duration_ms ELSE NULL END) AS avgDurationMs
        FROM analytics_facts f
        JOIN analytics_sessions s ON s.id = f.session_id
@@ -366,6 +369,11 @@ function computeSummary(store: AnalyticsStore, filters: AnalyticsFilters): Analy
     toolCalls,
     errors,
     errorRate: totalEvents > 0 ? errors / totalEvents : 0,
+    responseErrors: factCounts?.responseErrors ?? 0,
+    responseErrorRate: responses > 0 ? (factCounts?.responseErrors ?? 0) / responses : null,
+    aborts: factCounts?.aborts ?? 0,
+    toolErrors: factCounts?.toolErrors ?? 0,
+    toolErrorRate: toolCalls > 0 ? (factCounts?.toolErrors ?? 0) / toolCalls : null,
     avgDurationMs: factCounts?.avgDurationMs ?? null,
     inputTokens,
     outputTokens: usageRow?.outputTokens ?? 0,
@@ -1313,7 +1321,8 @@ function queryTabSections(
       const denom = Number(r.inputTokens ?? 0) + Number(r.cacheRead ?? 0) + Number(r.cacheWrite ?? 0);
       return {
         ...r,
-        id: `${String(r.model ?? "")}|${String(r.thinkingLevel ?? "")}`,
+        // The model detail route looks up by model name; the thinking level is a column, not part of the id.
+        id: r.model == null ? null : String(r.model),
         kind: "model",
         cacheHitRate: denom > 0 ? Number(r.cacheRead ?? 0) / denom : null,
       };
