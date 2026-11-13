@@ -713,7 +713,7 @@ body.kbd-nav .session-row:has(:focus-visible) .session-manage,
 
 /* Chat: one content column, with compact controls outside the transcript. */
 .chat-column {
-  --chat-width: 960px;
+  --chat-width: 912px;
   --chat-pad-left: max(24px, calc((100% - var(--chat-width)) / 2 - var(--gutter-shift, 0px)));
   --chat-pad-right: max(24px, calc((100% - var(--chat-width)) / 2 + var(--gutter-shift, 0px)));
 }

@@ -579,7 +579,7 @@ function backgroundReport(entry: any, message: any): boolean {
   opacity: 0.6;
   cursor: wait;
 }
-.queued-dock { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-height: 30%; overflow: auto; padding: 8px var(--chat-pad-right, max(24px, calc((100% - 960px) / 2 + var(--gutter-shift, 0px)))) 0 var(--chat-pad-left, max(24px, calc((100% - 960px) / 2 - var(--gutter-shift, 0px)))); }
+.queued-dock { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-height: 30%; overflow: auto; padding: 8px var(--chat-pad-right, max(24px, calc((100% - 912px) / 2 + var(--gutter-shift, 0px)))) 0 var(--chat-pad-left, max(24px, calc((100% - 912px) / 2 - var(--gutter-shift, 0px)))); }
 #log { padding-top: 32px; gap: 26px; }
 .agent-report-peer { font-size: 12px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-report-actions { margin-bottom: 8px; }

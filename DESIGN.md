@@ -114,7 +114,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 ### 2. Chat Transcript, Media, & Tool Renderers (`web/src/components/chat/`)
 
 - **Single Centered Column (`#log`):**
-  - Horizontal padding centers a `960px` reading column (`--chat-pad-left: max(24px, calc((100% - 960px) / 2 - var(--gutter-shift, 0px)))`, `--chat-pad-right: max(24px, calc((100% - 960px) / 2 + var(--gutter-shift, 0px)))`; `20px 16px` on mobile) with `24px` vertical message gap. `--gutter-shift` stays `0` by default so the column centers cleanly in the chat pane, and nudges left only as needed when docked `#session-rail` widgets require right-gutter clearance.
+  - Horizontal padding frames a `912px` reading column (`--chat-pad-left: max(24px, calc((100% - 912px) / 2 - var(--gutter-shift, 0px)))`, `--chat-pad-right: max(24px, calc((100% - 912px) / 2 + var(--gutter-shift, 0px)))`; `20px 16px` on mobile) with `24px` vertical message gap. `--gutter-shift` defaults to `+24px` on wide desktop panes (anchoring the left edge at the `960px` centered position while trimming `48px` / `5%` from the right), and nudges further left only when docked `#session-rail` widgets require right-gutter clearance.
   - Empty conversations display `#welcome` centered in the transcript.
   - Conversation context that is not a control is the last row **inside** the scroller, through the `Transcript` default slot (the undocked `GitStatus` footer). A wheel or touch drag that starts on it scrolls the transcript instead of dead-ending on fixed chrome, and it stays visible whenever the log is at the bottom. Only the extras dock, queued dock, and composer sit outside `#log`.
   - Floating scroll jump buttons (`.transcript-jumps`) anchor at `right: 24px; bottom: 140px` when scrolled away from the bottom.
@@ -139,7 +139,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
 ### 3. Composer & Header Status Bar (`web/src/components/composer/`, `StatusBar.vue`)
 
 - **Composer Container (`#compose` & `#composer`):**
-  - Centered dock aligned to the `960px` chat column (`--chat-pad-left` / `--chat-pad-right`, `8px 12px` on mobile, respecting `env(safe-area-inset-bottom)`).
+  - Centered dock aligned to the `912px` chat column (`--chat-pad-left` / `--chat-pad-right`, `8px 12px` on mobile, respecting `env(safe-area-inset-bottom)`).
   - `#composer` uses `background: var(--card)`, `border: 1px solid var(--input)`, `border-radius: var(--radius)`, shifting border to `color-mix(in srgb, var(--primary) 55%, var(--border))` on `:focus-within`.
   - **Attachment strip (`#atts`):** Thumbnail previews (`height: 54px`) with circular remove buttons above the textarea.
   - **Auto-sizing input (`#input`):** `min-height: 46px`, `max-height: 22dvh`, `font-size: 16.5px`, transparent background inside `#form` (`padding: 12px 16px`).
@@ -156,7 +156,7 @@ Always reference semantic CSS custom properties (or their Tailwind v4 `@theme in
   - `<summary>` shows a compact context gauge (`#context-meter` with `#context-fill` colored `--ok`, `--warn` at `data-level="amber"`, or `--destructive` at `data-level="red"`), tabular percentage (`.usage-percent`), and session cost (`.usage-cost`, hidden on mobile).
   - Opening `<details>` reveals `.usage-details` popover (`width: min(320px, calc(100vw - 32px))`) with per-model token breakdowns and manual compaction controls.
 - **Session Rail (`#session-rail`):**
-  - Floats as an absolute framed panel (`280px` wide, `top: 12px; right: 36px; max-height: calc(100% - 24px);` (shrinks to content; at most reaches the composer box bottom), clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 960) / 2 + gutterShift`) is at least `344px` (undocks below `328px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
+  - Floats as an absolute framed panel (`280px` wide, `top: 12px; right: 36px; max-height: calc(100% - 24px);` (shrinks to content; at most reaches the composer box bottom), clearing `.user-rail` and `#jump`) in the right gutter when the right gutter width (`(tileWidth - 912) / 2 + gutterShift`) is at least `344px` (undocks below `328px`; the dead zone prevents flicker and guarantees clearance). Split-view tiles measure their own width.
   - Shows only when there is active or rich content (goal, activity, review jobs, or dirty/unpushed `GitStatus`) and no right-side `WorkDock` is open. Any Git repository counts, clean or dirty, so wide screens never show `GitStatus` inline above the composer; it is inline only on narrow screens. Sessions with no repo and no widgets render zero side chrome.
   - Expanded panel shrinks to fit its content and grows at most to the bottom of the composer box; longer content scrolls inside. Minimizes into a segmented pill (`luna.rail.collapsed`): one icon + value chip per item, in panel order (git, goal, tasks, processes, reviews, subagents); accent icon = live, red = conflict/blocked, muted = done.
   - Order: Git (`GitStatus`), Goal, Processes, Review agents, Subagents, then Tasks (the long list goes last).

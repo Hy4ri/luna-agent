@@ -54,9 +54,10 @@ function mobileAction(action: () => unknown) {
   action();
 }
 // Floating session widgets: float goal, activity, and dirty git in the right gutter when wide enough,
-// while keeping the 960px chat column centered in the chat pane (nudging left only when docked widgets need clearance).
+// while anchoring the 912px chat column's left edge cleanly in the chat pane (leaving extra breathing room on the right).
 // Two gutter thresholds prevent flicker near the boundary.
-const CHAT_COLUMN_WIDTH = 960;
+const CHAT_COLUMN_WIDTH = 912;
+const CHAT_RIGHT_TRIM_SHIFT = 24;
 const RAIL_GUTTER_AT = 344, RAIL_GUTTER_BELOW = 328;
 const mainRef = ref<HTMLElement | null>(null);
 const railRoom = ref(false);
@@ -70,13 +71,14 @@ function updateLayoutMetrics(width?: number) {
   const maxNudge = (!mobile.value && !sessionPane && !tiled.value && !dockSide.value)
     ? Math.max(0, Math.min(120, naturalGutter - 48))
     : 0;
+  const baseShift = Math.min(maxNudge, CHAT_RIGHT_TRIM_SHIFT);
   const potentialRight = naturalGutter + maxNudge;
   if (potentialRight >= RAIL_GUTTER_AT) railRoom.value = true;
   else if (potentialRight < RAIL_GUTTER_BELOW) railRoom.value = false;
-  const shift = (railRoom.value && railContent.value && !dockSide.value)
-    ? Math.max(0, Math.min(maxNudge, RAIL_GUTTER_AT - naturalGutter))
+  const dockNudge = (railRoom.value && railContent.value && !dockSide.value)
+    ? Math.max(0, Math.min(maxNudge - baseShift, RAIL_GUTTER_AT - (naturalGutter - CHAT_RIGHT_TRIM_SHIFT)))
     : 0;
-  gutterShift.value = Math.round(shift);
+  gutterShift.value = Math.round(baseShift + dockNudge);
 }
 const selectedReview = ref<string | null>(null);
 const reviewJob = computed(() => reviewJobs.value.find(j => j.id === selectedReview.value) || null);
