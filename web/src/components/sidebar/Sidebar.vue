@@ -27,6 +27,13 @@ import {
   Trash2,
   Settings as SettingsIcon,
   LoaderCircle,
+  CircleCheck,
+  CircleX,
+  CircleHelp,
+  CircleAlert,
+  Hourglass,
+  CircleStop,
+  ScanEye,
   ChartNoAxesColumn,
   HeartHandshake,
   GitBranch,
@@ -47,8 +54,33 @@ import type { ProjectAppearance } from "../../../../src/project-appearance";
 import { history, toggleFavorite, loadSessions, loadMoreSessions, setDrill, sessionTitle, projectName, renameSession, generateTitle, titleModelAvailable, togglePinned, toggleArchived, activity, markActivitySeen, dismissActivity, markAllActivitySeen, deleteSession, bulkAction, type BulkAction } from "@/stores/sessions";
 import { startSessionDrag, endSessionDrag } from "@/lib/pane";
 import { sessionState, sessionStatusLabel } from "@/lib/session-status";
+import type { SessionStatus } from "@/lib/types";
 import { copyToClipboard } from "@/lib/message";
 import { ago } from "@/lib/mention-sources";
+
+function sessionStatusIcon(status: SessionStatus) {
+  switch (status) {
+    case "running":
+    case "reviewing":
+      return LoaderCircle;
+    case "finished":
+      return CircleCheck;
+    case "review_finished":
+      return ScanEye;
+    case "needs_approval":
+      return CircleAlert;
+    case "needs_input":
+      return CircleHelp;
+    case "limit_reached":
+      return Hourglass;
+    case "failed":
+      return CircleX;
+    case "stopped":
+      return CircleStop;
+    default:
+      return CircleCheck;
+  }
+}
 
 const MoveSessionDialog = defineAsyncComponent(() => import("./MoveSessionDialog.vue"));
 const PruneSessionsDialog = defineAsyncComponent(() => import("./PruneSessionsDialog.vue"));
@@ -729,8 +761,12 @@ onMounted(() => {
               </button>
 
               <span v-if="sessionState(s) !== 'ready'" class="session-running session-state" :data-status="sessionState(s)" :data-running="['running', 'reviewing'].includes(sessionState(s)) ? 'true' : undefined" role="img" :aria-label="sessionStatusLabel(s)" :title="s.statusReason || sessionStatusLabel(s)">
-                <LoaderCircle v-if="['running', 'reviewing'].includes(sessionState(s))" :size="14" class="motion-safe:animate-spin" />
-                <span v-else class="session-state-dot" aria-hidden="true"></span>
+                <component
+                  :is="sessionStatusIcon(sessionState(s))"
+                  :size="14"
+                  :class="{ 'motion-safe:animate-spin': ['running', 'reviewing'].includes(sessionState(s)) }"
+                  aria-hidden="true"
+                />
               </span>
 
               <button

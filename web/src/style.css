@@ -310,7 +310,6 @@ aside#side.collapsed #history-rail {
   cursor: default;
 }
 .group-body {
-  padding-left: 14px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -489,15 +488,15 @@ aside#side.collapsed #history-rail {
 .session-row {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding-right: 4px;
+  padding-right: 6px;
   position: relative;
   border-radius: var(--radius-sm);
   height: 48px;
   box-sizing: border-box;
 }
+.session-open:focus,
 .session-open:focus-visible { outline: none; }
-.session-row:has(.session-open:focus-visible) {
+body.kbd-nav .session-row:has(.session-open:focus-visible) {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
@@ -510,7 +509,7 @@ aside#side.collapsed #history-rail {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 4px 6px 8px;
+  padding: 6px 6px 6px 8px;
   background: transparent;
   border: none;
   color: inherit;
@@ -521,7 +520,14 @@ aside#side.collapsed #history-rail {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.session-pin {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
 .session-copy {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -545,10 +551,16 @@ aside#side.collapsed #history-rail {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Tint the whole row, including its menu, without changing title/status colors. */
+/* Active row: clean tinted surface without a left accent bar or click border. */
 .session-row:has(.session-open[aria-current="page"]) {
-  background: color-mix(in srgb, var(--primary) 16%, var(--sidebar-accent));
-  box-shadow: inset 2px 0 0 var(--primary-text);
+  background: color-mix(in srgb, var(--primary) 20%, var(--sidebar-accent));
+}
+.session-row:has(.session-open[aria-current="page"]):hover {
+  background: color-mix(in srgb, var(--primary) 24%, var(--sidebar-accent));
+}
+.session-row:has(.session-open[aria-current="page"]) .session-title {
+  color: var(--foreground);
+  font-weight: 500;
 }
 .session-rename {
   flex: 1;
@@ -562,33 +574,38 @@ aside#side.collapsed #history-rail {
   font-size: 0.875rem;
 }
 .session-running {
-  position: absolute;
-  left: -13px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
+  flex-shrink: 0;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
-  pointer-events: none;
+  width: 20px;
+  height: 20px;
+  margin-inline-end: 2px;
 }
 .session-manage {
   flex-shrink: 0;
-  opacity: 0;
-  width: 28px;
+  width: 0;
   height: 28px;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 .session-row:hover .session-manage,
-.session-row:focus-within .session-manage,
+body.kbd-nav .session-row:has(:focus-visible) .session-manage,
 .session-manage[aria-expanded="true"] {
+  width: 28px;
+  margin-inline-start: 2px;
   opacity: 1;
+  pointer-events: auto;
 }
 @media (hover: none), (pointer: coarse) {
   .session-manage {
     opacity: 1;
+    pointer-events: auto;
     width: 44px;
     height: 44px;
+    margin-inline-start: 2px;
   }
   .device-chip {
     min-height: 44px;
