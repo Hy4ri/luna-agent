@@ -37,7 +37,7 @@ defineExpose({ menuRef: computed(() => base.value?.menuRef ?? null), scrollActiv
     <template #header="{ group }">
       <span>{{ group.label }}</span>
       <span v-if="group.feedback" role="status">{{ group.feedback.message }}</span>
-      <button v-if="group.feedback?.retry" type="button" @mousedown.prevent @click="group.feedback.retry()">Retry</button>
+      <button v-if="group.feedback?.retry" type="button" class="at-retry" @mousedown.prevent @click="group.feedback.retry()">Retry</button>
     </template>
     <template #item="{ entry }">
       <span dir="auto" class="mention-subject">{{ entry.item.label }}</span>
@@ -46,3 +46,22 @@ defineExpose({ menuRef: computed(() => base.value?.menuRef ?? null), scrollActiv
     </template>
   </ComposerMenu>
 </template>
+
+<style scoped>
+.at-retry {
+  margin-inline-start: auto;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: 11px;
+  cursor: pointer;
+}
+.at-retry:hover { background: var(--accent); }
+.at-retry:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .at-retry { min-height: 44px; padding: 0 12px; }
+}
+</style>

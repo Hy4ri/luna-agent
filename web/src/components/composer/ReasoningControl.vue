@@ -17,14 +17,14 @@ const preview = ref(index.value);
 const active = computed(() => (open.value ? preview.value : index.value));
 
 const colors = [
-  "#9ba1a6", // Off
-  "#7dd3fc", // Minimal
-  "#5eead4", // Low
-  "#86d3a0", // Medium
-  "#e6c27a", // High
-  "#f4a571", // Xhigh
-  "#e86060", // Max
-  "#e86060", // Ultra (uses --primary-text contrast on dark surfaces)
+  "var(--muted-foreground)", // Off
+  "var(--info)",             // Minimal
+  "var(--success)",          // Low
+  "var(--status-finished)",  // Medium
+  "var(--warning)",          // High
+  "var(--status-limit)",     // Xhigh
+  "var(--primary-text)",     // Max
+  "var(--primary-text)",     // Ultra
 ];
 
 const shortLabels = ["OFF", "MIN", "LOW", "MED", "HIGH", "XHGH", "MAX", "ULTRA"];
@@ -36,7 +36,7 @@ const color = computed(() => colors[activeScale.value] ?? colors[0]);
 const label = computed(() => levelLabel(activeLevel.value));
 
 // OpenAI speed tiers: one lightning button cycles Standard, Fast, Ultrafast (where the model offers it).
-const speedColors: Record<Speed, string> = { fast: "#e6c27a", ultrafast: "#e86060" };
+const speedColors: Record<Speed, string> = { fast: "var(--warning)", ultrafast: "var(--primary-text)" };
 const speedTitle = computed(() => `Speed: ${speedLabel(effectiveSpeed.value)}`);
 function cycleSpeed() {
   const order: (Speed | null)[] = [null, ...availableSpeeds.value];
@@ -315,9 +315,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-height: 44px;
-  padding: 8px 4px 7px;
+  padding: 9px 5px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--background);
@@ -369,16 +369,16 @@ onUnmounted(() => {
 .eq-led {
   display: block;
   width: 100%;
-  height: 6px;
+  height: 5px;
   border-radius: 1px;
-  background: var(--secondary);
-  opacity: 0.45;
+  background: color-mix(in srgb, var(--muted-foreground) 16%, var(--secondary));
+  opacity: 1;
   transition: background-color 0.1s, opacity 0.1s;
 }
 
 .eq-led.dim {
-  background: var(--muted-foreground);
-  opacity: 0.25;
+  background: color-mix(in srgb, var(--muted-foreground) 38%, transparent);
+  opacity: 1;
 }
 
 .eq-led.lit {
