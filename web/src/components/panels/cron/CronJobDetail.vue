@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Pencil, Play, Pause, Trash2 } from "@lucide/vue";
+import { ArrowLeft, History, Pencil, Play, Pause, Trash2 } from "@lucide/vue";
 import Markdown from "@/components/chat/Markdown.vue";
 import type { CronJob, CronRun } from "./state";
 import { date, durationText, statusLabel, scheduleDesc, outcome, runMarkdown, policies } from "./formatters";
@@ -12,6 +12,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (e: "back"): void;
   (e: "edit", job: CronJob): void;
   (e: "runNow", job: CronJob): void;
   (e: "toggle", job: CronJob): void;
@@ -24,6 +25,9 @@ const emit = defineEmits<{
 
 <template>
   <header class="cron-detail-head">
+    <button type="button" class="cron-back cron-narrow-only" @click="emit('back')">
+      <ArrowLeft :size="15" /> Jobs
+    </button>
     <div class="cron-detail-titles">
       <span class="cron-pill" :class="{ ok: detailJob.enabled, running: detailJob.lastRun?.status === 'running' }">
         {{ detailJob.enabled ? "Enabled" : "Paused" }}
@@ -39,7 +43,7 @@ const emit = defineEmits<{
       <button type="button" class="cron-btn" :disabled="busy" :title="busy ? 'Action in progress…' : undefined" @click="emit('toggle', detailJob)">
         <Pause :size="15" /> {{ detailJob.enabled ? "Pause" : "Resume" }}
       </button>
-      <button type="button" class="cron-btn" @click="emit('showHistory', detailJob)">Report history</button>
+      <button type="button" class="cron-btn" @click="emit('showHistory', detailJob)"><History :size="15" /> Report history</button>
       <button type="button" class="cron-btn danger" :disabled="busy || detailJob.lastRun?.status === 'running'" :title="detailJob.lastRun?.status === 'running' ? 'Cannot delete while running' : busy ? 'Action in progress…' : 'Delete job'" @click="emit('delete', detailJob)">
         <Trash2 :size="15" /> Delete
       </button>

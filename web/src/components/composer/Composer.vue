@@ -483,11 +483,14 @@ async function handleSubmit(e?: Event) {
 }
 
 @media (max-width: 760px), (pointer: coarse) {
+  #prompt {
+    min-height: 36px;
+  }
+
   .compose-bar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    row-gap: 6px;
-    column-gap: 6px;
+    gap: 6px;
   }
 
   #attach,
@@ -498,12 +501,13 @@ async function handleSubmit(e?: Event) {
     min-height: 44px;
     width: 44px;
     height: 44px;
+    flex-shrink: 0;
   }
 
   #controls {
-    flex: 1 1 160px;
+    flex: 1 1 0;
     min-width: 0;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 6px;
   }
@@ -511,10 +515,20 @@ async function handleSubmit(e?: Event) {
   #model {
     min-height: 44px;
     height: 44px;
-    flex: 0 1 auto;
+    flex: 1 1 0;
     min-width: 0;
-    max-width: min(220px, 100%);
+    max-width: none;
     padding: 0 8px;
+  }
+
+  /* Keep the context meter; the cost stays in the usage popover. */
+  .compose-bar :deep(.usage-sep),
+  .compose-bar :deep(.usage-cost-val) {
+    display: none;
+  }
+
+  #model {
+    min-width: 96px;
   }
 
   #composer :deep(#atts button) {

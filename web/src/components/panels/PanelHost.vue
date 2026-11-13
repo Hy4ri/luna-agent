@@ -31,10 +31,22 @@ const windowClass = computed(() => (ui.panel && WINDOWS[ui.panel]) || '');
 .cron-window { max-width: min(1475px, 100%); height: 94%; }
 .window-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 @media (max-width: 760px) {
-  .panel-backdrop.wide { padding: 8px; }
-  .float-window { height: 100%; max-height: 100%; border-radius: var(--radius); }
-  .float-window > header { padding: 12px; }
+  .panel-backdrop,
+  .panel-backdrop.wide { padding: 0; }
+  .panel-backdrop > div,
+  .float-window {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .panel-backdrop > div > header,
+  .float-window > header { padding: 10px 14px; align-items: center; }
+  #pdesc { display: none; }
   #pclose { min-width: 44px; min-height: 44px; }
-  .board-window:has(.kb-editing) #pdesc { display: none; }
 }
 </style>

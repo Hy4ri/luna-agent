@@ -58,6 +58,8 @@ export const cronPanel = reactive({
   detail: null as CronRun | null,
   /** Selected job in the Jobs tab. */
   jobId: null as number | null,
+  /** Narrow layout: the Jobs tab shows the selected job instead of the list. Cleared when the panel closes. */
+  jobOpen: false,
   /** History job filter: job id as a string, empty means all jobs. */
   historyJob: "",
   editor: null as CronEditor | null,
@@ -67,6 +69,6 @@ export const cronPanel = reactive({
 
 // Drafts and selected private reports belong only to one authenticated connection.
 watch([serverUrl, token], () => {
-  cronPanel.detail = null; cronPanel.jobId = null; cronPanel.historyJob = "";
+  cronPanel.detail = null; cronPanel.jobId = null; cronPanel.jobOpen = false; cronPanel.historyJob = "";
   cronPanel.editor = null; cronPanel.status = ""; cronPanel.statusError = false;
 }, { flush: "sync" });

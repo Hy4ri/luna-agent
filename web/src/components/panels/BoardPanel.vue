@@ -21,6 +21,10 @@ type Status = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
 type Card = { id: number; project: number; subject: string; description: string; status: Status; priority: Priority; owner: string | null; blocked: string | null; labels: string[]; blockedBy: number[]; archived: boolean; created: number; updated: number; auto: { model: string | null; thinking: string | null } | null; attachments: { id: number; name: string; type: string; size: number }[] };
 const columns: [Status, string][] = [['backlog', 'Backlog'], ['todo', 'To do'], ['in_progress', 'In progress'], ['review', 'Review'], ['done', 'Done']];
+const mobileColumnLabels: Record<Status, string> = { backlog: 'Backlog', todo: 'To do', in_progress: 'Doing', review: 'Review', done: 'Done' };
+const activeColumn = ref<Status>('backlog');
+const userPickedColumn = ref(false);
+function pickColumn(status: Status) { activeColumn.value = status; userPickedColumn.value = true; }
 const priorities: Priority[] = ['low', 'medium', 'high', 'urgent'];
 const cards = ref<Card[]>([]), selectedPid = ref(''), archived = ref(false);
 const loading = ref(true), busy = ref(false), error = ref(''), notice = ref('');
@@ -45,6 +49,12 @@ const visible = computed(() => {
   return searchEntries.value.filter(({ card, text }) => (!priority.value || card.priority === priority.value) && text.includes(query)).map(entry => entry.card);
 });
 const cardLists = computed(() => Object.fromEntries(columns.map(([s]) => [s, visible.value.filter(c => c.status === s)])) as Record<Status, Card[]>);
+watch(selectedPid, () => { userPickedColumn.value = false; });
+watch(cardLists, (lists) => {
+  if (userPickedColumn.value) return;
+  const firstNonEmpty = columns.find(([s]) => lists[s].length > 0)?.[0] ?? 'backlog';
+  activeColumn.value = firstNonEmpty;
+});
 const editingCard = computed(() => cards.value.find(c => c.id === editingId.value));
 const readOnly = computed(() => busy.value || editingArchived.value);
 const projectName = computed(() => history.projects.find(p => String(p.id) === selectedPid.value)?.name ?? '');
@@ -474,7 +484,7 @@ const feedbackText = computed(() => {
     ? `Drop #${d.card.id} in ${columns.find(([s]) => s === d.target)?.[1]}`
     : 'Drop on another column to move this card.';
   if (editing.value) return editingId.value === null ? 'New card · Not saved' : `Editing card #${editingId.value}`;
-  return notice.value || (archived.value ? 'Open a card to restore it.' : 'Drag between columns · Sorted by priority');
+  return notice.value || (archived.value ? 'Open a card to restore it.' : (window.innerWidth <= 760 ? 'Sorted by priority · Change status in card to move' : 'Drag between columns · Sorted by priority'));
 });
 let animation = 0;
 function dragColumn(x: number, y: number): HTMLElement | null {
@@ -482,7 +492,7 @@ function dragColumn(x: number, y: number): HTMLElement | null {
   return col && board.value?.contains(col) ? col : null;
 }
 function startDrag(event: PointerEvent, card: Card) {
-  if (locked.value || loading.value || archived.value || event.button !== 0) return;
+  if (window.innerWidth <= 760 || locked.value || loading.value || archived.value || event.button !== 0) return;
   event.preventDefault();
   drag.value = { card, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, pointer: event.pointerId, moved: false, target: null };
   board.value?.setPointerCapture(event.pointerId);
@@ -588,7 +598,13 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
           <button v-for="c in visible" :key="c.id" class="kb-archive-card vl vl-sm" :data-card="c.id" :disabled="busy || loading" @click="openEditor(c)"><span>#{{ c.id }}</span><strong dir="auto">{{ c.subject }}</strong><span class="kb-priority" :class="c.priority">{{ c.priority }}</span><span>{{ c.status.replace('_', ' ') }}</span></button>
         </div>
         <div v-else ref="board" class="kb-board" aria-label="Kanban columns" tabindex="0" :aria-busy="busy || loading" @pointermove="updateDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag">
-          <section v-for="[status, title] in columns" :key="status" class="kb-column" :class="{ 'kb-drop': drag?.moved && drag.target === status && drag.card.status !== status }" :data-column="status" :aria-label="title">
+          <div class="kb-col-tabs" role="tablist" aria-label="Board columns">
+            <button v-for="[status] in columns" :key="status" type="button" role="tab" :aria-selected="activeColumn === status" class="kb-col-tab" :class="{ 'kb-col-tab-active': activeColumn === status }" @click="pickColumn(status)">
+              <span class="kb-col-tab-label"><span class="kb-dot" :class="status"></span>{{ mobileColumnLabels[status] }}</span>
+              <span class="kb-count">{{ cardLists[status].length }}</span>
+            </button>
+          </div>
+          <section v-for="[status, title] in columns" :key="status" class="kb-column" :class="{ 'kb-column-active': activeColumn === status, 'kb-drop': drag?.moved && drag.target === status && drag.card.status !== status }" :data-column="status" :aria-label="title">
             <h3 class="kb-column-title"><span class="kb-dot" :class="status"></span>{{ title }}<span class="kb-count">{{ cardLists[status].length }}</span></h3>
             <div class="kb-cards">
               <article v-for="c in cardLists[status]" :key="c.id" class="kb-card vl vl-lg" :class="{ 'kb-drag-source': drag?.moved && drag.card.id === c.id }" :data-card="c.id" :data-priority="c.priority" :data-status="c.status">
@@ -806,6 +822,7 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 .kb-workspace { flex:1; min-height:0; min-width:0; display:flex; gap:16px; }
 .kb-content { flex:1; min-width:0; min-height:0; display:flex; }
 .kb-board { flex:1; display:flex; gap:14px; overflow-x:auto; overflow-y:hidden; min-height:0; min-width:0; padding:3px 3px 12px; scrollbar-width:thin; overscroll-behavior:contain; }
+.kb-col-tabs { display:none; }
 .kb-column { min-width:210px; flex:1 0 210px; display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--border); padding:0 12px 0 0; border-radius: var(--radius); }
 .kb-column:last-child { border-right-color:transparent; }
 .kb-column-title { display:flex; align-items:center; gap:8px; padding:8px 2px 14px; margin:0; text-transform:uppercase; font-size:12px; font-weight:650; letter-spacing:.06em; flex:none; }
@@ -974,19 +991,29 @@ onUnmounted(() => { disposed = true; generation++; controller?.abort(); ownersCo
 
 @media(max-width:760px) {
   .kb-editing .kb-toolbar { display:none; }
-  .kb { padding:10px 12px; gap:8px; }
+  .kb { padding:8px 10px; gap:8px; font-size:13px; }
   .kb-editing { padding-top:8px; padding-bottom:8px; gap:6px; }
-  .kb-toolbar { gap:8px; }
-  .kb-project { flex:1 1 130px; max-width:none; min-width:0; }
-  .kb-project select { min-height:44px; }
-  .kb-toolbar-end { flex:none; width:auto; margin-left:auto; gap:8px; }
-  .kb-filters { flex:1 0 100%; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(132px,auto); gap:8px; }
+  .kb-toolbar { gap:6px; }
+  .kb-project { flex:1 1 110px; max-width:none; min-width:0; }
+  .kb-project select { min-height:44px; padding:6px 8px; font-size:13px; }
+  .kb-toolbar-end { flex:none; width:auto; margin-left:auto; gap:6px; }
+  .kb-toolbar-end .kb-button { padding:6px 10px; font-size:13px; }
+  .kb-filters { flex:1 0 100%; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(112px,auto); gap:6px; }
   .kb-search { max-width:none; min-width:0; min-height:44px; }
-  .kb-filters > select { min-height:44px; max-width:none; }
+  .kb-filters > select { min-height:44px; max-width:none; padding:6px 8px; font-size:13px; }
   .kb-link { min-height:44px; display:inline-flex; align-items:center; }
-  .kb-board { flex-direction:column; overflow-x:hidden; overflow-y:auto; gap:12px; }
-  .kb-column { flex:0 0 auto; width:100%; min-width:0; border-right:0; border-bottom:1px solid var(--border); padding:0 0 12px 0; }
-  .kb-column:last-child { border-bottom-color:transparent; }
+  .kb-board { flex-direction:column; overflow:hidden; gap:8px; padding:0; }
+  .kb-col-tabs { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); flex:none; gap:4px; padding:2px 0; }
+  .kb-col-tab { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:44px; min-width:0; padding:4px 2px; border:1px solid var(--border); border-radius:var(--radius); background:var(--card); color:var(--muted-foreground); font-size:11px; font-weight:500; }
+  .kb-col-tab-label { display:inline-flex; align-items:center; gap:4px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kb-col-tab-active { background:var(--secondary); color:var(--primary-text); border-color:var(--primary); border-bottom:2px solid var(--primary); font-weight:600; }
+  .kb-col-tab .kb-count { margin-left:0; font-size:11px; padding:0 5px; line-height:1.4; }
+  .kb-column { display:none; flex:1 1 0; width:100%; min-width:0; min-height:0; border-right:0; border-bottom:0; padding:0; }
+  .kb-column.kb-column-active { display:flex; }
+  .kb-column-title { display:none; }
+  .kb-cards { flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; padding:2px 2px 8px; }
+  .kb-card-top { touch-action:pan-y; cursor:default; }
+  .kb-grip { display:none; }
   .kb-archive-card { flex-wrap:wrap; gap:8px; min-height:44px; }
   .kb-grip { min-height:44px; width:44px; }
   .kb-button,.kb-icon,.kb-add,.kb-move { min-height:44px; }

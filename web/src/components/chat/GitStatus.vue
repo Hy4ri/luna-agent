@@ -150,6 +150,19 @@ onUnmounted(() => {
 .git-name { flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--foreground); }
 .git-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 11px; }
 .git-file-count { color: var(--faint); font-size: 11px; }
+@media (max-width: 760px) {
+  .git-status:not(.docked) {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+  .git-status:not(.docked) .git-cwd { display: none; }
+  .git-status:not(.docked) .git-head { flex: 0 1 auto; min-width: 0; }
+  .git-status:not(.docked) .git-clean { margin: 0 0 0 auto; font-size: 12px; white-space: nowrap; }
+  .git-status:not(.docked) .git-changes { margin: 0 0 0 auto; }
+}
 @media (max-width: 760px), (pointer: coarse) {
   .git-open { min-width: 44px; min-height: 44px; width: 44px; height: 44px; margin: 0 -6px 0 0; }
   .git-changes summary { min-height: 44px; margin-inline: 0; padding-inline: 4px; }

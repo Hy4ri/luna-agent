@@ -246,4 +246,7 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
   .snap-select { min-height: 44px; }
   .snap-btn { min-height: 44px; }
 }
+@media (max-width: 760px) {
+  .snap-tab { display: none; }
+}
 </style>

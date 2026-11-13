@@ -503,8 +503,15 @@ onMounted(() => {
         <span class="side-label">Board</span>
       </button>
       <button class="side-item" title="Analytics" :aria-current="ui.view === 'analytics' ? 'page' : undefined" @click="openAnalytics"><ChartNoAxesColumn :size="16" /><span class="side-label">Analytics</span></button>
-      <button class="side-item" title="Steward" :aria-current="ui.view === 'steward' ? 'page' : undefined" @click="openSteward"><HeartHandshake :size="16" /><span class="side-label">Steward</span><span v-if="stewardOpen" class="ml-auto text-xs tabular-nums text-muted-foreground">{{ stewardOpen }}</span></button>
-      <button class="side-item" title="Source Control" :aria-current="ui.view === 'source-control' ? 'page' : undefined" @click="openSourceControl"><GitBranch :size="16" /><span class="side-label">Source Control</span></button>
+      <button class="side-item" title="Steward" aria-label="Steward" :aria-current="ui.view === 'steward' ? 'page' : undefined" @click="openSteward">
+        <HeartHandshake :size="16" />
+        <span class="side-label">Steward</span>
+        <span v-if="stewardOpen" class="side-badge ml-auto text-xs tabular-nums text-muted-foreground">{{ stewardOpen }}</span>
+      </button>
+      <button class="side-item" title="Source Control" aria-label="Source Control" :aria-current="ui.view === 'source-control' ? 'page' : undefined" @click="openSourceControl">
+        <GitBranch :size="16" />
+        <span class="side-label">{{ mobile ? 'Source' : 'Source Control' }}</span>
+      </button>
     </nav>
 
     <!-- History Section -->
@@ -892,4 +899,122 @@ onMounted(() => {
 <style scoped>
 #sessions.session-window { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .session-viewport { flex: 1; min-height: 0; overflow-y: auto; }
+
+@media (max-width: 760px) {
+  #side .side-head {
+    padding: 8px 10px 6px;
+    min-height: 48px;
+  }
+
+  #side #nav.side-top {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 6px 8px;
+  }
+
+  #side #nav.side-top .side-item {
+    position: relative;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 3px;
+    min-height: 44px;
+    padding: 6px 4px;
+    font-size: 11px;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  #side #nav.side-top .side-item .side-label {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Count badges sit on the icon's top-right corner in the grid tile. */
+  #side #nav.side-top .side-item {
+    position: relative;
+  }
+
+  #side #nav.side-top .side-item .side-badge,
+  #side #nav.side-top .side-item .ml-auto {
+    position: absolute;
+    top: 3px;
+    left: calc(50% + 6px);
+    margin-left: 0;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 9999px;
+    background: var(--secondary);
+    color: var(--foreground);
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+  }
+
+  #side .history {
+    flex: 1 1 0%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #side .history-head {
+    padding: 6px 8px 4px 10px;
+    gap: 2px;
+  }
+
+  #side .history-head .icon-button {
+    min-width: 40px;
+    min-height: 44px;
+  }
+
+  #side .folder-head {
+    padding-bottom: 4px;
+  }
+
+  #side .folder-bar {
+    padding: 4px 8px;
+    gap: 4px;
+  }
+
+  #side .device-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+    padding: 4px 10px 4px;
+  }
+
+  #side .device-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  #side .device-chip {
+    flex-shrink: 0;
+    min-height: 34px;
+    padding: 4px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  #side #sessions {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  #side .folder-open,
+  #side .session-open {
+    min-height: 44px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+}
 </style>

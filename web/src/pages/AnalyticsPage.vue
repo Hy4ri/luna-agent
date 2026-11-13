@@ -320,7 +320,7 @@
                 <PopoverTrigger as-child>
                   <button
                     type="button"
-                    class="-mr-1 -mt-0.5 min-h-6 min-w-6 h-6 w-6 max-[760px]:min-h-11 max-[760px]:min-w-11 max-[760px]:-my-2.5 max-[760px]:-mr-2 shrink-0 inline-flex items-center justify-center rounded-full hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+                    class="-mr-1 -mt-0.5 min-h-6 min-w-6 h-6 w-6 max-[760px]:min-h-11 max-[760px]:min-w-11 max-[760px]:-my-2.5 shrink-0 inline-flex items-center justify-center rounded-full hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
                     :aria-label="`What is ${k.label}?`"
                   >
                     <Info :size="12" aria-hidden="true" />
