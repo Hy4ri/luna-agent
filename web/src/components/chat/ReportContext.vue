@@ -22,7 +22,8 @@ const report = computed(() => {
 </template>
 
 <style scoped>
-.report-context { border: 1px solid var(--border, #444); padding: 8px 10px; white-space: normal; min-width: 0; }
+.report-context { border: 1px solid var(--border); padding: 8px 10px; white-space: normal; min-width: 0; }
 summary { cursor: pointer; overflow-wrap: anywhere; }
+summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

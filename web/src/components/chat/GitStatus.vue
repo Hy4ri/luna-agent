@@ -112,8 +112,8 @@ onUnmounted(() => {
 .git-status.docked { padding: 10px 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 
 /* Branch row: the branch name gets the full width and wraps to two lines before it truncates. */
-.git-head { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
-.git-head :deep(.git-head-icon) { flex-shrink: 0; margin-top: 3px; }
+.git-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.git-head :deep(.git-head-icon) { flex-shrink: 0; }
 .git-branch {
   flex: 1; min-width: 0; color: var(--foreground); font-weight: 500; line-height: 20px;
   overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
@@ -121,8 +121,8 @@ onUnmounted(() => {
 .git-sync { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 20px; font-variant-numeric: tabular-nums; }
 .git-sync:empty { display: none; }
 .git-sync-count { display: inline-flex; align-items: center; gap: 1px; }
-.git-open { width: 24px; height: 24px; margin: -2px -4px -2px 0; flex-shrink: 0; }
-.git-cwd { margin: 0 0 0 20px; color: var(--faint); font-size: 11px; }
+.git-open { width: 28px; height: 28px; margin: 0 -4px 0 0; flex-shrink: 0; }
+.git-cwd { margin: 0 0 0 20px; color: var(--muted-foreground); font-size: 11.5px; }
 
 .git-changes summary {
   display: flex; align-items: center; gap: 6px; min-height: 28px; margin-inline: -4px; padding-inline: 4px;
@@ -151,7 +151,7 @@ onUnmounted(() => {
 .git-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 11px; }
 .git-file-count { color: var(--faint); font-size: 11px; }
 @media (max-width: 760px), (pointer: coarse) {
-  .git-open { min-width: 44px; min-height: 44px; width: 44px; height: 44px; margin: -8px 0; }
+  .git-open { min-width: 44px; min-height: 44px; width: 44px; height: 44px; margin: 0 -6px 0 0; }
   .git-changes summary { min-height: 44px; margin-inline: 0; padding-inline: 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .git-changes :deep(.git-chevron) { transition: none; } }

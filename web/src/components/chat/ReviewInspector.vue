@@ -50,6 +50,8 @@ const current = computed(() => steps.value.at(-1));
 .review-scroll .side-job { margin: 1rem 0 0; max-width: 100%; }
 .review-steps { margin-top: .75rem; font-size: .8125rem; }
 .review-steps summary { cursor: pointer; overflow-wrap: anywhere; padding: .5rem 0; }
+.review-steps summary:focus-visible,
+.review-inspector select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .review-steps ol { padding-left: 1.25rem; }
 .review-steps li { padding: .25rem 0; }
 .review-steps pre { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }

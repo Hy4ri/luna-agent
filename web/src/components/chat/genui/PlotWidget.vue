@@ -179,7 +179,7 @@ function handlePointerLeave() {
   <div class="plot-widget">
     <div v-if="widget.title" class="plot-title">{{ widget.title }}</div>
     <div v-if="!compiled.ok" class="widget-error">
-      expr error: {{ compiled.error }}
+      Formula error: {{ compiled.error }}
     </div>
     <template v-else>
       <p v-if="pathSegments.length === 0" class="plot-empty" role="status">No finite values in this domain.</p>
@@ -289,7 +289,7 @@ function handlePointerLeave() {
 
         <!-- Hover Readout Box -->
         <div v-if="hoverValX !== null" class="hover-readout">
-          x: {{ hoverValX.toFixed(3) }} | y: {{ hoverValid && hoverValY !== null ? hoverValY.toFixed(3) : 'gap' }}
+          x: {{ hoverValX.toFixed(3) }} | y: {{ hoverValid && hoverValY !== null ? hoverValY.toFixed(3) : 'undefined' }}
         </div>
       </div>
 
@@ -323,13 +323,14 @@ function handlePointerLeave() {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  padding: 14px;
+  padding: 14px 16px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--card-foreground);
 }
-.plot-title { font-weight: 600; font-size: 14px; padding-right: 72px; }
+.plot-title { font-weight: 600; font-size: 14px; line-height: 1.4; padding-right: 88px; }
+.ticks text { font-variant-numeric: tabular-nums; }
 .widget-error { font-size: 13px; color: var(--destructive); }
 .chart-container {
   position: relative;
@@ -364,6 +365,7 @@ function handlePointerLeave() {
   padding: 4px 8px;
   border-radius: var(--radius);
   font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--foreground);
   pointer-events: none;
@@ -395,6 +397,7 @@ function handlePointerLeave() {
 }
 .param-val {
   color: var(--foreground);
+  font-variant-numeric: tabular-nums;
 }
 .param-slider {
   width: 100%;
@@ -407,7 +410,7 @@ function handlePointerLeave() {
   outline-offset: 2px;
 }
 @media (max-width: 760px), (pointer: coarse) {
-  .plot-title { padding-right: 108px; }
+  .plot-title { padding-right: 116px; }
   .param-slider { min-height: 44px; }
 }
 </style>

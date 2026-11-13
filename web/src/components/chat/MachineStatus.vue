@@ -47,7 +47,7 @@ onUnmounted(() => clearInterval(timer));
 <template>
   <DropdownMenu v-if="visible">
     <DropdownMenuTrigger as-child>
-      <button id="machine-status" type="button" class="flex min-w-0 max-w-40 items-center gap-1 text-xs text-muted-foreground" :title="title" aria-label="Execution machine">
+      <button id="machine-status" type="button" class="flex min-w-0 max-w-40 items-center gap-1 rounded-[var(--radius)] text-xs text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" :title="title" aria-label="Execution machine">
         <Monitor :size="13" class="shrink-0" /><span class="truncate">{{ name }}</span><span v-if="machine && !machine.online" class="text-destructive">Offline</span>
       </button>
     </DropdownMenuTrigger>

@@ -55,3 +55,11 @@ async function download() {
     </div>
   </div>
 </template>
+
+<style scoped>
+img.att.zoomable:focus-visible,
+.att-download:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+</style>
