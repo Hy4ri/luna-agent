@@ -1,10 +1,19 @@
 // Contract: models without their own price (custom endpoints, OpenCode) take the rates of the priced
 // built-in model with the same name. Expected rates are the published per-million prices in the pinned catalog.
-import { test, expect } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createModels, type Context } from "@earendil-works/pi-ai";
-import { estimatedCost, priceKey } from "../src/model-pricing.js";
-import { customProvider } from "../src/providers.js";
+import { clearOpenRouterPricingForTest, estimatedCost, loadOpenRouterPricingCache, priceKey, refreshOpenRouterPricing } from "../src/model-pricing.js";
+import { customProvider, ProviderManager } from "../src/providers.js";
 import { listedCost } from "../src/opencode-cli.js";
+
+const dirs: string[] = [];
+afterEach(() => {
+  clearOpenRouterPricingForTest();
+  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+});
 
 const rates = (id: string) => { const c = estimatedCost(id); return c && [c.input, c.output]; };
 
@@ -60,4 +69,60 @@ test("a custom endpoint response is priced at the matched catalog rates", async 
   } finally {
     server.stop(true);
   }
+});
+
+test("live OpenRouter fallback prices uncatalogued models, caches to disk, and keeps built-in prices", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "luna-pricing-"));
+  dirs.push(dir);
+  const cacheFile = join(dir, "openrouter-pricing.json");
+  let fetches = 0;
+  const mockFetch = (async () => {
+    fetches++;
+    return new Response(JSON.stringify({
+      data: [
+        { id: "google/gemini-4-hydrogen", pricing: { prompt: "0.0000015", completion: "0.0000075", input_cache_read: "0.000000075", input_cache_write: "0.0000000833333333333333" } },
+        // Built-in catalog must still win over OpenRouter for known models:
+        { id: "anthropic/claude-sonnet-4.6", pricing: { prompt: "0.000099", completion: "0.000099" } },
+        // Sentinels and free routes are ignored:
+        { id: "openrouter/auto", pricing: { prompt: "-1", completion: "-1" } },
+        { id: "vendor/model:free", pricing: { prompt: "0.000001", completion: "0.000002" } },
+      ],
+    }), { headers: { "content-type": "application/json" } });
+  }) as unknown as typeof fetch;
+
+  expect(await refreshOpenRouterPricing({ fetchImpl: mockFetch, cacheFile })).toBe(true);
+  expect(fetches).toBe(1);
+  expect(estimatedCost("gemini-4-hydrogen-medium")).toEqual({ input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0.0833333333333 });
+  expect(rates("anthropic/claude-sonnet-4.6")).toEqual([3, 15]);
+  expect(estimatedCost("openrouter/auto")).toBe(undefined);
+  expect(estimatedCost("vendor/model:free")).toBe(undefined);
+
+  // Within TTL: no second fetch.
+  expect(await refreshOpenRouterPricing({ fetchImpl: mockFetch, cacheFile })).toBe(false);
+  expect(fetches).toBe(1);
+
+  // Fresh process simulation: disk cache restores prices without network.
+  clearOpenRouterPricingForTest();
+  expect(estimatedCost("gemini-4-hydrogen-medium")).toBe(undefined);
+  expect(loadOpenRouterPricingCache(cacheFile)).toBe(true);
+  expect(estimatedCost("gemini-4-hydrogen-medium")?.input).toBe(1.5);
+
+  // ProviderManager.refreshCatalog updates custom provider models when pricing refreshes.
+  clearOpenRouterPricingForTest();
+  const dir2 = mkdtempSync(join(tmpdir(), "luna-pricing-pm-"));
+  dirs.push(dir2);
+  const pm = new ProviderManager({
+    dataDir: dir2,
+    fallbackModel: { provider: "cp", modelId: "gemini-4-hydrogen-medium" },
+    fetch: mockFetch,
+  });
+  await pm.addCustom({ id: "cp", name: "cp", api: "anthropic-messages", baseUrl: "http://127.0.0.1:9/v1", key: "k", models: [{ id: "gemini-4-hydrogen-medium" }] });
+  expect(pm.models.getModel("cp", "gemini-4-hydrogen-medium")?.cost.input).toBe(0);
+  await pm.refreshCatalog(true);
+  expect(pm.models.getModel("cp", "gemini-4-hydrogen-medium")?.cost.input).toBe(1.5);
+});
+
+test("OpenRouter fetch failure is best-effort and never throws", async () => {
+  const failFetch = (async () => new Response("err", { status: 503 })) as unknown as typeof fetch;
+  expect(await refreshOpenRouterPricing({ fetchImpl: failFetch, force: true })).toBe(false);
 });

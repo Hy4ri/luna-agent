@@ -25,7 +25,7 @@ import type { ModelRef } from "./scheduler.js";
 import type { SettingsStore } from "./settings.js";
 import { claudeCliProvider } from "./claude-cli.js";
 import { opencodeCliProvider } from "./opencode-cli.js";
-import { costFor } from "./model-pricing.js";
+import { costFor, loadOpenRouterPricingCache, refreshOpenRouterPricing } from "./model-pricing.js";
 import { invalidateClaudeLoginStatus } from "./claude-native/status.js";
 
 /** Codex subscription (ChatGPT OAuth, chatgpt.com/backend-api). It uses the Codex plan quota, not the Sign in with ChatGPT sharing quota of `openai`. */
@@ -301,6 +301,7 @@ export class ProviderManager {
   private refreshStatus: CatalogRefreshStatus = { checkedAt: null, refreshing: false, intervalMs: MODEL_REFRESH_INTERVAL_MS, errors: {} };
   private settings?: SettingsStore;
   private file: string;
+  private pricingCacheFile: string;
   private state: ProvidersFile;
   private logins = new Map<string, LoginState>();
   private fallback: ModelRef;
@@ -309,9 +310,11 @@ export class ProviderManager {
   constructor(o: ProviderManagerOptions) {
     this.settings = o.settings;
     this.file = join(o.dataDir, "providers.json");
+    this.pricingCacheFile = join(o.dataDir, "openrouter-pricing.json");
     this.state = this.load();
     this.fallback = o.fallbackModel;
     this.fetchImpl = o.fetch ?? fetch;
+    loadOpenRouterPricingCache(this.pricingCacheFile);
     this.models = o.models ?? createModels({ credentials: new FileCredentialStore(join(o.dataDir, "auth.json")) });
     for (const make of BUILTIN_PROVIDERS) { const p = make(this.fetchImpl); if (!this.models.getProvider(p.id)) this.models.setProvider(p); }
     for (const def of this.state.custom) {
@@ -329,6 +332,15 @@ export class ProviderManager {
     const abort = this.refreshAbort = new AbortController();
     this.refreshRunning = (async () => {
       try {
+        const pricingUpdated = await refreshOpenRouterPricing({
+          fetchImpl: this.fetchImpl,
+          signal: abort.signal,
+          cacheFile: this.pricingCacheFile,
+          force,
+        });
+        if (pricingUpdated) {
+          for (const def of this.state.custom) this.models.setProvider(customProvider(def, this.fetchImpl));
+        }
         const result = await this.models.refresh({ allowNetwork: true, force, signal: AbortSignal.any([abort.signal, AbortSignal.timeout(30_000)]) });
         this.refreshStatus.errors = Object.fromEntries([...result.errors].map(([id, error]) => [id, error.message]));
         if (result.aborted) this.refreshStatus.errors.catalog = "Model refresh stopped or timed out. Existing models are kept.";
