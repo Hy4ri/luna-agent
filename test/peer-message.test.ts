@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parsePeerMessage } from "../web/src/lib/peer-message.ts";
-import { crewReportHeader } from "../src/session-crew.ts";
-import { subagentHeader, subagentTerminalHeader } from "../src/subagent-notify.ts";
+import { parsePeerMessage } from "../web/src/lib/peer-message.js";
+import { crewReportHeader } from "../src/session-crew.js";
+import { subagentHeader, subagentTerminalHeader } from "../src/subagent-notify.js";
 
 describe("parsePeerMessage", () => {
   test("parses crew automatic report as crew-report", () => {
