@@ -595,12 +595,10 @@ function backgroundReport(entry: any, message: any): boolean {
 </template>
 
 <style scoped>
-/* The rail ends just above the column's middle and grows upward, so a full rail stays clear of the
-   fixed snap tab at 55% of the viewport (SnapTool.vue .snap-tab). */
 .user-rail {
-  position: absolute; right: 8px; bottom: calc(50% + 8px); z-index: 5;
-  display: flex; flex-direction: column; gap: 3px; width: 16px; height: min(40%, 320px);
-  justify-content: flex-end; align-items: stretch; animation: rail-in 0.35s ease-out both;
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); z-index: 5;
+  display: flex; flex-direction: column; gap: 3px; width: 16px; height: min(50%, 320px);
+  justify-content: center; align-items: stretch; animation: rail-in 0.35s ease-out both;
 }
 .user-tick {
   position: relative; flex: 1 1 0; min-height: 3px; max-height: 14px; padding: 0; border: 0; background: none;
@@ -621,7 +619,7 @@ function backgroundReport(entry: any, message: any): boolean {
   transition: opacity 0.15s, transform 0.2s;
 }
 .user-tick:hover .tick-tip, .user-tick:focus-visible .tick-tip { opacity: 1; transform: translate(0, -50%); }
-@keyframes rail-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+@keyframes rail-in { from { opacity: 0; transform: translate(8px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
 .rail-flash { animation: rail-flash 1.4s ease-out; }
 @keyframes rail-flash {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 70%, transparent); }

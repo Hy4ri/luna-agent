@@ -223,7 +223,7 @@ onUnmounted(() => { if (preview.value) URL.revokeObjectURL(preview.value); });
 
 <style scoped>
 .snap-root { pointer-events: auto; }
-.snap-tab { position: fixed; right: 0; top: 55%; z-index: 2147483000; width: 28px; height: 44px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: var(--radius) 0 0 var(--radius); background: var(--card); color: var(--muted-foreground); opacity: .6; transition: opacity .15s, width .15s, color .15s; }
+.snap-tab { position: fixed; right: 0; bottom: 20px; z-index: 2147483000; width: 28px; height: 44px; display: grid; place-items: center; border: 1px solid var(--border); border-right: 0; border-radius: var(--radius) 0 0 var(--radius); background: var(--card); color: var(--muted-foreground); opacity: .6; transition: opacity .15s, width .15s, color .15s; }
 .snap-tab:hover, .snap-tab:focus-visible { opacity: 1; width: 36px; color: var(--foreground); }
 .snap-overlay { position: fixed; inset: 0; z-index: 2147483001; cursor: crosshair; background: rgb(0 0 0 / 0.3); touch-action: none; outline: none; user-select: none; }
 .snap-box { position: fixed; border: 2px solid var(--primary); background: rgb(255 255 255 / 0.1); box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.4); pointer-events: none; }
