@@ -65,18 +65,44 @@ test("schedules use the process local zone", () => {
   } finally { process.env.TZ = "UTC"; }
 });
 
-// Known DST bugs (Europe/Berlin). Asia/Amman has no DST, so these do not fire there today.
-test.todo("DST spring forward: a job in the skipped hour still runs that day", () => {
+// Missing wall-clock times run at the gap boundary; repeated times remain eligible.
+test("DST spring forward: a job in the skipped hour still runs that day", () => {
   process.env.TZ = "Europe/Berlin"; // 2026-03-29 02:00 CET -> 03:00 CEST; 02:30 does not exist.
   try {
-    expect(new Date(nextRun("30 2 * * *", Date.parse("2026-03-29T00:00:00Z"))).toISOString().slice(0, 10)).toBe("2026-03-29");
+    expect(next("30 2 * * *", "2026-03-29T00:00:00Z")).toBe("2026-03-29T01:00:00.000Z");
   } finally { process.env.TZ = "UTC"; }
 });
 
-test.todo("DST fall back: */15 does not skip the repeated hour", () => {
+test("DST fall back: */15 does not skip the repeated hour", () => {
   process.env.TZ = "Europe/Berlin"; // 2026-10-25 03:00 CEST -> 02:00 CET.
   try {
     expect(new Date(nextRun("*/15 * * * *", Date.parse("2026-10-25T00:45:00Z"))).toISOString()).toBe("2026-10-25T01:00:00.000Z");
+  } finally { process.env.TZ = "UTC"; }
+});
+
+test("DST boundaries preserve strict ordering and calendar restrictions", () => {
+  process.env.TZ = "Europe/Berlin";
+  try {
+    for (const [expr, after, expected] of [
+      ["*/15 * * * *", "2026-10-25T00:59:59.999Z", "2026-10-25T01:00:00.000Z"],
+      ["*/15 * * * *", "2026-10-25T01:00:00Z", "2026-10-25T01:15:00.000Z"],
+      ["30 2 * * *", "2026-10-25T00:30:00Z", "2026-10-25T01:30:00.000Z"],
+      ["30 2 * * *", "2026-10-25T01:30:00Z", "2026-10-26T01:30:00.000Z"],
+      ["30 2 * * *", "2026-03-29T00:59:59.999Z", "2026-03-29T01:00:00.000Z"],
+      ["30 2 * * *", "2026-03-29T01:00:00Z", "2026-03-30T00:30:00.000Z"],
+      ["30 3 * * *", "2026-03-29T00:00:00Z", "2026-03-29T01:30:00.000Z"],
+      ["30 2 * * mon", "2026-03-29T00:00:00Z", "2026-03-30T00:30:00.000Z"],
+      ["30 2 29 3 *", "2026-03-29T00:00:00Z", "2026-03-29T01:00:00.000Z"],
+    ]) expect(next(expr!, after!)).toBe(expected!);
+  } finally { process.env.TZ = "UTC"; }
+});
+
+test("DST changes need not be a whole hour", () => {
+  process.env.TZ = "Australia/Lord_Howe";
+  try {
+    // 02:00 -> 02:30 in October, 02:00 -> 01:30 in April.
+    expect(next("15 2 * * *", "2026-10-03T15:00:00Z")).toBe("2026-10-03T15:30:00.000Z");
+    expect(next("45 1 * * *", "2026-04-04T14:45:00Z")).toBe("2026-04-04T15:15:00.000Z");
   } finally { process.env.TZ = "UTC"; }
 });
 
