@@ -694,6 +694,28 @@ export function registerSessions(app: Hono, ctx: RouteCtx): void {
     return c.json({ messages });
   });
 
+  // Older transcript pages only. GET /v1/sessions/:id also reads agent, usage, status, and children and marks the
+  // session read; a client that pages back through history needs none of that.
+  app.get("/v1/sessions/:id/entries", async (c) => {
+    const conv = await getConv(c.req.param("id"));
+    if (!conv) return err(c, 404, "no such session");
+    const requestedLimit = Number(c.req.query("limit") ?? 100);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(Math.floor(requestedLimit), 500)) : 100;
+    const beforeParam = c.req.query("before");
+    const beforeId = beforeParam ? Number(beforeParam) : undefined;
+    if (beforeId !== undefined && (!Number.isSafeInteger(beforeId) || beforeId < 0)) return err(c, 400, "invalid before cursor");
+    const page = await conv.entries({ order: "descending" }, limit, beforeId !== undefined ? { after: beforeId, order: "descending" as const } : undefined, context);
+    const isUiView = c.req.query("view") === "ui";
+    return c.json({
+      entries: page.items.map((entry) => {
+        const projected = projectEntryImages(entry, conv.id);
+        return isUiView ? projectEntryForUi(projected) : projected;
+      }),
+      hasMore: page.next !== undefined,
+      nextCursor: page.next ? (page.next.after as number) : null,
+    });
+  });
+
   app.get("/v1/sessions/:id", async (c) => {
     const conv = await getConv(c.req.param("id"));
     if (!conv) return err(c, 404, "no such session");

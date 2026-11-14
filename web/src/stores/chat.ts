@@ -2,7 +2,7 @@ import { compactNumber } from "@/lib/numbers";
 // Open conversation: durable entries, live generation, tools, extras, context, run controls.
 // Port of vanilla session.js + extras.js + transcript.js state. Components only render this.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { computed, markRaw, reactive, ref } from "vue";
+import { computed, markRaw, reactive, shallowRef } from "vue";
 import type { Machine } from "./workers";
 import { api, json, post } from "@/lib/api";
 import { StreamPacer } from "@/lib/stream-pacer";
@@ -555,13 +555,13 @@ export async function openSession(id: string | number, reattach = false) {
   });
 }
 
-/** Index of every user message in the session, loaded or not. Drives the transcript rail. */
-export const userIndex = ref<{ id: number; label: string }[]>([]);
-let userIndexSession: string | null = null;
+/** Index of every user message in the session, loaded or not. Drives the transcript rail.
+ *  One ref holds the session and its messages, so a reader always tracks it, also before the index arrives. */
+const userIndex = shallowRef<{ sid: string | null; messages: { id: number; label: string }[] }>({ sid: null, messages: [] });
 let userIndexLoading: { sid: string; epoch: number; promise: Promise<void> } | undefined;
 export async function refreshUserIndex() {
   const sid = chat.session, epoch = chat.epoch;
-  if (!sid) { userIndex.value = []; userIndexSession = null; return; }
+  if (!sid) { userIndex.value = { sid: null, messages: [] }; return; }
   if (userIndexLoading && userIndexLoading.sid === sid && userIndexLoading.epoch === epoch) {
     return userIndexLoading.promise;
   }
@@ -570,7 +570,7 @@ export async function refreshUserIndex() {
     try {
       const r = await json<{ messages: { id: number; label: string }[] }>(`/v1/sessions/${sid}/user-messages`, { timeoutMs: 30000, signal: sessionSignal() });
       if (chat.session !== sid || chat.epoch !== epoch) return;
-      userIndex.value = r.messages; userIndexSession = sid;
+      userIndex.value = { sid, messages: r.messages };
     } catch { /* the rail falls back to loaded entries */ }
     finally {
       if (userIndexLoading?.promise === promise) userIndexLoading = undefined;
@@ -579,13 +579,61 @@ export async function refreshUserIndex() {
   userIndexLoading = { sid, epoch, promise };
   return promise;
 }
-export function userIndexFor(sid: string | null) { return sid && sid === userIndexSession ? userIndex.value : []; }
-/** Loads older pages until the entry is present. */
+export function userIndexFor(sid: string | null) {
+  const index = userIndex.value;
+  return sid && sid === index.sid ? index.messages : [];
+}
+
+type OlderPage = { entries: any[]; hasMore?: boolean; nextCursor?: number | null };
+/** The cursor below the oldest loaded entry, or null when nothing is loaded. */
+function olderCursor(): number | null {
+  if (chat.olderCursor !== null && chat.olderCursor !== undefined) return chat.olderCursor;
+  const minId = Math.min(...entries.keys());
+  return Number.isFinite(minId) ? minId : null;
+}
+/** Entries-only page: no session state and no read mark, unlike GET /v1/sessions/:id. */
+function fetchOlderPage(sid: string, before: number, limit: number) {
+  return json<OlderPage>(`/v1/sessions/${sid}/entries?view=ui&limit=${limit}&before=${before}`, { timeoutMs: 30000 });
+}
+/** Adds fetched pages, oldest last, in one update so the transcript renders once. */
+function applyOlderPages(pages: OlderPage[]) {
+  if (!pages.length) return;
+  for (const page of pages) for (const e of page.entries || []) entries.set(e.id, markRaw(e));
+  const last = pages[pages.length - 1]!;
+  chat.hasMoreEntries = !!last.hasMore;
+  chat.olderCursor = last.nextCursor ?? (last.hasMore && last.entries?.length ? last.entries[last.entries.length - 1].id : null);
+  chat.rev++;
+}
+
+/** Loads older pages until the entry is present. Large pages, one render at the end. */
 export async function ensureEntryLoaded(id: number): Promise<boolean> {
-  for (let i = 0; i < 100 && !entries.has(id); i++) {
-    if (!chat.hasMoreEntries) return false;
-    await loadOlderEntries();
-    if (chat.loadingOlder) return false;
+  if (entries.has(id)) return true;
+  const sid = chat.session, epoch = chat.epoch;
+  if (!sid || chat.loadingOlder || !chat.hasMoreEntries) return false;
+  const start = olderCursor();
+  if (start === null) return false;
+  let before: number = start;
+  chat.loadingOlder = true;
+  const pages: OlderPage[] = [];
+  try {
+    for (let i = 0; i < 100; i++) {
+      const page = await fetchOlderPage(sid, before, 500);
+      if (chat.session !== sid || chat.epoch !== epoch) return false;
+      pages.push(page);
+      const items = page.entries || [];
+      // Pages are newest first: stop once the page reaches the target or goes past it.
+      const oldest = items.length ? items[items.length - 1].id : undefined;
+      if (!page.hasMore || oldest === undefined || oldest <= id) break;
+      before = page.nextCursor ?? oldest;
+    }
+  } catch (err: any) {
+    if (chat.session === sid && chat.epoch === epoch) addErr("Failed to load older messages: " + (err.message || String(err)));
+  } finally {
+    if (chat.session === sid && chat.epoch === epoch) {
+      // Pages that arrived before a failure are valid history; keep them and their cursor.
+      applyOlderPages(pages);
+      chat.loadingOlder = false;
+    }
   }
   return entries.has(id);
 }
@@ -594,27 +642,14 @@ export async function ensureEntryLoaded(id: number): Promise<boolean> {
 export async function loadOlderEntries() {
   const sid = chat.session, epoch = chat.epoch;
   if (!sid || chat.loadingOlder || !chat.hasMoreEntries) return;
-  // Fall back to the lowest currently loaded entry id if olderCursor is not set
-  let before = chat.olderCursor;
-  if (before === null || before === undefined) {
-    const minId = Math.min(...entries.keys());
-    if (Number.isFinite(minId)) before = minId;
-  }
-  if (before === null || before === undefined) return;
+  const before = olderCursor();
+  if (before === null) return;
 
   chat.loadingOlder = true;
   try {
-    const s = await json<{ entries: any[]; hasMore?: boolean; nextCursor?: number | null }>(
-      `/v1/sessions/${sid}?view=ui&limit=100&before=${before}`,
-      { timeoutMs: 30000 },
-    );
+    const page = await fetchOlderPage(sid, before, 100);
     if (chat.session !== sid || chat.epoch !== epoch) return;
-    for (const e of s.entries || []) {
-      entries.set(e.id, markRaw(e));
-    }
-    chat.hasMoreEntries = !!s.hasMore;
-    chat.olderCursor = s.nextCursor ?? (s.hasMore && s.entries?.length ? s.entries[s.entries.length - 1].id : null);
-    chat.rev++;
+    applyOlderPages([page]);
   } catch (err: any) {
     if (chat.session === sid && chat.epoch === epoch) {
       addErr("Failed to load older messages: " + (err.message || String(err)));
