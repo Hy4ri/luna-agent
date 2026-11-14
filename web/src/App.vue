@@ -49,9 +49,10 @@ import { trackViewport } from '@/lib/viewport';
 
 const mobile = useMobile();
 const mobileMenuOpen = ref(false);
-// Narrow screens fold the session widgets (git, goal, tasks, processes, subagents, reviews) into one pill
-// above the composer. The pill opens a bottom sheet with the full widgets. Questions and approvals stay inline.
-const sessionSheetMode = computed(() => mobile.value && !sessionPane);
+// Without room for the right-gutter rail (phones and medium widths), the session widgets (git, goal, tasks,
+// processes, subagents, reviews) fold into one header pill that opens a sheet. Questions and approvals stay inline.
+// railRoom short-circuits first, like docked, so dockSide is read only after it exists.
+const sessionSheetMode = computed(() => !sessionPane && !(railRoom.value && !dockSide.value));
 const sessionSheetOpen = ref(false);
 watch([mobile, () => chat.session, () => ui.view], () => { mobileMenuOpen.value = false; });
 function mobileAction(action: () => unknown) {
@@ -530,7 +531,7 @@ onUnmounted(() => {
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <div id="chat-workspace" :inert="blocked || ui.view !== 'chat'" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
         <main id="main" ref="mainRef" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 max-[760px]:gap-1">
+          <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
             <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" :aria-controls="sessionPane ? undefined : 'side'" :aria-expanded="sessionPane ? undefined : ui.drawer" @click="openNavigation"><Menu :size="18" /></button>
             <button v-if="chat.parentSessionId" id="back-to-main-agent" type="button" class="icon-button shrink-0" aria-label="Back to main agent" :title="`Back to main agent · Session ${chat.parentSessionId}`" @click="openSession(chat.parentSessionId)"><ArrowLeft :size="18" /></button>
             <div class="heading min-w-0 flex-1">
@@ -546,21 +547,6 @@ onUnmounted(() => {
             <MachineStatus v-if="!mobile" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!mobile && activeSession" id="ask-steward" class="icon-button shrink-0" aria-label="Ask Steward about this session" title="Ask Steward about this session" :disabled="askPending" @click="askStewardAboutSession"><Heart :size="18" /></button>
-            <button
-              v-if="showSessionPill"
-              type="button"
-              class="rail-pill session-pill shrink-0"
-              :class="{ live: railLive }"
-              aria-haspopup="dialog"
-              :aria-expanded="sessionSheetOpen"
-              :aria-label="'Open session details: ' + railSummary"
-              @click="sessionSheetOpen = true"
-            >
-              <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
-                <component :is="c.icon" :size="13" aria-hidden="true" />
-                <span v-if="c.value">{{ c.value }}</span>
-              </span>
-            </button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Workspace sidebar" title="Workspace sidebar (Ctrl+`)" @click="toggleTerminal"><PanelRightClose v-if="terminal.open" :size="18" /><PanelRightOpen v-else :size="18" /></button>
             <button v-if="!mobile && (sessionPane || tiled)" id="close-tile" class="icon-button" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="16" /></button>
@@ -581,6 +567,23 @@ onUnmounted(() => {
           <div class="work-area" ref="workAreaRef" :class="dockSide ? 'dock-side' : 'dock-bottom'">
           <div class="chat-body">
             <div class="chat-column" :class="{ 'rail-docked': docked && !railMinimized }" :style="{ '--gutter-shift': gutterShift + 'px' }">
+              <Transition name="session-pill">
+                <button
+                  v-if="showSessionPill"
+                  type="button"
+                  class="rail-pill session-pill"
+                  :class="{ live: railLive }"
+                  aria-haspopup="dialog"
+                  :aria-expanded="sessionSheetOpen"
+                  :aria-label="'Open session details: ' + railSummary"
+                  @click="sessionSheetOpen = true"
+                >
+                  <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
+                    <component :is="c.icon" :size="13" aria-hidden="true" />
+                    <span v-if="c.value">{{ c.value }}</span>
+                  </span>
+                </button>
+              </Transition>
               <Transcript>
                 <GitStatus v-if="!docked && !sessionSheetMode && chat.session" />
               </Transcript>
@@ -822,14 +825,28 @@ onUnmounted(() => {
 .rail-pill:hover { border-color: var(--input); }
 .rail-pill:hover .rail-pill-caret { color: var(--foreground); }
 .rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-/* Mobile session pill: sits in the header's right side, next to New session. */
+/* Session pill: floats over the transcript's top-right corner and stays there while the text scrolls under it. */
 .session-pill {
+  position: absolute;
+  top: 10px;
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 4;
   flex-wrap: nowrap;
   overflow: hidden;
-  max-width: 40%;
+  max-width: calc(100% - 28px);
   min-height: 36px;
   padding: 4px;
-  box-shadow: none;
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  transition: background-color 160ms ease, border-color 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+.session-pill:hover { background: color-mix(in srgb, var(--card) 92%, transparent); }
+.session-pill-enter-from, .session-pill-leave-to { opacity: 0; transform: translateY(-6px); }
+@media (prefers-reduced-motion: reduce) {
+  .session-pill { transition: none; }
 }
 .session-pill .rail-chip { padding: 0 5px; gap: 3px; }
 .session-pill.live { border-color: color-mix(in srgb, var(--primary-text) 45%, var(--border)); }
@@ -849,6 +866,21 @@ onUnmounted(() => {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .session-sheet:focus { outline: none; }
+/* Wider screens: the sheet drops down under the header pill on the right instead of rising from the bottom. */
+@media (min-width: 761px) {
+  .session-sheet-overlay { background: rgb(0 0 0 / 0.35); }
+  .session-sheet {
+    left: auto;
+    right: 16px;
+    top: 104px;
+    bottom: auto;
+    width: min(420px, calc(100vw - 32px));
+    max-height: calc(100dvh - 76px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+}
 .session-sheet-head {
   flex: none;
   display: flex;
