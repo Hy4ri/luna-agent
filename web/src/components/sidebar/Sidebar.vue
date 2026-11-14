@@ -263,7 +263,7 @@ async function handleNewChat(projectId?: number | string | null, worker?: number
     const id = await newSession(projectId, worker);
     if (id) {
       setDrawer(false);
-      nextTick(() => document.querySelector<HTMLInputElement>("#input")?.focus());
+      nextTick(() => document.querySelector<HTMLInputElement>("#input")?.focus({ preventScroll: true }));
     }
   } catch (e: any) {
     history.status = e.message;
