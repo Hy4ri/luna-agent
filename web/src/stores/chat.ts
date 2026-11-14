@@ -5,6 +5,7 @@ import { compactNumber } from "@/lib/numbers";
 import { computed, markRaw, reactive, ref } from "vue";
 import type { Machine } from "./workers";
 import { api, json, post } from "@/lib/api";
+import { StreamPacer } from "@/lib/stream-pacer";
 import { watchFeed, type Feed } from "@/lib/sync";
 import { savedSession, rememberSession, routeSession, sessionPane, notifySessionPanes } from "@/lib/pane";
 import { boardChanged, focusInput, leavePages } from "./app";
@@ -283,9 +284,21 @@ function clearSideJobs() {
 
 // ---- feeds ----
 let activeFeed: Feed | null = null, listFeed: Feed | null = null;
-let liveMessage: any = null, liveFrame: number | null = null;
+let liveMessage: any = null, liveFrame: number | null = null, liveLastAt = 0;
+const textPacer = new StreamPacer();
+const thinkingPacer = new StreamPacer();
 let sessionAbort: AbortController | undefined;
 export function sessionSignal(): AbortSignal | undefined { return sessionAbort?.signal; }
+
+function cancelLiveFrame() {
+  if (liveFrame !== null) { cancelAnimationFrame(liveFrame); liveFrame = null; }
+  liveLastAt = 0;
+}
+function shouldBypassPacing(): boolean {
+  if (typeof document !== "undefined" && document.hidden) return true;
+  if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) return true;
+  return false;
+}
 
 function detachView() {
   sessionAbort?.abort(); sessionAbort = undefined;
@@ -293,7 +306,7 @@ function detachView() {
   chat.epoch++; activeFeed?.stop(); activeFeed = null;
   cancelExtras(); clearTimeout(contextTimer); contextRevision++;
   chat.contextCompacting = false; chat.compactions = new Set(); chat.context = undefined;
-  if (liveFrame !== null) cancelAnimationFrame(liveFrame); liveFrame = null;
+  cancelLiveFrame(); textPacer.reset(); thinkingPacer.reset();
   chat.connected = false; chat.runActive = chat.generationActive = false; chat.queuedCount = 0;
   liveMessage = null; chat.liveText = ""; chat.liveThinking = ""; entries = new Map(); chat.rev++;
   chat.parentSessionId = null;
@@ -321,13 +334,52 @@ function applyAgent(agent: any) {
   models.thinking = siblingLevelFor(model) || agent?.thinkingLevel || defaultLevelFor(model);
   models.speed = agent?.speed ?? null;
 }
-function syncLive() {
-  chat.liveText = textBlocks(liveMessage?.content);
-  chat.liveThinking = Array.isArray(liveMessage?.content) ? liveMessage.content.filter((b: any) => b.type === "thinking").map((b: any) => b.thinking || "").join("\n\n") : "";
+function tickLive(epoch: number, now: number) {
+  liveFrame = null;
+  if (epoch !== chat.epoch || !liveMessage) { cancelLiveFrame(); return; }
+  if (shouldBypassPacing()) {
+    chat.liveText = textPacer.flush();
+    chat.liveThinking = thinkingPacer.flush();
+    liveLastAt = 0;
+    return;
+  }
+  const dt = liveLastAt > 0 ? now - liveLastAt : 16.67;
+  liveLastAt = now;
+  const nextText = textPacer.step(dt);
+  if (nextText !== null) chat.liveText = nextText;
+  const nextThinking = thinkingPacer.step(dt);
+  if (nextThinking !== null) chat.liveThinking = nextThinking;
+  if (textPacer.hasPending || thinkingPacer.hasPending) {
+    liveFrame = requestAnimationFrame(ts => tickLive(epoch, ts));
+  } else {
+    liveLastAt = 0;
+  }
 }
-function queueLive(epoch: number) {
+function scheduleLive(epoch: number) {
   if (liveFrame !== null) return;
-  liveFrame = requestAnimationFrame(() => { liveFrame = null; if (epoch === chat.epoch) syncLive(); });
+  liveFrame = requestAnimationFrame(ts => tickLive(epoch, ts));
+}
+function syncLive(immediate = false, epoch = chat.epoch) {
+  if (!liveMessage) {
+    cancelLiveFrame();
+    textPacer.reset();
+    thinkingPacer.reset();
+    chat.liveText = "";
+    chat.liveThinking = "";
+    return;
+  }
+  const nextText = textBlocks(liveMessage?.content);
+  const nextThinking = Array.isArray(liveMessage?.content)
+    ? liveMessage.content.filter((b: any) => b.type === "thinking").map((b: any) => b.thinking || "").join("\n\n")
+    : "";
+  const bypass = immediate || shouldBypassPacing();
+  if (textPacer.setTarget(nextText, bypass)) chat.liveText = textPacer.displayed;
+  if (thinkingPacer.setTarget(nextThinking, bypass)) chat.liveThinking = thinkingPacer.displayed;
+  if (bypass) {
+    cancelLiveFrame();
+  } else if (textPacer.hasPending || thinkingPacer.hasPending) {
+    scheduleLive(epoch);
+  }
 }
 function retirePending() { if (chat.session && pendingMessages.size) retirePendingEntries(chat.session, new Set(entries.keys())); }
 function putEntry(entry: any) { entries.set(entry.id, markRaw(entry)); chat.rev++; retirePending(); }
@@ -350,7 +402,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
     chat.contextCompacting = chat.compactions.size > 0;
     const slots = [...(e.tools || []), ...(e.nestedTools || [])];
     chat.activeTools = new Set(slots.filter(t => t.status !== "done").map(t => t.callId));
-    liveMessage = e.generation?.message ? structuredClone(e.generation.message) : null; syncLive();
+    liveMessage = e.generation?.message ? structuredClone(e.generation.message) : null; syncLive(true, epoch);
     applyAgent(e.agent || {}); chat.usage = e.usage ? markRaw(e.usage) : null;
     for (const slot of slots) {
       if (slot.status === "done" && !slot.parentCallId) continue;
@@ -364,7 +416,7 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
   },
   message_start(e, epoch) {
     if (e.message.role === "assistant") {
-      chat.generationActive = true; liveMessage = structuredClone(e.message); queueLive(epoch);
+      chat.generationActive = true; liveMessage = structuredClone(e.message); syncLive(false, epoch);
     }
   },
   message_update(e, epoch) {
@@ -379,21 +431,21 @@ const sessionEventHandlers: Record<string, (e: any, epoch: number) => void> = {
         block[field] = (block[field] || "") + change.delta;
       }
     }
-    queueLive(epoch);
+    syncLive(false, epoch);
   },
   message_end(e) {
     for (const record of e.submissions || []) reconcileSubmission(record);
-    if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(); }
+    if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(true); }
     putEntry(e.entry); scheduleExtras(); scheduleContext();
   },
   entry_appended(e) {
     for (const record of e.submissions || []) reconcileSubmission(record);
-    if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(); }
+    if (e.entry.model?.[0]?.role === "assistant") { liveMessage = null; syncLive(true); }
     putEntry(e.entry); scheduleExtras(); scheduleContext();
   },
   run_start() { clearRunNotices(); chat.runActive = true; },
   run_end() {
-    chat.runActive = chat.generationActive = false; chat.activeTools = new Set(); liveMessage = null; syncLive();
+    chat.runActive = chat.generationActive = false; chat.activeTools = new Set(); liveMessage = null; syncLive(true);
     scheduleExtras(); scheduleContext();
   },
   turn_start() { clearRunNotices(); chat.generationActive = true; },

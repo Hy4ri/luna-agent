@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { IncrementalMarkdown } from "@/lib/markdown";
 import { openImage } from "@/stores/image-viewer";
 
-const props = defineProps<{ content: string }>();
+const props = defineProps<{ content: string; streaming?: boolean }>();
 const container = ref<HTMLElement | null>(null);
 
 let inc: IncrementalMarkdown | null = null;
@@ -26,7 +26,7 @@ function decorateImages() {
 const render = () => {
   if (!container.value) return;
   inc ??= new IncrementalMarkdown(container.value);
-  inc.update(props.content || "");
+  inc.update(props.content || "", !!props.streaming);
   decorateImages();
 };
 
@@ -47,8 +47,9 @@ function onKeydown(e: KeyboardEvent) {
   openImage(img.currentSrc || img.src, img.alt);
 }
 
-watch(() => props.content, render);
+watch(() => [props.content, props.streaming], render);
 onMounted(render);
+onBeforeUnmount(() => { inc?.dispose(); inc = null; });
 </script>
 
 <template>

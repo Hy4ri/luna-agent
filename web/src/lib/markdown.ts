@@ -6,7 +6,7 @@ import { openFence, closesFence, fenceLang, findFenceEnd } from "./fences";
 // Loaded only when a message contains math, sharing the existing GenUI KaTeX chunk.
 let mathEngine: Promise<typeof import("katex")> | undefined;
 function mathNode(source: string, displayMode: boolean, literal: string): HTMLElement {
-  const node = h("span", { class: displayMode ? "md-math md-math-display" : "md-math", dir: "ltr" }, literal);
+  const node = h("span", { class: displayMode ? "md-math md-math-display" : "md-math", dir: "ltr", "data-math-key": (displayMode ? "d:" : "i:") + source }, literal);
   mathEngine ??= Promise.all([import("katex"), import("katex/dist/katex.min.css")])
     .then(([engine]) => engine).catch(error => { mathEngine = undefined; throw error; });
   void mathEngine.then(({ default: katex }) => {
@@ -99,6 +99,8 @@ function safeImage(src: string, alt: string, title?: string) {
   return h("img", props);
 }
 
+type CopyButton = HTMLButtonElement & { __copyCode?: string };
+
 function codeBlock(code: string, lang = ""): HTMLElement {
   const cleanLang = (lang || "").trim().toLowerCase();
   const wrap = h("div", { dir: "ltr", class: "codewrap", ...(cleanLang ? { "data-lang": cleanLang } : {}) });
@@ -114,12 +116,13 @@ function codeBlock(code: string, lang = ""): HTMLElement {
       if (btn.disabled) return;
       clearTimeout(timer);
       btn.disabled = true;
-      const ok = await copyToClipboard(code);
+      const ok = await copyToClipboard(btn.__copyCode ?? code);
       btn.disabled = false;
       btn.textContent = ok ? "copied" : "copy failed";
       timer = setTimeout(() => { btn.textContent = "copy"; }, 2000);
     },
-  }, "copy") as HTMLButtonElement;
+  }, "copy") as CopyButton;
+  btn.__copyCode = code;
   header.append(langLabel, btn);
 
   const codeEl = h("code", { dir: "ltr" }, code);
@@ -365,20 +368,363 @@ function splitBlocks(src: string): string[] {
   return blocks.map((b) => b.join("\n"));
 }
 
-// Keeps the DOM of finished blocks and re-renders only the first changed block and the ones after it.
+const CHUNK_CLASS = "stream-chunk";
+const FADE_CLASS = "stream-fade";
+const CHUNK_SETTLE_MS = 220;
+const MAX_ACTIVE_CHUNKS = 12;
+
+function isConnectedScriptCode(code: number): boolean {
+  return (
+    (code >= 0x0300 && code <= 0x036f) || // Combining Diacritical Marks
+    (code >= 0x0600 && code <= 0x06ff) || // Arabic
+    (code >= 0x0700 && code <= 0x077f) || // Syriac + Arabic Supplement
+    (code >= 0x08a0 && code <= 0x08ff) || // Arabic Extended-A
+    (code >= 0x0900 && code <= 0x0dff) || // Indic scripts
+    (code >= 0xfb50 && code <= 0xfdff) || // Arabic Presentation Forms-A
+    (code >= 0xfe70 && code <= 0xfeff) || // Arabic Presentation Forms-B
+    code === 0x200c || code === 0x200d   // ZWNJ / ZWJ
+  );
+}
+
+function isConnectedBoundary(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const ca = a.charCodeAt(a.length - 1);
+  const cb = b.charCodeAt(0);
+  if (ca <= 0x20 || cb <= 0x20) return false;
+  return isConnectedScriptCode(ca) || isConnectedScriptCode(cb);
+}
+
+function isStreamChunk(node: Node | undefined): node is HTMLSpanElement {
+  return !!node && node.nodeType === 1 && (node as Element).classList.contains(CHUNK_CLASS);
+}
+
+function isTextLike(node: Node | undefined): boolean {
+  return !!node && (node.nodeType === 3 || isStreamChunk(node));
+}
+
+function makeChunkNode(text: string, now: number): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = CHUNK_CLASS;
+  span.setAttribute("data-t", String(now));
+  span.textContent = text;
+  return span;
+}
+
+function unwrapChunk(span: HTMLSpanElement, prevNode: Node | undefined): Node | null {
+  const parent = span.parentNode;
+  if (!parent) return null;
+  const text = span.textContent ?? "";
+  if (prevNode && prevNode.nodeType === 3) {
+    prevNode.nodeValue = (prevNode.nodeValue ?? "") + text;
+    parent.removeChild(span);
+    return null;
+  }
+  const txt = document.createTextNode(text);
+  parent.replaceChild(txt, span);
+  return txt;
+}
+
+function settleRun(nodes: Node[], forceAll: boolean, now: number): Node[] {
+  let totalChunks = 0;
+  for (const n of nodes) if (isStreamChunk(n)) totalChunks++;
+  if (totalChunks === 0) return nodes;
+
+  const kept: Node[] = [];
+  let seenChunks = 0;
+  for (const n of nodes) {
+    if (!isStreamChunk(n)) {
+      kept.push(n);
+      continue;
+    }
+    const createdAt = Number(n.getAttribute("data-t") || 0);
+    const remainingFromEnd = totalChunks - seenChunks;
+    seenChunks++;
+    if (forceAll || remainingFromEnd > MAX_ACTIVE_CHUNKS || now - createdAt >= CHUNK_SETTLE_MS) {
+      const replacement = unwrapChunk(n, kept[kept.length - 1]);
+      if (replacement) kept.push(replacement);
+    } else {
+      kept.push(n);
+    }
+  }
+  return kept;
+}
+
+function normalizedClass(el: Element): string {
+  const raw = el.getAttribute("class");
+  if (!raw) return "";
+  return raw.split(/\s+/).filter(c => c && c !== FADE_CLASS).join(" ");
+}
+
+function sameElementShape(a: Element, b: Element): boolean {
+  if (a.tagName !== b.tagName) return false;
+  if (isStreamChunk(a) || isStreamChunk(b)) return false;
+  if (normalizedClass(a) !== normalizedClass(b)) return false;
+  const aAttrs = a.attributes;
+  const bAttrs = b.attributes;
+  let aCount = 0;
+  for (let i = 0; i < aAttrs.length; i++) {
+    const name = aAttrs[i].name;
+    if (name === "class") continue;
+    aCount++;
+    if (b.getAttribute(name) !== aAttrs[i].value) return false;
+  }
+  let bCount = 0;
+  for (let i = 0; i < bAttrs.length; i++) {
+    if (bAttrs[i].name !== "class") bCount++;
+  }
+  return aCount === bCount;
+}
+
+function snapTextSplit(text: string, end: number): number {
+  let i = Math.max(0, Math.min(end, text.length));
+  if (i > 0 && i < text.length) {
+    const prev = text.charCodeAt(i - 1);
+    const next = text.charCodeAt(i);
+    if (prev >= 0xd800 && prev <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) i--;
+  }
+  while (i > 0 && isConnectedScriptCode(text.charCodeAt(i))) i--;
+  return i;
+}
+
+function appendStreamingText(
+  parent: Node,
+  anchor: Node | null,
+  kept: Node[],
+  prevText: string,
+  added: string,
+  streaming: boolean,
+  now: number,
+): void {
+  if (!added) return;
+  const last = kept[kept.length - 1];
+  if (streaming) {
+    if (last && isConnectedBoundary(prevText, added)) {
+      if (isStreamChunk(last)) {
+        last.textContent = (last.textContent ?? "") + added;
+        return;
+      }
+      if (last.nodeType === 3) {
+        last.nodeValue = (last.nodeValue ?? "") + added;
+        return;
+      }
+    }
+    const chunk = makeChunkNode(added, now);
+    parent.insertBefore(chunk, anchor);
+    kept.push(chunk);
+    return;
+  }
+  if (last && last.nodeType === 3) {
+    last.nodeValue = (last.nodeValue ?? "") + added;
+    return;
+  }
+  const txt = document.createTextNode(added);
+  parent.insertBefore(txt, anchor);
+  kept.push(txt);
+}
+
+function reconcileTextRun(
+  parent: Node,
+  anchor: Node | null,
+  oldRun: Node[],
+  newText: string,
+  streaming: boolean,
+  now: number,
+): Node[] {
+  const oldText = oldRun.map(n => n.textContent ?? "").join("");
+  if (oldText === newText) {
+    return settleRun(oldRun, !streaming, now);
+  }
+  if (newText.startsWith(oldText)) {
+    const kept = settleRun(oldRun, !streaming, now);
+    appendStreamingText(parent, anchor, kept, oldText, newText.slice(oldText.length), streaming, now);
+    return kept;
+  }
+  let common = 0;
+  const limit = Math.min(oldText.length, newText.length);
+  while (common < limit && oldText.charCodeAt(common) === newText.charCodeAt(common)) common++;
+  common = snapTextSplit(newText, common);
+
+  const kept: Node[] = [];
+  let pos = 0;
+  for (const n of oldRun) {
+    const text = n.textContent ?? "";
+    const end = pos + text.length;
+    if (end <= common) {
+      kept.push(n);
+    } else if (pos < common) {
+      const keepLen = common - pos;
+      if (n.nodeType === 3) {
+        n.nodeValue = text.slice(0, keepLen);
+      } else {
+        n.textContent = text.slice(0, keepLen);
+      }
+      kept.push(n);
+    } else {
+      parent.removeChild(n);
+    }
+    pos = end;
+  }
+
+  const settled = settleRun(kept, !streaming, now);
+  appendStreamingText(parent, anchor, settled, newText.slice(0, common), newText.slice(common), streaming, now);
+  return settled;
+}
+
+function reconcileSequence(
+  parent: Node,
+  anchor: Node | null,
+  oldNodes: Node[],
+  newNodes: Node[],
+  streaming: boolean,
+  now: number,
+): Node[] {
+  const result: Node[] = [];
+  let oi = 0, ni = 0;
+
+  while (oi < oldNodes.length && ni < newNodes.length) {
+    const oldN = oldNodes[oi];
+    const newN = newNodes[ni];
+    if (isTextLike(oldN) && newN.nodeType === 3) {
+      const oldRun: Node[] = [];
+      while (oi < oldNodes.length && isTextLike(oldNodes[oi])) oldRun.push(oldNodes[oi++]);
+      let newText = newN.textContent ?? "";
+      ni++;
+      while (ni < newNodes.length && newNodes[ni].nodeType === 3) {
+        newText += newNodes[ni++].textContent ?? "";
+      }
+      const runAnchor = oi < oldNodes.length ? oldNodes[oi] : anchor;
+      result.push(...reconcileTextRun(parent, runAnchor, oldRun, newText, streaming, now));
+      continue;
+    }
+    if (oldN.nodeType === 1 && newN.nodeType === 1 && sameElementShape(oldN as Element, newN as Element)) {
+      const oldEl = oldN as Element;
+      const newEl = newN as Element;
+      if ("__copyCode" in newEl) {
+        (oldEl as CopyButton).__copyCode = (newEl as CopyButton).__copyCode;
+      }
+      if (!oldEl.classList.contains("md-math")) {
+        reconcileSequence(oldEl, null, Array.from(oldEl.childNodes), Array.from(newEl.childNodes), streaming, now);
+      }
+      result.push(oldEl);
+      oi++;
+      ni++;
+      continue;
+    }
+    break;
+  }
+
+  while (oi < oldNodes.length) {
+    parent.removeChild(oldNodes[oi++]);
+  }
+  while (ni < newNodes.length) {
+    const newN = newNodes[ni++];
+    let inserted: Node;
+    if (streaming && newN.nodeType === 3) {
+      inserted = makeChunkNode(newN.textContent ?? "", now);
+    } else {
+      if (streaming && newN.nodeType === 1) (newN as Element).classList.add(FADE_CLASS);
+      inserted = newN;
+    }
+    parent.insertBefore(inserted, anchor);
+    result.push(inserted);
+  }
+  return result;
+}
+
+function clearStreamClasses(root: ParentNode): void {
+  if ("querySelectorAll" in root) {
+    for (const span of Array.from(root.querySelectorAll<HTMLSpanElement>(`span.${CHUNK_CLASS}`))) {
+      const prev = span.previousSibling ?? undefined;
+      unwrapChunk(span, prev);
+    }
+    for (const el of Array.from(root.querySelectorAll<Element>(`.${FADE_CLASS}`))) {
+      el.classList.remove(FADE_CLASS);
+    }
+  }
+}
+
+// Keeps the DOM of finished blocks and reconciles changed blocks in-place so streaming text flows smoothly.
 export class IncrementalMarkdown {
   private blocks: { src: string; nodes: Node[] }[] = [];
+  private settleTimer: ReturnType<typeof setTimeout> | undefined;
+
   constructor(private container: HTMLElement) {}
 
-  update(src: string) {
+  update(src: string, streaming = false) {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     const next = splitBlocks(src);
     let k = 0;
     while (k < next.length && k < this.blocks.length && next[k] === this.blocks[k].src) k++;
-    for (const b of this.blocks.splice(k)) for (const n of b.nodes) this.container.removeChild(n);
+
+    if (!streaming) {
+      this.clearSettleTimer();
+      clearStreamClasses(this.container);
+    }
+
+    if (k < this.blocks.length && k < next.length) {
+      for (const b of this.blocks.splice(k + 1)) {
+        for (const n of b.nodes) this.container.removeChild(n);
+      }
+      const frag = markdown(next[k]);
+      const reconciled = reconcileSequence(
+        this.container,
+        null,
+        this.blocks[k].nodes,
+        Array.from(frag.childNodes),
+        streaming,
+        now,
+      );
+      this.blocks[k] = { src: next[k], nodes: reconciled };
+      k++;
+    } else {
+      for (const b of this.blocks.splice(k)) {
+        for (const n of b.nodes) this.container.removeChild(n);
+      }
+    }
+
     for (; k < next.length; k++) {
       const frag = markdown(next[k]);
-      this.blocks.push({ src: next[k], nodes: Array.from(frag.childNodes) });
+      const nodes = Array.from(frag.childNodes);
+      if (streaming) {
+        for (const n of nodes) {
+          if (n.nodeType === 1) (n as Element).classList.add(FADE_CLASS);
+        }
+      }
+      this.blocks.push({ src: next[k], nodes });
       this.container.append(frag);
     }
+
+    if (streaming) {
+      this.scheduleSettle();
+    }
+  }
+
+  dispose() {
+    this.clearSettleTimer();
+  }
+
+  private clearSettleTimer() {
+    if (this.settleTimer !== undefined) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = undefined;
+    }
+  }
+
+  private scheduleSettle() {
+    this.clearSettleTimer();
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = undefined;
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      let hasActive = false;
+      for (const span of Array.from(this.container.querySelectorAll<HTMLSpanElement>(`span.${CHUNK_CLASS}`))) {
+        const createdAt = Number(span.getAttribute("data-t") || 0);
+        if (now - createdAt >= CHUNK_SETTLE_MS) {
+          unwrapChunk(span, span.previousSibling ?? undefined);
+        } else {
+          hasActive = true;
+        }
+      }
+      if (hasActive) this.scheduleSettle();
+    }, CHUNK_SETTLE_MS + 30);
   }
 }

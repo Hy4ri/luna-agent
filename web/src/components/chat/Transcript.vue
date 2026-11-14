@@ -484,7 +484,7 @@ function backgroundReport(entry: any, message: any): boolean {
     <PendingMessage v-for="message in inLog" :key="message.requestId" :message="message" />
     <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message vl vl-xl">
       <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre dir="auto">{{ chat.liveThinking }}</pre></details>
-      <AssistantText v-if="chat.liveText" :text="chat.liveText" />
+      <AssistantText v-if="chat.liveText" :text="chat.liveText" :streaming="true" />
     </div>
     <div v-for="notice in chat.notices" :key="notice.id" :data-notice="notice.id" :class="['msg', 'chat-notice', notice.kind === 'err' ? 'err' : 'muted']">
       <span dir="auto">{{ notice.text }}</span>
