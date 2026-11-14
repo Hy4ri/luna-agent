@@ -44,27 +44,42 @@ export function parseCron(expr: string): CronSpec {
   };
 }
 
-function dayMatches(s: CronSpec, d: Date): boolean {
-  const dm = s.dom.has(d.getDate()), dw = s.dow.has(d.getDay());
+function dayMatches(s: CronSpec, dom: number, dow: number): boolean {
+  const dm = s.dom.has(dom), dw = s.dow.has(dow);
   if (s.domStar && s.dowStar) return true;
   if (s.domStar) return dw;
   if (s.dowStar) return dm;
   return dm || dw; // standard cron: both restricted => OR
 }
 
-/** Next fire time strictly after `after` (epoch ms), local time. */
+// At a forward offset change, treat missing wall-clock minutes as due at the gap boundary.
+function gapMatches(s: CronSpec, d: Date): boolean {
+  const time = d.getTime();
+  const previousOffset = new Date(time - 60_000).getTimezoneOffset();
+  const offset = d.getTimezoneOffset();
+  for (let missing = previousOffset - offset; missing > 0; missing--) {
+    const wall = new Date(time - (offset + missing) * 60_000);
+    if (s.mon.has(wall.getUTCMonth() + 1) && dayMatches(s, wall.getUTCDate(), wall.getUTCDay()) &&
+        s.hour.has(wall.getUTCHours()) && s.min.has(wall.getUTCMinutes())) return true;
+  }
+  return false;
+}
+
+/** Next fire time strictly after `after` (epoch ms), local time.
+ * Missing DST times run at the gap boundary; both occurrences of repeated times are eligible.
+ */
 export function nextRun(expr: string | CronSpec, after: number): number {
   const s = typeof expr === "string" ? parseCron(expr) : expr;
-  const d = new Date(after);
-  d.setSeconds(0, 0);
-  d.setMinutes(d.getMinutes() + 1);
+  const d = new Date((Math.floor(after / 60_000) + 1) * 60_000);
   const limit = after + 5 * 366 * 86400_000;
   while (d.getTime() <= limit) {
+    if (gapMatches(s, d)) return d.getTime();
     if (!s.mon.has(d.getMonth() + 1)) { d.setMonth(d.getMonth() + 1, 1); d.setHours(0, 0, 0, 0); continue; }
-    if (!dayMatches(s, d)) { d.setDate(d.getDate() + 1); d.setHours(0, 0, 0, 0); continue; }
-    if (!s.hour.has(d.getHours())) { d.setHours(d.getHours() + 1, 0, 0, 0); continue; }
-    if (!s.min.has(d.getMinutes())) { d.setMinutes(d.getMinutes() + 1, 0, 0); continue; }
-    return d.getTime();
+    if (!dayMatches(s, d.getDate(), d.getDay())) { d.setDate(d.getDate() + 1); d.setHours(0, 0, 0, 0); continue; }
+    if (s.hour.has(d.getHours()) && s.min.has(d.getMinutes())) return d.getTime();
+    // Calendar setters can skip the repeated hour or move backwards inside it.
+    // Keep day/month skips above, but traverse eligible days in elapsed minutes.
+    d.setTime(d.getTime() + 60_000);
   }
   throw new Error(`cron "${typeof expr === "string" ? expr : "spec"}" never fires within 5 years`);
 }

@@ -277,6 +277,8 @@ Relative paths use the config file's directory. `~` expands to the user's home d
 
 ### Cron reports in the web UI
 
+Cron expressions use the daemon's local timezone. When DST skips a scheduled wall-clock time, the job becomes due at the first valid minute after the gap. When clocks go back, both occurrences of a matching wall-clock time are eligible.
+
 Open **Cron** from the sidebar. It opens a floating panel with **Reports**, **Jobs**, and **History**.
 Reports contains the newest meaningful unread report for each job. New reports replace older reports for that job.
 Opening a report marks it read and keeps its detail visible. Returning to the list removes the read entry.
