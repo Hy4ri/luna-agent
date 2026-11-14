@@ -5,6 +5,7 @@ import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { ArrowLeft, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal, ChevronDown, ChevronUp, GitBranch, Target, ListChecks, SquareTerminal, Bot } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, DialogClose } from 'reka-ui';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
 import ProjectIcon from '@/components/ProjectIcon.vue';
@@ -48,6 +49,10 @@ import { trackViewport } from '@/lib/viewport';
 
 const mobile = useMobile();
 const mobileMenuOpen = ref(false);
+// Narrow screens fold the session widgets (git, goal, tasks, processes, subagents, reviews) into one pill
+// above the composer. The pill opens a bottom sheet with the full widgets. Questions and approvals stay inline.
+const sessionSheetMode = computed(() => mobile.value && !sessionPane);
+const sessionSheetOpen = ref(false);
 watch([mobile, () => chat.session, () => ui.view], () => { mobileMenuOpen.value = false; });
 function mobileAction(action: () => unknown) {
   mobileMenuOpen.value = false;
@@ -101,7 +106,7 @@ const railLive = computed(() => {
 });
 // The minimized pill shows Git counts, so it keeps Git status polling alive while GitStatus is unmounted.
 let pillGit: ReturnType<typeof registerGitStatusInstance> | undefined;
-watch(() => docked.value && railMinimized.value, on => {
+watch(() => (docked.value && railMinimized.value) || (sessionSheetMode.value && !sessionSheetOpen.value), on => {
   if (on && !pillGit) { pillGit = registerGitStatusInstance('rail-pill'); pillGit.setVisible(true); }
   else if (!on && pillGit) { pillGit.unregister(); pillGit = undefined; }
 }, { immediate: true });
@@ -142,6 +147,9 @@ const railChips = computed<RailChip[]>(() => {
   }
   return chips;
 });
+watch(() => chat.session, () => { sessionSheetOpen.value = false; });
+watch(sessionSheetMode, on => { if (!on) sessionSheetOpen.value = false; });
+const showSessionPill = computed(() => sessionSheetMode.value && !!chat.session && railContent.value);
 const railSummary = computed(() => railChips.value.map(c => `${c.label} ${c.value || (c.key === 'goal' ? chat.extras?.goal?.status.replaceAll('_', ' ') : '')}`.trim()).join(', ') || 'Session');
 // The native chat remains mounted when its tile is removed. Surviving iframe
 // tiles are never promoted/remounted, so their attachments and live views stay intact.
@@ -534,7 +542,7 @@ onUnmounted(() => {
               <span v-if="activeSession?.resumeAt" id="limit-wait" class="session-status flex items-center gap-2 text-muted-foreground" role="status"><span :title="new Date(activeSession.resumeAt).toLocaleString()">{{ resumeLabel(activeSession.resumeAt, undefined, activeSession.recovery?.exact ?? true) }}</span><button id="cancel-limit-wait" class="min-h-11 px-1.5 underline hover:text-foreground sm:min-h-6" @click="cancelLimitWait(activeSession)">Cancel</button></span>
               <span v-else-if="activeSession?.recovery?.pausedReason" id="limit-paused" class="session-status block truncate text-muted-foreground" :title="activeSession.recovery.pausedReason" role="status">Recovery stopped · {{ activeSession.recovery.pausedReason }}</span>
             </div>
-            <button v-if="!docked && reviewJobs.length" type="button" class="icon-button shrink-0" :aria-label="`Inspect review agents${runningReviews ? ' · ' + runningReviews + ' running' : ''}`" title="Review agents" @click="selectedReview = reviewJobs[0]!.id"><ScanEye :size="18" :class="{ 'text-primary-text': runningReviews > 0 }" /></button>
+            <button v-if="!docked && !sessionSheetMode && reviewJobs.length" type="button" class="icon-button shrink-0" :aria-label="`Inspect review agents${runningReviews ? ' · ' + runningReviews + ' running' : ''}`" title="Review agents" @click="selectedReview = reviewJobs[0]!.id"><ScanEye :size="18" :class="{ 'text-primary-text': runningReviews > 0 }" /></button>
             <MachineStatus v-if="!mobile" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!mobile && activeSession" id="ask-steward" class="icon-button shrink-0" aria-label="Ask Steward about this session" title="Ask Steward about this session" :disabled="askPending" @click="askStewardAboutSession"><Heart :size="18" /></button>
@@ -559,9 +567,42 @@ onUnmounted(() => {
           <div class="chat-body">
             <div class="chat-column" :class="{ 'rail-docked': docked && !railMinimized }" :style="{ '--gutter-shift': gutterShift + 'px' }">
               <Transcript>
-                <GitStatus v-if="!docked && chat.session" />
+                <GitStatus v-if="!docked && !sessionSheetMode && chat.session" />
               </Transcript>
-              <Extras v-if="!docked" />
+              <Extras v-if="!docked && !sessionSheetMode" />
+              <div v-if="showSessionPill" class="session-pill-row">
+                <button
+                  type="button"
+                  class="rail-pill session-pill"
+                  :class="{ live: railLive }"
+                  aria-haspopup="dialog"
+                  :aria-expanded="sessionSheetOpen"
+                  :aria-label="'Open session details: ' + railSummary"
+                  @click="sessionSheetOpen = true"
+                >
+                  <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
+                    <component :is="c.icon" :size="13" aria-hidden="true" />
+                    <span v-if="c.value">{{ c.value }}</span>
+                  </span>
+                  <ChevronUp class="rail-pill-caret" :size="13" aria-hidden="true" />
+                </button>
+              </div>
+              <DialogRoot v-if="sessionSheetMode" v-model:open="sessionSheetOpen">
+                <DialogPortal>
+                  <DialogOverlay class="session-sheet-overlay" />
+                  <DialogContent class="session-sheet">
+                    <header class="session-sheet-head">
+                      <DialogTitle class="session-sheet-title">Session</DialogTitle>
+                      <DialogDescription class="sr-only">Git status, goal, tasks, processes, subagents, and reviews for this session.</DialogDescription>
+                      <DialogClose class="icon-button" aria-label="Close session details"><X :size="18" /></DialogClose>
+                    </header>
+                    <div class="session-sheet-body">
+                      <GitStatus v-if="chat.session" docked />
+                      <Extras docked />
+                    </div>
+                  </DialogContent>
+                </DialogPortal>
+              </DialogRoot>
               <div id="compose" class="w-full shrink-0">
                 <Composer />
               </div>
@@ -783,6 +824,56 @@ onUnmounted(() => {
 .rail-pill:hover { border-color: var(--input); }
 .rail-pill:hover .rail-pill-caret { color: var(--foreground); }
 .rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* Mobile session pill: one in-flow row above the composer. */
+.session-pill-row {
+  flex: none;
+  display: flex;
+  padding: 6px max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+}
+.session-pill {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  min-height: 44px;
+  box-shadow: none;
+}
+.session-pill .rail-pill-caret { top: 50%; transform: translateY(-50%); }
+.session-pill.live { border-color: color-mix(in srgb, var(--primary-text) 45%, var(--border)); }
+.session-sheet-overlay { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 0.6); }
+.session-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  max-height: min(75dvh, calc(var(--viewport-height, 100dvh) - 48px));
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--background);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.session-sheet:focus { outline: none; }
+.session-sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 4px 6px 4px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.session-sheet-title { margin: 0; font-size: 14px; font-weight: 600; }
+.session-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 16px;
+}
 .session-pane {
   flex: 1 1 0;
   width: 0;
