@@ -3,8 +3,9 @@
 // tool-result, and system records without parsing them, so only the few candidate records are read.
 import type { Database } from "bun:sqlite";
 
-/** Entry kinds whose model messages are never user messages. All other kinds are checked. */
-const NON_USER_KINDS = ["pi.assistant", "pi.tool-result", "pi.system"] as const;
+/** Entry kinds that never show as a user message in the transcript. All other kinds are checked.
+ *  Compaction, reset, and model-change entries can carry a user-role summary but render as muted rows. */
+export const NON_USER_KINDS = ["pi.assistant", "pi.tool-result", "pi.system", "pi.compaction", "pi.reset", "luna.model-changed"] as const;
 const LABEL_MAX = 80;
 
 export type UserMessageLabel = { id: number; label: string };
