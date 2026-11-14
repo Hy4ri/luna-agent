@@ -85,10 +85,12 @@ function handlePointerUp() { dragging = false; }
 function handleScroll() {
   const log = logRef.value;
   if (!log) return;
+  const userScroll = dragging || Date.now() < intentUntil;
   // With newer rows unrendered, the bottom of the log is not the end of the conversation.
-  if (distance(log) < BOTTOM_PX && !newerHidden.value) pinned = true;
-  else if (dragging || Date.now() < intentUntil) pinned = false;
-  if (dragging || Date.now() < intentUntil) showJumps();
+  // Do not re-pin while a rail jump is smoothly scrolling away from the bottom.
+  if (distance(log) < BOTTOM_PX && !newerHidden.value && (jumpingToId === null || userScroll)) pinned = true;
+  else if (userScroll) pinned = false;
+  if (userScroll) showJumps();
   if (newerHidden.value && distance(log) < NEWER_MARGIN_PX) void expandNewerWindow();
   scheduleActive();
 }
@@ -323,7 +325,7 @@ const userTicks = computed(() => {
     for (const m of entry.model || []) {
       if (m.role !== 'user' || backgroundReport(entry, m)) continue;
       const text = messageText(m.content).replace(/\s+/g, ' ').trim();
-      loaded.push({ id: entry.id, label: text.length > 80 ? text.slice(0, 80) + '…' : text || 'Message' });
+      loaded.push({ id: entry.id, label: text.length > 120 ? text.slice(0, 120) + '…' : text || 'Message' });
       break;
     }
   }
@@ -336,6 +338,8 @@ const userTicks = computed(() => {
 });
 const activeTick = ref<number | null>(null);
 let railRaf: number | undefined;
+let jumpingToId: number | null = null;
+let jumpStartedAt = 0;
 function userEl(id: number) {
   // Peer reports are user messages too, but they render as a disclosure, not as .msg.user.
   const key = CSS.escape(String(id));
@@ -343,6 +347,10 @@ function userEl(id: number) {
 }
 function updateActive() {
   railRaf = undefined;
+  if (jumpingToId !== null) {
+    if (!dragging && intentUntil <= jumpStartedAt + INTENT_MS) return;
+    jumpingToId = null;
+  }
   const log = logRef.value;
   if (!log || !userTicks.value.length) { activeTick.value = null; return; }
   const box = log.getBoundingClientRect();
@@ -362,13 +370,117 @@ watch(userTicks, scheduleActive, { flush: "post" });
 let lastIndexed = -1;
 watch(() => userTicks.value.length, (n) => { if (chat.session && n > lastIndexed && lastIndexed >= 0 && !chat.loadingOlder) void refreshUserIndex(); lastIndexed = n; });
 onBeforeUnmount(() => { if (railRaf !== undefined) cancelAnimationFrame(railRaf); });
+
+const railRef = ref<HTMLElement | null>(null);
+const railCardRef = ref<HTMLElement | null>(null);
+const hoveredTickIdx = ref<number | null>(null);
+const focusedTickIdx = ref<number | null>(null);
+const railCardY = ref(0);
+const activeTickIdx = computed(() => userTicks.value.findIndex(t => t.id === activeTick.value));
+const previewTickIdx = computed(() => hoveredTickIdx.value ?? focusedTickIdx.value);
+const focalTickIdx = computed(() => previewTickIdx.value ?? (activeTickIdx.value >= 0 ? activeTickIdx.value : 0));
+const previewTick = computed(() => previewTickIdx.value !== null ? userTicks.value[previewTickIdx.value] ?? null : null);
+
+const railGap = computed(() => {
+  const n = userTicks.value.length;
+  if (n > 75) return "1px";
+  return "1.5px";
+});
+
+function railCurve(index: number, center: number, total: number): number {
+  const d = Math.abs(index - center);
+  const maxDist = Math.max(center, total - 1 - center);
+  if (maxDist <= 0) return 1;
+  const t = d / maxDist;
+  return (1 - t) ** 2;
+}
+
+function railTickStyle(index: number): Record<string, string> {
+  const total = userTicks.value.length;
+  const focal = focalTickIdx.value;
+  const activeIdx = activeTickIdx.value >= 0 ? activeTickIdx.value : 0;
+  const curve = railCurve(index, focal, total);
+  // Anchor vertical slot size to the active tick so hovering never shifts ticks under the pointer.
+  const spaceCurve = railCurve(index, activeIdx, total);
+  const isActive = index === activeTickIdx.value;
+  const isPreview = index === previewTickIdx.value;
+  const minW = 5;
+  const maxW = 20;
+  const width = minW + (maxW - minW) * curve;
+  const opacity = isActive || isPreview ? 1 : 0.3 + 0.7 * curve;
+  const slotFlex = 1 + 1.0 * spaceCurve;
+  const slotMax = 6 + 7 * spaceCurve;
+  return {
+    "--tick-w": `${width.toFixed(2)}px`,
+    "--tick-op": opacity.toFixed(2),
+    "--tick-flex": slotFlex.toFixed(2),
+    "--tick-slot": `${slotMax.toFixed(1)}px`,
+  };
+}
+
+function updateRailCardY(targetEl: HTMLElement | null) {
+  const rail = railRef.value;
+  if (!rail || !targetEl) return;
+  const cardHeight = railCardRef.value?.offsetHeight || 36;
+  const center = targetEl.offsetTop + targetEl.offsetHeight / 2 - cardHeight / 2;
+  const maxTop = Math.max(0, rail.clientHeight - cardHeight + 24);
+  railCardY.value = Math.max(-24, Math.min(maxTop, center));
+}
+
+function onTickHover(index: number, event: Event) {
+  hoveredTickIdx.value = index;
+  const targetEl = event.currentTarget as HTMLElement | null;
+  updateRailCardY(targetEl);
+  void nextTick(() => {
+    if (hoveredTickIdx.value === index) updateRailCardY(targetEl);
+  });
+}
+
+function onRailLeave() {
+  hoveredTickIdx.value = null;
+}
+
+function onTickFocus(index: number, event: FocusEvent) {
+  const targetEl = event.currentTarget as HTMLElement | null;
+  if (!targetEl?.matches(":focus-visible")) return;
+  focusedTickIdx.value = index;
+  updateRailCardY(targetEl);
+  void nextTick(() => {
+    if (focusedTickIdx.value === index) updateRailCardY(targetEl);
+  });
+}
+
+function onTickBlur(index: number) {
+  if (focusedTickIdx.value === index) focusedTickIdx.value = null;
+}
+
+watch(() => chat.session, () => {
+  hoveredTickIdx.value = null;
+  focusedTickIdx.value = null;
+  jumpingToId = null;
+});
+
+watch(() => userTicks.value.length, (len) => {
+  if (hoveredTickIdx.value !== null && hoveredTickIdx.value >= len) hoveredTickIdx.value = null;
+  if (focusedTickIdx.value !== null && focusedTickIdx.value >= len) focusedTickIdx.value = null;
+});
 const JUMP_CONTEXT_ROWS = 5;
 let jumpSeq = 0;
+let cancelActiveJump: (() => void) | undefined;
 async function jumpToUser(id: number) {
+  cancelActiveJump?.();
+  cancelActiveJump = undefined;
+  const jump = ++jumpSeq, epoch = chat.epoch, startedAt = Date.now();
+  jumpingToId = id;
+  jumpStartedAt = startedAt;
+  activeTick.value = id;
   if (!userEl(id)) {
     // Older entries are not loaded yet: load pages until this one exists.
     const sid = chat.session;
-    if (!(await ensureEntryLoaded(id)) || chat.session !== sid) return;
+    if (!(await ensureEntryLoaded(id)) || chat.session !== sid || jump !== jumpSeq) {
+      if (jump === jumpSeq) { jumpingToId = null; jumpHold = false; }
+      return;
+    }
   }
   // Outside the rendered window: render a window around the target, not every row from it to the newest.
   const targetIndex = timeline.value.findIndex(row => row.entry?.id === id);
@@ -385,31 +497,49 @@ async function jumpToUser(id: number) {
     visibleCount.value = stop - start;
   }
   await nextTick();
+  if (jump !== jumpSeq || chat.epoch !== epoch) return;
   const log = logRef.value, el = userEl(id);
-  if (!log || !el) { jumpHold = false; return; }
+  if (!log || !el) { jumpHold = false; jumpingToId = null; return; }
   pinned = false;
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const offset = () => el.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
-  log.scrollTo({ top: log.scrollTop + offset(), behavior: reduce ? "auto" : "smooth" });
+  const maxScroll = Math.max(0, log.scrollHeight - log.clientHeight);
+  const targetTop = Math.max(0, Math.min(maxScroll, log.scrollTop + offset()));
+  const actualDelta = targetTop - log.scrollTop;
+  log.scrollTo({ top: targetTop, behavior: reduce ? "auto" : "smooth" });
   // Rows off screen use estimated heights (content-visibility), so the target moves while they render.
   // Snap it into place when the scroll ends, unless the reader scrolled meanwhile.
-  const jump = ++jumpSeq, epoch = chat.epoch, startedAt = Date.now();
-  const settle = (tries: number) => {
+  const settle = (tries: number, onSettled: () => void) => {
     // Any wheel, touch, or scroll key since the jump started (intentUntil = last intent + INTENT_MS) leaves it alone.
-    if (jump !== jumpSeq || chat.epoch !== epoch || !el.isConnected || intentUntil > startedAt + INTENT_MS || dragging) return;
+    if (jump !== jumpSeq || chat.epoch !== epoch || !el.isConnected || intentUntil > startedAt + INTENT_MS || dragging) {
+      onSettled();
+      return;
+    }
     const delta = offset();
-    if (Math.abs(delta) <= 4) return;
+    if (Math.abs(delta) <= 4) { onSettled(); return; }
     log.scrollTop += delta;
-    if (tries > 0) requestAnimationFrame(() => requestAnimationFrame(() => settle(tries - 1)));
+    if (tries > 0) requestAnimationFrame(() => requestAnimationFrame(() => settle(tries - 1, onSettled)));
+    else onSettled();
   };
   const done = () => {
     clearTimeout(fallback); log.removeEventListener("scrollend", done);
-    settle(3);
-    if (jump === jumpSeq) jumpHold = false;
+    if (cancelActiveJump === cancel) cancelActiveJump = undefined;
+    settle(3, () => {
+      if (jump === jumpSeq) {
+        jumpHold = false;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (jump === jumpSeq) jumpingToId = null;
+        }));
+      }
+    });
   };
-  const fallback = setTimeout(done, reduce ? 50 : 1500);
+  const cancel = () => {
+    clearTimeout(fallback);
+    log.removeEventListener("scrollend", done);
+  };
+  cancelActiveJump = cancel;
+  const fallback = setTimeout(done, reduce || Math.abs(actualDelta) <= 1 ? 50 : 1500);
   log.addEventListener("scrollend", done);
-  activeTick.value = id;
   el.classList.remove("rail-flash");
   void el.offsetWidth;
   el.classList.add("rail-flash");
@@ -577,17 +707,31 @@ function backgroundReport(entry: any, message: any): boolean {
   <div v-if="queued.length" class="queued-dock" role="region" aria-label="Queued messages">
     <PendingMessage v-for="message in queued" :key="message.requestId" :message="message" />
   </div>
-  <nav v-if="userTicks.length > 1" class="user-rail" aria-label="User messages">
+  <nav v-if="userTicks.length > 1" ref="railRef" class="user-rail" :style="{ '--rail-gap': railGap }" aria-label="User messages" @mouseleave="onRailLeave">
     <button
-      v-for="t in userTicks"
+      v-for="(t, i) in userTicks"
       :key="t.id"
       type="button"
       class="user-tick"
-      :class="{ active: t.id === activeTick }"
+      :class="{ active: t.id === activeTick, hovered: i === previewTickIdx }"
+      :style="railTickStyle(i)"
       :aria-label="'Go to message: ' + t.label"
       :aria-current="t.id === activeTick ? 'true' : undefined"
+      @mouseenter="onTickHover(i, $event)"
+      @focus="onTickFocus(i, $event)"
+      @blur="onTickBlur(i)"
       @click="jumpToUser(t.id)"
-    ><span class="tick-bar" /><span class="tick-tip" dir="auto">{{ t.label }}</span></button>
+    ><span class="tick-bar" /></button>
+    <div
+      ref="railCardRef"
+      class="rail-card"
+      :class="{ open: !!previewTick, active: previewTickIdx === activeTickIdx }"
+      :style="{ '--card-y': railCardY + 'px' }"
+      :aria-hidden="!previewTick"
+    >
+      <span class="rail-card-idx">#{{ (previewTickIdx ?? 0) + 1 }}</span>
+      <span class="rail-card-body" dir="auto">{{ previewTick?.label }}</span>
+    </div>
   </nav>
   <div class="transcript-jumps">
     <button id="jump" ref="jumpRef" type="button" hidden aria-label="Jump to bottom" title="Jump to bottom" @click="jumpToBottom"><ArrowDown :size="18" aria-hidden="true" /></button>
@@ -597,28 +741,63 @@ function backgroundReport(entry: any, message: any): boolean {
 <style scoped>
 .user-rail {
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%); z-index: 5;
-  display: flex; flex-direction: column; gap: 3px; width: 16px; height: min(50%, 320px);
+  display: flex; flex-direction: column; gap: var(--rail-gap, clamp(2px, 0.35vh, 4px)); width: 28px; height: min(68%, 480px);
+  padding: 6px 2px 6px 6px;
   justify-content: center; align-items: stretch; animation: rail-in 0.35s ease-out both;
 }
 .user-tick {
-  position: relative; flex: 1 1 0; min-height: 3px; max-height: 14px; padding: 0; border: 0; background: none;
+  position: relative; flex: var(--tick-flex, 1) 1 0; min-height: 2px; max-height: var(--tick-slot, 13px); padding: 0; border: 0; background: none;
   display: flex; align-items: center; justify-content: flex-end; cursor: pointer;
 }
 .tick-bar {
-  display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--muted-foreground); opacity: 0.45;
-  transition: width 0.2s cubic-bezier(.3,1.4,.5,1), opacity 0.2s, background-color 0.2s, height 0.2s;
+  display: block; height: min(100%, 2px); width: var(--tick-w, 8px); border-radius: var(--radius);
+  background: var(--muted-foreground); opacity: var(--tick-op, 0.4); transform-origin: right center;
+  transition:
+    width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    background-color 180ms ease,
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.user-tick:hover .tick-bar, .user-tick:focus-visible .tick-bar { width: 16px; opacity: 1; }
-.user-tick.active .tick-bar { width: 14px; height: 3px; opacity: 1; background: var(--primary); }
+.user-tick.hovered .tick-bar {
+  background: var(--foreground);
+  transform: translateX(-2px);
+}
+.user-tick.active .tick-bar {
+  background: var(--primary);
+}
 .user-tick:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius); }
-.tick-tip {
-  position: absolute; right: 24px; top: 50%; transform: translate(6px, -50%); max-width: 260px; width: max-content;
-  padding: 4px 8px; border-radius: var(--radius); font-size: 12px; line-height: 1.3; color: var(--foreground);
-  background: var(--secondary); border: 1px solid var(--border); box-shadow: var(--shadow);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; opacity: 0;
-  transition: opacity 0.15s, transform 0.2s;
+.rail-card {
+  position: absolute; right: 34px; top: 0; width: max-content; min-width: 110px; max-width: 236px;
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 6px 9px; border-radius: var(--radius);
+  background: var(--card); border: 1px solid var(--border); border-left: 2px solid var(--primary);
+  box-shadow: var(--shadow); pointer-events: none; opacity: 0;
+  transform: translate3d(8px, var(--card-y, 0px), 0) scale(0.95);
+  transform-origin: right center;
+  transition:
+    opacity 160ms ease,
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.user-tick:hover .tick-tip, .user-tick:focus-visible .tick-tip { opacity: 1; transform: translate(0, -50%); }
+.rail-card.open {
+  opacity: 1;
+  transform: translate3d(0, var(--card-y, 0px), 0) scale(1);
+}
+.rail-card.active {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  border-left-color: var(--primary);
+}
+.rail-card-idx {
+  flex: none; font-size: 11px; font-weight: 600; color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.rail-card.active .rail-card-idx {
+  color: var(--foreground);
+}
+.rail-card-body {
+  font-size: 12px; line-height: 1.35; color: var(--foreground);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere;
+}
 @keyframes rail-in { from { opacity: 0; transform: translate(8px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
 .rail-flash { animation: rail-flash 1.4s ease-out; }
 @keyframes rail-flash {
@@ -628,7 +807,7 @@ function backgroundReport(entry: any, message: any): boolean {
 }
 @media (prefers-reduced-motion: reduce) {
   .user-rail, .rail-flash { animation: none; }
-  .tick-bar, .tick-tip { transition: none; }
+  .tick-bar, .rail-card { transition: none; }
 }
 @media (max-width: 640px) { .user-rail { display: none; } }
 .load-older-bar { display: flex; justify-content: center; padding: 10px 0 4px; }
