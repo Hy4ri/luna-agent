@@ -36,7 +36,8 @@ const detail = computed<CronRun | null>(() => panel.detail);
 const detailJob = computed<CronJob | null>(() => jobs.value.find(j => j.id === panel.jobId) ?? null);
 /** The report's job, when that job still exists. */
 const reportJob = computed<CronJob | null>(() => jobs.value.find(j => j.id === panel.detail?.jobId) ?? null);
-const detailOnly = computed(() => !!panel.detail && (panel.tab === "reports" || panel.tab === "history"));
+// Narrow layouts show either the list or the detail pane. Jobs open a job or the editor; other tabs open a report.
+const detailOnly = computed(() => panel.tab === "jobs" ? !!panel.editor || (panel.jobOpen && !!detailJob.value) : !!panel.detail);
 const openRuns = ref(new Set<number>());
 
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -168,6 +169,7 @@ function selectTab(tab: CronTab) {
   if (busy.value || panel.tab === tab) return;
   panel.tab = tab;
   panel.detail = null;
+  panel.jobOpen = false;
   message("");
   void guard(async () => {
     if (tab === "history") await loadHistory(true);
@@ -225,6 +227,7 @@ async function continueRun(run: CronRun) {
 }
 
 function selectJob(job: CronJob) {
+  panel.jobOpen = true;
   if (panel.jobId === job.id) return;
   panel.jobId = job.id;
   panel.editor = null;
@@ -247,6 +250,9 @@ function editJob(job: CronJob) {
     script: !!job.execution,
   };
   message("");
+}
+function backToJobs() {
+  panel.jobOpen = false;
 }
 function cancelEdit() {
   panel.editor = null;
@@ -288,7 +294,7 @@ async function deleteJob(job: CronJob) {
   if (!(await confirmAction({ title: `Delete job "${job.name}"?`, message: 'Reports and run history will be kept.', confirmLabel: 'Delete', danger: true }))) return;
   void guard(async () => {
     await post(`/v1/cron/${job.id}`, {}, "DELETE");
-    if (panel.jobId === job.id) panel.jobId = null;
+    if (panel.jobId === job.id) { panel.jobId = null; panel.jobOpen = false; }
     if (panel.editor?.jobId === job.id) panel.editor = null;
     await loadJobs();
     await loadJobRuns();
@@ -341,8 +347,9 @@ onUnmounted(() => {
   ++inboxSeq;
   ++historySeq;
   ++jobRunsSeq;
-  // A read report stays visible while it is open. Closing the panel returns the next open to the list.
+  // A read report or an open job stays visible while it is open. Closing the panel returns the next open to the list.
   panel.detail = null;
+  panel.jobOpen = false;
 });
 </script>
 
@@ -441,6 +448,7 @@ onUnmounted(() => {
           :job-runs="jobRuns"
           :open-runs="openRuns"
           :busy="busy"
+          @back="backToJobs"
           @edit="editJob"
           @run-now="runNow"
           @toggle="toggleJob"

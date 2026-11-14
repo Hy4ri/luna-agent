@@ -90,7 +90,7 @@ export function runMarkdown(run: CronRun) {
 
 export function scheduleDesc(job: CronJob | null) {
   if (!job) return "—";
-  if (job.intervalMs) return `Every ${job.intervalMs / 60000} minutes`;
+  if (job.intervalMs) { const m = job.intervalMs / 60000; return m === 1 ? "Every minute" : `Every ${m} minutes`; }
   const aliases: Record<string, string> = {
     "@hourly": "Every hour",
     "@daily": "Every day at 00:00",

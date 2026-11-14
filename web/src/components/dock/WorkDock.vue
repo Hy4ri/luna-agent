@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The dock frame: position (bottom or right), size, global pane tabs (Terminal, Browser, Mail), and resize handle.
 import { computed } from "vue";
-import { ChevronDown, Globe, Mail, PanelBottom, PanelRight, SquareTerminal } from "@lucide/vue";
+import { ChevronDown, Globe, Mail, PanelBottom, PanelRight, SquareTerminal, X } from "@lucide/vue";
 import { clampHeight, clampWidth, dock, effectivePosition, setPane, setPosition, setWidth, type DockPane } from "@/stores/dock";
 import { setHeight, terminal } from "@/stores/terminal";
 import { browser } from "@/stores/browser";
@@ -105,7 +105,7 @@ function resizeKey(event: KeyboardEvent) {
         <button type="button" class="icon-button" :aria-pressed="side" :disabled="forced" :aria-label="side ? 'Move dock to the bottom' : 'Move dock to the side'" :title="forced ? 'Too narrow for a side dock' : side ? 'Move dock to the bottom' : 'Move dock to the side'" @click="togglePos">
           <PanelBottom v-if="side" :size="14" /><PanelRight v-else :size="14" />
         </button>
-        <button type="button" class="icon-button" aria-label="Hide dock" title="Hide dock" @click="terminal.open = false"><ChevronDown :size="14" /></button>
+        <button type="button" class="icon-button" aria-label="Hide dock" title="Hide dock" @click="terminal.open = false"><ChevronDown class="dock-hide-wide" :size="14" /><X class="dock-hide-narrow" :size="16" /></button>
       </div>
     </header>
     <slot />
@@ -132,6 +132,26 @@ function resizeKey(event: KeyboardEvent) {
 .global-dock-tab.active { color: var(--foreground); font-weight: 600; border-bottom-color: var(--primary); background: var(--card); }
 .global-dock-badge { padding: 0 5px; border-radius: var(--radius); background: var(--primary); color: var(--primary-foreground); font-size: 10px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .global-dock-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.dock-hide-narrow { display: none; }
+@media (max-width: 760px) {
+  .work-dock {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0 !important;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* A full-screen sheet has no size or position to change; Hide dock becomes a close button. */
+  .dock-hide-wide { display: none; }
+  .dock-hide-narrow { display: block; }
+  .work-dock .dock-resize,
+  .global-dock-actions .icon-button[aria-pressed] {
+    display: none;
+  }
+}
 @media (max-width: 760px), (pointer: coarse) {
   .global-dock-bar { min-height: 44px; }
   .global-dock-tabs { min-height: 44px; }

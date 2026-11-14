@@ -36,7 +36,10 @@ const emit = defineEmits<{
       Imported interval: every {{ editor.intervalMs / 60000 }} minutes. The interval is preserved.
     </p>
     <p class="cron-help">Schedules use server local time. Use five cron fields or @daily, @hourly, @weekly.</p>
-    <label class="cron-field">
+    <p v-if="editor.script" class="cron-help">
+      Imported script job: the command is not editable here.
+    </p>
+    <label v-else class="cron-field">
       <span>Prompt</span>
       <textarea dir="auto" aria-label="Prompt" v-model="editor.prompt" rows="5" />
     </label>

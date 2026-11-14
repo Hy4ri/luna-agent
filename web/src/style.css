@@ -227,8 +227,10 @@ aside#side.collapsed #history-rail {
   width: 32px;
   height: 32px;
 }
-.icon-button:hover {
-  background: var(--sidebar-accent);
+@media (hover: hover) {
+  .icon-button:hover {
+    background: var(--sidebar-accent);
+  }
 }
 
 .side-top {

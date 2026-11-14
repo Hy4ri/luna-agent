@@ -609,7 +609,14 @@
   margin-top: 4px;
 }
 
+.cron-narrow-only {
+  display: none;
+}
+
 @media (max-width: 760px) {
+  .cron-narrow-only {
+    display: inline-flex;
+  }
   .cron-split {
     display: flex;
     flex-direction: column;
@@ -660,7 +667,20 @@
     min-height: 44px;
   }
   .cron-detail-head {
+    position: static;
     padding: 12px;
+  }
+  /* Run rows: status and time on the first line, the outcome on its own line. */
+  .cron-run > summary {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .cron-run-time {
+    margin-inline-start: auto;
+  }
+  .cron-run-snippet {
+    order: 1;
+    flex-basis: 100%;
   }
   .cron-report-body,
   .cron-job-body,

@@ -118,7 +118,7 @@ onUnmounted(() => {
 .message-footer { display: flex; align-items: center; gap: 6px; color: var(--muted-foreground); }
 .copy-err { color: var(--destructive); }
 @media (max-width: 760px), (pointer: coarse) {
-  .message-footer { gap: 4px; }
+  .message-footer { gap: 8px; flex-wrap: wrap; }
   .message-footer .icon-button { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
 }
 </style>
