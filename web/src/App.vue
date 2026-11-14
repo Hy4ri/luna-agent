@@ -3,7 +3,7 @@ import ConnectionRecovery from "@/components/ConnectionRecovery.vue";
 import ConfigError from "@/components/ConfigError.vue";
 import MachineStatus from "@/components/chat/MachineStatus.vue";
 import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, nextTick, watch } from 'vue';
-import { ArrowLeft, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal, ChevronDown, ChevronUp, GitBranch, Target, ListChecks, SquareTerminal, Bot } from '@lucide/vue';
+import { ArrowLeft, ArrowDown, ArrowUp, Menu, ScanEye, PanelRightClose, PanelRightOpen, Ellipsis, Moon, Plus, Pin, PinOff, Heart, X, ArrowLeftRight, MoveHorizontal, ChevronDown, ChevronUp, FilePen, GitBranch, Target, ListChecks, SquareTerminal, Bot } from '@lucide/vue';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import GitStatus from '@/components/chat/GitStatus.vue';
@@ -106,14 +106,21 @@ watch(() => docked.value && railMinimized.value, on => {
   else if (!on && pillGit) { pillGit.unregister(); pillGit = undefined; }
 }, { immediate: true });
 onUnmounted(() => { pillGit?.unregister(); pillGit = undefined; });
-type RailChip = { key: string; icon: any; label: string; value: string; tone?: 'live' | 'warn' | 'done' };
+type RailGitParts = { conflicts: number; files: number; ahead: number; behind: number };
+type RailChip = { key: string; icon: any; label: string; value: string; git?: RailGitParts; tone?: 'live' | 'warn' | 'done' };
 const railChips = computed<RailChip[]>(() => {
   const chips: RailChip[] = [];
   const ex = chat.extras;
   const gs = gitStatusData.value;
   if (gs?.state === 'ok') {
-    const v = [gs.conflicts ? `${gs.conflicts}!` : '', gs.files.length ? `${gs.files.length}` : '', gs.ahead ? `↑${gs.ahead}` : '', gs.behind ? `↓${gs.behind}` : ''].filter(Boolean).join(' ');
-    chips.push({ key: 'git', icon: GitBranch, label: v ? 'Git' : 'Git clean', value: v, tone: gs.conflicts ? 'warn' : v ? undefined : 'done' });
+    const git: RailGitParts = { conflicts: gs.conflicts, files: gs.files.length, ahead: gs.ahead, behind: gs.behind };
+    const summary = [
+      git.conflicts ? `${git.conflicts} conflict${git.conflicts === 1 ? '' : 's'}` : '',
+      git.files ? `${git.files} changed` : '',
+      git.ahead ? `${git.ahead} ahead` : '',
+      git.behind ? `${git.behind} behind` : '',
+    ].filter(Boolean).join(', ');
+    chips.push({ key: 'git', icon: GitBranch, label: summary ? 'Git' : 'Git clean', value: summary, git, tone: git.conflicts ? 'warn' : summary ? undefined : 'done' });
   }
   if (ex?.goal) {
     const n = ex.goal.tasks?.length || 0;
@@ -578,7 +585,16 @@ onUnmounted(() => {
                 >
                   <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
                     <component :is="c.icon" :size="13" aria-hidden="true" />
-                    <span v-if="c.value">{{ c.value }}</span>
+                    <span v-if="c.git && (c.git.conflicts || c.git.files || c.git.ahead || c.git.behind)" class="rail-git">
+                      <span v-if="c.git.conflicts" class="rail-git-conflicts">{{ c.git.conflicts }}!</span>
+                      <span v-if="c.git.files" class="rail-git-files"><FilePen :size="11" aria-hidden="true" />{{ c.git.files }}</span>
+                      <span v-if="(c.git.conflicts || c.git.files) && (c.git.ahead || c.git.behind)" class="rail-git-sep" aria-hidden="true">·</span>
+                      <span v-if="c.git.ahead || c.git.behind" class="rail-git-sync">
+                        <span v-if="c.git.ahead" class="rail-git-count"><ArrowUp :size="11" aria-hidden="true" />{{ c.git.ahead }}</span>
+                        <span v-if="c.git.behind" class="rail-git-count"><ArrowDown :size="11" aria-hidden="true" />{{ c.git.behind }}</span>
+                      </span>
+                    </span>
+                    <span v-else-if="c.value">{{ c.value }}</span>
                   </span>
                   <span v-if="!railChips.length" class="rail-chip">Session</span>
                   <ChevronDown class="rail-pill-caret" :size="13" aria-hidden="true" />
@@ -778,6 +794,14 @@ onUnmounted(() => {
 .rail-chip.live > svg { color: var(--primary-text); }
 .rail-chip.done > span { color: var(--muted-foreground); }
 .rail-chip.warn > svg, .rail-chip.warn > span { color: var(--destructive); }
+.rail-git { display: inline-flex; align-items: center; gap: 5px; }
+.rail-git-conflicts { color: var(--destructive); }
+.rail-git-files { display: inline-flex; align-items: center; gap: 3px; color: var(--foreground); }
+.rail-git-files > svg { flex: none; color: var(--muted-foreground); }
+.rail-git-sep { color: var(--faint); }
+.rail-git-sync { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-foreground); }
+.rail-git-count { display: inline-flex; align-items: center; gap: 1px; }
+.rail-git-count > svg { flex: none; }
 /* Same spot as the minimize button in .rail-bar, so expand and minimize never move under the pointer. */
 .rail-pill-caret { position: absolute; top: 5px; right: 8px; box-sizing: content-box; width: 13px; height: 13px; padding: 5.5px; color: var(--muted-foreground); }
 .rail-pill:hover { border-color: var(--input); }
