@@ -90,7 +90,7 @@ export function useComposerLifecycle(options: {
 
   watch(() => focusInput.value, () => {
     nextTick(() => {
-      inputRef.value?.focus();
+      inputRef.value?.focus({ preventScroll: true });
     });
   });
 

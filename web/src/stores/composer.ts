@@ -129,7 +129,7 @@ export function fillComposer(text: string) {
   if (!clean) return;
   composer.text = composer.text.trim() ? `${composer.text.trimEnd()}\n${clean}` : clean;
   saveDraft();
-  document.getElementById("input")?.focus();
+  document.getElementById("input")?.focus({ preventScroll: true });
 }
 
 // ---- attachments ----

@@ -191,13 +191,16 @@ watch([() => chat.session, () => chat.draftOpen, () => tileIds.value.length], ()
   if (sessionPane || chat.session || chat.draftOpen || tileIds.value.length !== 1) return;
   const [id] = tileIds.value; tileIds.value = []; void openSession(id);
 });
-// Focused tile gets a thin border. Frames take focus away from this window, so check activeElement on blur.
+// Focused tile gets a full border without shifting layout. Frames take focus away from this window, so check activeElement on blur and listen for frame focus messages.
 const focusedTile = ref<string>('primary');
 function syncFocus() {
   const el = document.activeElement;
   if (el instanceof HTMLIFrameElement && el.dataset.tileSession) focusedTile.value = el.dataset.tileSession;
 }
 function onWindowBlur() { setTimeout(syncFocus, 0); }
+function notifyParentFocus() {
+  if (sessionPane) window.parent.postMessage({ type: 'luna:focus-tile' }, location.origin);
+}
 const focusClass = (id: string) => tiled.value && focusedTile.value === id ? 'tile-focused' : '';
 // Tile order and size. Order uses CSS `order`, so reordering never remounts a frame.
 const rank = ref<Record<string, number>>({});
@@ -205,6 +208,9 @@ const weight = ref<Record<string, number>>({});
 const visible = computed(() => {
   const ids = [...(showPrimary.value ? ['primary'] : []), ...tileIds.value];
   return ids.map((id, i) => ({ id, i })).sort((a, b) => (rank.value[a.id] ?? 100 + a.i) - (rank.value[b.id] ?? 100 + b.i)).map(t => t.id);
+});
+watch(visible, ids => {
+  if (ids.length && !ids.includes(focusedTile.value)) focusedTile.value = ids[0]!;
 });
 function tileStyle(id: string) {
   const pos = Math.max(0, visible.value.indexOf(id));
@@ -285,8 +291,8 @@ function tileFrame(id: string) {
 }
 function focusTile(id: string) {
   void nextTick(() => {
-    if (chat.session === id) document.getElementById('input')?.focus();
-    else tileFrame(id)?.contentDocument?.getElementById('input')?.focus();
+    if (id === 'primary' || chat.session === id) document.getElementById('input')?.focus({ preventScroll: true });
+    else tileFrame(id)?.contentDocument?.getElementById('input')?.focus({ preventScroll: true });
   });
 }
 if (!sessionPane) setSessionRouter(id => {
@@ -375,6 +381,7 @@ function paneMessage(event: MessageEvent) {
   if (sessionPane || event.origin !== location.origin) return;
   const id = tileIds.value.find(id => tileFrame(id)?.contentWindow === event.source);
   if (!id) return;
+  if (event.data?.type === 'luna:focus-tile') focusedTile.value = id;
   if (event.data?.type === 'luna:close-tile') removeTile(id);
   if (event.data?.type === 'luna:open-navigation') { focusedTile.value = id; setDrawer(true); }
   if (event.data?.type === 'luna:open-session' && typeof event.data.session === 'string' && /^\d+$/.test(event.data.session)) {
@@ -442,7 +449,7 @@ async function handleNewSession() {
     const worker = chat.session ? chat.machine?.id ?? null : chat.draftOpen ? chat.draftWorker : undefined;
     await newSession(activeProject.value, worker);
     await nextTick();
-    document.getElementById('input')?.focus();
+    document.getElementById('input')?.focus({ preventScroll: true });
   } catch (e: any) {
     addErr(e?.message || 'Failed to create new session');
   } finally {
@@ -487,7 +494,7 @@ function keyboard(e: KeyboardEvent) {
   if (!e.shiftKey && unfocused && ui.view === 'chat' && !blocked.value && !ui.drawer) {
     const input = document.getElementById('input');
     if (input && !input.closest('[inert]') && input.getClientRects().length) {
-      e.preventDefault(); input.focus(); return;
+      e.preventDefault(); input.focus({ preventScroll: true }); return;
     }
   }
   const root = ui.login ? document.getElementById('login') : ui.panel ? document.querySelector('#panel [role="dialog"]') : mobile.value && ui.drawer ? document.getElementById('side') : ui.view !== 'chat' ? document.querySelector('.settings-window') : null;
@@ -516,6 +523,10 @@ onMounted(() => {
   document.addEventListener('keydown', keyboard);
   window.addEventListener('message', paneMessage);
   window.addEventListener('blur', onWindowBlur);
+  if (sessionPane) {
+    window.addEventListener('pointerdown', notifyParentFocus, true);
+    window.addEventListener('focusin', notifyParentFocus, true);
+  }
   window.addEventListener('dragend', endSessionDrag);
   void boot();
 });
@@ -524,6 +535,10 @@ onUnmounted(() => {
   stopViewport?.(); document.removeEventListener('keydown', keyboard);
   window.removeEventListener('message', paneMessage);
   window.removeEventListener('blur', onWindowBlur);
+  if (sessionPane) {
+    window.removeEventListener('pointerdown', notifyParentFocus, true);
+    window.removeEventListener('focusin', notifyParentFocus, true);
+  }
   window.removeEventListener('dragend', endSessionDrag);
   if (!sessionPane) setSessionRouter();
 });
@@ -947,7 +962,16 @@ onUnmounted(() => {
   .tile-split-actions .icon-button { width: 44px; height: 44px; }
 }
 .tile-resize { cursor: col-resize; touch-action: none; }
-#main.tile-focused, .session-pane.tile-focused { outline: 1px solid var(--primary-text); outline-offset: -1px; }
+/* Every tile reserves the 1px border while tiled so switching focus never shifts layout or jumps the view. */
+.chat-workspace.tiled > #main,
+.chat-workspace.tiled > .session-pane {
+  box-sizing: border-box;
+  border: 1px solid transparent;
+}
+.chat-workspace.tiled > #main.tile-focused,
+.chat-workspace.tiled > .session-pane.tile-focused {
+  border-color: var(--primary);
+}
 .tile-drop-target {
   position: absolute;
   inset: 0;
