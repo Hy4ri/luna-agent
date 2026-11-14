@@ -530,7 +530,7 @@ onUnmounted(() => {
       <div v-if="mobile && ui.drawer" id="shade" class="fixed inset-0 z-30 bg-black/60" @click="setDrawer(false)" />
       <div id="chat-workspace" :inert="blocked || ui.view !== 'chat'" class="chat-workspace" :class="{ tiled }" @dragover="dragOver" @drop="dropSession">
         <main id="main" ref="mainRef" v-show="showPrimary" data-session-tile :inert="blocked" :class="focusClass('primary')" :style="tileStyle('primary')" @focusin="focusedTile = 'primary'" @pointerdown="focusedTile = 'primary'" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
+          <header id="top" class="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 max-[760px]:gap-1">
             <button v-if="mobile" id="menu" class="icon-button" aria-label="Open navigation" :aria-controls="sessionPane ? undefined : 'side'" :aria-expanded="sessionPane ? undefined : ui.drawer" @click="openNavigation"><Menu :size="18" /></button>
             <button v-if="chat.parentSessionId" id="back-to-main-agent" type="button" class="icon-button shrink-0" aria-label="Back to main agent" :title="`Back to main agent · Session ${chat.parentSessionId}`" @click="openSession(chat.parentSessionId)"><ArrowLeft :size="18" /></button>
             <div class="heading min-w-0 flex-1">
@@ -546,6 +546,21 @@ onUnmounted(() => {
             <MachineStatus v-if="!mobile" />
             <button v-if="!mobile && activeSession" id="pin-session" class="icon-button shrink-0" :class="{ 'text-primary-text': activeSession.pinned }" :aria-label="activeSession.pinned ? 'Unpin session' : 'Pin session'" :title="activeSession.pinned ? 'Unpin session' : 'Pin session'" :aria-pressed="!!activeSession.pinned" :disabled="pinPending" @click="pinSession"><PinOff v-if="activeSession.pinned" :size="18" /><Pin v-else :size="18" /></button>
             <button v-if="!mobile && activeSession" id="ask-steward" class="icon-button shrink-0" aria-label="Ask Steward about this session" title="Ask Steward about this session" :disabled="askPending" @click="askStewardAboutSession"><Heart :size="18" /></button>
+            <button
+              v-if="showSessionPill"
+              type="button"
+              class="rail-pill session-pill shrink-0"
+              :class="{ live: railLive }"
+              aria-haspopup="dialog"
+              :aria-expanded="sessionSheetOpen"
+              :aria-label="'Open session details: ' + railSummary"
+              @click="sessionSheetOpen = true"
+            >
+              <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
+                <component :is="c.icon" :size="13" aria-hidden="true" />
+                <span v-if="c.value">{{ c.value }}</span>
+              </span>
+            </button>
             <button v-if="!sessionPane && !tiled" id="new-session" class="icon-button" aria-label="New session in current project" title="New session in current project" :disabled="newSessionPending || (!!chat.session && !chat.connected)" @click="handleNewSession"><Plus :size="18" /></button>
             <button v-if="!sessionPane" id="toggle-terminal" class="icon-button" :class="{ 'text-primary-text': terminal.open }" :aria-pressed="terminal.open" aria-label="Workspace sidebar" title="Workspace sidebar (Ctrl+`)" @click="toggleTerminal"><PanelRightClose v-if="terminal.open" :size="18" /><PanelRightOpen v-else :size="18" /></button>
             <button v-if="!mobile && (sessionPane || tiled)" id="close-tile" class="icon-button" :aria-label="'Remove ' + chat.title + ' from tiles'" title="Remove tile" @click="closeTile"><X :size="16" /></button>
@@ -570,23 +585,6 @@ onUnmounted(() => {
                 <GitStatus v-if="!docked && !sessionSheetMode && chat.session" />
               </Transcript>
               <Extras v-if="!docked && !sessionSheetMode" />
-              <div v-if="showSessionPill" class="session-pill-row">
-                <button
-                  type="button"
-                  class="rail-pill session-pill"
-                  :class="{ live: railLive }"
-                  aria-haspopup="dialog"
-                  :aria-expanded="sessionSheetOpen"
-                  :aria-label="'Open session details: ' + railSummary"
-                  @click="sessionSheetOpen = true"
-                >
-                  <span v-for="c in railChips" :key="c.key" class="rail-chip" :class="c.tone">
-                    <component :is="c.icon" :size="13" aria-hidden="true" />
-                    <span v-if="c.value">{{ c.value }}</span>
-                  </span>
-                  <ChevronUp class="rail-pill-caret" :size="13" aria-hidden="true" />
-                </button>
-              </div>
               <DialogRoot v-if="sessionSheetMode" v-model:open="sessionSheetOpen">
                 <DialogPortal>
                   <DialogOverlay class="session-sheet-overlay" />
@@ -824,19 +822,16 @@ onUnmounted(() => {
 .rail-pill:hover { border-color: var(--input); }
 .rail-pill:hover .rail-pill-caret { color: var(--foreground); }
 .rail-pill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-/* Mobile session pill: one in-flow row above the composer. */
-.session-pill-row {
-  flex: none;
-  display: flex;
-  padding: 6px max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
-}
+/* Mobile session pill: sits in the header's right side, next to New session. */
 .session-pill {
   flex-wrap: nowrap;
   overflow: hidden;
-  min-height: 44px;
+  max-width: 40%;
+  min-height: 36px;
+  padding: 4px;
   box-shadow: none;
 }
-.session-pill .rail-pill-caret { top: 50%; transform: translateY(-50%); }
+.session-pill .rail-chip { padding: 0 5px; gap: 3px; }
 .session-pill.live { border-color: color-mix(in srgb, var(--primary-text) 45%, var(--border)); }
 .session-sheet-overlay { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 0.6); }
 .session-sheet {
