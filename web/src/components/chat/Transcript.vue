@@ -34,7 +34,7 @@ function hideJumps() {
 }
 // A programmatic follow updates the jump button too.
 function updateJumps(log: HTMLElement) {
-  if (jumpRef.value) jumpRef.value.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 200;
+  if (jumpRef.value) jumpRef.value.hidden = !newerHidden.value && log.scrollHeight - log.scrollTop - log.clientHeight < 200;
 }
 // Follow new content only while the user sits at the bottom.
 // Only user input can stop following. Scroll events also come from clamping, scroll anchoring,
@@ -48,7 +48,11 @@ const distance = (log: HTMLElement) => log.scrollHeight - log.scrollTop - log.cl
 // Coalesce follow-scrolls into one write per display frame.
 let scrollRaf: number | undefined;
 function scroll(force = false) {
-  if (force) pinned = true;
+  if (force) {
+    pinned = true;
+    // Following needs the newest rows. Return to the bounded newest window instead of rendering every row below a jump.
+    if (newerHidden.value) { newerFrom.value = null; visibleCount.value = WINDOW_INITIAL; }
+  }
   if (scrollRaf !== undefined || !logRef.value) return;
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = undefined;
@@ -81,9 +85,11 @@ function handlePointerUp() { dragging = false; }
 function handleScroll() {
   const log = logRef.value;
   if (!log) return;
-  if (distance(log) < BOTTOM_PX) pinned = true;
+  // With newer rows unrendered, the bottom of the log is not the end of the conversation.
+  if (distance(log) < BOTTOM_PX && !newerHidden.value) pinned = true;
   else if (dragging || Date.now() < intentUntil) pinned = false;
   if (dragging || Date.now() < intentUntil) showJumps();
+  if (newerHidden.value && distance(log) < NEWER_MARGIN_PX) void expandNewerWindow();
   scheduleActive();
 }
 // Follow every layout change while pinned: DOM changes, log resizes (composer, extras),
@@ -190,59 +196,93 @@ const timeline = computed((): { key: string; entry?: any; job?: any }[] => {
 const WINDOW_INITIAL = 35;
 const WINDOW_EXPAND_STEP = 35;
 const visibleCount = ref(WINDOW_INITIAL);
+// A rail jump far back renders rows around the target, not every row down to the newest. newerFrom is the key
+// of the first unrendered newer row; null renders through the newest row. Keys stay valid when rows arrive.
+const newerFrom = ref<string | null>(null);
 const topSentinelRef = ref<HTMLElement | null>(null);
 let sentinelObserver: IntersectionObserver | undefined;
 
 function resetWindow() {
   visibleCount.value = WINDOW_INITIAL;
+  newerFrom.value = null;
 }
 watch(() => chat.epoch, resetWindow);
 
-const hasOlderWindowRows = computed(() => timeline.value.length > visibleCount.value);
-// The window is the newest visibleCount rows. A reader scrolled up must not lose rows above the viewport when
-// new rows arrive (only Chromium's scroll anchoring would hide the jump): keep the first shown row in place.
+function windowEndIn(rows: { key: string }[]) {
+  const at = newerFrom.value === null ? -1 : rows.findIndex(row => row.key === newerFrom.value);
+  return at < 0 ? rows.length : at;
+}
+const windowEnd = computed(() => windowEndIn(timeline.value));
+const newerHidden = computed(() => windowEnd.value < timeline.value.length);
+const hasOlderWindowRows = computed(() => windowEnd.value > visibleCount.value);
+// The window is visibleCount rows ending at windowEnd. A reader scrolled up must not lose rows above the viewport
+// when new rows arrive (only Chromium's scroll anchoring would hide the jump): keep the first shown row in place.
 // Pinned to the bottom, the window slides and the DOM stays bounded.
 watch(() => timeline.value, (rows, old) => {
-  if (pinned || !old || rows.length <= visibleCount.value || old.length <= visibleCount.value) return;
-  const first = old[old.length - visibleCount.value]?.key;
+  if (pinned || !old) return;
+  const oldEnd = windowEndIn(old), end = windowEndIn(rows);
+  if (end <= visibleCount.value || oldEnd <= visibleCount.value) return;
+  const first = old[oldEnd - visibleCount.value]?.key;
   const at = first === undefined ? -1 : rows.findIndex(row => row.key === first);
-  if (at >= 0) visibleCount.value = rows.length - at;
+  if (at >= 0) visibleCount.value = end - at;
 }, { flush: "sync" });
 const shownTimeline = computed(() => {
-  if (timeline.value.length <= visibleCount.value) return timeline.value;
-  return timeline.value.slice(-visibleCount.value);
+  const end = windowEnd.value;
+  if (end === timeline.value.length && end <= visibleCount.value) return timeline.value;
+  return timeline.value.slice(Math.max(0, end - visibleCount.value), end);
 });
+// Reveal newer rows as the reader nears the bottom of the window. A rail jump holds this off until it has placed
+// its target. Past WINDOW_MAX_ROWS the oldest shown rows leave as newer ones arrive, so every render stays bounded;
+// the top sentinel brings them back when the reader scrolls up.
+const NEWER_MARGIN_PX = 800;
+const WINDOW_MAX_ROWS = 150;
+let expandingNewer = false;
+let jumpHold = false;
+async function expandNewerWindow() {
+  if (expandingNewer || jumpHold) return;
+  expandingNewer = true;
+  try {
+    for (let i = 0; i < 5 && newerHidden.value; i++) {
+      const log = logRef.value;
+      if (!log || distance(log) > NEWER_MARGIN_PX) break;
+      const next = windowEnd.value + WINDOW_EXPAND_STEP;
+      const trims = visibleCount.value + WINDOW_EXPAND_STEP > WINDOW_MAX_ROWS;
+      const restore = trims ? anchorFirstVisibleRow() : () => {};
+      newerFrom.value = next >= timeline.value.length ? null : timeline.value[next]!.key;
+      visibleCount.value = Math.max(visibleCount.value, Math.min(visibleCount.value + WINDOW_EXPAND_STEP, WINDOW_MAX_ROWS));
+      await nextTick();
+      restore();
+    }
+  } finally {
+    expandingNewer = false;
+  }
+}
+
+/** Keeps the first visible row in place across a change of the rows above it. Call the result after the render. */
+function anchorFirstVisibleRow(): () => void {
+  const log = logRef.value;
+  if (!log) return () => {};
+  const logRect = log.getBoundingClientRect();
+  const rows = log.querySelectorAll<HTMLElement>("#log > .msg, #log > details, #log > .side-job-card");
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!.getBoundingClientRect();
+    if (r.bottom <= logRect.top) continue;
+    const anchorEl = rows[i]!, anchorOffset = r.top - logRect.top;
+    return () => {
+      if (!anchorEl.isConnected) return;
+      const diff = (anchorEl.getBoundingClientRect().top - log.getBoundingClientRect().top) - anchorOffset;
+      if (diff !== 0) log.scrollTop += diff;
+    };
+  }
+  return () => {};
+}
 
 async function expandOlderWindow() {
   if (!hasOlderWindowRows.value) return;
-  const log = logRef.value;
-  let anchorEl: HTMLElement | null = null;
-  let anchorOffset = 0;
-  if (log) {
-    const logRect = log.getBoundingClientRect();
-    // Find the first visible message row to preserve visual scroll position
-    const rows = log.querySelectorAll<HTMLElement>("#log > .msg, #log > details, #log > .side-job-card");
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i]!.getBoundingClientRect();
-      if (r.bottom > logRect.top) {
-        anchorEl = rows[i]!;
-        anchorOffset = r.top - logRect.top;
-        break;
-      }
-    }
-  }
-
+  const restore = anchorFirstVisibleRow();
   visibleCount.value = Math.min(timeline.value.length, visibleCount.value + WINDOW_EXPAND_STEP);
   await nextTick();
-
-  if (log && anchorEl) {
-    const logRect = log.getBoundingClientRect();
-    const newRect = anchorEl.getBoundingClientRect();
-    const diff = (newRect.top - logRect.top) - anchorOffset;
-    if (diff !== 0) {
-      log.scrollTop += diff;
-    }
-  }
+  restore();
 }
 
 function setupSentinel() {
@@ -278,7 +318,8 @@ const userTicks = computed(() => {
   const loaded: { id: number; label: string }[] = [];
   for (const row of timeline.value) {
     const entry = row.entry;
-    if (!entry) continue;
+    // These kinds render as muted rows (see the template), never as a user message.
+    if (!entry || entry.kind === 'pi.reset' || entry.kind === 'pi.compaction' || entry.kind === 'luna.model-changed') continue;
     for (const m of entry.model || []) {
       if (m.role !== 'user' || backgroundReport(entry, m)) continue;
       const text = messageText(m.content).replace(/\s+/g, ' ').trim();
@@ -296,13 +337,19 @@ const userTicks = computed(() => {
 const activeTick = ref<number | null>(null);
 let railRaf: number | undefined;
 function userEl(id: number) {
-  return logRef.value?.querySelector<HTMLElement>(`.msg.user[data-entry="${CSS.escape(String(id))}"]`) ?? null;
+  // Peer reports are user messages too, but they render as a disclosure, not as .msg.user.
+  const key = CSS.escape(String(id));
+  return logRef.value?.querySelector<HTMLElement>(`.msg.user[data-entry="${key}"], .agent-report[data-entry="${key}"]`) ?? null;
 }
 function updateActive() {
   railRaf = undefined;
   const log = logRef.value;
   if (!log || !userTicks.value.length) { activeTick.value = null; return; }
-  const line = log.getBoundingClientRect().top + log.clientHeight * 0.35;
+  const box = log.getBoundingClientRect();
+  // The active message is the last one that starts near the top, where jumpToUser places it (24px), so
+  // short stacked reports do not steal the highlight. At the bottom the log cannot scroll further and the
+  // newest message on screen may never reach that line: use the bottom edge instead.
+  const line = distance(log) < 4 && !newerHidden.value ? box.bottom : box.top + 64;
   let current = userTicks.value[0]!.id;
   for (const t of userTicks.value) {
     const el = userEl(t.id);
@@ -315,28 +362,53 @@ watch(userTicks, scheduleActive, { flush: "post" });
 let lastIndexed = -1;
 watch(() => userTicks.value.length, (n) => { if (chat.session && n > lastIndexed && lastIndexed >= 0 && !chat.loadingOlder) void refreshUserIndex(); lastIndexed = n; });
 onBeforeUnmount(() => { if (railRaf !== undefined) cancelAnimationFrame(railRaf); });
+const JUMP_CONTEXT_ROWS = 5;
+let jumpSeq = 0;
 async function jumpToUser(id: number) {
   if (!userEl(id)) {
     // Older entries are not loaded yet: load pages until this one exists.
     const sid = chat.session;
     if (!(await ensureEntryLoaded(id)) || chat.session !== sid) return;
   }
-  // If the target entry is in the timeline but not yet within the visible window,
-  // expand the window so that it is included in shownTimeline.
+  // Outside the rendered window: render a window around the target, not every row from it to the newest.
   const targetIndex = timeline.value.findIndex(row => row.entry?.id === id);
-  if (targetIndex >= 0) {
-    const requiredVisible = timeline.value.length - targetIndex;
-    if (requiredVisible > visibleCount.value) {
-      visibleCount.value = requiredVisible;
-    }
+  const end = windowEnd.value;
+  if (targetIndex >= 0 && (targetIndex < end - visibleCount.value || targetIndex >= end)) {
+    pinned = false;
+    // The new window clamps the scroll position; that is not the reader nearing the bottom.
+    jumpHold = true;
+    const rows = timeline.value, start = Math.max(0, targetIndex - JUMP_CONTEXT_ROWS);
+    let stop = Math.min(rows.length, targetIndex + WINDOW_INITIAL);
+    // A short hidden tail is not worth a second load step.
+    if (rows.length - stop < WINDOW_EXPAND_STEP) stop = rows.length;
+    newerFrom.value = stop >= rows.length ? null : rows[stop]!.key;
+    visibleCount.value = stop - start;
   }
   await nextTick();
   const log = logRef.value, el = userEl(id);
-  if (!log || !el) return;
+  if (!log || !el) { jumpHold = false; return; }
   pinned = false;
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const top = log.scrollTop + el.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
-  log.scrollTo({ top, behavior: reduce ? "auto" : "smooth" });
+  const offset = () => el.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
+  log.scrollTo({ top: log.scrollTop + offset(), behavior: reduce ? "auto" : "smooth" });
+  // Rows off screen use estimated heights (content-visibility), so the target moves while they render.
+  // Snap it into place when the scroll ends, unless the reader scrolled meanwhile.
+  const jump = ++jumpSeq, epoch = chat.epoch, startedAt = Date.now();
+  const settle = (tries: number) => {
+    // Any wheel, touch, or scroll key since the jump started (intentUntil = last intent + INTENT_MS) leaves it alone.
+    if (jump !== jumpSeq || chat.epoch !== epoch || !el.isConnected || intentUntil > startedAt + INTENT_MS || dragging) return;
+    const delta = offset();
+    if (Math.abs(delta) <= 4) return;
+    log.scrollTop += delta;
+    if (tries > 0) requestAnimationFrame(() => requestAnimationFrame(() => settle(tries - 1)));
+  };
+  const done = () => {
+    clearTimeout(fallback); log.removeEventListener("scrollend", done);
+    settle(3);
+    if (jump === jumpSeq) jumpHold = false;
+  };
+  const fallback = setTimeout(done, reduce ? 50 : 1500);
+  log.addEventListener("scrollend", done);
   activeTick.value = id;
   el.classList.remove("rail-flash");
   void el.offsetWidth;
@@ -478,26 +550,29 @@ function backgroundReport(entry: any, message: any): boolean {
     </template>
     <!-- Live calls without a durable entry yet. Nested calls (codemode children) are always hidden here;
          they render inside the parent codemode ToolCall card in real-time instead. -->
-    <template v-for="(tool, id) in chat.toolStarts" :key="id">
-      <ToolCall v-if="!calls.has(id) && !durableResults.has(id) && !tool.parentCallId" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
+    <!-- Newer rows past a rail jump load as the reader scrolls down. The live tail belongs after the newest row. -->
+    <template v-if="!newerHidden">
+      <template v-for="(tool, id) in chat.toolStarts" :key="id">
+        <ToolCall v-if="!calls.has(id) && !durableResults.has(id) && !tool.parentCallId" :id="id" :name="tool.name" :args="tool.args" :result="results.get(id)" :timestamp="tool.timestamp" />
+      </template>
+      <PendingMessage v-for="message in inLog" :key="message.requestId" :message="message" />
+      <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message vl vl-xl">
+        <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre dir="auto">{{ chat.liveThinking }}</pre></details>
+        <AssistantText v-if="chat.liveText" :text="chat.liveText" :streaming="true" />
+      </div>
+      <div v-for="notice in chat.notices" :key="notice.id" :data-notice="notice.id" :class="['msg', 'chat-notice', notice.kind === 'err' ? 'err' : 'muted']">
+        <span dir="auto">{{ notice.text }}</span>
+        <button type="button" aria-label="Dismiss notice" title="Dismiss notice" @click="dismissNotice(notice.id)"><X :size="16" aria-hidden="true" /></button>
+      </div>
+      <div v-if="activityLabel" id="activity" role="status" aria-live="polite" aria-atomic="true">
+        <span>{{ activityLabel }}</span>
+      </div>
+      <!-- Context that belongs to the conversation, not to the composer: it renders as the last
+           row of the scroller, so a wheel or swipe that starts on it scrolls the transcript. -->
+      <slot />
+      <ScheduledMessages />
+      <Questions />
     </template>
-    <PendingMessage v-for="message in inLog" :key="message.requestId" :message="message" />
-    <div v-if="chat.liveText || chat.liveThinking" class="msg assistant live-message vl vl-xl">
-      <details v-if="chat.liveThinking" class="thinking"><summary>Thinking</summary><pre dir="auto">{{ chat.liveThinking }}</pre></details>
-      <AssistantText v-if="chat.liveText" :text="chat.liveText" :streaming="true" />
-    </div>
-    <div v-for="notice in chat.notices" :key="notice.id" :data-notice="notice.id" :class="['msg', 'chat-notice', notice.kind === 'err' ? 'err' : 'muted']">
-      <span dir="auto">{{ notice.text }}</span>
-      <button type="button" aria-label="Dismiss notice" title="Dismiss notice" @click="dismissNotice(notice.id)"><X :size="16" aria-hidden="true" /></button>
-    </div>
-    <div v-if="activityLabel" id="activity" role="status" aria-live="polite" aria-atomic="true">
-      <span>{{ activityLabel }}</span>
-    </div>
-    <!-- Context that belongs to the conversation, not to the composer: it renders as the last
-         row of the scroller, so a wheel or swipe that starts on it scrolls the transcript. -->
-    <slot />
-    <ScheduledMessages />
-    <Questions />
   </div>
   <div v-if="queued.length" class="queued-dock" role="region" aria-label="Queued messages">
     <PendingMessage v-for="message in queued" :key="message.requestId" :message="message" />
@@ -523,7 +598,7 @@ function backgroundReport(entry: any, message: any): boolean {
 .user-rail {
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%); z-index: 5;
   display: flex; flex-direction: column; gap: 3px; width: 16px; height: min(50%, 320px);
-  align-items: stretch; animation: rail-in 0.35s ease-out both;
+  justify-content: center; align-items: stretch; animation: rail-in 0.35s ease-out both;
 }
 .user-tick {
   position: relative; flex: 1 1 0; min-height: 3px; max-height: 14px; padding: 0; border: 0; background: none;
