@@ -872,7 +872,25 @@ pre.code code { background: transparent; padding: 0; border-radius: 0; font: inh
 .ansi-bold { font-weight: 700; } .ansi-red { color: #f87171; } .ansi-green { color: #8fd3a5; } .ansi-yellow { color: #e6c27a; } .ansi-blue { color: #8ab4f8; } .ansi-magenta { color: #d8a4f0; } .ansi-cyan { color: #7fd6d6; } .ansi-white { color: var(--foreground); } .ansi-black { color: var(--faint); }
 .tool img.tool-image { display: block; max-width: calc(100% - 24px); max-height: 420px; margin: 0 12px 12px; border-radius: var(--radius); object-fit: contain; }
 #activity { display: grid; grid-template-columns: 6px minmax(0, 1fr); align-items: center; column-gap: 8px; color: var(--muted-foreground); font-size: 13.5px; padding: 4px 0; min-height: 24px; }
-#activity::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+#activity::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-text);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 75%, transparent);
+  animation: luna-activity-pulse 1.5s ease-in-out infinite;
+}
+@keyframes luna-activity-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+.md .stream-chunk { animation: luna-stream-reveal 160ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.md .stream-fade { animation: luna-stream-reveal 160ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes luna-stream-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .side-job { font-size: 14px; font-weight: 440; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted-foreground); }
 .side-job-btn {
   display: inline-flex;
@@ -1225,7 +1243,10 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   #model { max-width: 160px; padding: 0 4px; }
   .message-footer .icon-button { width: 32px; height: 32px; }
 }
-@media (prefers-reduced-motion: reduce) { aside#side, .disclosure-chevron { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  aside#side, .disclosure-chevron { transition: none; }
+  #activity::before, .md .stream-chunk, .md .stream-fade { animation: none; }
+}
 
 /* Model popover #model-picker */
 #model-picker {
